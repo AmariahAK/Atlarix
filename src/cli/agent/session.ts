@@ -2039,7 +2039,11 @@ export class AgentSession extends EventEmitter {
     let m = this.turnModel() as { provider?: string; name?: string } | undefined;
     if (!m) m = await import("@/main/settings").then((x) => x.readSettings().selectedModel as { provider?: string; name?: string }).catch(() => undefined);
     if (!m?.name) return undefined;
-    return m.provider === "compass" ? (m.name === "core-auto" || m.name === "auto" ? "Atlarix Auto" : m.name) : m.name;
+    if (m.provider !== "compass") return m.name;
+    if (m.name === "core-auto" || m.name === "auto") return "Atlarix Auto";
+    // A Core slot by its model's name, as the picker shows it, not its id ("core-4").
+    const { getCompassSyntheticModels } = await import("@/ipc/shared/compass_constants");
+    return getCompassSyntheticModels().find((x) => x.apiName === m!.name)?.displayName ?? m.name;
   }
 
   /**

@@ -49,6 +49,7 @@ import {
   getCompassSyntheticModels,
   getFirstConfiguredCoreTier,
   resolveConfiguredCoreTier,
+  isCoreTierFromNewerBuild,
 } from "@/ipc/shared/compass_constants";
 import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
 
@@ -448,6 +449,17 @@ describe("resolving a tier that is not in the lineup", () => {
     });
     // …while an unopinionated caller still gets the top tier.
     expect(getFirstConfiguredCoreTier()).toBe("core-3");
+  });
+
+  it("never answers a slot this build doesn't know on another model", () => {
+    // A newer Atlarix offered core-6; this build has no such slot, so the pick is
+    // refused rather than billed on the first configured tier.
+    setCoreModelOverrides({ "core-1": "z-ai/glm-5.3", "core-6": "openai/gpt-7" });
+    expect(isCoreTierFromNewerBuild("core-6")).toBe(true);
+    expect(resolveConfiguredCoreTier("core-6")).toBeUndefined();
+    expect(isCoreTierFromNewerBuild("core-5")).toBe(false);
+    expect(isCoreTierFromNewerBuild("core-auto")).toBe(false);
+    expect(isCoreTierFromNewerBuild("compass-fast")).toBe(false);
   });
 
   it("normalizes a legacy alias before substituting", () => {

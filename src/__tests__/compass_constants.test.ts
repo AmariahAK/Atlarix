@@ -40,8 +40,14 @@ describe("compass_constants build env", () => {
     expect(isCompassBuildConfigured()).toBe(false);
   });
 
-  it("exposes four Core slots", () => {
-    expect(CORE_TIER_ORDER).toEqual(["core-1", "core-2", "core-3", "core-4"]);
+  it("exposes five Core slots", () => {
+    expect(CORE_TIER_ORDER).toEqual(["core-1", "core-2", "core-3", "core-4", "core-5"]);
+  });
+
+  it("a fifth Core model is offered once the hosted config maps it", () => {
+    vi.stubEnv("ATLARIX_CORE_MODEL_5", "openai/gpt-6-luna");
+    expect(normalizeCoreTierId("core-5")).toBe("core-5");
+    expect(getOpenRouterModelIdForCoreTier("core-5")).toBe("openai/gpt-6-luna");
   });
 
   it("maps Core tiers to static ATLARIX_CORE_MODEL_* env vars", () => {

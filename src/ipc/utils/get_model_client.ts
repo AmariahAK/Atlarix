@@ -51,6 +51,7 @@ import {
   autoConsentHeader,
   getCompassMasterApiKey,
   getCoreModelIdForCoreTier,
+  isCoreTierFromNewerBuild,
   getFirstConfiguredCoreTier,
   isCoreAutoTier,
   resolveConfiguredCoreTier,
@@ -67,6 +68,7 @@ import { createOllamaProvider } from "./ollama_provider";
 import { trackLocalModelConnected } from "@/main/lib/analytics";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
 import { autoEffort } from "@/lib/routing/model-reasoning-profile";
+import { CORE_TIER_NEWER_BUILD } from "@/shared/texts";
 
 export interface ModelClient {
   // ai@6: v3-spec providers are the norm; the two custom V2 adapters
@@ -388,6 +390,9 @@ async function getRegularModelClient(
         throw new Error(
           "Atlarix Auto isn't offered right now. Pick a Core model above, or add your own API key in Settings.",
         );
+      }
+      if (!resolvedTier && isCoreTierFromNewerBuild(model.name)) {
+        throw new Error(CORE_TIER_NEWER_BUILD);
       }
       if (!resolvedTier) {
         throw new Error(

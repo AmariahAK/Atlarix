@@ -32,10 +32,11 @@
 # STORE SUBMISSION is automated via `scripts/store-submit.mjs` using the Partner
 # Center Submission API v1. On release tags (workflow_call from release.yml), the
 # script creates a new submission, uploads the .msixupload, and commits — triggering
-# Microsoft certification automatically. If the previous submission is still being
-# certified or published, it is left alone and this release skips the Store (with a
-# warning); only one that failed or never got committed is replaced. Manual runs
-# (workflow_dispatch) skip this.
+# Microsoft certification automatically. A previous submission still pending is
+# REPLACED, even mid-certification (owner, 2026-10-18: the newest release wins);
+# only one Microsoft is mid-commit or mid-publish is waited for (up to 10 min), and
+# if it is still there this release skips the Store with a warning. Manual runs
+# (workflow_dispatch) skip this; `store_status` instead prints what the Store has.
 # The submission step is `continue-on-error: true` so a Store API failure can never
 # block anything. Requires three GitHub secrets: AZURE_AD_TENANT_ID,
 # AZURE_AD_CLIENT_ID, AZURE_AD_CLIENT_SECRET.
@@ -76,6 +77,13 @@ on:
         options:
           - windows-2022
           - windows-latest
+      # Read-only: print the pending and last published Store submissions (status,
+      # details, certification notes) and build nothing.
+      store_status:
+        description: "Only report the Store's submissions (builds nothing)"
+        required: false
+        default: false
+        type: boolean
   # Called by release.yml on a `v*` tag, so every release produces a submittable
   # package without anyone remembering to run this by hand. `upload_wrapper`
   # defaults to TRUE there: a release build is exactly when the Store wrapper is
@@ -118,12 +126,33 @@ env:
   ATLARIX_CORE_MODEL_2: ${{ vars.ATLARIX_CORE_MODEL_2 || secrets.ATLARIX_CORE_MODEL_2 }}
   ATLARIX_CORE_MODEL_3: ${{ vars.ATLARIX_CORE_MODEL_3 || secrets.ATLARIX_CORE_MODEL_3 }}
   ATLARIX_CORE_MODEL_4: ${{ vars.ATLARIX_CORE_MODEL_4 || secrets.ATLARIX_CORE_MODEL_4 }}
+  ATLARIX_CORE_MODEL_5: ${{ vars.ATLARIX_CORE_MODEL_5 || secrets.ATLARIX_CORE_MODEL_5 }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
   NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
 
 jobs:
+  store-status:
+    if: ${{ inputs.store_status }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report the Store's submissions
+        env:
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_CLIENT_ID: ${{ secrets.AZURE_AD_CLIENT_ID }}
+          AZURE_AD_CLIENT_SECRET: ${{ secrets.AZURE_AD_CLIENT_SECRET }}
+          STORE_APP_ID: "9P3RR11DVZPW"
+        run: node scripts/store-submit.mjs --status
+
   msix:
+    if: ${{ !inputs.store_status }}
+    # One release at a time holds the Store's single pending-submission slot: two
+    # tags building at once would each replace the other's submission.
+    concurrency:
+      group: msstore-submit
+      cancel-in-progress: false
     # PINNED, not `windows-latest` — a STOPGAP, and it is on a deprecation path.
     #
     # `windows-latest` resolves to `windows-2025-vs2026`, whose only Visual Studio

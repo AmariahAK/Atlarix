@@ -7,14 +7,23 @@
  *
  * Flow:
  *  1. Authenticate via Azure AD client credentials
- *  2. If a submission is pending: leave it while Microsoft is still working on
- *     it (this release skips the Store), replace it only if it never got
- *     committed or it failed
+ *  2. If a submission is pending, replace it — including one still in
+ *     certification (owner, 2026-10-18: waiting meant a new release never
+ *     reached the Store in time). Only one Microsoft is in the middle of
+ *     committing or publishing is waited for, since Microsoft refuses to delete
+ *     those (409); if it is still there after the wait, this release skips the Store
  *  3. Create a new submission (clones the published one — all listing info,
- *     screenshots, age rating, etc. carry forward automatically)
+ *     screenshots, age rating, etc. carry forward automatically). A deleted
+ *     submission can never be reused, so it is always a new one
  *  4. Mark old packages PendingDelete, add the new .msixupload as PendingUpload
  *  5. Upload a ZIP containing the package to the returned SAS URL
- *  6. Commit → triggers Microsoft certification
+ *  6. Commit → triggers Microsoft certification, then wait for the commit to
+ *     leave CommitStarted so CI says whether it actually went through
+ *
+ * API calls retry a 429, and a 5xx except on a POST (Retry-After, else backoff), 5 tries.
+ *
+ * `--status`: read-only. Prints the pending and last published submissions,
+ * their status details and certification notes, then exits. Needs no package.
  *
  * Required environment variables:
  *   AZURE_AD_TENANT_ID
@@ -26,7 +35,7 @@
 
 import { execSync } from "node:child_process";
 import { readFileSync, statSync, mkdtempSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -41,24 +50,61 @@ function env(name) {
   return v;
 }
 
-// Statuses of a submission that has failed or never started: safe to replace.
-// Anything else, including a status this list doesn't know, is Microsoft still
-// working on it. Deleting one of those cancels its certification, which is how
-// releases faster than certification kept the Store on 14.51.0 for weeks.
+// Statuses of a pending submission this release replaces. That includes one in
+// certification: the owner chose the newest release over letting a certification
+// finish (2026-10-18), which reverses 339ccb91 on purpose — back-to-back releases
+// can keep restarting certification, and the newest one is still what Store users
+// should get. Not here, so waited for: CommitStarted, PendingPublication and
+// Publishing (Microsoft answers 409 to a delete mid-operation, and a publishing
+// one reaches users within hours anyway), and any status this list doesn't know.
 const REPLACEABLE = new Set([
   "PendingCommit",
   "CommitFailed",
+  "PreProcessing",
   "PreProcessingFailed",
+  "Certification",
   "CertificationFailed",
+  "Release",
   "ReleaseFailed",
   "PublishFailed",
   "Canceled",
 ]);
 
-/** @returns {"keep" | "replace"} */
+/** @returns {"wait" | "replace"} */
 export function pendingSubmissionAction(status) {
-  return REPLACEABLE.has(status) ? "replace" : "keep";
+  return REPLACEABLE.has(status) ? "replace" : "wait";
 }
+
+/**
+ * Whether a failed call is worth another try: rate limited, or Microsoft's side.
+ * A POST (create, commit) retries only a 429, which means it was not processed:
+ * a 5xx may have created the submission anyway, and a second create would collide.
+ */
+export function isRetryable(method, status) {
+  return status === 429 || (method !== "POST" && status >= 500);
+}
+
+/** Milliseconds before try `attempt` (1-based): Retry-After when given, else 2s, 4s, 8s… capped at 60s. */
+export function retryDelayMs(attempt, retryAfter) {
+  const seconds = retryAfter == null || retryAfter === "" ? NaN : Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds, 120) * 1000;
+  return Math.min(2 ** attempt * 1000, 60_000);
+}
+
+/**
+ * Notes for the Store's testers: why the two restricted capabilities, and how to
+ * try the app. Every submission went in with none, and a manual review of a
+ * restricted capability with nothing to go on is slow (status report 2026-10-18).
+ */
+export function certificationNotes() {
+  const file = join(dirname(fileURLToPath(import.meta.url)), "../build/msix/certification-notes.txt");
+  return readFileSync(file, "utf8").trim();
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const MAX_TRIES = 5;
+const WAIT_MS = 10 * 60_000;
+const POLL_MS = 30_000;
 
 async function getToken(TENANT_ID, CLIENT_ID, CLIENT_SECRET) {
   const res = await fetch(
@@ -83,7 +129,15 @@ async function getToken(TENANT_ID, CLIENT_ID, CLIENT_SECRET) {
   return data.access_token;
 }
 
-async function api(token, method, path, body) {
+class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** One Submission API call, retried on 429/5xx. Exported for tests (`fetchImpl`). */
+export async function api(token, method, path, body, { fetchImpl = fetch, wait = sleep } = {}) {
   const opts = {
     method,
     headers: {
@@ -92,11 +146,85 @@ async function api(token, method, path, body) {
     },
   };
   if (body !== undefined) opts.body = JSON.stringify(body);
-  const res = await fetch(`${API}/${path}`, opts);
-  if (method === "DELETE" && res.status === 204) return null;
-  const text = await res.text();
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}: ${text}`);
-  return text ? JSON.parse(text) : null;
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetchImpl(`${API}/${path}`, opts);
+    if (method === "DELETE" && res.status === 204) return null;
+    const text = await res.text();
+    if (res.ok) return text ? JSON.parse(text) : null;
+    if (isRetryable(method, res.status) && attempt < MAX_TRIES) {
+      const ms = retryDelayMs(attempt, res.headers.get("retry-after"));
+      console.log(`${method} ${path} → ${res.status}; trying again in ${Math.round(ms / 1000)}s`);
+      await wait(ms);
+      continue;
+    }
+    throw new ApiError(`${method} ${path} → ${res.status}: ${text}`, res.status);
+  }
+}
+
+/**
+ * Clear the one pending-submission slot for a new submission. Returns false
+ * when it is still taken after waiting (this release then skips the Store).
+ */
+export async function clearPending(call, appId, { wait = sleep, waitMs = WAIT_MS, pollMs = POLL_MS } = {}) {
+  const deadline = Date.now() + waitMs;
+  for (let tried = 0; ; tried++) {
+    const app = await call("GET", `applications/${appId}`);
+    const old = app.pendingApplicationSubmission?.id;
+    if (!old) return true;
+    const pending = await call("GET", `applications/${appId}/submissions/${old}`);
+    const status = pending?.status;
+    if (pendingSubmissionAction(status) === "replace") {
+      console.log(`Deleting pending submission ${old} (${status})...`);
+      try {
+        await call("DELETE", `applications/${appId}/submissions/${old}`);
+        return true;
+      } catch (e) {
+        // 409: Microsoft moved it on (or won't delete it in this state). Look again.
+        if (e?.status !== 409) throw e;
+        console.log(`Submission ${old} can't be deleted while ${status}; looking again.`);
+      }
+    } else {
+      console.log(`Submission ${old} is ${status ?? "in an unknown state"}; waiting for Microsoft to finish it.`);
+    }
+    if (Date.now() >= deadline || tried >= Math.ceil(waitMs / pollMs)) {
+      console.log(
+        `::warning::Microsoft Store: submission ${old} is still ${status ?? "pending"} after waiting, so this release is not submitted. Re-run the Store step once it has moved on.`,
+      );
+      console.log(`Track: https://partner.microsoft.com/en-us/dashboard/products/${appId}/submissions/${old}`);
+      return false;
+    }
+    await wait(pollMs);
+  }
+}
+
+/** After commit: wait for CommitStarted to resolve. Returns the final status. */
+export async function awaitCommit(call, appId, id, { wait = sleep, waitMs = WAIT_MS, pollMs = POLL_MS } = {}) {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const st = await call("GET", `applications/${appId}/submissions/${id}/status`);
+    if (st?.status !== "CommitStarted") return st;
+    if (Date.now() >= deadline) return st;
+    await wait(pollMs);
+  }
+}
+
+/** --status: what the Store has, read-only. */
+async function status(token, appId) {
+  const call = (method, path) => api(token, method, path);
+  const app = await call("GET", `applications/${appId}`);
+  const show = async (label, ref) => {
+    if (!ref?.id) return console.log(`${label}: none`);
+    const sub = await call("GET", `applications/${appId}/submissions/${ref.id}`);
+    const pkgs = (sub.applicationPackages ?? []).map((p) => `${p.fileName} (${p.version ?? "?"}, ${p.fileStatus})`);
+    console.log(`${label}: ${ref.id} — ${sub.status}`);
+    console.log(`  packages: ${pkgs.join(", ") || "-"}`);
+    console.log(`  notes for certification: ${sub.notesForCertification ? `${sub.notesForCertification.length} chars` : "EMPTY"}`);
+    console.log(`  status details: ${JSON.stringify(sub.statusDetails ?? {})}`);
+    console.log(`  target publish: ${sub.targetPublishMode ?? "?"} ${sub.targetPublishDate ?? ""}`);
+  };
+  console.log(`App ${appId}: ${app.primaryName ?? ""}`);
+  await show("Pending", app.pendingApplicationSubmission);
+  await show("Last published", app.lastPublishedApplicationSubmission);
 }
 
 async function main() {
@@ -104,6 +232,9 @@ async function main() {
   const CLIENT_ID = env("AZURE_AD_CLIENT_ID");
   const CLIENT_SECRET = env("AZURE_AD_CLIENT_SECRET");
   const APP_ID = env("STORE_APP_ID");
+  if (process.argv.includes("--status")) {
+    return status(await getToken(TENANT_ID, CLIENT_ID, CLIENT_SECRET), APP_ID);
+  }
   const UPLOAD_PATH = env("MSIXUPLOAD_PATH");
 
   statSync(UPLOAD_PATH);
@@ -115,28 +246,11 @@ async function main() {
   console.log("Authenticating...");
   const token = await getToken(TENANT_ID, CLIENT_ID, CLIENT_SECRET);
 
+  const call = (method, path, body) => api(token, method, path, body);
+
   // A product can have at most one pending submission.
   console.log("Checking for pending submissions...");
-  const app = await api(token, "GET", `applications/${APP_ID}`);
-  if (app.pendingApplicationSubmission) {
-    const old = app.pendingApplicationSubmission.id;
-    const pending = await api(
-      token,
-      "GET",
-      `applications/${APP_ID}/submissions/${old}`,
-    );
-    if (pendingSubmissionAction(pending?.status) === "keep") {
-      console.log(
-        `::warning::Microsoft Store: submission ${old} is still ${pending?.status ?? "in progress"}, so this release is not submitted (replacing it would cancel its certification). Submit again once it is published, or cancel it in Partner Center and re-run this job.`,
-      );
-      console.log(
-        `Track: https://partner.microsoft.com/en-us/dashboard/products/${APP_ID}/submissions/${old}`,
-      );
-      return;
-    }
-    console.log(`Deleting pending submission ${old} (${pending.status})...`);
-    await api(token, "DELETE", `applications/${APP_ID}/submissions/${old}`);
-  }
+  if (!(await clearPending(call, APP_ID))) return;
 
   // Create a new submission — Partner Center clones the published one, so all
   // listing metadata, screenshots, age rating, and pricing carry forward.
@@ -152,6 +266,7 @@ async function main() {
     fileName: filename,
     fileStatus: "PendingUpload",
   });
+  sub.notesForCertification = certificationNotes();
 
   console.log("Updating submission packages...");
   await api(token, "PUT", `applications/${APP_ID}/submissions/${sub.id}`, sub);
@@ -192,12 +307,12 @@ async function main() {
   // Commit — triggers certification. Status moves to CommitStarted, then
   // through PreProcessing → Certification → Publishing → Published.
   console.log("Committing submission...");
-  const commit = await api(
-    token,
-    "POST",
-    `applications/${APP_ID}/submissions/${sub.id}/commit`,
-  );
-  console.log("Committed. Certification status:", commit?.status || "started");
+  await api(token, "POST", `applications/${APP_ID}/submissions/${sub.id}/commit`);
+  const settled = await awaitCommit(call, APP_ID, sub.id);
+  if (settled?.status === "CommitFailed") {
+    throw new Error(`Commit failed: ${JSON.stringify(settled.statusDetails?.errors ?? settled.statusDetails ?? {})}`);
+  }
+  console.log("Committed. Status:", settled?.status ?? "unknown");
   console.log(
     `Track: https://partner.microsoft.com/en-us/dashboard/products/${APP_ID}/submissions/${sub.id}`,
   );

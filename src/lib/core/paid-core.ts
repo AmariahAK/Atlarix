@@ -2,9 +2,8 @@
  * Paid Atlarix Core: whether this turn is paid for by an Atlarix account, and a
  * request to the Core proxy as that account.
  *
- * Paid search and transcription (owner, 2026-10-06) run on our OpenAI key
- * through the proxy and are billed to the account's balance with the usual
- * markup. They are offered when the turn itself runs on an Atlarix model (Auto
+ * Paid search and transcription (owner, 2026-10-06) run on our keys through
+ * the proxy and are billed to the account's balance with the usual markup. They are offered when the turn itself runs on an Atlarix model (Auto
  * or a Core tier) AND the account can pay: Pro, credit, or a cloud run's
  * job-scoped token (the proxy bills that job). Your own key, local models and
  * free Auto keep today's paths — free Auto's allowance covers tokens, not the

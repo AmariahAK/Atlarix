@@ -62,6 +62,13 @@ Two safeguards remain:
   client credentials from the `AZURE_AD_TENANT_ID` / `AZURE_AD_CLIENT_ID` /
   `AZURE_AD_CLIENT_SECRET` secrets) is `continue-on-error: true`, so a Store API outage
   cannot fail a release — only a failed build can.
+- A product has ONE pending-submission slot. A release replaces whatever holds it,
+  even a submission still in certification (owner, 2026-10-18: the newest release
+  wins, so back-to-back releases can restart certification). Only a submission
+  Microsoft is mid-commit or mid-publish on is waited for (up to 10 minutes); if it is
+  still there, that release skips the Store with a warning. `msstore-submit`
+  concurrency keeps two tags from fighting over the slot. To see what the Store has
+  without building: dispatch this workflow with `store_status` on.
 - The package is **not** uploaded to `atlarix-releases`. It is unsigned, and an
   unsigned `.msix` cannot be installed without the signer's certificate — publishing
   one would put a broken download on the public releases page.

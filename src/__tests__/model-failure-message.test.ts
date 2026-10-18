@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelFailureUserMessage } from "@/shared/texts";
+import { CORE_TIER_NEWER_BUILD, modelFailureUserMessage } from "@/shared/texts";
 
 describe("a model's failure, said plainly (QA)", () => {
   it("an unknown model id: no raw JSON, the likely fix", () => {
@@ -14,5 +14,11 @@ describe("a model's failure, said plainly (QA)", () => {
   });
   it("nothing answering: says so", () => {
     expect(modelFailureUserMessage("Cannot connect to API: Unable to connect")).toContain("Couldn't reach the provider");
+  });
+});
+
+describe("a Core model from a newer Atlarix", () => {
+  it("is said as it is, without \"try again\", which can't help", () => {
+    expect(modelFailureUserMessage(`Error: ${CORE_TIER_NEWER_BUILD}`)).toBe(CORE_TIER_NEWER_BUILD);
   });
 });

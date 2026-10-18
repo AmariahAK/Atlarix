@@ -25,7 +25,7 @@ import {
 } from "@/lib/format-openrouter-model-label";
 
 export type AtlarixCoreTierPresentation = {
-  /** Canonical Core model id (`core-1`..`core-4`). */
+  /** Canonical Core model id (`core-1`..`core-5`). */
   internalTierId: string;
   /** The configured wire id for this tier (`vendor/model`). */
   coreModelId: string;

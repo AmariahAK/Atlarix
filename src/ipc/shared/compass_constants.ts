@@ -28,6 +28,7 @@ export const CORE_TIER_1 = "core-1";
 export const CORE_TIER_2 = "core-2";
 export const CORE_TIER_3 = "core-3";
 export const CORE_TIER_4 = "core-4";
+export const CORE_TIER_5 = "core-5";
 
 /**
  * Atlarix Auto: a FREE Core option (OpenAI complimentary tokens, a $0 floor
@@ -71,6 +72,7 @@ export const CORE_TIER_ORDER = [
   CORE_TIER_2,
   CORE_TIER_3,
   CORE_TIER_4,
+  CORE_TIER_5,
 ] as const;
 
 /** Pre-v11 persisted selections (`compass-*`) keep resolving forever. */
@@ -91,6 +93,15 @@ export function isCoreTierId(internalTierId: string): boolean {
     (CORE_TIER_ORDER as readonly string[]).includes(norm) ||
     norm === CORE_TIER_AUTO
   );
+}
+
+/**
+ * A `core-N` slot a newer Atlarix offers that this build has no slot for (QA
+ * 2026-10-18: 15.9.0 answered a core-5 pick on core-1, at about 10× its price).
+ */
+export function isCoreTierFromNewerBuild(internalTierId: string): boolean {
+  const norm = normalizeCoreTierId(internalTierId);
+  return /^core-\d+$/.test(norm) && !(CORE_TIER_ORDER as readonly string[]).includes(norm);
 }
 
 /** True for the free Atlarix Auto tier. */
@@ -134,7 +145,7 @@ export function getCompassSyntheticModels(): LanguageModel[] {
   return [...autoRow, ...CORE_TIER_ROWS.flatMap((row) => {
     const openRouterModelId =
       getOpenRouterModelIdForCoreTier(row.id)?.trim() ?? "";
-    // A slot with no configured model is NOT shown. There are four slots but the
+    // A slot with no configured model is NOT shown. There are five slots but the
     // lineup is whatever `core-models.json` maps — running three (or two) models
     // otherwise surfaced a raw "core-4" placeholder in the picker that resolves to
     // nothing and throws at dispatch. This makes the tier COUNT config-driven, so
@@ -270,6 +281,8 @@ export function getCoreModelIdForCoreTier(
             return trimEnv(process.env.ATLARIX_CORE_MODEL_3);
           case CORE_TIER_4:
             return trimEnv(process.env.ATLARIX_CORE_MODEL_4);
+          case CORE_TIER_5:
+            return trimEnv(process.env.ATLARIX_CORE_MODEL_5);
           default:
             return undefined;
         }
@@ -373,6 +386,10 @@ export function resolveConfiguredCoreTier(
   internalTierId: string,
 ): { tier: string; substituted: boolean } | undefined {
   const norm = normalizeCoreTierId(internalTierId);
+  // A slot this build doesn't know never falls forward either: it is a model a
+  // newer Atlarix offered (settings are shared between the app, the terminal and
+  // the editors), and answering on another one bills a model nobody picked.
+  if (isCoreTierFromNewerBuild(norm)) return undefined;
   if (getCoreModelIdForCoreTier(norm)?.trim())
     return { tier: norm, substituted: false };
   // A withdrawn Auto NEVER falls forward: every other tier is paid, and moving a

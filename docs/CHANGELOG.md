@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.9.1] (2026-10-18) — thinking on the newest Claude models
+## [15.9.1] (2026-10-18) — thinking on the newest Claude models, a fifth Core model, and web search in the terminal and editors
 
 Thinking on Claude always went out as a token budget. Anthropic's newest models (Sonnet 5 and 5.5,
 Opus 4.7 onwards, Haiku 5.5 and Fable) no longer take one and refuse the request, so with thinking
@@ -12,6 +12,30 @@ alike. They now think adaptively, and `/effort` sets how hard, with the level th
 as it is; the thinking shows as a readable summary. Models that still take a budget (Haiku 4.5 and
 older Opus) keep their three budget sizes. A Claude model reached through a provider you added on the
 Anthropic format, under Bedrock's longer model id, also no longer gets a temperature it refuses.
+
+**Core has room for a fifth model**, so the lineup can offer GPT-6 Luna beside GLM-5.3-Flash and the
+three before them. Which models fill the slots still comes from the hosted lineup.
+
+**Web search in the terminal and your editor runs through Atlarix** on a paid Core model or paid
+Atlarix Auto, billed per search to your balance. There is no browser to search with there. The
+desktop app keeps searching with its own built-in browser for everyone, which costs nothing, so a
+paid model on the desktop no longer pays per search. When your balance can't cover a search and the
+free fallback finds nothing either, the result now says so and points at `/billing`, instead of
+reading as "nothing exists". Your own keys and free Auto keep the free search they had.
+
+**A Core model this version doesn't know is refused, not swapped.** The app, the terminal and the
+editors share their settings, so a model picked in a newer Atlarix could reach an older one, which
+then answered on a different Core model, at that model's price. It now says the model comes from a
+newer Atlarix: update, or pick another.
+
+**The terminal's model list:** Atlarix Auto says "Free" only on a free account (Pro and credit pay
+for it, so it shows its context size). Core models show their real context window, the same one the
+context meter uses, not a 200K placeholder. The line under each reply names the model, not its
+slot ("core-4").
+
+**Microsoft Store:** a release now replaces a submission still in certification, so Store users get
+the newest version without waiting for the one before it, and each submission explains to the
+Store's testers why the app needs its two restricted permissions and how to try it.
 
 ## [15.9.0] (2026-10-17) — providers of your own on the Anthropic format, a prompt cache that lasts, and a faster CLI start
 
