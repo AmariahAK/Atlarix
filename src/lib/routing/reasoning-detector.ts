@@ -19,6 +19,8 @@ import { ATLARIX_AUTO_MEDIA_ID } from "@/lib/routing/model-capability-profile";
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
 import {
   catalogSaysReasons,
+  rawEffortValues,
+  reasoningProfileFor,
   hasMeaningfulReasoningControl,
   AUTO_EFFORT_CHOICES,
   effortChoicesFor,
@@ -146,6 +148,8 @@ export function detectReasoningCapability(
   useGoogleThoughts: boolean;
   useOpenAiReasoningSummary: boolean;
   useAnthropicThinking: boolean;
+  /** Claude thinks adaptively and takes an effort level, not a token budget. */
+  anthropicAdaptive: boolean;
 } {
   const id = modelApiId.trim();
   const lower = id.toLowerCase();
@@ -186,12 +190,21 @@ export function detectReasoningCapability(
   // safe answer for an unknown model.
   const useAnthropicThinking =
     pid === "anthropic" && catalogSaysReasons(pid, id) === true;
+  // Which shape Claude takes thinking in. A model that lists effort levels
+  // (Sonnet 5 / 5.5, Opus 4.7 onwards, Haiku 5.5, Fable) thinks adaptively and
+  // takes the level; a token budget there is a 400 ("budget_tokens" was
+  // removed on those models). A budget is only for the models that list one
+  // and no levels (Haiku 4.5, Opus 4.5 and older).
+  const anthropicAdaptive =
+    useAnthropicThinking &&
+    rawEffortValues(reasoningProfileFor(pid, id)?.options ?? []).length > 0;
 
   return {
     useOpenRouterReasoning,
     useGoogleThoughts,
     useOpenAiReasoningSummary,
     useAnthropicThinking,
+    anthropicAdaptive,
   };
 }
 
@@ -400,6 +413,8 @@ export function shouldOmitTemperature(
  */
 /** Gemini's named thinking levels. */
 const GEMINI_LEVELS = new Set(["minimal", "low", "medium", "high"]);
+/** Claude's effort levels (`output_config.effort`). */
+const ANTHROPIC_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 export function buildReasoningProviderOptions(
   cap: ReturnType<typeof detectReasoningCapability>,
@@ -462,8 +477,19 @@ export function buildReasoningProviderOptions(
     } satisfies OpenAIResponsesProviderOptions;
   }
 
-  if (cap.useAnthropicThinking) {
-    // Anthropic takes a token BUDGET, not an effort level. `reasoningBudgetTokens`
+  if (cap.useAnthropicThinking && cap.anthropicAdaptive) {
+    // Claude decides how much to think; the level chosen with /effort says how
+    // hard, sent as listed (no level chosen: the model's own default). Shown as
+    // a summary: these models return empty thinking text unless asked.
+    const level = exactEffort?.toLowerCase();
+    patch.anthropic = {
+      thinking: { type: "adaptive", display: "summarized" },
+      ...(level && ANTHROPIC_EFFORTS.has(level)
+        ? { effort: level as "low" | "medium" | "high" | "xhigh" | "max" }
+        : {}),
+    } satisfies AnthropicProviderOptions;
+  } else if (cap.useAnthropicThinking) {
+    // A budget model takes a token BUDGET, not an effort level. `reasoningBudgetTokens`
     // already guarantees >= 1024 (Anthropic's minimum) and reserves >= 2048 of
     // output headroom, so the budget is always strictly below max_tokens — which
     // Anthropic also requires.

@@ -3,6 +3,16 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.9.1] (2026-10-18) — thinking on the newest Claude models
+
+Thinking on Claude always went out as a token budget. Anthropic's newest models (Sonnet 5 and 5.5,
+Opus 4.7 onwards, Haiku 5.5 and Fable) no longer take one and refuse the request, so with thinking
+on, those models failed on your own Anthropic key, through Amazon Bedrock and through a gateway
+alike. They now think adaptively, and `/effort` sets how hard, with the level the model lists sent
+as it is; the thinking shows as a readable summary. Models that still take a budget (Haiku 4.5 and
+older Opus) keep their three budget sizes. A Claude model reached through a provider you added on the
+Anthropic format, under Bedrock's longer model id, also no longer gets a temperature it refuses.
+
 ## [15.9.0] (2026-10-17) — providers of your own on the Anthropic format, a prompt cache that lasts, and a faster CLI start
 
 **A provider you add can speak the Anthropic Messages API**, not only OpenAI's: Amazon Bedrock's

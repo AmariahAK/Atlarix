@@ -30,6 +30,7 @@ import {
   registerModelsDevReasoning,
 } from "@/lib/routing/model-reasoning-profile";
 import {
+  buildReasoningProviderOptions,
   detectReasoningCapability,
   resolveCapabilityProviderId,
   resolveDispatchCapabilityProviderId,
@@ -257,5 +258,56 @@ describe("thinking, /effort and cache markers reach an Anthropic-format provider
     );
     expect(detectReasoningCapability("claude-haiku-4-5-20251001", "custom::plain").useAnthropicThinking).toBe(false);
     expect(resolveCacheMarkerPlacement("custom::plain", "claude-haiku-4-5")).toBe("content");
+  });
+});
+
+describe("newer Claude models think adaptively; a token budget there is a 400", () => {
+  beforeEach(() => {
+    __resetReasoningRegistryForTests();
+    registerModelsDevReasoning([
+      {
+        providerId: "anthropic",
+        modelId: "claude-sonnet-5-5",
+        profile: { reasoning: true, options: [{ type: "effort", values: ["low", "medium", "high", "xhigh", "max"] }] },
+        supportsTemperature: false,
+      },
+      {
+        providerId: "anthropic",
+        modelId: "claude-haiku-4-5-20251001",
+        profile: { reasoning: true, options: [{ type: "budget_tokens" }] },
+        supportsTemperature: true,
+      },
+    ] as never);
+    rememberCustomProviderFormats([{ id: GW, apiFormat: "anthropic" }]);
+  });
+
+  it("a model that lists effort levels gets adaptive thinking and the chosen level, no budget", () => {
+    for (const pid of ["anthropic", GW]) {
+      const cap = detectReasoningCapability("claude-sonnet-5-5", pid);
+      expect(cap.anthropicAdaptive).toBe(true);
+      const chosen = buildReasoningProviderOptions(cap, true, "high", 64_000, "high").anthropic;
+      expect(chosen).toEqual({ thinking: { type: "adaptive", display: "summarized" }, effort: "high" });
+      // Nothing chosen: the model's own default level.
+      expect(buildReasoningProviderOptions(cap, true, "medium", 64_000).anthropic).toEqual({
+        thinking: { type: "adaptive", display: "summarized" },
+      });
+    }
+  });
+
+  it("a budget-only model keeps its token budget", () => {
+    const cap = detectReasoningCapability("claude-haiku-4-5-20251001", "anthropic");
+    expect(cap.anthropicAdaptive).toBe(false);
+    const thinking = buildReasoningProviderOptions(cap, true, "medium", 32_000).anthropic?.thinking as {
+      type: string;
+      budgetTokens: number;
+    };
+    expect(thinking.type).toBe("enabled");
+    expect(thinking.budgetTokens).toBeGreaterThanOrEqual(1024);
+  });
+
+  it("no temperature for a model that takes none, under its Bedrock id through a provider you added", async () => {
+    const { getTemperature } = await import("@/ipc/utils/token_utils");
+    expect(await getTemperature({ provider: GW, name: "us.anthropic.claude-sonnet-5-5" } as never)).toBeUndefined();
+    expect(await getTemperature({ provider: "anthropic", name: "claude-sonnet-5-5" } as never)).toBeUndefined();
   });
 });

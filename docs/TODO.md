@@ -1,9 +1,9 @@
 # Atlarix TODO
 
-**Current version:** 15.9.0 (2026-10-17): providers you add can speak the Anthropic Messages API
-(Bedrock, gateways) on every surface, Build mode's prompt cache lasts across messages, the CLI
-opens at once, and `/effort low` really is lower on budget models. (15.8.3 was tagged and stopped
-before anything published.) Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.9.1 (2026-10-18): the newest Claude models (Sonnet 5 / 5.5, Opus 4.7+, Haiku
+5.5, Fable) think adaptively with `/effort` instead of refusing a token budget. 15.9.0 brought providers you
+add on the Anthropic API format (Bedrock, gateways), Build mode's lasting prompt cache and a faster CLI
+start. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -24,6 +24,9 @@ not trust it.
 ## 🔨 In flight — landed on dev, not yet released
 
 Nothing.
+
+**Not verified live (15.9.1):** this AWS account is refused the newest Claude models ("not available
+for this account"; AWS Sales request sent 2026-10-18). Run one Sonnet 5.5 turn with thinking on once access opens.
 
 **Known limit from 15.9.0:** Bedrock reads the request body before the key, so a bad Bedrock
 token is only caught by the first message (it fails cleanly; nothing is billed). A key-prefix

@@ -77,6 +77,7 @@ describe("provider param wiring receives the resolved effort + scaled budget", (
     useGoogleThoughts: false,
     useOpenAiReasoningSummary: false,
     useAnthropicThinking: false,
+    anthropicAdaptive: false,
   };
 
   it("OpenRouter emits a scaled reasoning.max_tokens (base < deep)", () => {
