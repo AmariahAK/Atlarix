@@ -1,3 +1,5 @@
+import { stripDeepSeekDsml } from "@/lib/chat/answer-display";
+
 const QUESTIONS_REGEX = /<questions>([\s\S]*?)<\/questions>/gi;
 const QUESTIONS_LOOSE_OPEN = /<questions\s*>([\s\S]*?)(?:<\/questions>|$)/gi;
 const FENCED_JSON_ARRAY = /```(?:json)?\s*(\[[\s\S]*?\])\s*```/gi;
@@ -86,6 +88,9 @@ export function cleanFullResponse(text: string): string {
   // Some models output: <think>reasoning</think>content + content (full duplication)
   // We detect and remove the exact duplicated suffix
   cleaned = deduplicateContent(cleaned);
+
+  // DeepSeek's tool-call markup leaks beside real tool calls; never content.
+  cleaned = stripDeepSeekDsml(cleaned, false);
 
   return cleaned;
 }
