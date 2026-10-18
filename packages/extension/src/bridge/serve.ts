@@ -348,6 +348,9 @@ function waitForTabLoad(tabId: number, timeoutMs = LOAD_WAIT_MS): Promise<boolea
 async function loadInAgentTab(tabId: number, url: string) {
   await beginCapture(tabId);
   const loaded = waitForTabLoad(tabId);
+  // Before the navigation, not after the load: "since your last navigate" must
+  // include what the page logs WHILE loading (QA 2026-10-18).
+  const navigatedAt = Date.now();
   await api().tabs.update(tabId, { url });
   await armNetwork(tabId);
   const ok = await loaded;
@@ -357,7 +360,7 @@ async function loadInAgentTab(tabId: number, url: string) {
     url: tab?.url || url,
     title: tab?.title ?? "",
     loaded: ok,
-    navigatedAt: Date.now(),
+    navigatedAt,
   };
 }
 
@@ -823,6 +826,12 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
     case "close_tab": {
       const tabId = num(args.tab_id);
       if (tabId === null) throw new Error("close_tab needs tab_id");
+      // Already gone (the user closed it, or it closed itself): that is the
+      // outcome asked for, not a tab "Atlarix didn't open" (QA 2026-10-18).
+      if (!(await api().tabs.get(tabId).then(() => true, () => false))) {
+        await endCapture(tabId).catch(() => {});
+        return { closed: tabId, alreadyClosed: true };
+      }
       // ONLY TABS ATLARIX OPENED. The panel enforces the same rule and it is
       // not negotiable across surfaces: the user's own tabs are not ours to
       // close, and a desktop request is not a reason to change that.

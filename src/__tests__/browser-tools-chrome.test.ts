@@ -110,6 +110,12 @@ describe("act: the arguments reach the extension", () => {
     expect(requestMock).not.toHaveBeenCalled();
   });
 
+  it("tab_id 0 is no tab at all, so it is not sent (a model filled every optional param)", async () => {
+    requestMock.mockResolvedValue({ tabId: 5, loaded: true, navigatedAt: 1 });
+    await browser({ action: "navigate", url: "http://localhost:3000/", tab_id: 0 });
+    expect(requestMock).toHaveBeenLastCalledWith("navigate", { url: "http://localhost:3000/" });
+  });
+
   it("navigate with no url is a malformed call, not a policy block", async () => {
     const res = await browser({ action: "navigate", url: "  " });
     expect(res.success).toBe(false);
@@ -161,6 +167,20 @@ describe("console and network: since your last navigate", () => {
     expect(content).toContain("new page error");
     expect(content).not.toContain("old page error");
     expect(content).toContain('since:"all"');
+    expect(res.count).toBe(1);
+  });
+
+  it("keeps what the page logged while loading, even from an extension that stamps navigatedAt after the load", async () => {
+    const before = Date.now();
+    // Extensions up to 15.9.1 return the time the load FINISHED.
+    requestMock.mockResolvedValueOnce({ tabId: 5, navigatedAt: before + 60_000 });
+    await browser({ action: "navigate", url: "http://localhost:3000/" });
+    requestMock.mockResolvedValueOnce({
+      tabId: 5,
+      entries: [entry("ready", before + 1_000)],
+    });
+    const res = await inspect({ mode: "console", tab_id: 5 });
+    expect(String(res.content)).toContain("ready");
     expect(res.count).toBe(1);
   });
 

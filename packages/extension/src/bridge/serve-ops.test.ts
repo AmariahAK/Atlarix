@@ -320,6 +320,20 @@ describe("navigate stays inside the agent's group", () => {
     );
   });
 
+  it("stamps navigatedAt BEFORE the navigation, so logs made while loading count as after it", async () => {
+    let clock = 1_000;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    tabsQuery.mockResolvedValue([{ id: 42 }]);
+    isAgentTabMock.mockImplementation(async (id: number) => id === 42);
+    tabsUpdate.mockImplementation(async (id: number) => {
+      clock = 5_000; // the page loads (and logs) from here on
+      queueMicrotask(() => updatedListener?.(id, { status: "complete" }));
+    });
+    const reply = await call("navigate", { url: "https://b.example/" });
+    now.mockRestore();
+    expect(reply.ok && (reply.result as { navigatedAt?: number }).navigatedAt).toBe(1_000);
+  });
+
   it("open_tab uses the same capture-first order in a new tab", async () => {
     const reply = await call("open_tab", { url: "https://c.example/" });
     expect(reply.ok).toBe(true);
@@ -363,6 +377,15 @@ describe("close_tab still refuses the user's tabs", () => {
     expect(reply.ok).toBe(false);
     if (reply.ok) return;
     expect(reply.error).toContain("was not opened by Atlarix");
+  });
+
+  it("a tab that is already gone counts as closed, not as one Atlarix didn't open", async () => {
+    tabsGet.mockRejectedValue(new Error("No tab with id: 3"));
+    isAgentTabMock.mockResolvedValue(false);
+    const reply = await call("close_tab", { tab_id: 3 });
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) return;
+    expect(reply.result).toEqual({ closed: 3, alreadyClosed: true });
   });
 });
 
