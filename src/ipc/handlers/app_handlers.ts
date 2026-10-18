@@ -92,6 +92,21 @@ const handle = createLoggedHandler(logger);
 
 let proxyWorker: Worker | null = null;
 
+/**
+ * Workspaces already reported as opened in this run. `get-app` is the app asking
+ * about a workspace, which it does on every screen change, before every message
+ * and while a turn runs, so reporting each call counted ~113 "opens" per person a
+ * week (PostHog, 2026-10-18). Once per workspace per run is an open.
+ */
+const workspacesReportedOpen = new Set<number>();
+
+/** True the first time `appId` is seen in this run. Exported for tests. */
+export function firstOpenThisRun(appId: number): boolean {
+  if (workspacesReportedOpen.has(appId)) return false;
+  workspacesReportedOpen.add(appId);
+  return true;
+}
+
 async function executeApp({
   appPath,
   appId,
@@ -398,11 +413,13 @@ export function registerAppHandlers() {
     // properties describe the workspace's SHAPE, which is what makes "is this
     // person actually working in here" answerable; `{ appId }` alone couldn't
     // distinguish a real project from an empty folder opened once.
-    analyticsCapture("workspace_opened", {
-      appId,
-      exists: pathExists,
-      is_git_repo: pathExists && fs.existsSync(path.join(appPath, ".git")),
-    });
+    if (firstOpenThisRun(appId)) {
+      analyticsCapture("workspace_opened", {
+        appId,
+        exists: pathExists,
+        is_git_repo: pathExists && fs.existsSync(path.join(appPath, ".git")),
+      });
+    }
     perfMark(`workspace-open:${appId}`);
     const status = pathExists ? ("active" as const) : ("missing" as const);
     return {
