@@ -347,11 +347,7 @@ export function renderActiveModeToolsRegistry(
 
   if (opts?.workspace) {
     lines.push(
-      "Workspace chat: this session is bound to an open project folder. Enabled MCP servers and installed skills are available via:",
-    );
-    lines.push(WORKSPACE_INTEGRATION_TOOL_NAMES.join(", "));
-    lines.push(
-      'Call list_available_mcps first, then mcp_call as needed. Skills are listed one line each under "Skills available" — read a skill\'s file with read_file when its line applies to the task; the bodies are not in your context.',
+      `Enabled MCP servers: ${WORKSPACE_INTEGRATION_TOOL_NAMES.join(", ")} (list_available_mcps first, then mcp_call).`,
     );
   }
 
@@ -359,9 +355,7 @@ export function renderActiveModeToolsRegistry(
     lines.push(`Native schemas bound now: ${opts.registeredNames.join(", ")}`);
   }
 
-  lines.push(
-    "This turn's work mode is fixed until the user changes it in the UI; only tools on this allowlist can execute.",
-  );
+  lines.push("Only the user changes the work mode, in the UI.");
 
   lines.push("</tools_registry>");
   return lines.join("\n");

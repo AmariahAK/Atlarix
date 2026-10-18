@@ -270,21 +270,25 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * consecutive runs): the prefix carries the workspace's own temp path and a date
  * stamp. Don't chase a single-digit difference; the headroom exists for it.
  */
+// Re-based 2026-10-18 after the prompt diet (owner: "why are we overprompting
+// when LLMs are becoming better, cheaper and more efficient"): every mode lost
+// 1,800-2,000 tokens with the same tools bound. Baselines: ask 8,512, plan 6,953,
+// build 10,439, review 8,180, debug 10,692, build-fr 10,481.
 const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
-  ask: { minTotal: 9_250, maxTotal: 11_800 },
-  plan: { minTotal: 8_800, maxTotal: 11_200 },
-  build: { minTotal: 12_450, maxTotal: 15_850 },
+  ask: { minTotal: 7_250, maxTotal: 9_200 },
+  plan: { minTotal: 5_900, maxTotal: 7_500 },
+  build: { minTotal: 8_850, maxTotal: 11_250 },
   // 11,400 → 11,500 on 2026-10-13, owner-approved: glob's `sort: "size"` option
   // (~45 tokens) put Review at 11,429. Paid for by raising this ceiling, NOT by
   // rewording shared tool text, which the app, CLI and editors all run on.
-  review: { minTotal: 8_950, maxTotal: 11_500 },
-  debug: { minTotal: 11_950, maxTotal: 15_250 },
+  review: { minTotal: 6_950, maxTotal: 8_850 },
+  debug: { minTotal: 9_100, maxTotal: 11_550 },
   // A NON-ENGLISH case, because every other case runs in English and the response
   // language block is emitted ONLY when the locale is not en-us. Without this the
   // suite would never see the instruction at all, its cost would be unmeasured,
   // and the feature could ship silently dead — the block could stop being emitted
   // and nothing here would notice.
-  "build-fr": { minTotal: 12_450, maxTotal: 15_950 },
+  "build-fr": { minTotal: 8_900, maxTotal: 11_300 },
 };
 
 const CASES = [

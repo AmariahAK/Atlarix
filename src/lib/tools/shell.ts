@@ -64,18 +64,14 @@ ToolRegistry.register({
   // to run `git status`; it cannot know THIS PROJECT'S policy, so only the policy
   // is stated. OS/shell facts are interpolated live, never assumed.
   description:
-    "Run a shell command — builds, tests, scripts, package managers, git, deployment, reading logs, and anything else that needs a shell. " +
-    `Running on ${os.type()} ${os.release()} (${os.arch()}) through \`${resolveDescriptionShell()}\` — use that shell's syntax and this OS's path conventions. ` +
-    "Use the cwd parameter, not 'cd … && command'. " +
-    "Do NOT use this for file operations — reading, writing, editing, searching or finding files. Use read_file, edit_file, glob and grep, which are cheaper and reviewable. " +
-    "Long-running work (builds, installs, watch/dev tasks) auto-backgrounds after ~15s — or set background=true to detach at once. Either way you get a job_id and the exit result is delivered automatically, so keep working or end your turn while it runs (manage jobs with background_jobs). You do not need to poll for it: you are pinged if a job goes quiet, and you are told when one is genuinely stuck. " +
-    "A quiet job MAY not be stuck, so rather than cancelling it, give yourself a signal: wake_on (a success|failure marker, wake_on_regex:true for a pattern) wakes you the instant it appears, timeout_ms bounds the run, and allow_stalled:true says a job is EXPECTED to be quiet (a dev server, a watcher). For external state (CI/deploy), background a command that BLOCKS until done (`gh run watch`) rather than checking repeatedly. " +
-    'A printed http://localhost:PORT can be opened in the user\'s browser with browser({action:"navigate", url}) and driven with browser / browser_inspect. ' +
-    "For scaffolding, pass non-interactive flags (e.g. --template, --no-interactive). " +
-    "Git: only commit, amend, push or open a PR/MR when asked. Inspect status and diff first, stage only what you intended, never commit secrets. Do not skip hooks or force-push; if a commit is rejected, fix the cause and make a NEW commit rather than amending. Do not discard uncommitted work you did not create — if a reset really is right, say what will be lost first. For forge work use the CLI the remote actually uses (`gh`, `glab`, the Bitbucket CLI, …) — check, don't assume — and report the PR/MR URL. " +
-    "A failure tells you exactly why, with its exit code and output. The workspace is writable in EVERY mode, so builds, installs, tests and dev servers work normally. " +
-    "In Explore, Plan and Review the source is still not yours to change: an in-place edit, a redirect into a file, or a git write goes to the user for approval — a pause, not a failure. If you need to change files, ask the user to switch to Build or Debug rather than retrying the same command. " +
-    "Never touch git config, git hooks, or `.atlarix/` — they decide what runs next.",
+    "Run a shell command (builds, tests, package managers, git, logs). " +
+    `Runs on ${os.type()} ${os.release()} (${os.arch()}) through \`${resolveDescriptionShell()}\`. ` +
+    "Use the cwd parameter rather than `cd … &&`, and read_file / edit_file / glob / grep for file work (cheaper and reviewable). " +
+    "Work longer than ~15s goes to the background by itself (background=true detaches at once); its result is delivered to you, so keep working or end your turn rather than polling. A quiet job MAY not be stuck: rather than cancel it, set wake_on (wake when a marker appears), timeout_ms, or allow_stalled (a dev server is expected to be quiet). " +
+    'Open a printed http://localhost:PORT with browser({action:"navigate", url}). ' +
+    "Git: commit, push or open a PR only when asked; never skip hooks, force-push or discard work you did not create. " +
+    "In Explore, Plan and Review, a command that changes the source waits for the user's approval: a pause, not a failure. To change files, ask the user to switch to Build or Debug rather than retrying. " +
+    "Never touch git config, git hooks or `.atlarix/`.",
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: false,

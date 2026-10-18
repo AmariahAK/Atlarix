@@ -30,7 +30,7 @@ describe("shared prompt fragments", () => {
     const out = applySharedPromptFragments(
       "before\n{{REUSE_FIRST_LADDER}}\nafter",
     );
-    expect(out).toContain("climb this ladder");
+    expect(out).toContain("Be lazy about the solution");
     expect(out).not.toContain("{{REUSE_FIRST_LADDER}}");
   });
 
@@ -54,7 +54,7 @@ describe("shared prompt fragments", () => {
   });
 
   it("neither file hardcodes a second copy of the ladder", () => {
-    const marker = "Is it already in the codebase? Reuse it.";
+    const marker = "reuse what the codebase";
     expect(read("AGENTS.md")).not.toContain(marker);
     expect(read("src/skills/subagents/subagent-writer.md")).not.toContain(
       marker,
@@ -65,7 +65,7 @@ describe("shared prompt fragments", () => {
   it("the ladder still carries the security non-negotiable", () => {
     // Trimming complexity is the point; trimming validation is not.
     expect(REUSE_FIRST_LADDER).toContain("Never cut corners on validation");
-    expect(REUSE_FIRST_LADDER).toContain("trust-boundary checks");
+    expect(REUSE_FIRST_LADDER).toContain("security");
   });
 
   it("the read-only scout does NOT get it — it writes no code", () => {
@@ -87,8 +87,8 @@ describe("shared prompt fragments", () => {
  * v14.22.0 standing guard exists to catch.
  */
 describe("outside-workspace path fragments", () => {
-  const READ_MARKER = "Reaching outside the workspace";
-  const WRITE_MARKER = "asks the user once for that folder";
+  const READ_MARKER = "default scope, not a wall";
+  const WRITE_MARKER = "asks the user once";
 
   it("substitutes both placeholders", () => {
     const out = applySharedPromptFragments(
@@ -131,7 +131,10 @@ describe("outside-workspace path fragments", () => {
   });
 
   it("the WRITE half reaches ONLY prompts whose agent has edit_file", () => {
-    expect(read("AGENTS.md")).toContain("{{OUTSIDE_WORKSPACE_WRITES}}");
+    // AGENTS.md reaches read-only modes too, so it states the write rule without
+    // naming edit_file rather than splicing in the write half.
+    expect(read("AGENTS.md")).not.toContain("{{OUTSIDE_WORKSPACE_WRITES}}");
+    expect(read("AGENTS.md")).toContain("asks the user once per folder");
     expect(read("src/skills/subagents/subagent-writer.md")).toContain(
       "{{OUTSIDE_WORKSPACE_WRITES}}",
     );

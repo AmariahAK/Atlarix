@@ -86,17 +86,8 @@ ToolRegistry.register({
   isReadOnly: false,
   allowInAskMode: true,
   description:
-    "Inspect and control background commands you started with run_command(background:true). " +
-    "Identify a job with `job`: its id, or a distinctive part of its command — whichever you have. " +
-    'operation:"list" — running jobs (id, command, elapsed). ' +
-    'operation:"output" — by default the NEW output since your last check (incremental). Pass mode:"tail" for the most recent output instead, which is what you want to see a still-running server\'s CURRENT state; tail never consumes your incremental position. Works on finished jobs too. ' +
-    'operation:"cancel" — stop the job. ' +
-    'operation:"watch" — attach a wake condition to a running job: pass `wake_on` and you\'ll be woken when its output contains that text (prefer this over polling). ' +
-    'operation:"allow_stalled" — mark a running job as expected-to-be-quiet (a dev server / watcher / long service): stop the harness pinging you when it goes silent. It still runs and you still get its exit result. ' +
-    'operation:"wake_in" — set/replace a live countdown timer on a running job: pass `seconds` and you\'ll be re-engaged then to re-check THAT job (only ONE timer per job — setting again replaces it, so timers never pile up). Prefer wake_on when the event is observable in output; use this for a timed re-check. ' +
-    'operation:"adjust_timer" — add/subtract time on a job\'s existing countdown: pass `delta_seconds` (negative = sooner). ' +
-    '"list" shows `wake_in_s` (the live seconds left) for any job that has a timer; a finished job drops its countdown, and won\'t ask you to re-check it even if the countdown had already elapsed. ' +
-    "Finished jobs are delivered to you automatically — use this only to peek at, watch, allow_stalled, time, or stop STILL-RUNNING jobs; never poll on a loop.",
+    "Inspect or control a still-running background command (finished ones are delivered to you, so never poll). `job` is its id or part of its command. " +
+    "Operations: list; output (new output since your last check, or mode:\"tail\" for the latest); cancel; watch (wake_on: wake when output contains it); allow_stalled (expected to be quiet); wake_in (seconds: re-check it then); adjust_timer (delta_seconds).",
   parameters: {
     type: "object",
     properties: {
@@ -111,8 +102,7 @@ ToolRegistry.register({
           "wake_in",
           "adjust_timer",
         ],
-        description:
-          "What to do: list running jobs, read a job's new output, cancel a job, watch a job for an output condition, allow_stalled a job (stop being pinged about it going quiet), wake_in (set a countdown timer to re-check the job), or adjust_timer (change the job's countdown).",
+        description: "What to do",
       },
       job: {
         type: "string",
@@ -125,8 +115,7 @@ ToolRegistry.register({
       mode: {
         type: "string",
         enum: ["new", "tail"],
-        description:
-          'For operation:"output" — "new" (default) returns only what appeared since your last check; "tail" returns the most recent output regardless, which is how you see a running process\'s current state. "tail" does not consume your incremental position.',
+        description: 'output: "new" (default, since your last check) or "tail" (latest)',
       },
       max_lines: {
         type: "number",

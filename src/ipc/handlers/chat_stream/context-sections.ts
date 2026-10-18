@@ -125,10 +125,7 @@ export function loadWorkspaceRootSection(
     priority: -4,
     content: [
       `## Workspace`,
-      "",
-      `Absolute path: \`${appPath}\``,
-      "",
-      "`run_command` runs here by default — omit `cwd` unless you genuinely need a subdirectory, and pass an absolute path when you do. Never guess a path outside this root.",
+      `Absolute path: \`${appPath}\` (run_command's default cwd).`,
     ].join("\n"),
   };
 }

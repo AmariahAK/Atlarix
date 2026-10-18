@@ -13,8 +13,8 @@ describe("Secret handling prompt section (D1)", () => {
   for (const file of FILES) {
     it(`${file} contains the Secret handling section + core rules`, () => {
       const text = readFileSync(join(process.cwd(), file), "utf8");
-      expect(text).toContain("## Secret handling");
-      expect(text).toMatch(/\.env|\.envrc/);
+      expect(text).toContain("## Secrets");
+      expect(text).toMatch(/variable name/);
       expect(text.toLowerCase()).toContain("rotate");
       expect(text.toLowerCase()).toMatch(/prod/);
       expect(text.toLowerCase()).toMatch(/never (print|echo)/);

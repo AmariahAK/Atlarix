@@ -100,19 +100,16 @@ const CORE_TOOLS_BY_MODE: Record<ModeRegistryKey, readonly string[]> = {
     "ask_user",
     "tool_help",
   ],
-  // Build — writing and verifying. `background_jobs` stays core because a
-  // foreground command auto-promotes to the background after ~15s, so the model
-  // needs to understand the mechanism it will hit whether or not it asked for
-  // it. `proposals` stays core because accepting one ends in a real write.
+  // Build — writing and verifying. `background_jobs` and `proposals` are
+  // peripheral (2026-10-18): run_command's own text covers backgrounding, and
+  // proposals only follow a writer sub-agent, whose result points at the tool.
   build: [
     "read_file",
     "grep",
     "glob",
     "edit_file",
     "run_command",
-    "background_jobs",
     "plan",
-    "proposals",
     "task",
     "ask_user",
     "tool_help",
@@ -124,9 +121,7 @@ const CORE_TOOLS_BY_MODE: Record<ModeRegistryKey, readonly string[]> = {
     "glob",
     "edit_file",
     "run_command",
-    "background_jobs",
     "plan",
-    "proposals",
     "task",
     "ask_user",
     "tool_help",

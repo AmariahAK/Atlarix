@@ -332,26 +332,21 @@ function taskEnvelope(
 ToolRegistry.register({
   name: "task",
   description:
-    "Spawn a scoped sub-agent for an independent piece of work (exploring a folder, researching a question, mapping a subsystem, or — with write=true — implementing a change). " +
-    "WHEN to use it: delegate work that is INDEPENDENT of your current thread or that you'd otherwise run in PARALLEL (several unrelated questions, a broad codebase/web sweep). For a small or single-step scope, just do it inline — spawning a sub-agent adds latency and its own context. " +
-    "For independent scopes, issue MULTIPLE task calls in ONE response — they run concurrently (up to 5 per turn). " +
-    "By default a sub-agent is READ-ONLY. Set write=true to let it implement a change: it writes NOTHING to disk — every edit comes back as a per-file PROPOSAL you review and accept with the `proposals` tool, which writes its exact bytes through the normal approval gate. Review each diff before accepting; to fix a mostly-right change, accept it then edit_file on top. Works in any workspace, git or not. " +
-    "Optional subagent_type names a built-in agent (explore = read-only code search and web research, build = writer) or a user-defined .atlarix/agents/ agent; a writer agent implies write mode without write=true. " +
-    "Give every task a short, distinctive `description` — that is the NAME you address it by later, and a name you chose is far easier to get right than a generated id. " +
-    "Set background=true to return immediately with a task id; pass task_id later to collect the result. A foreground task still running after 30s is moved to the background automatically, so it never blocks your turn. " +
-    "PREFER background=true for ANY long-running delegation — read-only recon/research sweeps AND build tasks alike: you can continue other work or end your turn, and each result is delivered to you automatically the moment it finishes (you are auto-woken if your turn ended). Do not idle or poll while waiting. " +
-    "To see, read, or stop running sub-agents, use the `subagents` tool.",
+    "Spawn a sub-agent for independent work (exploring, researching, mapping a subsystem, or with write=true implementing a change); do small scopes inline. Several task calls in one response run in parallel (up to 5). " +
+    "Read-only by default. A writer (write=true, or subagent_type build) writes nothing: its edits return as per-file proposals you review and accept with `proposals`. " +
+    "subagent_type: explore (read-only code and web research), build (writer), or a .atlarix/agents/ name. `description` is the name you address it by later. " +
+    "background=true returns at once and the result is delivered when it finishes (a foreground task moves to the background after 30s); `subagents` lists, reads or stops them.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,
   parameters: createParameters(
     {
       description: stringParam(
-        "Short (3-5 word) description — also the NAME you address this sub-agent by in the `subagents` tool, so make it distinctive.",
+        "Short (3-5 word), distinctive name for this sub-agent",
       ),
       prompt: stringParam("Full task prompt for the sub-agent"),
       subagent_type: stringParam(
-        "Optional built-in (explore=read-only code search and web research, build=WRITER) or a .atlarix/agents/ name; omit for the generic read-only scout. A writer type (build) turns on write mode by itself — no write=true needed.",
+        "explore, build (writer) or a .atlarix/agents/ name; omit for the generic read-only scout",
       ),
       task_id: stringParam(
         "Resume a prior background task (same sub-agent session)",
@@ -360,7 +355,7 @@ ToolRegistry.register({
         "When true, run async and return immediately with task id",
       ),
       write: booleanParam(
-        "When true, the sub-agent may use edit_file. Its changes are NOT written — they return as per-file proposals for you to review and accept with the `proposals` tool. No git repository required.",
+        "Let the sub-agent edit; its edits return as proposals for you to review",
       ),
     },
     // description/prompt are validated in-handler (a NEW task needs them; the
