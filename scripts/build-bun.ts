@@ -109,6 +109,7 @@ const PUBLIC_KEYS = [
   "ATLARIX_CORE_MODEL_2",
   "ATLARIX_CORE_MODEL_3",
   "ATLARIX_CORE_MODEL_4",
+  "ATLARIX_CORE_MODEL_5",
   "POSTHOG_API_KEY",
 ] as const;
 const buildEnv = Object.fromEntries(PUBLIC_KEYS.map((k) => [k, process.env[k] ?? ""]));

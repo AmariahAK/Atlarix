@@ -29,7 +29,7 @@ export function isCompassTierId(tierId: string): boolean {
   );
 }
 
-// The four Atlarix Core models, shown individually in the picker. The real
+// The Atlarix Core models (up to five slots), shown individually in the picker. The real
 // model name + provider (resolved from core-models.json) carries the meaning;
 // no fast/balanced/thinking framing. `label` is only a fallback when no
 // OpenRouter id resolves. Order = display order.
@@ -38,4 +38,5 @@ export const CORE_TIER_ROWS = [
   { id: "core-2", label: "Core 2", description: "" },
   { id: "core-3", label: "Core 3", description: "" },
   { id: "core-4", label: "Core 4", description: "" },
+  { id: "core-5", label: "Core 5", description: "" },
 ] as const;
