@@ -39,6 +39,11 @@ const CLI_WEB_SEARCH_UNAVAILABLE = (query: string) =>
   "(install it and open its side panel once). Without it, add a search MCP server (any search API works that way). " +
   "Tell the user so. `read_url` still works for a page whose address you know.";
 
+const WEB_SEARCH_NO_BALANCE = (query: string) =>
+  `**No web results for "${query}". Web search here is billed to the Atlarix account, and the balance can't cover it.** ` +
+  "Tell the user to add credit (`/billing` in the terminal), or to connect a search MCP server. " +
+  "`read_url` still works for a page whose address you know.";
+
 /** Default read budget per page (v13.1: raised from 5K — modern docs need more). */
 const READ_URL_DEFAULT_MAX = 20_000;
 const READ_URL_MAX_CAP = 50_000;
@@ -785,10 +790,13 @@ ToolRegistry.register({
         };
       }
 
-      // Paid Atlarix Core: hosted search through our proxy, billed to the
-      // account. Any failure falls through to the free tiers below.
+      // Paid Atlarix Core where there is no hidden browser: hosted search
+      // through our proxy, billed to the account. Any failure falls through to
+      // the free tiers below.
       const { paidWebSearch } = await import("@/lib/search/paid-search");
-      const paid = await paidWebSearch(query, maxResults, args._chatSessionId);
+      const paidReply = await paidWebSearch(query, maxResults, args._chatSessionId);
+      const noBalance = paidReply !== null && "blocked" in paidReply;
+      const paid = noBalance ? null : paidReply;
       if (paid && paid.results.length > 0) {
         const lines = [`**Search results for: "${query}"**\n`];
         if (paid.summary) lines.push(`${paid.summary}\n`);
@@ -816,6 +824,9 @@ ToolRegistry.register({
         maxResults,
       );
       console.log(`[web_search] Found ${searchResults.sources.length} results`);
+      if (noBalance && searchResults.sources.length === 0) {
+        return { text: WEB_SEARCH_NO_BALANCE(query), sources: [] };
+      }
 
       return {
         // Remote search content is untrusted — data, not instructions.

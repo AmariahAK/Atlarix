@@ -53,26 +53,41 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
   // offers no models here (the terminal and the editors).
   const off = await disabledProviders();
   const entries = Object.entries(byProvider).filter(([id, models]) => (models?.length ?? 0) > 0 && !off.has(id));
+  // Auto is free only on a free account: Pro and credit pay for it, so it shows
+  // its context size there, not "Free" (owner, 2026-10-18).
+  const paysForAuto = byProvider[COMPASS]?.some((m) => isCoreAutoTier(m.apiName)) ? await accountPaysForAuto() : false;
   entries.sort(([a], [b]) => (a === COMPASS ? -1 : b === COMPASS ? 1 : 0));
   const out: ModelOption[] = [];
   for (const [provider, models] of entries) {
     const providerName = provider === COMPASS ? "Atlarix" : (names.get(provider) ?? provider);
     for (const m of models) {
       const ctx = m.contextWindow ? `${Math.round(m.contextWindow / 1000)}K context` : "";
+      const paidAuto = provider === COMPASS && isCoreAutoTier(m.apiName) && paysForAuto;
       out.push({
         provider,
         name: m.apiName,
         label: m.displayName || m.apiName,
         providerName,
-        detail: [provider === COMPASS ? m.description : providerName, ctx].filter(Boolean).join(" · "),
+        detail: [provider === COMPASS ? (paidAuto ? "" : m.description) : providerName, ctx].filter(Boolean).join(" · "),
         deepThinking: Boolean((m as { supportsDeepThinking?: boolean }).supportsDeepThinking),
         effortChoices: (m as { effortChoices?: EffortChoices }).effortChoices,
-        free: provider === COMPASS && isCoreAutoTier(m.apiName),
+        free: provider === COMPASS && isCoreAutoTier(m.apiName) && !paidAuto,
         context: m.contextWindow ? `${Math.round(m.contextWindow / 1000)}K` : undefined,
       });
     }
   }
   return out;
+}
+
+/** Whether the signed-in account pays for Auto (Pro or credit); false when unknown. */
+async function accountPaysForAuto(): Promise<boolean> {
+  try {
+    const { realServices } = await import("./services");
+    const kind = await realServices.account.kind?.();
+    return kind === "pro" || kind === "payg";
+  } catch {
+    return false;
+  }
 }
 
 /**
