@@ -13,14 +13,14 @@ import { getModeToolAllowlist } from "@/lib/tools/mode-tool-registry";
 describe("plan-first nudge (Build / Fix)", () => {
   it("Build tells the agent to write a plan when the work is broad and none exists", () => {
     const header = getActiveModeHeaderBlock("build");
-    expect(header).toContain("NO plan in context");
-    expect(header).toContain('plan(operation:"write")');
+    expect(header).toMatch(/several steps or files, write a plan first/i);
+    expect(header).toContain("`plan`");
   });
 
   it("Build also tells it NOT to plan a trivial change", () => {
     // A nudge with no off-switch turns every one-line fix into ceremony.
     expect(getActiveModeHeaderBlock("build")).toMatch(
-      /single scoped change needs no plan/i,
+      /one-line fix needs none/i,
     );
   });
 

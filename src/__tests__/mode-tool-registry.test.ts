@@ -14,7 +14,7 @@ describe("mode-tool-registry", () => {
     expect(block).toContain("mcp_call");
     expect(block).not.toMatch(/\bwrite_file\b/);
     expect(block).toContain('<tools_registry mode="ask" label="Explore">');
-    expect(block).toContain("Workspace chat:");
+    expect(block).toContain("Enabled MCP servers:");
   });
 
   it("filterToolsForActiveMode excludes plan-only tools when mode is ask", () => {

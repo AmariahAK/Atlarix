@@ -36,7 +36,7 @@ export function projectManifestsHint(workspaceRoot: string | undefined): string 
   if (!workspaceRoot || !fs.existsSync(workspaceRoot)) return "";
   const found = rootManifests(workspaceRoot);
   if (found.length === 0) {
-    return "Project files: no common build manifest at the workspace root (no package.json, Cargo.toml, pyproject.toml, go.mod…). Discover how this project builds and tests before running anything; do not assume a toolchain.";
+    return "Project files: no common build manifest at the workspace root. Find out how this project builds and tests before running anything.";
   }
-  return `Project files at the workspace root: ${found.map((n) => `\`${n}\``).join(", ")}. Take the project's commands from these; do not assume other manifests (for example \`package.json\`) exist.`;
+  return `Project files at the workspace root: ${found.map((n) => `\`${n}\``).join(", ")}. Take the project's commands from these.`;
 }

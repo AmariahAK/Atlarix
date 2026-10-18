@@ -8,6 +8,8 @@ export function formatModelApiNameForDisplay(apiName: string): string {
   const parts = raw.split("/");
   const modelName = parts[parts.length - 1] || raw;
   return modelName
+    // A version written with dashes reads as one: claude-sonnet-4-6 → 4.6, not "4 6".
+    .replace(/(?<=\b\d)-(?=\d\b)/g, ".")
     .replace(/-/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .replace(/Gpt/g, "GPT")

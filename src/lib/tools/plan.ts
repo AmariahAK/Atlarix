@@ -604,16 +604,10 @@ async function appendStep(args: PlanToolArgs) {
 ToolRegistry.register({
   name: "plan",
   description:
-    "Session implementation plan + LIVE progress ledger (stored in the database, shown as a card in chat). Keep it current: mark a step in_progress when you start it and done when you finish, and consult it before deciding your next action instead of re-deriving progress. For the mutation ops, planId is OPTIONAL — the session's latest plan is assumed. Operations: " +
-    "'write' (create OR update the plan markdown — the CANONICAL way to update progress when several steps changed or you're unsure of numbering: re-emit the full plan with updated [x]/[~]/[!] marks, which is always safe and cannot miss. Include the returned marker comment in your reply so the card renders; pass planId to update a specific plan. " +
-    'When CREATING a plan you must also pass `title` — a short imperative name for this plan, shown as its heading in the UI and how you tell it apart from other plans in the session. Do not use a section heading like "Goal" or "Overview"), ' +
-    "'read' (latest plan, or by planId / title / status filter — re-read before continuing if the user may have edited the plan), " +
-    "'set_status' (plan_status: plan → building → built), " +
-    "'update_step' (convenience for marking ONE step: state in_progress|done|todo|blocked|external + step_text (preferred — a unique substring of the step) or step_index. " +
-    "Use 'external' for a step only the USER can do — a dashboard action, a purchase, hardware you don't have, a manual check — with a required `reason` saying what they must do; you are then DONE with that step and must not re-attempt it. " +
-    "Use 'blocked' when you tried and are stuck, with the reason in your reply. Neither state holds the turn open, so once no step is todo/in_progress you should verify your work, say what's left for the user, and finish. " +
-    "(Use ask_user instead when you need an answer to CONTINUE right now; 'external' is for handing a step over and moving on.)), " +
-    "'append_step' (step_text — add a new checklist item).",
+    "The session's plan and live progress ledger, shown to the user as a card. planId is optional; the latest plan is assumed. Operations: " +
+    "'write' creates or updates the plan markdown (re-emitting it with [x]/[~]/[!] marks is always a safe way to update progress); a new plan needs a short imperative `title`, and your reply must include the marker comment it returns so the card renders. " +
+    "'read' returns the plan (re-read it if the user may have edited it). 'set_status': plan → building → built. 'append_step' adds a step. " +
+    "'update_step' marks one step (step_text preferred over step_index) in_progress, done, todo, blocked (you tried and are stuck) or external (only the user can do it; give a `reason`, then leave it). Once no step is todo or in_progress, finish.",
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
@@ -642,8 +636,7 @@ ToolRegistry.register({
       title: {
         type: "string",
         description:
-          'write: REQUIRED when creating a plan. A short imperative name for THIS plan, so it can be told apart from other plans in the same session (e.g. "Fix cross-window sandbox mode"). Not a section heading, not "Goal", not a restatement of the request. ' +
-          "On every OTHER operation title instead ADDRESSES a plan by name, so you can say which plan you mean without carrying its id. planId wins if you pass both; if two plans share the title the call fails and names both ids.",
+          'write: required for a new plan, a short imperative name (e.g. "Fix cross-window sandbox mode"). Other operations: addresses a plan by name (planId wins if both are given).',
         required: false,
       },
       planId: {

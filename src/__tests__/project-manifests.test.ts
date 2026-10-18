@@ -16,12 +16,12 @@ afterEach(() => {
 });
 
 describe("the project's own manifests, named in the prompt", () => {
-  it("names what is at the root, and says not to assume package.json", () => {
+  it("names what is at the root, and only that (it once named package.json while saying not to assume it)", () => {
     const d = workspace(["Cargo.toml", "Makefile", "README.md"]);
     expect(rootManifests(d)).toEqual(["Cargo.toml", "Makefile"]);
     const hint = projectManifestsHint(d);
     expect(hint).toContain("`Cargo.toml`, `Makefile`");
-    expect(hint).toContain("do not assume");
+    expect(hint).not.toContain("package.json");
   });
 
   it("says when there is no manifest at all", () => {

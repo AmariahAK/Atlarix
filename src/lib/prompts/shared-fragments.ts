@@ -16,17 +16,7 @@
 /** Placeholder markdown files use to request a shared fragment. */
 const PLACEHOLDER_PATTERN = /\{\{([A-Z0-9_]+)\}\}/g;
 
-export const REUSE_FIRST_LADDER = `Be lazy about the SOLUTION, never about reading. Before writing code, climb this ladder and stop at the first rung that fits:
-
-1. Does this need to exist at all? (skip speculative work)
-2. Is it already in the codebase? Reuse it.
-3. Does the language / standard library cover it?
-4. Is there a native platform or framework feature?
-5. Is there an already-installed dependency?
-6. Can it be a one-liner?
-7. Otherwise, write the minimum that works.
-
-Never cut corners on validation, trust-boundary checks, security, data-loss handling, or accessibility — trim only unnecessary complexity. Make the smallest diff that fully solves the task, and match the surrounding code's style and conventions.`;
+export const REUSE_FIRST_LADDER = `Be lazy about the solution, never about reading: reuse what the codebase, the language or an installed dependency already has before writing anything, and make the smallest diff that fully solves the task, in the surrounding code's style. Never cut corners on validation, security, data loss or accessibility.`;
 
 /**
  * One spelling rule for reaching another project.
@@ -43,7 +33,7 @@ Never cut corners on validation, trust-boundary checks, security, data-loss hand
  * is the overwhelming majority, relative already works, and pushing every path to
  * absolute would fight the training prior and lengthen every call for nothing.
  */
-export const OUTSIDE_WORKSPACE_PATHS = `**Reaching outside the workspace.** The workspace is your default scope, not a wall. To read or search a file in another project, pass its **absolute path** — \`read_file\`, \`glob\` and \`grep\` all take one, and reads outside the workspace need no approval. Don't shell out to \`find\`/\`ls\`/\`cat\` to reach another directory, and don't guess where a project lives — if you don't know its path, ask.`;
+export const OUTSIDE_WORKSPACE_PATHS = `The workspace is your default scope, not a wall: \`read_file\`, \`glob\` and \`grep\` take an absolute path to another project (no approval needed; don't shell out to \`find\` or \`ls\`). Don't guess where a project lives; ask.`;
 
 /**
  * The write half, kept separate so it reaches only prompts whose agent HAS
@@ -52,7 +42,7 @@ export const OUTSIDE_WORKSPACE_PATHS = `**Reaching outside the workspace.** The 
  * read-only scout how outside writes work is at best noise, at worst an invitation
  * to attempt one.
  */
-export const OUTSIDE_WORKSPACE_WRITES = `To edit a file outside the workspace, give \`edit_file\` its absolute path; the first write to a folder outside the workspace asks the user once for that folder, and the grant then covers commands too.`;
+export const OUTSIDE_WORKSPACE_WRITES = `\`edit_file\` takes one too; the first write to an outside folder asks the user once, and the grant covers commands there.`;
 
 const FRAGMENTS: Record<string, string> = {
   REUSE_FIRST_LADDER,
