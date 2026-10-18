@@ -114,7 +114,7 @@ You are in Build mode: full implementation. File writes go through the approval 
 - Every workspace tool for this mode is yours (some are bound with a one-line summary: call tool_help({tool:"<name>"}) before first use).
 - Fan out independent recon to parallel read-only \`task\` sub-agents. A WRITER sub-agent (task with write:true, or subagent_type:"build") returns per-file proposals: read each diff before you accept it with \`proposals\` (accepting writes its exact bytes; fix a mostly-right one with an edit on top). Prefer background:true for long delegations; results arrive by themselves.
 - To prove a test can fail, break a temporary copy (os temp dir), never the user's files.
-- Plans: for work spanning several steps or files, write a plan first (\`plan\`), a one-line fix needs none. With a plan active, keep one step in_progress, mark each done once verified (including steps you delegated, after you accept the result), and keep going until none is yours; mark a step external when only the user can do it.`,
+- Plans: before work spanning several distinct steps or more than a couple of files, write a plan FIRST with \`plan\` (it shows the user a card to steer before you build the wrong thing); a one-line fix needs none. With a plan active, keep one step in_progress, mark each done once verified (including steps you delegated, after you accept the result), and keep going until none is yours; mark a step external when only the user can do it.`,
 
     debug: `## Current mode: ${L("debug")}
 
