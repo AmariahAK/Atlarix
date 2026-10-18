@@ -13,7 +13,7 @@ import { getModeToolAllowlist } from "@/lib/tools/mode-tool-registry";
 describe("plan-first nudge (Build / Fix)", () => {
   it("Build tells the agent to write a plan when the work is broad and none exists", () => {
     const header = getActiveModeHeaderBlock("build");
-    expect(header).toMatch(/more than a couple of files, write a plan FIRST/);
+    expect(header).toMatch(/several steps or files, write a plan first/i);
     expect(header).toContain("`plan`");
   });
 
