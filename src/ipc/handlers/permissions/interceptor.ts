@@ -800,6 +800,17 @@ export class PermissionInterceptor extends EventEmitter {
         error: `Operation ${operationId} not found`,
       };
     }
+    // Decided once. A rule just saved can approve the operations already
+    // waiting (applyNewRuleToPendingOperations), and a second answer to the
+    // same card, still on screen, ran the write again (owner, CLI, 2026-10-19:
+    // src/index.tsx written twice, two seconds apart).
+    if (operation.status !== "pending") {
+      return {
+        operationId,
+        approved: operation.status === "approved" || operation.status === "executed",
+        error: `Operation ${operationId} was already ${operation.status}`,
+      };
+    }
 
     const request = operation.request;
 

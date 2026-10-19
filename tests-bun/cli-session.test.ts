@@ -184,6 +184,25 @@ describe("AgentSession", () => {
     expect(cells.map((c: any) => c.kind)).toEqual(["tool", "user", "markdown", "footer"]);
   }, 60_000);
 
+  it("a card a saved rule already answered leaves the screen (allow edits in src/)", async () => {
+    // Two edits in src/ asked together; "allow edits in src/" on the first
+    // approved the second at once, but its card stayed and was answered again
+    // (owner, 2026-10-19). The interceptor says so on `operation-status`.
+    const { AgentSession } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws }) as any;
+    s.onSend("permission-request", { operationId: "op_a", request: { operation: "edit_file", preview: { path: "src/app.tsx" } } });
+    s.onSend("permission-request", { operationId: "op_b", request: { operation: "edit_file", preview: { path: "src/index.tsx" } } });
+    expect(s.state.approvals.map((a: any) => a.operationId)).toEqual(["op_a", "op_b"]);
+    s.onSend("operation-status", { operationId: "op_b", status: "running" });
+    expect(s.state.approvals.map((a: any) => a.operationId)).toEqual(["op_a"]);
+    // Still waiting is still a question.
+    s.onSend("operation-status", { operationId: "op_a", status: "pending" });
+    s.onSend("operation-status", { operationId: "op_a", status: "queued" });
+    expect(s.state.approvals.map((a: any) => a.operationId)).toEqual(["op_a"]);
+    s.onSend("operation-status", { operationId: "op_a", status: "completed" });
+    expect(s.state.approvals).toEqual([]);
+  }, 60_000);
+
   it("thinking and the answer reach the screen as they stream, though main keeps writing the row it sent", async () => {
     // Main runs in this process: the row in its first full list is the object it
     // goes on writing. Shared, each patch found its text already there and was

@@ -1608,6 +1608,12 @@ export class AgentSession extends EventEmitter {
       case "permission-request":
         this.addApproval(p);
         return;
+      // An operation decided without this card: a rule saved on another card
+      // approved it (allow edits in src/), so the card is no longer a question.
+      // Left on screen, it was answered again (owner, 2026-10-19).
+      case "operation-status":
+        if (p.status !== "pending" && p.status !== "queued") this.dropApproval(String(p.operationId ?? ""));
+        return;
       case "chat:response:chunk": {
         if (this.state.retrying) this.update({ retrying: null });
         if (p.type === "permission-request") {
@@ -1815,6 +1821,11 @@ export class AgentSession extends EventEmitter {
       default:
         return;
     }
+  }
+
+  private dropApproval(operationId: string): void {
+    if (!operationId || !this.state.approvals.some((a) => a.operationId === operationId)) return;
+    this.update({ approvals: this.state.approvals.filter((a) => a.operationId !== operationId) });
   }
 
   private addApproval(p: Record<string, unknown>): void {
