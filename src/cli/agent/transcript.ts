@@ -17,6 +17,7 @@ import {
   type AssistantMessagePart,
 } from "@/lib/chat/assistant-message-parts";
 import { stripQuestionsArtifactForDisplay } from "@/lib/chat/ask-user-artifacts";
+import { extractInlineSourcesFromContent } from "@/lib/chat/citation-sources";
 
 export interface ChatMessageLike {
   id: number | string;
@@ -610,6 +611,25 @@ function shownOutput(toolName: string, text: string): string | undefined {
 const cellCache = new Map<string, { content: string; model: string | null; cells: Cell[] }>();
 const CELL_CACHE_MAX = 2_000;
 
+/** The sources tag, whole or still arriving at the end of a streamed reply. */
+const SOURCES_TAG = /<atlarix-sources>[\s\S]*?(?:<\/atlarix-sources>|$)/g;
+
+/** "Sources" and one link per source, its site after it when the title does not say. */
+function sourcesText(sources: ReadonlyArray<{ url: string; title?: string }>): string {
+  const lines = sources.map((s) => {
+    let host = "";
+    try {
+      host = new URL(s.url).hostname.replace(/^www\./, "");
+    } catch {
+      /* not a URL we can name */
+    }
+    const title = (s.title || host || s.url).replace(/[[\]]/g, "");
+    const site = host && !title.toLowerCase().includes(host.toLowerCase()) ? ` · ${host}` : "";
+    return `- [${title}](${s.url})${site}`;
+  });
+  return `**Sources**\n${lines.join("\n")}`;
+}
+
 function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
   const key = `${m.role}:${m.id}`;
   if (!live) {
@@ -663,7 +683,13 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
     }
   } else if (m.role === "assistant") {
     // The pending-questions marker is for the desktop's card; the CLI asks them in a dialog.
-    const content = stripQuestionsArtifactForDisplay(m.content);
+    const withSources = stripQuestionsArtifactForDisplay(m.content);
+    // A provider's own web search ends the reply with `<atlarix-sources>[…]`,
+    // which the desktop draws as citation chips; drawn as text it was a wall of
+    // JSON under the answer (owner, 2026-10-19). Listed as links instead, and a
+    // tag still arriving is hidden until it is whole.
+    const sources = extractInlineSourcesFromContent(withSources);
+    const content = withSources.replace(SOURCES_TAG, "").replace(/\s+$/, "");
     parseAssistantMessageParts(content, live).forEach((p, i) => {
       const id = `${base}:${i}`;
       if (p.type === "markdown") {
@@ -674,6 +700,7 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
         cells.push({ kind: "tool", id: `${base}:t:${p.id}`, tool: toolLine(p) });
       }
     });
+    if (sources.length) cells.push({ kind: "markdown", id: `${base}:sources`, text: sourcesText(sources) });
   }
   if (!live) {
     if (cellCache.size >= CELL_CACHE_MAX) cellCache.delete(cellCache.keys().next().value!);
