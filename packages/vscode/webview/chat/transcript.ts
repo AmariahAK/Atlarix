@@ -12,6 +12,7 @@ import { diffRows } from "../logic";
 import { post, rpc } from "../rpc";
 import { state } from "../state";
 import { button, el, icon, rixGlyph } from "../ui";
+import { addCodeCopyButtons } from "./code-copy";
 import { drawFence } from "./diagrams";
 import { resetSubagents, upsertSubagent, type SubagentMeta } from "./subagents";
 
@@ -243,11 +244,17 @@ export function tagLastUser(messageId: number): void {
 
 // --- Replies and thinking --------------------------------------------------------
 
+/** Markdown, with a copy button on each code block. */
+function renderReply(body: HTMLElement, markdown: string): void {
+  renderMarkdown(body, markdown, { fence: drawFence });
+  addCodeCopyButtons(body, (text) => post({ type: "copy", text }));
+}
+
 function flushRender(): void {
   renderQueued = false;
   if (!current) return;
   const body = current.el.querySelector<HTMLElement>(".body")!;
-  if (current.kind === "reply") renderMarkdown(body, current.text, { fence: drawFence });
+  if (current.kind === "reply") renderReply(body, current.text);
   else {
     body.textContent = current.text.trim();
     current.el.dataset.text = current.text;
@@ -484,7 +491,7 @@ function stepsGroup(): HTMLElement {
 function planStep(step: HTMLElement, markdown: string): HTMLElement {
   const box = el("div", "plan-step");
   const body = el("div", "plan-step__body body md");
-  renderMarkdown(body, markdown, { fence: drawFence });
+  renderReply(body, markdown);
   step.classList.add("plan-step__head");
   step.addEventListener("click", () => box.classList.toggle("folded"));
   box.append(step, body);
