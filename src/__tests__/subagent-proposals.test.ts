@@ -13,7 +13,7 @@
  *     than guess when the file moved underneath.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -242,6 +242,7 @@ describe("accepting through the proposals tool", () => {
   beforeEach(() => {
     ws = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-accept-"));
   });
+  afterEach(() => fs.rmSync(ws, { recursive: true, force: true }));
 
   it("returns an edit_file permission envelope carrying the exact proposed bytes", async () => {
     await import("@/lib/tools/index");
@@ -418,6 +419,7 @@ describe("sequential edits through the real edit_file tool", () => {
   beforeEach(() => {
     ws = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-seq-"));
   });
+  afterEach(() => fs.rmSync(ws, { recursive: true, force: true }));
 
   /** What run-subagent's tool funnel does: execute, then capture the envelope. */
   /**

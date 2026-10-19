@@ -169,3 +169,69 @@ describe("app open takes the remainder, but never what this run is using", () =>
     expect(await sweep({ includeLive: true })).toBe(1);
   });
 });
+
+describe("several Atlarix processes at once (app, CLI, editors, headless)", () => {
+  // A process that is certainly running (the one that started this test), and
+  // one that certainly is not (it ran and exited).
+  const livePid = process.ppid;
+  const deadPid = (() => {
+    const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+    return spawnSync(process.execPath, ["-e", ""]).pid!;
+  })();
+  const lease = (pid: number) => {
+    const dir = mkdir(__testing.LEASES_DIR_NAME);
+    const p = path.join(dir, `${pid}.json`);
+    fs.writeFileSync(p, JSON.stringify({ pid, surface: "cli" }));
+    return p;
+  };
+  const age = (p: string, ms: number) => {
+    const t = new Date(Date.now() - ms);
+    fs.utimesSync(p, t, t);
+  };
+
+  it("quitting keeps the shared dirs while another Atlarix is still running", async () => {
+    // The app quitting used to delete atlarix-scratch under a CLI session.
+    lease(livePid);
+    const scratch = mkdir("atlarix-scratch");
+    const attachments = mkdir("atlarix-attachments");
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(scratch)).toBe(true);
+    expect(fs.existsSync(attachments)).toBe(true);
+  });
+
+  it("keeps a fresh leftover another process may have just made; takes an old one", async () => {
+    lease(livePid);
+    const fresh = mkdir("atlarix-view-image-fresh");
+    const old = mkdir("atlarix-view-image-old");
+    age(old, 2 * 60 * 60 * 1000);
+    await sweep({ includeLive: false });
+    expect(fs.existsSync(fresh)).toBe(true);
+    expect(fs.existsSync(old)).toBe(false);
+  });
+
+  it("ignores, and removes, the lease of a process that has ended", async () => {
+    const stale = lease(deadPid);
+    const scratch = mkdir("atlarix-scratch");
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(scratch)).toBe(false);
+    expect(fs.existsSync(stale)).toBe(false);
+  });
+
+  it("never sweeps the leases themselves", async () => {
+    const own = lease(livePid);
+    age(path.dirname(own), 30 * 24 * 60 * 60 * 1000);
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(own)).toBe(true);
+  });
+
+  it("a process's own lease does not protect its dirs from its own exit sweep", async () => {
+    const { registerTempLease, sweepTempOnQuit } = await import("@/main/temp-hygiene");
+    registerTempLease("cli");
+    const mine = path.join(fakeTmp, __testing.LEASES_DIR_NAME, `${process.pid}.json`);
+    expect(fs.existsSync(mine)).toBe(true);
+    const scratch = mkdir("atlarix-scratch");
+    await sweepTempOnQuit();
+    expect(fs.existsSync(mine)).toBe(false);
+    expect(fs.existsSync(scratch)).toBe(false);
+  });
+});

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { vi } from "vitest";
+import { afterAll, vi } from "vitest";
 import { setAgentMemoryRootOverride } from "@/lib/agent-memory";
 
 /**
@@ -17,9 +17,25 @@ import { setAgentMemoryRootOverride } from "@/lib/agent-memory";
  * every file in the node project, so a future test cannot reintroduce the leak by
  * exercising a code path that writes a note. Individual suites may still override it.
  */
-setAgentMemoryRootOverride(
-  fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-vitest-memory-")),
-);
+const VITEST_MEMORY_PREFIX = "atlarix-vitest-memory-";
+const vitestMemoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), VITEST_MEMORY_PREFIX));
+setAgentMemoryRootOverride(vitestMemoryRoot);
+// One per test file, every run: 3,418 were left in the temp folder by 2026-10-19.
+afterAll(() => fs.rmSync(vitestMemoryRoot, { recursive: true, force: true }));
+// A file whose tests never run (all skipped) gets no afterAll: its root is taken
+// by a later run instead. Only this test-only prefix, and only an hour old, so a
+// suite running in parallel keeps its own.
+try {
+  for (const name of fs.readdirSync(os.tmpdir())) {
+    if (!name.startsWith(VITEST_MEMORY_PREFIX)) continue;
+    const full = path.join(os.tmpdir(), name);
+    if (Date.now() - fs.statSync(full).mtimeMs > 60 * 60 * 1000) {
+      fs.rmSync(full, { recursive: true, force: true });
+    }
+  }
+} catch {
+  /* best effort */
+}
 
 /**
  * Tests NEVER write to the app's real log file.

@@ -22,7 +22,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 import {
   BRIDGE_ALLOWED_ORIGIN,
@@ -39,9 +39,15 @@ import {
   wrapperScript,
 } from "@/lib/bridge/host-install";
 
+const homes: string[] = [];
 async function tempHome(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "atlarix-bridge-home-"));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-bridge-home-"));
+  homes.push(home);
+  return home;
 }
+afterAll(async () => {
+  await Promise.all(homes.map((h) => fs.rm(h, { recursive: true, force: true })));
+});
 
 /**
  * Windows has no POSIX permission bits.

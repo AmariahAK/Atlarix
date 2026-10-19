@@ -122,6 +122,10 @@ async function main() {
     console.log(RUN_HELP);
     process.exit(0);
   }
+  // A lease only, no sweep: an app, CLI or editor quitting meanwhile must not
+  // take the scratch directory this run is working in (temp-hygiene.ts).
+  const { registerTempLease } = await import("../main/temp-hygiene");
+  registerTempLease("headless");
 
   const workspace = arg("workspace") ?? process.cwd();
   const promptFile = arg("prompt-file");

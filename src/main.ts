@@ -91,10 +91,7 @@ import { killAllPtys } from "./lib/pty/pty-session-manager";
 import { shutdownHiddenPages } from "./lib/browser/headless-page";
 import { __setDevCoreKeyProvider } from "./ipc/shared/compass_constants";
 import { getDevCoreApiKey, getDevCoreModelId } from "./ipc/utils/dev_core_env";
-import {
-  scheduleStartupTempSweep,
-  startPeriodicTempSweep,
-} from "./main/temp-hygiene";
+import { startTempHygiene } from "./main/temp-hygiene";
 
 // Every Atlarix app on this computer (QA's scratch profiles too) writes this one
 // file, and electron-log's 1 MB default rotated it every ~15 minutes, so a
@@ -576,14 +573,11 @@ export async function onReady() {
   }
 
   createWindow();
-  // APP OPEN: take whatever the last APP CLOSE did not, because a close can be
-  // skipped by a crash, a kill -9 or a forced reboot — and Windows never cleans
-  // %TEMP% itself. Deferred so the user is never waiting on it. Neither pass can
-  // touch the directories this run holds open; only the quit sweep takes those.
-  scheduleStartupTempSweep();
-  // And a slow timer for an app left running for days, where open has already
-  // happened and close has not happened yet.
-  startPeriodicTempSweep();
+  // APP OPEN: hold a temp lease (the CLI and editors share our temp dirs), take
+  // whatever the last close did not (a crash, a kill -9, a forced reboot — and
+  // Windows never cleans %TEMP% itself), and keep a slow timer for an app left
+  // running for days. Deferred, so the user never waits on it.
+  startTempHygiene("app");
 
   /**
    * INVARIANT: window creation must NEVER await a network call.
@@ -2174,8 +2168,8 @@ app.on("before-quit", (e) => {
       }
       // LAST, deliberately: the steps above can still be writing into our temp
       // directories (attachment spill, a background job's output), so sweeping
-      // before them would delete files that are then recreated. Single-instance
-      // lock means nothing else is using them by now.
+      // before them would delete files that are then recreated. A CLI or editor
+      // session still running holds a lease, and keeps what it shares.
       try {
         const { sweepTempOnQuit } = await import("./main/temp-hygiene");
         await sweepTempOnQuit();

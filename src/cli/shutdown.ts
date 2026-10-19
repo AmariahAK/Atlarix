@@ -60,6 +60,9 @@ export async function shutdownCli(code = 0): Promise<never> {
     await withTimeout(flushAndClose(), 800);
     const { drainPendingWork } = await import("@/lib/pending-work");
     await withTimeout(drainPendingWork(), 500);
+    // After everything that could still write a temp file (as the app's quit).
+    const { sweepTempOnQuit } = await import("@/main/temp-hygiene");
+    await withTimeout(sweepTempOnQuit(), 600);
     const { beginDatabaseClosing } = await import("@/db");
     beginDatabaseClosing();
   } catch (e) {
@@ -82,6 +85,11 @@ let guardsInstalled = false;
 export function installProcessGuards(): void {
   if (guardsInstalled) return;
   guardsInstalled = true;
+  // Temp files, as the app does: hold a lease on the shared temp dirs, take
+  // what a previous run left (Windows never cleans %TEMP%), sweep at exit.
+  void import("@/main/temp-hygiene")
+    .then((m) => m.startTempHygiene(process.env.ATLARIX_REPORT_SURFACE ?? "cli"))
+    .catch(() => {});
   const survive = (kind: string) => async (reason: unknown) => {
     try {
       const { isStreamStopAbort } = await import("@/lib/stream/stream-stop-sentinels");

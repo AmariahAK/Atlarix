@@ -59,6 +59,85 @@ const LIVE_WHILE_RUNNING = new Set([
 const OTHER_PROCESS_PREFIX = "atlarix-headless";
 const OTHER_PROCESS_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Which Atlarix processes are running right now: one file per process,
+ * `<pid>.json`, written at start and removed at exit. Never swept itself.
+ *
+ * WHY. The app, the CLI, an editor's ACP process (our VS Code panel included)
+ * and headless runs all share `atlarix-scratch` and `atlarix-attachments`, and
+ * only the app used to clean. So the terminal and editors left their temp files
+ * to the OS (never cleaned on Windows), and quitting the app deleted the scratch
+ * directory of a CLI session still working in it. Each process now holds a
+ * lease, and a directory another live process may be using is left alone.
+ *
+ * A process that died without removing its file (kill -9, a crash) is found by
+ * its pid no longer running, and its file is removed. A reused pid reads as
+ * alive, which only means keeping files longer: the safe direction.
+ */
+const LEASES_DIR_NAME = `${ATLARIX_TEMP_PREFIX}leases`;
+/** While another Atlarix runs, a directory younger than this may be its. */
+const OTHER_HOLDER_MIN_AGE_MS = 60 * 60 * 1000;
+
+function leasesDir(): string {
+  return path.join(os.tmpdir(), LEASES_DIR_NAME);
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM: running, as another user. Anything else (ESRCH): gone.
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+let leasePath: string | null = null;
+
+/** This process may be using the shared temp directories, until it exits. */
+export function registerTempLease(surface: string): void {
+  if (leasePath) return;
+  try {
+    fs.mkdirSync(leasesDir(), { recursive: true });
+    const p = path.join(leasesDir(), `${process.pid}.json`);
+    fs.writeFileSync(p, JSON.stringify({ pid: process.pid, surface, since: Date.now() }));
+    leasePath = p;
+    process.once("exit", releaseTempLease);
+  } catch (e) {
+    logger.warn(`could not write temp lease: ${String(e)}`);
+  }
+}
+
+export function releaseTempLease(): void {
+  if (!leasePath) return;
+  try {
+    fs.rmSync(leasePath, { force: true });
+  } catch {
+    /* the file goes stale and the next sweep removes it */
+  }
+  leasePath = null;
+}
+
+/** How many OTHER Atlarix processes are running; ended ones' files are removed. */
+async function otherLiveHolders(): Promise<number> {
+  let names: string[];
+  try {
+    names = await fsp.readdir(leasesDir());
+  } catch {
+    return 0;
+  }
+  let live = 0;
+  for (const name of names) {
+    const m = /^(\d+)\.json$/.exec(name);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    if (pid === process.pid) continue;
+    if (isAlive(pid)) live++;
+    else await fsp.rm(path.join(leasesDir(), name), { force: true }).catch(() => {});
+  }
+  return live;
+}
+
 export type SweepOptions = {
   /**
    * Include the directories this process holds open. True only at quit, when
@@ -69,6 +148,7 @@ export type SweepOptions = {
 
 async function sweepTempDirs(opts: SweepOptions): Promise<number> {
   const root = os.tmpdir();
+  const others = await otherLiveHolders();
   let removed = 0;
   let entries: fs.Dirent[];
   try {
@@ -84,13 +164,19 @@ async function sweepTempDirs(opts: SweepOptions): Promise<number> {
     // `isDirectory()` is false for a symlink in a Dirent, so this also rejects
     // one pointing at a directory elsewhere.
     if (!entry.isDirectory()) continue;
-    if (!opts.includeLive && LIVE_WHILE_RUNNING.has(entry.name)) continue;
+    if (entry.name === LEASES_DIR_NAME) continue;
+    // Shared by every running Atlarix: taken only at exit, and only by the last.
+    if (LIVE_WHILE_RUNNING.has(entry.name) && (!opts.includeLive || others > 0)) continue;
 
     const full = path.join(root, entry.name);
     try {
       if (entry.name.startsWith(OTHER_PROCESS_PREFIX)) {
         const stat = await fsp.stat(full);
         if (Date.now() - stat.mtimeMs < OTHER_PROCESS_MIN_AGE_MS) continue;
+      } else if (others > 0 && !LIVE_WHILE_RUNNING.has(entry.name)) {
+        // Another Atlarix is running and may have made this a moment ago.
+        const stat = await fsp.stat(full);
+        if (Date.now() - stat.mtimeMs < OTHER_HOLDER_MIN_AGE_MS) continue;
       }
       await fsp.rm(full, { recursive: true, force: true });
       removed++;
@@ -109,6 +195,8 @@ async function sweepTempDirs(opts: SweepOptions): Promise<number> {
  * because by quit time nothing of ours is still writing them.
  */
 export async function sweepTempOnQuit(): Promise<void> {
+  // This process is done with them; another one still running keeps them.
+  releaseTempLease();
   const removed = await sweepTempDirs({ includeLive: true });
   if (removed > 0) logger.info(`removed ${removed} temp director(ies) on quit`);
 }
@@ -161,5 +249,16 @@ export function startPeriodicTempSweep(
   return t;
 }
 
+/**
+ * Everything a process does at start: hold a lease, take what a previous run
+ * left, and keep a slow timer. Every surface calls it (app, CLI, ACP), and
+ * `sweepTempOnQuit` at its exit.
+ */
+export function startTempHygiene(surface: string): void {
+  registerTempLease(surface);
+  scheduleStartupTempSweep();
+  startPeriodicTempSweep();
+}
+
 /** Exported for tests — the predicate is the whole safety argument. */
-export const __testing = { sweepTempDirs, LIVE_WHILE_RUNNING };
+export const __testing = { sweepTempDirs, LIVE_WHILE_RUNNING, LEASES_DIR_NAME, otherLiveHolders };

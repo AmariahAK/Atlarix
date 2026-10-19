@@ -377,6 +377,9 @@ async function main(): Promise<void> {
       startBridge: () => void startCliBridge(),
       chromeStatus,
     });
+    // The editor closed the connection: the CLI's exit sweep, bounded.
+    const { sweepTempOnQuit } = await import("../main/temp-hygiene");
+    await Promise.race([sweepTempOnQuit().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
     process.exit(0);
   }
   if (argv[0] === "keys") {
