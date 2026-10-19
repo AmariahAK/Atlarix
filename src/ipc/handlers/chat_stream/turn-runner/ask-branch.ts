@@ -38,7 +38,6 @@ import { getModeToolAllowSets } from "@/lib/tools/mode-tool-registry";
 import { isReadOnlyWorkMode, toolExecutionChatMode } from "@/lib/work-mode";
 import { constructSystemPromptParts } from "@/prompts/system_prompt";
 import { memoryDirFor } from "@/lib/agent-memory";
-import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { estimateTokens, getContextWindow } from "@/ipc/utils/token_utils";
 import {
@@ -429,7 +428,7 @@ export async function runAskBranch(
             });
             try {
               const providerId =
-                getEffectiveModelForOptions(settings)?.provider ??
+                effectiveModel?.provider ??
                 settings.selectedModel?.provider ??
                 undefined;
               const { executeCompressContext } = await import(

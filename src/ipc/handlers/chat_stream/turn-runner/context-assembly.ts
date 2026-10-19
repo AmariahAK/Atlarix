@@ -16,7 +16,6 @@ import type { ModelMessage } from "ai";
 import type { ChatContextReport, ChatStreamParams } from "@/ipc/ipc_types";
 import type { UserSettings, LargeLanguageModel } from "@/lib/schemas";
 import type { ContextSection } from "@/lib/context/ContextAssembler";
-import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
 
 import { estimateTokens } from "@/ipc/utils/token_utils";
@@ -133,7 +132,7 @@ export async function runContextAssembly(
     status?: string;
   }> => {
     const providerId =
-      getEffectiveModelForOptions(settings)?.provider ??
+      effectiveModel?.provider ??
       settings.selectedModel?.provider ??
       undefined;
     const { executeCompressContext } = await import("@/lib/tools/workspace");

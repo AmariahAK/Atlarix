@@ -35,13 +35,6 @@ export function getEffectiveModel(settings: UserSettings): LargeLanguageModel {
   return settings.selectedModel;
 }
 
-/** Model used for token/temperature options. */
-export function getEffectiveModelForOptions(
-  settings: UserSettings,
-): LargeLanguageModel {
-  return settings.selectedModel;
-}
-
 import { getEnvVar } from "./read_env";
 import log from "electron-log";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";

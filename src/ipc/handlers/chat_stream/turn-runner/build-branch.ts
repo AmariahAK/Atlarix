@@ -37,7 +37,6 @@ import { ToolRegistry } from "@/lib/tools";
 import { isReadOnlyWorkMode, toolExecutionChatMode } from "@/lib/work-mode";
 import { captureSafe } from "@/main/lib/analytics";
 import { type ChatContextReport } from "@/ipc/ipc_types";
-import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { cwdNoteForCommand } from "@/lib/commands/cwd-note";
 import { estimateTokens } from "@/ipc/utils/token_utils";
@@ -510,7 +509,7 @@ export async function runBuildBranch(
 
             try {
               const providerId =
-                getEffectiveModelForOptions(settings)?.provider ??
+                effectiveModel?.provider ??
                 settings.selectedModel?.provider ??
                 undefined;
               const { executeCompressContext } = await import(

@@ -17,10 +17,7 @@ import type { ChatStreamParams } from "@/ipc/ipc_types";
 import type { AgenticRepetitionState } from "@/lib/streaming/agentic-loop-repetition";
 import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
-import {
-  getEffectiveModelForOptions,
-  type ModelClient,
-} from "@/ipc/utils/get_model_client";
+import type { ModelClient } from "@/ipc/utils/get_model_client";
 import {
   reasoningTokensFromAiUsage,
   totalTokensFromAiUsage,
@@ -205,15 +202,12 @@ export async function simpleStreamText(
   const forceCollectOnWake =
     deps.forceCollectOnWake && !ctx.forcedToolChoiceRejected;
   logger.log("sending AI request");
-  const optionsModel = getEffectiveModelForOptions(settings);
   const thinkingTier = enableNativeReasoning;
   // Resolve the max output tokens ONCE — reused to scale the reasoning
   // budget (below) AND as streamText's maxOutputTokens (~line 3953),
   // avoiding a duplicate catalog lookup.
   const maxOutputTokens = await preflight.time("max-tokens", () =>
-    getMaxTokensWithFloor(optionsModel, {
-      reasoningCapable: enableNativeReasoning,
-    }),
+    maxOutputTokensForTurn(deps),
   );
   // Per-provider buckets only. Two inherited keys used to open this
   // object, addressed to the removed hosted engine and its upstream
@@ -461,7 +455,7 @@ export async function simpleStreamText(
   // and getTemperature defaults to 0 — see shouldOmitTemperature.
   const temperature = shouldOmitTemperature(providerOptions)
     ? undefined
-    : await preflight.time("temperature", () => getTemperature(optionsModel));
+    : await preflight.time("temperature", () => temperatureForTurn(deps));
 
   ttftStartRef.ms = Date.now();
   // v10.1 perf: time from workspace open to the first prompt dispatch.
@@ -1230,6 +1224,28 @@ export function isProviderRefusal(error: unknown): boolean {
     | number
     | undefined;
   return status != null && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429;
+}
+
+/**
+ * A turn's max output tokens, for the model the turn runs on. Not
+ * `settings.selectedModel`: that is the desktop app's choice, and a CLI, editor,
+ * user-agent or sub-agent turn runs on its own. With the app on DeepSeek V4
+ * (393,216) a Claude Haiku 5.5 turn (128,000) asked for DeepSeek's limit and
+ * Anthropic refused every request (owner, 2026-10-19).
+ */
+export async function maxOutputTokensForTurn(
+  deps: Pick<SimpleStreamTextDeps, "settings" | "effectiveModel" | "enableNativeReasoning">,
+): Promise<number> {
+  return getMaxTokensWithFloor(deps.effectiveModel, {
+    reasoningCapable: deps.enableNativeReasoning,
+  });
+}
+
+/** The temperature for the turn's own model, for the same reason (Haiku 5.5 takes none). */
+export async function temperatureForTurn(
+  deps: Pick<SimpleStreamTextDeps, "settings" | "effectiveModel">,
+): Promise<number | undefined> {
+  return getTemperature(deps.effectiveModel);
 }
 
 export type SimpleStreamTextBundle = Awaited<
