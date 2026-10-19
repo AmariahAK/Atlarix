@@ -301,6 +301,10 @@ describe("the session's commands", () => {
     const last = JSON.stringify(llm.requests.filter((r: any) => r.tools?.length).at(-1)?.messages ?? []);
     expect(last).toContain("leave n alone");
     expect(last).not.toContain("now 2");
+    // A new first message is a new title (owner, 2026-10-19), as in the app.
+    // (No title model here: the title is made from the words.)
+    await waitFor(s, (st) => /leave n alone/i.test(st.title ?? ""), 10_000);
+    expect(s.state.title).not.toMatch(/set n to 1/i);
   }, 90_000);
 
   it("a sub-agent's tool calls nest under the task call that started it", async () => {

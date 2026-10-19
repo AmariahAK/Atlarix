@@ -660,7 +660,12 @@ export class AgentSession extends EventEmitter {
     // theirs (owner: undo never undoes a teammate's message).
     const before = this.messages.find((m) => Number(m.id) === messageId)?.content ?? "";
     const newContent = withTeammateMessages(before, text);
+    // The title comes from the first message: a new first message is a new
+    // title, as the app's edit does (SimpleInlineChat.performEdit). Asked
+    // before the edit, while the order still says which message was first.
+    const wasFirst = Number(this.messages.find((m) => m.role === "user")?.id) === messageId;
     await (await handler("chat:edit-message"))(this.event, { chatId: this.chatId, userMessageId: messageId, newContent });
+    if (wasFirst) void this.retitleFromFirstMessage();
     const { getStreamTransport } = await import("@/lib/chat/stream-transport");
     const kept = (getStreamTransport(this.chatId)?.messages ?? []) as ChatMessageLike[];
     this.messages = kept.map((m) => ({ id: m.id, role: m.role, content: m.content, modelContent: m.modelContent ?? null }));
@@ -1876,6 +1881,21 @@ export class AgentSession extends EventEmitter {
     if (!this.sessionId) throw new Error("Send a message first; then the session can be named.");
     await (await handler("sessions:rename"))({}, this.sessionId, name);
     this.update({ title: name });
+  }
+
+  /**
+   * Title the session again from its (edited) first message. A title you typed
+   * is kept: the handler refuses when `titleSource` is "user". The edit is
+   * already saved (chat:edit-message), so the handler reads the new words.
+   */
+  private async retitleFromFirstMessage(): Promise<void> {
+    if (!this.sessionId) return;
+    try {
+      await (await handler("sessions:generate-title"))({}, this.sessionId);
+    } catch {
+      /* the title is a nicety */
+    }
+    await this.refreshTitle();
   }
 
   /**
