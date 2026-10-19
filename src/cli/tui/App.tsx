@@ -660,6 +660,7 @@ export function App({
       .consent()
       .then((c) => {
         services.analytics.track("cli_opened", { version, os: process.platform });
+        services.analytics.track("session_started");
         if (c === "unset" && !host.open) openAnalytics(screen(), true);
       })
       .catch(() => {});

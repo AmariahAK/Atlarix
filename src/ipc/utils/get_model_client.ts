@@ -50,7 +50,7 @@ import {
   resolveConfiguredCoreTier,
 } from "../shared/compass_constants";
 import {
-  ATLARIX_SURFACE,
+  surfaceHeaders,
   getCoreProxyBaseUrl,
   getPinnedCoreToken,
 } from "../shared/core_proxy";
@@ -472,7 +472,7 @@ async function getRegularModelClient(
             // 'app' is this surface's value and stays that way: renaming it to
             // 'desktop' would split one product across two rows on the account
             // page and need every historical row backfilled.
-            headers.set("X-Atlarix-Surface", ATLARIX_SURFACE);
+            for (const [k, v] of Object.entries(surfaceHeaders())) headers.set(k, v);
             if (isAutoTier) {
               for (const [k, v] of Object.entries(autoHeaders))
                 headers.set(k, v);

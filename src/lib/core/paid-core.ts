@@ -13,7 +13,7 @@
  * that cannot pay is never sent to a 402.
  */
 import {
-  ATLARIX_SURFACE,
+  surfaceHeaders,
   getCoreProxyBaseUrl,
   getPinnedCoreToken,
 } from "@/ipc/shared/core_proxy";
@@ -90,7 +90,7 @@ export async function coreProxyPost(
   if (!token || token === "atlarix-headless") return null;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
-    "X-Atlarix-Surface": ATLARIX_SURFACE,
+    ...surfaceHeaders(),
   };
   let payload: BodyInit;
   if ("json" in body) {

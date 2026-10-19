@@ -19,6 +19,7 @@ import { app } from "electron";
 import { PostHog } from "posthog-node";
 import { readSettings, writeSettings } from "../settings";
 import { v4 as uuidv4 } from "uuid";
+import { atlarixEditor, atlarixSurface } from "@/ipc/shared/core_proxy";
 
 const ANALYTICS_ID_FILE = "analytics-id.json";
 const POSTHOG_HOST = "https://eu.i.posthog.com";
@@ -68,7 +69,14 @@ export function getPostHog(): PostHog | null {
   // every desktop and CLI event without a country. The request comes from the
   // user's own machine, so the location is theirs; the project discards the IP
   // itself after the lookup (the consent text says both).
-  client = new PostHog(apiKey, { host: POSTHOG_HOST, disableGeoip: false });
+  // Batched: up to 20 events or 30 s per request, not one request per event.
+  // The CLI and ACP still send what is queued on exit (flushAndClose).
+  client = new PostHog(apiKey, {
+    host: POSTHOG_HOST,
+    disableGeoip: false,
+    flushAt: 20,
+    flushInterval: 30_000,
+  });
   return client;
 }
 
@@ -128,10 +136,29 @@ export function identifyUser(
       posthog.alias({ distinctId: userId, alias: anonymousId });
       writeSettings({ analyticsAliasedUserIds: [...aliased, userId] });
     }
-    posthog.identify({ distinctId: userId, properties });
+    posthog.identify({ distinctId: userId, properties: withInternalFlag(properties) });
   } catch {
     /* analytics must never break sign-in */
   }
+}
+
+/**
+ * Our own and test accounts, marked on the person so PostHog's "filter out
+ * internal and test users" drops them (filter: `internal = true`). Their usage
+ * outnumbered real users' in every chart.
+ */
+const INTERNAL_EMAILS = new Set([
+  "amariah.abish@gmail.com",
+  "amariah@atlarix.dev",
+  "amani.kamau06@gmail.com",
+  "agent@atlarix.dev",
+  "mojo.alexander3@gmail.com",
+]);
+
+function withInternalFlag(properties?: Record<string, unknown>): Record<string, unknown> | undefined {
+  const email = properties?.email;
+  if (typeof email !== "string") return properties;
+  return { ...properties, internal: INTERNAL_EMAILS.has(email.trim().toLowerCase()) };
 }
 
 /**
@@ -162,10 +189,30 @@ export function capture(
   posthog.capture({
     distinctId: resolveDistinctId(),
     event,
-    // Which Atlarix sent it: the desktop app or the terminal app (the CLI runs
-    // this same code in-process, with ATLARIX_SURFACE=cli).
-    properties: { surface: process.env.ATLARIX_SURFACE === "cli" ? "cli" : "app", ...properties },
+    properties: { ...superProperties(), ...properties },
   });
+}
+
+/**
+ * On every event: which Atlarix sent it (app, cli, or an editor: acp for Zed
+ * and JetBrains, vscode for our panel), the editor, the version and platform.
+ * Before this an editor's events all said `cli`.
+ */
+function superProperties(): Record<string, unknown> {
+  const editor = atlarixEditor();
+  let version: string | undefined;
+  try {
+    version = app.getVersion();
+  } catch {
+    /* no app in this process */
+  }
+  return {
+    surface: atlarixSurface(),
+    ...(editor ? { editor } : {}),
+    ...(version ? { app_version: version } : {}),
+    os: process.platform,
+    arch: process.arch,
+  };
 }
 
 /** Fire-and-forget capture; never throws (analytics must not break the app). */
@@ -267,6 +314,7 @@ export function trackAcquisitionSource(source: string, detail?: string): void {
       distinctId: resolveDistinctId(),
       event: "acquisition_source_selected",
       properties: {
+        ...superProperties(),
         source,
         ...(detail ? { source_detail: detail } : {}),
         $set_once: {
@@ -373,6 +421,28 @@ export function trackTaskCompleted(properties?: Record<string, unknown>): void {
   } catch {
     /* analytics must never break the turn */
   }
+}
+
+/**
+ * One per agent turn, with how it ended (run-agent-turn.ts) and who paid for
+ * its model. "First turn" is the first one per person in PostHog: no marker
+ * on disk to go stale or survive a reinstall.
+ */
+export function trackTurnCompleted(properties: Record<string, unknown>): void {
+  try {
+    captureSafe("turn_completed", withBilling(properties));
+  } catch {
+    /* analytics must never break the turn */
+  }
+}
+
+let sessionStarted = false;
+
+/** Once per process: the app opened, the CLI started, or an editor's first session. */
+export function trackSessionStarted(properties?: Record<string, unknown>): void {
+  if (sessionStarted) return;
+  sessionStarted = true;
+  captureSafe("session_started", properties);
 }
 
 /**

@@ -35,6 +35,8 @@ import { formatFatal } from "./errors";
 declare const __ATLARIX_HEADLESS_VERSION__: string;
 const VERSION =
   typeof __ATLARIX_HEADLESS_VERSION__ === "undefined" ? "dev" : __ATLARIX_HEADLESS_VERSION__;
+// The electron stub's app.getVersion() reads this (analytics' app_version).
+process.env.ATLARIX_VERSION ??= VERSION;
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -360,6 +362,9 @@ async function main(): Promise<void> {
   if (argv[0] === "acp") {
     // Before the batch/interactive split: an editor runs this over pipes, and
     // the interactive path refuses anything that isn't a terminal.
+    // Reported as the editor it serves, while ATLARIX_SURFACE stays `cli`
+    // (core_proxy.ts atlarixSurface).
+    process.env.ATLARIX_REPORT_SURFACE = process.env.ATLARIX_ACP_CLIENT === "vscode" ? "vscode" : "acp";
     const devUrl = flag("--provider-url");
     await prepareCliData(devUrl);
     const { runAcp } = await import("./acp/server");

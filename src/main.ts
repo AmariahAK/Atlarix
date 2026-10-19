@@ -58,6 +58,7 @@ import { startModelsDevRefresh } from "./lib/models_dev";
 import { startMcpRegistryRefresh } from "./lib/mcp/registry-catalog";
 import {
   capture as analyticsCapture,
+  trackSessionStarted,
   shutdown as analyticsShutdown,
   trackActiveDay,
 } from "./main/lib/analytics";
@@ -848,6 +849,7 @@ export async function onReady() {
     platform: process.platform,
     arch: os.arch(),
   });
+  trackSessionStarted();
   // Retention signal: at most one per calendar day, so "did they come back"
   // stops depending on which other events happen to be instrumented.
   trackActiveDay();

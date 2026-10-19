@@ -72,6 +72,8 @@ export interface ConnectionOptions {
   binary: string;
   cwd: string;
   version: string;
+  /** The host editor (VS Code, Cursor, Windsurf…), reported with usage. */
+  editor?: string;
   log: (line: string) => void;
   /** A page to open: Atlarix's sign-in, or an MCP server's (the CLI prints them on stderr). */
   openUrl: (url: string, kind: "sign-in" | "open") => void;
@@ -99,7 +101,11 @@ export class AtlarixConnection {
   async start(): Promise<InitializeResponse> {
     const child = spawn(this.opts.binary, ["acp"], {
       cwd: this.opts.cwd,
-      env: { ...process.env, ATLARIX_ACP_CLIENT: "vscode" },
+      env: {
+        ...process.env,
+        ATLARIX_ACP_CLIENT: "vscode",
+        ...(this.opts.editor ? { ATLARIX_ACP_EDITOR: this.opts.editor } : {}),
+      },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -263,6 +269,15 @@ export class AtlarixConnection {
 
   setRecap(on: boolean): Promise<unknown> {
     return this.agent.request("_atlarix/recap_setting", { on });
+  }
+
+  /** Usage analytics: the setting shared with the app and the CLI. */
+  analyticsConsent(): Promise<{ consent: "opted_in" | "opted_out" | "unset" }> {
+    return this.agent.request("_atlarix/analytics_consent", {});
+  }
+
+  setAnalyticsConsent(consent: "opted_in" | "opted_out"): Promise<unknown> {
+    return this.agent.request("_atlarix/analytics_set", { consent });
   }
 
   handoff(sessionId: string): Promise<unknown> {

@@ -16,22 +16,55 @@
  * quietly map back to `app`.
  */
 
-import { describe, expect, it } from "vitest";
-import { ATLARIX_SURFACE } from "@/ipc/shared/core_proxy";
+import { afterEach, describe, expect, it } from "vitest";
+import { atlarixEditor, atlarixSurface, surfaceHeaders } from "@/ipc/shared/core_proxy";
+
+const ENV = ["ATLARIX_SURFACE", "ATLARIX_REPORT_SURFACE", "ATLARIX_ACP_EDITOR"] as const;
+const saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
+afterEach(() => {
+  for (const k of ENV) {
+    if (saved[k] === undefined) delete process.env[k];
+    else process.env[k] = saved[k];
+  }
+});
 
 describe("the surface this build claims", () => {
-  it("is exactly 'app'", () => {
-    // Must match `USER_SURFACES` in atlarix-proxy/src/entitlement.ts and the
-    // CHECK constraint on credit_transactions.source. The proxy falls back to
-    // 'app' for anything it does not recognise, so a typo here is invisible in
-    // every way except the ledger being wrong.
-    expect(ATLARIX_SURFACE).toBe("app");
+  it("is exactly 'app' for the desktop", () => {
+    // Must match the proxy's allowlist and the CHECK constraint on
+    // credit_transactions.source. The proxy falls back to 'app' for anything it
+    // does not recognise, so a typo here is invisible in every way except the
+    // ledger being wrong.
+    for (const k of ENV) delete process.env[k];
+    expect(atlarixSurface()).toBe("app");
   });
 
   it("is NOT 'desktop', which would split the product across two rows", () => {
     // Every historical user-path row is already 'app'. Renaming means a backfill
     // of the whole table, or an account page that lists the same product twice.
-    expect(ATLARIX_SURFACE).not.toBe("desktop");
+    for (const k of ENV) delete process.env[k];
+    expect(atlarixSurface()).not.toBe("desktop");
+  });
+
+  it("is 'cli' for the terminal, and the editor it serves for ACP and the VS Code panel", () => {
+    process.env.ATLARIX_SURFACE = "cli";
+    delete process.env.ATLARIX_REPORT_SURFACE;
+    expect(atlarixSurface()).toBe("cli");
+    process.env.ATLARIX_REPORT_SURFACE = "acp";
+    expect(atlarixSurface()).toBe("acp");
+    process.env.ATLARIX_REPORT_SURFACE = "vscode";
+    expect(atlarixSurface()).toBe("vscode");
+    // Anything else is not a surface the proxy knows: report the process type.
+    process.env.ATLARIX_REPORT_SURFACE = "desktop";
+    expect(atlarixSurface()).toBe("cli");
+  });
+
+  it("names the editor only when there is one", () => {
+    delete process.env.ATLARIX_ACP_EDITOR;
+    expect(atlarixEditor()).toBe("");
+    expect(surfaceHeaders()).not.toHaveProperty("X-Atlarix-Editor");
+    process.env.ATLARIX_REPORT_SURFACE = "vscode";
+    process.env.ATLARIX_ACP_EDITOR = "  Cursor ";
+    expect(surfaceHeaders()).toEqual({ "X-Atlarix-Surface": "vscode", "X-Atlarix-Editor": "Cursor" });
   });
 });
 
@@ -44,9 +77,10 @@ describe("the header reaches the proxy", () => {
    * relies on. A plain-object assertion would pass while the real lookup missed.
    */
   it("is readable under the lowercase name the proxy looks up", () => {
+    for (const k of ENV) delete process.env[k];
     const headers = new Headers();
     headers.set("Authorization", "Bearer token");
-    headers.set("X-Atlarix-Surface", ATLARIX_SURFACE);
+    for (const [k, v] of Object.entries(surfaceHeaders())) headers.set(k, v);
 
     expect(headers.get("x-atlarix-surface")).toBe("app");
     expect(headers.get("X-Atlarix-Surface")).toBe("app");
@@ -56,7 +90,7 @@ describe("the header reaches the proxy", () => {
     // The surface is a label. Who pays comes from the verified JWT, and these
     // two must never interfere — the proxy reads them independently.
     const headers = new Headers({ Authorization: "Bearer original" });
-    headers.set("X-Atlarix-Surface", ATLARIX_SURFACE);
+    for (const [k, v] of Object.entries(surfaceHeaders())) headers.set(k, v);
     expect(headers.get("Authorization")).toBe("Bearer original");
   });
 });
@@ -75,12 +109,12 @@ describe("the call site", () => {
       "utf8",
     );
     expect(source).toContain(
-      'headers.set("X-Atlarix-Surface", ATLARIX_SURFACE)',
+      "for (const [k, v] of Object.entries(surfaceHeaders())) headers.set(k, v);",
     );
     // And it must sit inside the SAME wrapper as the bearer, not somewhere a
     // refactor could leave it on a path Core calls do not take.
     const bearerAt = source.indexOf('headers.set("Authorization"');
-    const surfaceAt = source.indexOf('headers.set("X-Atlarix-Surface"');
+    const surfaceAt = source.indexOf("Object.entries(surfaceHeaders())");
     expect(bearerAt).toBeGreaterThan(-1);
     expect(surfaceAt).toBeGreaterThan(bearerAt);
     expect(surfaceAt - bearerAt).toBeLessThan(1_000);

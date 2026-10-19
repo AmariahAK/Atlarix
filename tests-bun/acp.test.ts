@@ -240,6 +240,71 @@ describe("atlarix acp", () => {
     expect(typeof status.chrome).toBe("string");
   }, 60_000);
 
+  it("reads and sets the usage-analytics answer the app and the CLI share", async () => {
+    const e = await editor([]);
+    const before = await e.conn.agent.request<{ consent: string }>("_atlarix/analytics_consent", {});
+    expect(before.consent).toBe("unset");
+    await e.conn.agent.request("_atlarix/analytics_set", { consent: "opted_out" });
+    const after = await e.conn.agent.request<{ consent: string }>("_atlarix/analytics_consent", {});
+    expect(after.consent).toBe("opted_out");
+    // The same setting the CLI reads: one answer covers every surface.
+    const { realServices } = await import("../src/cli/agent/services");
+    expect(await realServices.analytics.consent()).toBe("opted_out");
+    await expect(e.conn.agent.request("_atlarix/analytics_set", { consent: "maybe" })).rejects.toBeDefined();
+  }, 30_000);
+
+  it("remembers which editor connected, for usage (Zed says its name in initialize)", async () => {
+    const before = process.env.ATLARIX_ACP_EDITOR;
+    delete process.env.ATLARIX_ACP_EDITOR;
+    try {
+      const { AcpAgent } = await import("../src/cli/acp/agent");
+      const { buildAgentApp } = await import("../src/cli/acp/server");
+      const agent = new AcpAgent({
+        createSession: async () => {
+          throw new Error("not used");
+        },
+        models: async () => ({ options: [], current: null }) as never,
+        rememberModel: () => {},
+        listSessions: async () => [],
+        changeSession: async () => {},
+      } as never);
+      const conn = acp.client({ name: "zed" }).connect(buildAgentApp(agent, "test"));
+      await conn.agent.request("initialize", {
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {},
+        clientInfo: { name: "zed", version: "1.0" },
+      });
+      expect(process.env.ATLARIX_ACP_EDITOR).toBe("zed");
+      const { surfaceHeaders } = await import("../src/ipc/shared/core_proxy");
+      process.env.ATLARIX_REPORT_SURFACE = "acp";
+      expect(surfaceHeaders()).toEqual({ "X-Atlarix-Surface": "acp", "X-Atlarix-Editor": "zed" });
+    } finally {
+      delete process.env.ATLARIX_REPORT_SURFACE;
+      if (before === undefined) delete process.env.ATLARIX_ACP_EDITOR;
+      else process.env.ATLARIX_ACP_EDITOR = before;
+    }
+  });
+
+  it("keeps the name our VS Code panel passed (Cursor) over the protocol's client name", async () => {
+    const before = process.env.ATLARIX_ACP_EDITOR;
+    process.env.ATLARIX_ACP_EDITOR = "Cursor";
+    try {
+      const { AcpAgent } = await import("../src/cli/acp/agent");
+      const { buildAgentApp } = await import("../src/cli/acp/server");
+      const agent = new AcpAgent({} as never);
+      const conn = acp.client({ name: "atlarix-vscode" }).connect(buildAgentApp(agent, "test"));
+      await conn.agent.request("initialize", {
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {},
+        clientInfo: { name: "atlarix-vscode", version: "1.0" },
+      });
+      expect(process.env.ATLARIX_ACP_EDITOR).toBe("Cursor");
+    } finally {
+      if (before === undefined) delete process.env.ATLARIX_ACP_EDITOR;
+      else process.env.ATLARIX_ACP_EDITOR = before;
+    }
+  });
+
   it("a reopened chat shows its ready plan again, buildable (QA #54)", async () => {
     const extras = { _meta: { atlarix: { version: 1 } } };
     const plan = { tool: "plan", args: { operation: "write", title: "Add a ping route", content: "# Add a ping route\n\n- [ ] Add GET /ping\n- [ ] Test it" } } as const;

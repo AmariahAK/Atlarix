@@ -30,7 +30,7 @@ vi.mock("@/lib/auth/supabase-client", () => ({
 
 let proxyBase: string | undefined = "https://proxy.test/v1";
 vi.mock("@/ipc/shared/core_proxy", () => ({
-  ATLARIX_SURFACE: "app",
+  surfaceHeaders: () => ({ "X-Atlarix-Surface": "app" }),
   getCoreProxyBaseUrl: () => proxyBase,
 }));
 

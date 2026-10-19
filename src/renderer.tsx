@@ -193,13 +193,8 @@ function App() {
   useEffect(() => {
     // Subscribe to navigation state changes
     const unsubscribe = router.subscribe("onResolved", (navigation) => {
-      // Capture the navigation event in PostHog
-      posthog.capture("navigation", {
-        toPath: navigation.toLocation.pathname,
-        fromPath: navigation.fromLocation?.pathname,
-      });
-
-      // Optionally capture as a standard pageview as well
+      // One event per screen change: a "navigation" event beside this one
+      // counted every move twice.
       posthog.capture("$pageview", {
         path: navigation.toLocation.pathname,
       });

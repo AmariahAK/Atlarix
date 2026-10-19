@@ -1031,6 +1031,8 @@ export class AcpAgent {
   }
 
   async newSession(cwd: string, mcpServers?: unknown): Promise<NewSessionResponse> {
+    // Once per process: an editor's first session is this surface's start.
+    void import("@/main/lib/analytics").then((m) => m.trackSessionStarted()).catch(() => {});
     const t = await this.open(cwd);
     t.editorMcpServers = sessionMcpServersFrom(mcpServers);
     await this.deps.setSessionMcpServers?.(t.id, t.editorMcpServers);

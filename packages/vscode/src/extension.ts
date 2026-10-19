@@ -7,6 +7,7 @@
  */
 import path from "node:path";
 import { noteTurn, ratingUrl, type RatingState } from "./rating";
+import { CONSENT_ASKED_KEY, CONSENT_DETAIL, CONSENT_QUESTION, DETAILS, NO, YES, consentFor, shouldAskConsent } from "./consent";
 import * as vscode from "vscode";
 import { findAtlarix } from "./binary";
 import { Chat, type ChatHost } from "./chat";
@@ -21,6 +22,26 @@ let starting: Promise<AtlarixConnection | null> | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("Atlarix");
+  /**
+   * Usage analytics, asked once: the editor never asked, so an editor user
+   * sent nothing at all. The answer is the app's and the CLI's setting too.
+   */
+  const askAnalyticsConsent = async (c: AtlarixConnection): Promise<void> => {
+    try {
+      const { consent } = await c.analyticsConsent();
+      if (!shouldAskConsent(consent, context.globalState.get<boolean>(CONSENT_ASKED_KEY) === true)) return;
+      await context.globalState.update(CONSENT_ASKED_KEY, true);
+      let pick = await vscode.window.showInformationMessage(CONSENT_QUESTION, YES, NO, DETAILS);
+      if (pick === DETAILS) {
+        pick = await vscode.window.showInformationMessage("Help improve Atlarix", { modal: true, detail: CONSENT_DETAIL }, YES, NO);
+      }
+      const answer = consentFor(pick);
+      if (answer) await c.setAnalyticsConsent(answer);
+    } catch (e) {
+      log.appendLine(`Analytics question skipped: ${(e as Error).message}`);
+    }
+  };
+
   const diffs = new DiffDocuments();
   const chats = new Set<Chat>();
   let sidebar: Chat | null = null;
@@ -52,6 +73,7 @@ export function activate(context: vscode.ExtensionContext): void {
         binary,
         cwd: workspace() ?? path.dirname(binary),
         version,
+        editor: vscode.env.appName,
         log: (l) => log.appendLine(l),
         openUrl: (u, kind) => {
           // The agent opens its sign-in page in your browser itself; opening it
@@ -71,6 +93,7 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         await c.start();
         connection = c;
+        void askAnalyticsConsent(c);
         return c;
       } catch (e) {
         log.appendLine(`Couldn't start Atlarix: ${(e as Error).message}`);

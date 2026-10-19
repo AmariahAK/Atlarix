@@ -26,7 +26,12 @@ import {
   getMutationFailureFeedback,
   getUnverifiedEditFeedback,
 } from "@/lib/agent/mutation-verify";
-import { trackTaskStarted, trackTaskCompleted } from "@/main/lib/analytics";
+import { trackTaskStarted, trackTaskCompleted, trackTurnCompleted } from "@/main/lib/analytics";
+import {
+  ASK_USER_STREAM_STOP,
+  USER_CANCEL_STREAM_STOP,
+  abortReasonSentinel,
+} from "@/lib/stream/stream-stop-sentinels";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import {
   hasNativeToolParts,
@@ -216,7 +221,54 @@ function abortReasonError(reason: unknown): Error {
   return new Error(String(reason ?? "aborted"));
 }
 
+/**
+ * One `turn_completed` per turn, however it ends: `ok`, `ask_user` (it ended on
+ * a question for the user), `stopped` (the user stopped it), `aborted` or
+ * `error`. The old funnel counted successes only, so a failing turn was
+ * invisible. An error carries its status or class, never its message.
+ */
 export async function runAgentTurn(
+  profile: AgentProfile,
+  rt: TurnRuntime,
+): Promise<AgentTurnResult> {
+  const started = Date.now();
+  const report = (outcome: string, extra: Record<string, unknown> = {}) =>
+    trackTurnCompleted({
+      outcome,
+      mode: profile.mode,
+      duration_bucket: durationBucket(Date.now() - started),
+      ...extra,
+    });
+  try {
+    const result = await runAgentTurnInner(profile, rt);
+    report("ok", { iterations: result.iterations, tool_count: result.totalToolExecutions });
+    return result;
+  } catch (e) {
+    const { outcome, errorKind } = turnOutcome(e, rt.abortController.signal);
+    report(outcome, errorKind ? { error_kind: errorKind } : {});
+    throw e;
+  }
+}
+
+/** How a thrown turn ended, for `turn_completed`. No message text, ever. */
+export function turnOutcome(
+  error: unknown,
+  signal: AbortSignal,
+): { outcome: "ask_user" | "stopped" | "aborted" | "error"; errorKind?: string } {
+  if (signal.aborted) {
+    const sentinel = abortReasonSentinel(signal.reason);
+    if (sentinel === ASK_USER_STREAM_STOP) return { outcome: "ask_user" };
+    if (sentinel === USER_CANCEL_STREAM_STOP) return { outcome: "stopped" };
+    return { outcome: "aborted" };
+  }
+  const err = error as { statusCode?: unknown; name?: unknown } | null;
+  return {
+    outcome: "error",
+    errorKind: typeof err?.statusCode === "number" ? `http_${err.statusCode}` : String(err?.name ?? "Error"),
+  };
+}
+
+async function runAgentTurnInner(
   profile: AgentProfile,
   rt: TurnRuntime,
 ): Promise<AgentTurnResult> {

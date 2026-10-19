@@ -28,15 +28,42 @@
  * copy for the same reason the rest of that package does: it cannot import
  * anything that reaches Node.
  */
-export const ATLARIX_SURFACE: "app" | "cli" =
-  // Set by the interactive CLI before anything is imported (src/cli/desktop-data.ts).
-  // Anything else, the desktop included, is `app`.
-  // `typeof` guard: the renderer imports this module (via compass_constants)
-  // and has no `process`; in dev, where nothing is tree-shaken, reading it at
-  // load threw and left a blank window.
-  typeof process !== "undefined" && process.env?.ATLARIX_SURFACE === "cli"
-    ? "cli"
-    : "app";
+export type AtlarixSurface = "app" | "cli" | "acp" | "vscode";
+
+/**
+ * Which Atlarix this process is, as REPORTED (the header above, analytics).
+ *
+ * An editor over ACP (Zed, JetBrains) and the VS Code panel run the CLI, and
+ * were all reported as `cli`. They set `ATLARIX_REPORT_SURFACE` instead of
+ * changing `ATLARIX_SURFACE`, which stays `cli`: database sharing, web search
+ * and how links open all branch on that, and an editor must keep behaving as
+ * the terminal it is. The proxy charges `acp`/`vscode` to the ledger as `cli`.
+ *
+ * Read per call, not at import: ACP learns its editor at `initialize`.
+ * `typeof` guard: the renderer imports this module (via compass_constants) and
+ * has no `process`.
+ */
+export function atlarixSurface(): AtlarixSurface {
+  if (typeof process === "undefined") return "app";
+  const reported = process.env?.ATLARIX_REPORT_SURFACE;
+  if (reported === "acp" || reported === "vscode") return reported;
+  return process.env?.ATLARIX_SURFACE === "cli" ? "cli" : "app";
+}
+
+/** The editor an ACP or VS Code-family process serves ("zed", "Cursor"), else "". */
+export function atlarixEditor(): string {
+  if (typeof process === "undefined") return "";
+  return (process.env?.ATLARIX_ACP_EDITOR ?? "").trim().slice(0, 40);
+}
+
+/** `X-Atlarix-Surface`, and `X-Atlarix-Editor` when there is one, for a Core call. */
+export function surfaceHeaders(): Record<string, string> {
+  const editor = atlarixEditor();
+  return {
+    "X-Atlarix-Surface": atlarixSurface(),
+    ...(editor ? { "X-Atlarix-Editor": editor } : {}),
+  };
+}
 
 export function getCoreProxyBaseUrl(): string | undefined {
   const raw =

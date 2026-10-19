@@ -38,7 +38,7 @@
 import log from "electron-log";
 
 import { getSession, getSupabaseClient } from "@/lib/auth/supabase-client";
-import { ATLARIX_SURFACE, getCoreProxyBaseUrl } from "@/ipc/shared/core_proxy";
+import { surfaceHeaders, getCoreProxyBaseUrl } from "@/ipc/shared/core_proxy";
 
 const logger = log.scope("account-connectors");
 
@@ -99,7 +99,7 @@ async function proxyPost<T>(path: string, payload: unknown): Promise<T | null> {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-        "X-Atlarix-Surface": ATLARIX_SURFACE,
+        ...surfaceHeaders(),
       },
       body: JSON.stringify(payload),
     });
@@ -255,7 +255,7 @@ async function proxyWrite(path: string, payload: unknown): Promise<WriteResult<R
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-        "X-Atlarix-Surface": ATLARIX_SURFACE,
+        ...surfaceHeaders(),
       },
       body: JSON.stringify(payload),
     });

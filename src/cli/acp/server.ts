@@ -95,6 +95,12 @@ export function buildAgentApp(
     .onConnect((connection) => agent.attach(connection.client))
     .onRequest("initialize", (ctx) => {
       agent.setClientCapabilities(ctx.params.clientCapabilities);
+      // Which editor this is ("zed"), for usage; our VS Code panel already
+      // passed its host's name (Cursor, Windsurf…), which says more.
+      const editor = (ctx.params as { clientInfo?: { name?: unknown } }).clientInfo?.name;
+      if (!process.env.ATLARIX_ACP_EDITOR && typeof editor === "string") {
+        process.env.ATLARIX_ACP_EDITOR = editor.slice(0, 40);
+      }
       return initializeResponse(version);
     })
     .onRequest("authenticate", async (ctx) => {
@@ -169,6 +175,22 @@ export function buildAgentApp(
         monthLabels: s.monthLabels.slice(-26),
         footnote: activityFootnote(s),
       };
+    })
+    // Usage analytics: the app's and the CLI's one setting (telemetryConsent),
+    // asked by our VS Code panel. Other editors have no UI of ours to ask in, so
+    // they send only after an opt-in made in the app or the CLI.
+    .onRequest("_atlarix/analytics_consent", (p) => p as Record<string, unknown>, async () => {
+      const { realServices } = await import("../agent/services");
+      return { consent: await realServices.analytics.consent() };
+    })
+    .onRequest("_atlarix/analytics_set", (p) => p as { consent: string }, async (ctx) => {
+      const v = ctx.params.consent;
+      if (v !== "opted_in" && v !== "opted_out") {
+        throw acp.RequestError.invalidParams(undefined, "consent must be opted_in or opted_out");
+      }
+      const { realServices } = await import("../agent/services");
+      await realServices.analytics.setConsent(v);
+      return { consent: v };
     })
     .onRequest("_atlarix/account", (p) => p as { sessionId?: string }, async (ctx) => {
       const { realServices } = await import("../agent/services");
