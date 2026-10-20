@@ -1128,9 +1128,11 @@ export class AcpAgent {
    */
   private reportSessionOpened(sessionId: string, how: "new" | "load" | "fork"): void {
     // Decided now, not after the import: a prompt can arrive before it resolves.
-    const send = how !== "new" && !this.sessionsOpened.has(sessionId);
+    // A load of a new chat nobody has used yet is not a past chat (it counts as
+    // new at its first prompt).
+    const send = how !== "new" && !this.sessionsOpened.has(sessionId) && !this.unusedNew.has(sessionId);
     if (how === "new") this.unusedNew.add(sessionId);
-    else this.sessionsOpened.add(sessionId);
+    else if (send) this.sessionsOpened.add(sessionId);
     void import("@/main/lib/analytics")
       .then((m) => {
         // A failure the editor hit starting us last time (VS Code passes it).

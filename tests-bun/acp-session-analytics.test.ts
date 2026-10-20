@@ -77,9 +77,15 @@ describe("an editor's sessions in usage analytics", () => {
   it("an empty chat the panel opens by itself is not a session until it is used", async () => {
     calls.length = 0;
     const e = await editor();
-    await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    // Loading it again (the panel returning to it) does not make it a past chat.
+    await e.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
     await settle();
     expect(opened()).toEqual([]);
+    // Its first prompt makes it a new session, once.
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
+    await settle();
+    expect(opened()).toEqual(["new"]);
     // The process still started (the panel opened).
     expect(calls.some((c) => c[0] === "session_started")).toBe(true);
   }, 60_000);
