@@ -699,6 +699,9 @@ export const realServices: CliServices = {
     async setConsent(v) {
       const { writeSettings } = await import("@/main/settings");
       writeSettings({ telemetryConsent: v });
+      // Analytics just turned on (the CLI's /analytics, an editor's question):
+      // today counts as an active day from now.
+      if (v === "opted_in") await import("@/main/lib/analytics").then((m) => m.trackActiveDay()).catch(() => {});
     },
     track(event, properties) {
       void import("@/main/lib/analytics").then((m) => m.captureSafe(event, properties)).catch(() => {});

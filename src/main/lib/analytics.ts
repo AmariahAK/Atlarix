@@ -294,13 +294,15 @@ export function trackActiveDay(): void {
   try {
     const today = localDayKey();
     const settings = readSettings();
-    if (settings.lastActiveDay === today) return;
     // The COUNT is written even when analytics are opted out: it drives the
-    // in-app PeerPush prompt, which is a product decision, not telemetry. Only
-    // the event itself is gated.
-    const count = (settings.activeDayCount ?? 0) + 1;
-    writeSettings({ lastActiveDay: today, activeDayCount: count });
-    if (!isOptedIn()) return;
+    // in-app PeerPush prompt, which is a product decision, not telemetry.
+    if (settings.lastActiveDay !== today) {
+      writeSettings({ lastActiveDay: today, activeDayCount: (settings.activeDayCount ?? 0) + 1 });
+    }
+    // The event has its own marker: one marker for both lost the day whenever it
+    // began with analytics off and they were turned on later that day.
+    if (settings.lastActiveDaySent === today || !isOptedIn()) return;
+    writeSettings({ lastActiveDaySent: today });
     captureSafe("active_day", { date: today });
   } catch {
     /* analytics must never break startup */

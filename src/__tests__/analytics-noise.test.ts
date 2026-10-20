@@ -21,7 +21,8 @@ vi.mock("posthog-node", () => ({
     }
   },
 }));
-const settings = () => ({ telemetryConsent: "opted_in", ...store });
+let consent = "opted_in";
+const settings = () => ({ telemetryConsent: consent, ...store });
 const write = (p: Record<string, unknown>) => {
   store = { ...store, ...p };
 };
@@ -30,11 +31,12 @@ vi.mock("../main/settings", () => ({ readSettings: settings, writeSettings: writ
 vi.mock("../../main/settings", () => ({ readSettings: settings, writeSettings: write, isSecretEncryptionAvailable: () => true }));
 
 process.env.POSTHOG_API_KEY = "phc_test";
-const { trackTier } = await import("@/main/lib/analytics");
+const { trackTier, trackActiveDay } = await import("@/main/lib/analytics");
 
 beforeEach(() => {
   captured.length = 0;
   store = {};
+  consent = "opted_in";
 });
 
 describe("tier_identified", () => {
@@ -70,5 +72,32 @@ describe("the app window's events", () => {
     setPostHogConfig("phc_test", "anon-1", "15.9.9");
     ensurePostHogInitialized();
     expect(register).toHaveBeenCalledWith({ surface: "app", app_version: "15.9.9" });
+  });
+});
+
+describe("active_day", () => {
+  const days = () => captured.filter((c) => c.event === "active_day");
+
+  it("a day that began with analytics off is still sent once analytics is on, and counted once", () => {
+    consent = "opted_out";
+    trackActiveDay();
+    expect(days()).toHaveLength(0);
+    expect(store.activeDayCount).toBe(1);
+    consent = "opted_in";
+    trackActiveDay();
+    trackActiveDay();
+    expect(days()).toHaveLength(1);
+    // PeerPush's count is per day, however many times the day is reported.
+    expect(store.activeDayCount).toBe(1);
+  });
+
+  it("turning analytics on sends the day at once", async () => {
+    consent = "opted_out";
+    trackActiveDay();
+    const { registerSettingsHandlers } = await import("@/ipc/handlers/settings_handlers");
+    registerSettingsHandlers();
+    // The handler's write is what turns it on (the store overrides `consent`).
+    await handlers.get("set-user-settings")!({}, { telemetryConsent: "opted_in" });
+    expect(days()).toHaveLength(1);
   });
 });
