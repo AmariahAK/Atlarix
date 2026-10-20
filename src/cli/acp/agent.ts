@@ -39,6 +39,7 @@ import {
 } from "./permissions";
 import { AUTO_CONSENT_MARKER, AUTO_CONSENT_TERMS } from "@/shared/billing_copy";
 import { diffUpdates, type Emitted } from "./updates";
+import { handler } from "../agent/ipc";
 import { groupOptions, type ModelOption } from "../agent/models";
 import { chosenLevel, effortAfterModelChange, effortSettingsPatch } from "@/lib/routing/model-reasoning-profile";
 
@@ -115,12 +116,19 @@ function isAuthError(msg: string | null | undefined): boolean {
   return !!msg && /ATLARIX_AUTH_REQUIRED|sign in to use atlarix|please sign in/i.test(msg);
 }
 
+/** "the CLI", "the app": session.ts's names, read once a session exists (it loads that module). */
+let surfaceNames: Readonly<Record<string, string>> = {};
+
 class Thread {
   readonly emitted: Emitted = new Map();
   private chain: Promise<unknown> = Promise.resolve();
   private readonly asked = new Set<string>();
   /** Approval cards the editor still shows, to take back if something else answers them. */
   private readonly openCards = new Map<string, AbortController>();
+  /** Where another process runs this session's turn, as last told to the editor. */
+  private followingSent: string | null = null;
+  /** `/fork`: a copy of this session, made by the agent (it may not be open here). */
+  forkTo: ((title?: string) => Promise<{ id: string; title: string }>) | null = null;
   private turn: { done: () => void; cancelled: boolean } | null = null;
   /** Set a config option as the editor's picker does (the agent's setConfigOption): /effort uses it. */
   setOption: ((configId: string, value: string) => Promise<SessionConfigOption[]>) | null = null;
@@ -225,8 +233,11 @@ class Thread {
   async interject(text: string, kind: "steer" | "queue"): Promise<{ pending: Array<{ id: string; text: string; kind: string }>; started: boolean }> {
     const t = text.trim();
     if (!t) return { pending: this.session.state.pending, started: false };
-    if (!this.session.state.busy) return { pending: this.session.state.pending, started: false };
-    if (kind === "queue") this.session.queueNext(t);
+    const elsewhere = !!this.session.state.following;
+    if (!this.session.state.busy && !elsewhere) return { pending: this.session.state.pending, started: false };
+    // Running elsewhere, Tab steers too: held for after, it would open a turn
+    // here that no editor asked for.
+    if (kind === "queue" && !elsewhere) this.session.queueNext(t);
     else await this.session.submit(t);
     return { pending: this.session.state.pending, started: true };
   }
@@ -284,6 +295,15 @@ class Thread {
       this.lastMode = s.mode;
       void this.send({ sessionUpdate: "current_mode_update", currentModeId: s.mode });
       void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+    }
+    const elsewhere = s.following ? `Running in ${surfaceNames[s.following.surface] ?? s.following.surface}` : null;
+    if (elsewhere !== this.followingSent && this.extras()) {
+      // Another surface runs the turn: the panel shows it working, its Enter
+      // steers that turn and its Stop stops it (session.ts follows it).
+      this.followingSent = elsewhere;
+      void this.client()
+        .notify("_atlarix/working", { sessionId: this.id, title: elsewhere ?? s.retrying ?? null, following: elsewhere != null })
+        .catch(() => {});
     }
     if ((s.retrying ?? null) !== this.retryingSent && this.extras()) {
       // "Couldn't connect, retrying…" in the editor's working line (QA).
@@ -662,6 +682,20 @@ class Thread {
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
       return { stopReason: "end_turn" };
     }
+    const forkCmd = /^\/fork(?:\s+([\s\S]+?))?\s*$/i.exec(text.trim());
+    if (forkCmd && this.forkTo) {
+      const reply = await this.forkTo(forkCmd[1]?.trim() || undefined).then(
+        (made) => {
+          // Atlarix's own panel opens it; another editor lists it in its history.
+          if (!this.extras()) return `Forked as '${made.title}': open it from your session history.`;
+          void this.client().notify("_atlarix/open_session", { sessionId: made.id, title: made.title }).catch(() => {});
+          return `Forked as '${made.title}'.`;
+        },
+        (e: Error) => e.message,
+      );
+      await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
+      return { stopReason: "end_turn" };
+    }
     if (slash?.[1] === "compact") {
       const r = await this.session.compact();
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: r.message } });
@@ -848,13 +882,14 @@ class Thread {
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "build"];
+const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "build"];
 
 function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
   return {
     sessionUpdate: "available_commands_update",
     availableCommands: [
       { name: "compact", description: "Summarize the conversation so far to free up context." },
+      { name: "fork", description: "Carry on in a copy of this chat; this one stays as it is.", input: { hint: "a name (optional)" } },
       { name: "effort", description: "How hard the model thinks: its own levels, as it lists them.", input: { hint: "a level (optional)" } },
       { name: "undo", description: "Go back to one of your messages, edit it and send it again." },
       { name: "keys", description: "Your own API keys, and whether each one works." },
@@ -1034,6 +1069,7 @@ export class AcpAgent {
       throw RequestError.internalError(undefined, msg);
     }
     if (!session) throw RequestError.internalError(undefined, "Atlarix couldn't start a session.");
+    surfaceNames = (await import("../agent/session")).SURFACE_NAMES;
     const t: Thread = new Thread(
       session.sessionId,
       cwd,
@@ -1043,6 +1079,7 @@ export class AcpAgent {
       () => this.configOptions(t),
     );
     t.setOption = (configId, value) => this.setConfigOption(t.id, configId, value);
+    t.forkTo = (title) => this.forkCopy(t.id, title);
     this.threads.set(t.id, t);
     return t;
   }
@@ -1075,6 +1112,31 @@ export class AcpAgent {
     t.sendUsage();
     setTimeout(() => void t.refreshCommands(), 0);
     return { configOptions: await this.configOptions(t), modes: this.modes(t) };
+  }
+
+  /**
+   * `session/fork`: the conversation as saved now, carried on in a new session
+   * in its folder, open here. The original is untouched; a turn another
+   * surface is still writing stays out (sessions:fork).
+   */
+  async forkSession(
+    sessionId: string,
+    cwd: string,
+    mcpServers?: unknown,
+  ): Promise<{ sessionId: string; configOptions: SessionConfigOption[]; modes: SessionModeState }> {
+    const made = await this.forkCopy(sessionId).catch((e: Error) => {
+      throw RequestError.invalidRequest(undefined, e.message);
+    });
+    return { sessionId: made.id, ...(await this.loadSession(cwd, made.id, mcpServers)) };
+  }
+
+  /** The copy itself (`/fork` and `session/fork`): the CLI's AgentSession.fork, without switching to it. */
+  private async forkCopy(sessionId: string, title?: string): Promise<{ id: string; title: string }> {
+    const open = this.threads.get(sessionId)?.session;
+    if (open?.state.busy) throw new Error("Wait for this turn to finish (or stop it), then fork.");
+    if (open && !open.myMessages().length) throw new Error("Send a message first: there is nothing to fork yet.");
+    const made = (await (await handler("sessions:fork"))({}, sessionId, title ? { title } : undefined)) as { id: string; title: string | null };
+    return { id: made.id, title: made.title ?? "Untitled" };
   }
 
   async listSessions(cwd: string | undefined): Promise<ListSessionsResponse> {

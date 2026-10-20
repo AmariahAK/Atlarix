@@ -64,7 +64,7 @@ export function initializeResponse(version: string): InitializeResponse {
       // Editors' own MCP servers (session/new, session/load): stdio always; http
       // (streamable) too. SSE is not spoken.
       mcpCapabilities: { http: true, sse: false },
-      sessionCapabilities: { list: {} },
+      sessionCapabilities: { list: {}, fork: {} },
     },
     authMethods: [
       {
@@ -124,6 +124,7 @@ export function buildAgentApp(
       agent.loadSession(ctx.params.cwd, ctx.params.sessionId, ctx.params.mcpServers),
     )
     .onRequest("session/list", (ctx) => agent.listSessions(ctx.params.cwd ?? undefined))
+    .onRequest("session/fork", (ctx) => agent.forkSession(ctx.params.sessionId, ctx.params.cwd, ctx.params.mcpServers))
     .onRequest("session/prompt", (ctx) => agent.prompt(ctx.params.sessionId, ctx.params.prompt, ctx.params._meta))
     .onNotification("session/cancel", (ctx) => agent.cancel(ctx.params.sessionId))
     .onRequest("session/set_config_option", async (ctx) => ({

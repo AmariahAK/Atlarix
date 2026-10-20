@@ -89,6 +89,7 @@ export function activate(context: vscode.ExtensionContext): void {
           log.appendLine(`Atlarix exited (${code})`);
           if (connection === c) connection = null;
         },
+        openSession: (sessionId) => openSessionHere(sessionId),
       });
       try {
         await c.start();

@@ -69,6 +69,12 @@ async function editor(
     })
     .onNotification("_atlarix/background_ready", (p) => p as Record<string, unknown>, (ctx) => {
       ext.push({ method: "_atlarix/background_ready", params: ctx.params });
+    })
+    .onNotification("_atlarix/open_session", (p) => p as Record<string, unknown>, (ctx) => {
+      ext.push({ method: "_atlarix/open_session", params: ctx.params });
+    })
+    .onNotification("_atlarix/working", (p) => p as Record<string, unknown>, (ctx) => {
+      ext.push({ method: "_atlarix/working", params: ctx.params });
     });
   const conn = client.connect(buildAgentApp(agent, "test"));
   const init = await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities });
@@ -197,6 +203,103 @@ describe("atlarix acp", () => {
     const said = e.updates.filter((u) => u.update.sessionUpdate === "tool_call" && u.update.toolCallId.startsWith("approved:"));
     expect(said).toHaveLength(1);
   }, 60_000);
+
+  it("advertises fork, and session/fork carries the conversation on in a new session", async () => {
+    const e = await editor([{ text: "Remember the cache key." }]);
+    expect(e.init.agentCapabilities?.sessionCapabilities?.fork).toBeTruthy();
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "note the key" }] });
+    const fork = await e.conn.agent.request("session/fork", { sessionId, cwd: ws, mcpServers: [] });
+    expect(fork.sessionId).toBeTruthy();
+    expect(fork.sessionId).not.toBe(sessionId);
+    expect(fork.modes?.currentModeId).toBe("build");
+    // The copy's conversation goes to the editor, as a load's does.
+    const copied = e.updates.filter((u) => u.sessionId === fork.sessionId);
+    expect(copied.some((u) => u.update.sessionUpdate === "user_message_chunk")).toBe(true);
+    expect(e.text(fork.sessionId)).toContain("Remember the cache key.");
+    const list = await e.conn.agent.request("session/list", { cwd: ws });
+    expect(list.sessions.find((x) => x.sessionId === fork.sessionId)?.title).toMatch(/\(fork\)$/);
+  }, 60_000);
+
+  it("/fork in a chat: Atlarix's panel opens the copy, other editors are told where it is", async () => {
+    const plain = await editor([{ text: "First answer." }]);
+    const a = await plain.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await plain.conn.agent.request("session/prompt", { sessionId: a.sessionId, prompt: [{ type: "text", text: "hello" }] });
+    const r = await plain.conn.agent.request("session/prompt", { sessionId: a.sessionId, prompt: [{ type: "text", text: "/fork My copy" }] });
+    expect(r.stopReason).toBe("end_turn");
+    expect(plain.text(a.sessionId)).toContain("Forked as 'My copy': open it from your session history");
+    const list = await plain.conn.agent.request("session/list", { cwd: ws });
+    expect(list.sessions.some((x) => x.title === "My copy")).toBe(true);
+    // Not a turn: the model ran one, for "hello" (titles ask it too, without tools).
+    expect(plain.llm.requests.filter((q) => q.tools?.length)).toHaveLength(1);
+
+    const panel = await editor([{ text: "First answer." }], undefined, { _meta: { atlarix: {} } });
+    const b = await panel.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await panel.conn.agent.request("session/prompt", { sessionId: b.sessionId, prompt: [{ type: "text", text: "hello" }] });
+    await panel.conn.agent.request("session/prompt", { sessionId: b.sessionId, prompt: [{ type: "text", text: "/fork" }] });
+    const open = panel.ext.find((x) => x.method === "_atlarix/open_session");
+    expect(open?.params.sessionId).toBeTruthy();
+    expect(open?.params.sessionId).not.toBe(b.sessionId);
+  }, 60_000);
+
+  it("a session another process is running: the editor follows it, says where, steers it and stops it", async () => {
+    const e = await editor(
+      [
+        { tool: "run_command", args: { command: "sleep 4", description: "wait a bit" } }, // A, turn 1
+        { text: "Heard you." }, // A, turn 1: its request carries the steer
+        { tool: "run_command", args: { command: "sleep 60", description: "wait long" } }, // A, turn 2: stopped from the editor
+        { text: "unused" },
+      ],
+      undefined,
+      { _meta: { atlarix: {} } },
+    );
+    // Process A shares this process's database (bun runs test files in one process).
+    const { getDb } = await import("../src/db");
+    const db = getDb().$client as unknown as { prepare(sql: string): { all(): Array<{ name: string; file: string }> } };
+    const userData = path.dirname(db.prepare("PRAGMA database_list").all().find((d) => d.name === "main")!.file);
+    const { spawn } = await import("node:child_process");
+    const a = spawn(
+      process.execPath,
+      ["run", "--preload", "./tests-bun/preload.ts", "tests-bun/fixtures/live-runner.ts", userData, ws, e.llm.url],
+      { cwd: path.join(import.meta.dir, ".."), stdio: ["pipe", "pipe", "inherit"] },
+    );
+    const lines: string[] = [];
+    a.stdout!.on("data", (c: Buffer) => lines.push(...c.toString().split("\n").filter(Boolean)));
+    const until = async (pred: () => boolean, ms = 30_000) => {
+      for (const t0 = Date.now(); !pred(); await new Promise((r) => setTimeout(r, 100))) {
+        if (Date.now() - t0 > ms) throw new Error(`timed out; A said: ${lines.join(" | ")}`);
+      }
+    };
+    const working = () => e.ext.filter((x) => x.method === "_atlarix/working").map((x) => x.params);
+    const idles = () => lines.filter((l) => l === "IDLE").length;
+    try {
+      a.stdin!.write("submit run the slow thing\n");
+      await until(() => lines.some((l) => l.startsWith("SESSION ")));
+      const sessionId = lines.find((l) => l.startsWith("SESSION "))!.slice(8);
+      await e.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+
+      // Where it runs, in the working line, and A's turn as it runs.
+      await until(() => working().some((w) => w.following === true));
+      expect(working().find((w) => w.following === true)).toMatchObject({ sessionId, title: "Running in the CLI" });
+      await until(() => e.updates.some((u) => u.sessionId === sessionId && u.update.sessionUpdate === "tool_call"));
+
+      // Typed in the panel while it runs elsewhere: to A's turn.
+      const r = await e.agent.interject(sessionId, "also check the empty file case", "steer");
+      expect(r.started).toBe(true);
+      await until(() => idles() >= 1);
+      expect(JSON.stringify(e.llm.requests.filter((q) => q.tools?.length)[1]!.messages)).toContain("also check the empty file case");
+      await until(() => working().at(-1)?.following === false);
+
+      // A's next turn, stopped from the editor (session/cancel).
+      a.stdin!.write("submit now the long one\n");
+      await until(() => working().at(-1)?.following === true);
+      await e.conn.agent.notify("session/cancel", { sessionId });
+      await until(() => idles() >= 2, 20_000);
+    } finally {
+      a.stdin!.end();
+      a.kill();
+    }
+  }, 120_000);
 
   it("switches mode through the config option and the legacy set_mode", async () => {
     const e = await editor([]);

@@ -41,7 +41,8 @@ function idlePlaceholder(): string {
 input.placeholder = idlePlaceholder();
 input.setAttribute("aria-label", "Message");
 const bar = el("div", "box__bar");
-const modePill = button("", "pill mode-pill", () => modeMenu.classList.toggle("hidden"), "Mode");
+// The mode waits while another surface runs the turn (the agent would refuse it).
+const modePill = button("", "pill mode-pill", () => following || modeMenu.classList.toggle("hidden"), "Mode");
 // While it works the button stops it; Enter in the box steers instead.
 const sendBtn = button("", "send", () => (state.busy ? post({ type: "cancel" }) : submit()), "Send");
 /** What you sent while it worked, still waiting: steers and queued messages. */
@@ -83,6 +84,8 @@ export function initComposer(h: ComposerHooks): void {
   on("session", () => {
     endEdit();
     void refreshApproveLine();
+    // Another session now: it says for itself whether it runs elsewhere.
+    if (following) setFollowing(false, null);
   });
   document.addEventListener("click", (e) => {
     const t = e.target as Node;
@@ -129,6 +132,25 @@ export function setBusy(b: boolean): void {
 
 /** Shown instead of the step title while set ("Couldn't connect, retrying in 2s (1/3)…"). */
 let workingNote: string | null = null;
+
+/**
+ * Another surface (the CLI, the app) runs this session's turn: the panel shows
+ * it working, "Running in the CLI". Enter steers that turn and Stop stops it
+ * (the agent sends both there). When it ends, the panel is idle again.
+ */
+let following = false;
+
+export function setFollowing(on: boolean, title: string | null): void {
+  if (on && !state.busy) {
+    following = true;
+    setBusy(true);
+  } else if (!on && following) {
+    following = false;
+    setBusy(false);
+  }
+  modePill.title = following && title ? `${title} — wait for it to finish.` : "Mode";
+  if (on) setWorkingNote(title);
+}
 
 export function setWorkingNote(note: string | null): void {
   workingNote = note;

@@ -309,6 +309,7 @@ onHost((m: HostMessage) => {
       if (m.card.resolved) return S.removeSuggestion(String(m.card.id));
       return S.showSuggestion(m.card as unknown as S.SuggestionCard);
     case "working":
+      if (typeof m.following === "boolean") return C.setFollowing(m.following, m.title ?? null);
       return C.setWorkingNote(m.title ?? null);
     case "unsent":
       return C.restoreUnsent(m.text);

@@ -135,7 +135,12 @@ export class Chat {
         case "set-option": {
           const c = await this.host.connection();
           if (!c || !this.sessionId) return;
-          const configOptions = await c.setOption(this.sessionId, m.configId, m.value);
+          // Refused while another surface runs the turn: say why; it is no turn's end.
+          const configOptions = await c.setOption(this.sessionId, m.configId, m.value).catch((e: unknown) => {
+            this.toast(errorText(e), "error");
+            return null;
+          });
+          if (!configOptions) return;
           this.noteOptions(configOptions);
           this.post({ type: "update", update: { sessionUpdate: "config_option_update", configOptions } });
           return;
@@ -287,7 +292,7 @@ export class Chat {
         automationRun: (run) => this.post({ type: "automation-run", ...run }),
         pendingChanged: (items) => this.post({ type: "pending", items }),
         mcpSuggestion: (card) => this.post({ type: "mcp-suggestion", card }),
-        workingChanged: (title) => this.post({ type: "working", title }),
+        workingChanged: (title, following) => this.post({ type: "working", title, ...(following !== undefined ? { following } : {}) }),
         unsent: (text) => this.post({ type: "unsent", text }),
         backgroundReady: () => this.onBackgroundReady(),
       };

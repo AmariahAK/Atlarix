@@ -60,7 +60,8 @@ export interface SessionListener {
   /** Messages sent while the turn runs changed. */
   pendingChanged?(items: Array<{ id: string; text: string; kind: string }>): void;
   /** What the working line says instead of "Thinking" ("Couldn't connect, retrying…"), or null. */
-  workingChanged?(title: string | null): void;
+  /** `following`: another surface runs this session's turn (title says which); absent for a retry note. */
+  workingChanged?(title: string | null, following?: boolean): void;
   /** Text you typed into a turn you stopped that the agent never got: back to the input. */
   unsent?(text: string): void;
   /** An automation finished a run. */
@@ -79,6 +80,8 @@ export interface ConnectionOptions {
   /** A page to open: Atlarix's sign-in, or an MCP server's (the CLI prints them on stderr). */
   openUrl: (url: string, kind: "sign-in" | "open") => void;
   onExit: (code: number | null) => void;
+  /** A session to open in a panel (a fork made with `/fork`). */
+  openSession?: (sessionId: string) => void;
 }
 
 /** ACP's "sign in first" (RequestError.authRequired). */
@@ -156,9 +159,17 @@ export class AtlarixConnection {
       )
       .onNotification(
         "_atlarix/working",
-        (p) => p as { sessionId: string; title?: string | null },
+        (p) => p as { sessionId: string; title?: string | null; following?: boolean },
         (ctx) => {
-          this.listeners.get(ctx.params.sessionId)?.workingChanged?.(ctx.params.title ?? null);
+          this.listeners.get(ctx.params.sessionId)?.workingChanged?.(ctx.params.title ?? null, ctx.params.following);
+        },
+      )
+      // `/fork` typed in the panel: open the copy here.
+      .onNotification(
+        "_atlarix/open_session",
+        (p) => p as { sessionId: string },
+        (ctx) => {
+          if (ctx.params.sessionId) this.opts.openSession?.(ctx.params.sessionId);
         },
       )
       .onNotification(
