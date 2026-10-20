@@ -105,5 +105,13 @@ describe("a request too long for the model", () => {
     for (let i = 0; i < 600 && !answered(); i++) await new Promise((r) => setTimeout(r, 50));
     expect(answered()).toBe(true);
     expect(s.state.lastError).toBeNull();
+    // And it is saved: /resume (here or in the app) shows the answer (A5).
+    const { db } = await import("../src/db");
+    const { sessionMessages } = await import("../src/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const saved = async () =>
+      (await db.select().from(sessionMessages).where(eq(sessionMessages.sessionId, s.sessionId!))).map((r) => `${r.role}:${r.content}`);
+    for (let i = 0; i < 100 && !(await saved()).includes("assistant:Recovered after compacting."); i++) await new Promise((r) => setTimeout(r, 50));
+    expect((await saved()).slice(-2)).toEqual(["user:go on", "assistant:Recovered after compacting."]);
   }, 180_000);
 });

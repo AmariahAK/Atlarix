@@ -2426,8 +2426,12 @@ export function registerChatStreamHandlers() {
           abortController,
           streamId,
         });
-        // Preserve the inline original's context-overflow retry (return runStream()).
-        if (outcome?.rerun) return runStream();
+        // The context-overflow retry. Awaited: returned unawaited, the `finally`
+        // below ran as the retry STARTED, and its ensureTerminal sent this
+        // stream's end then — the client ended the turn with nothing to save and
+        // dropped the retry's real end as a repeat, so the answer showed but was
+        // never stored (A5).
+        if (outcome?.rerun) return await runStream();
       } finally {
         // Finalize any browser/preview session recordings captured this turn and
         // hand the renderer a reference to play them back (proof of work).
