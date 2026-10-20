@@ -196,10 +196,13 @@ async function registerHandlers(): Promise<void> {
   handlersRegistered = true;
   const { registerChatStreamHandlers } = await import("@/ipc/handlers/chat_stream_handlers");
   registerChatStreamHandlers();
-  const { registerWorkspaceSessionHandlers } = await import(
+  const { registerWorkspaceSessionHandlers, seedEphemeralCounterFromSessions } = await import(
     "@/ipc/handlers/workspace_session_handlers"
   );
   registerWorkspaceSessionHandlers();
+  // Number this process's transports below every stored one, as the app does
+  // (main.ts): every process counts its own, and the CLI started at -1 each time.
+  await seedEphemeralCounterFromSessions();
   await import("@/ipc/handlers/permissions/handlers");
   const { registerBackgroundHandlers } = await import("@/ipc/handlers/background_handlers");
   registerBackgroundHandlers();

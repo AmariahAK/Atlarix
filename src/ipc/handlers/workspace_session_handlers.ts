@@ -44,6 +44,7 @@ import {
 import { isChatStreamLive, lastStreamRequest } from "./chat_stream/stream-state";
 import { WorkModeSchema, type WorkMode } from "@/lib/schemas";
 import {
+  bindTransportToSession,
   createStreamTransport,
   deleteStreamTransport,
   getStreamTransport,
@@ -51,6 +52,8 @@ import {
   hydrateStreamTransport,
   isStreamTransportId,
   seedEphemeralChatCounterBelow,
+  sessionForTransport,
+  transportForSession,
 } from "@/lib/chat/stream-transport";
 
 const DEFAULT_SESSION_TITLES = new Set(["Untitled", "New session", "New chat"]);
@@ -427,10 +430,10 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
     );
   }
 
-  const byTransport = await db.query.chatSessions.findFirst({
-    where: eq(chatSessions.streamChatId, input.chatId),
-  });
-  if (byTransport) return byTransport.id;
+  // The session THIS process bound the transport to; the shared column cannot
+  // say (another process's transport may carry the same number).
+  const bound = sessionForTransport(input.chatId);
+  if (bound) return bound;
 
   const appId = input.workspaceAppId ?? getStreamTransportAppId(input.chatId);
   if (appId == null || !getStreamTransport(input.chatId)) {
@@ -444,18 +447,13 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
     orderBy: [desc(chatSessions.updatedAt)],
   });
 
-  if (latest) {
-    const stored = latest.streamChatId;
-    if (
-      stored == null ||
-      (isStreamTransportId(stored) && !getStreamTransport(stored))
-    ) {
-      await persistSessionStreamChatId(latest.id, input.chatId);
-      logger.warn(
-        `Bound transport chat ${input.chatId} to session ${latest.id} (workspace ${appId})`,
-      );
-      return latest.id;
-    }
+  // Not one this process has a transport for, nor one another process holds.
+  if (latest && transportForSession(latest.id) == null && !sessionsHeldElsewhere().has(latest.id)) {
+    await persistSessionStreamChatId(latest.id, input.chatId);
+    logger.warn(
+      `Bound transport chat ${input.chatId} to session ${latest.id} (workspace ${appId})`,
+    );
+    return latest.id;
   }
 
   const session = await insertWorkspaceSession(appId);
@@ -824,6 +822,7 @@ async function persistSessionStreamChatId(
   sessionId: string,
   chatId: number,
 ): Promise<void> {
+  bindTransportToSession(chatId, sessionId);
   await db
     .update(chatSessions)
     .set({ streamChatId: chatId })
@@ -835,10 +834,10 @@ async function persistSessionStreamChatId(
  * bound to it. v12 (TODO 2.4): the DB delete alone leaked the ephemeral chat,
  * partial responses, last stream request and ask_user state.
  */
-async function deleteSessionAndTransport(
-  sessionId: string,
-  streamChatId: number | null,
-): Promise<number | null> {
+async function deleteSessionAndTransport(sessionId: string): Promise<number | null> {
+  // This process's transport for it, never the stored id: that may be another
+  // process's number, and the same number here is some other session's chat.
+  const streamChatId = transportForSession(sessionId) ?? null;
   await db.delete(chatSessions).where(eq(chatSessions.id, sessionId));
   forgetLiveSession(sessionId);
   if (streamChatId != null && isStreamTransportId(streamChatId)) {
@@ -859,10 +858,7 @@ export async function pruneSessionIfEmpty(
   if (!check.empty || !check.row) {
     return { pruned: false, streamChatId: null };
   }
-  const streamChatId = await deleteSessionAndTransport(
-    sessionId,
-    check.row.streamChatId ?? null,
-  );
+  const streamChatId = await deleteSessionAndTransport(sessionId);
   logger.info(
     `[session-prune] left empty session ${sessionId.slice(0, 8)} removed`,
   );
@@ -1009,9 +1005,10 @@ export function registerWorkspaceSessionHandlers(): void {
       // persisted per-assistant snapshot_turn_id rows so the renderer can rebuild
       // turnSnapshotTurnIdByMessageId via buildRevertSnapshotMap. Cheap targeted
       // query — not a full session message load.
-      const session = await db.query.chatSessions.findFirst({
-        where: eq(chatSessions.streamChatId, payload.chatId),
-      });
+      const sessionId = sessionForTransport(payload.chatId);
+      const session = sessionId
+        ? await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, sessionId) })
+        : undefined;
       if (!session) return [];
       const rows = await db
         .select({
@@ -1059,12 +1056,10 @@ export function registerWorkspaceSessionHandlers(): void {
     });
     if (!session) throw new Error("Session not found");
 
-    const stored = session.streamChatId;
-    if (
-      stored != null &&
-      isStreamTransportId(stored) &&
-      getStreamTransport(stored)?.appId === session.workspaceId
-    ) {
+    // Reused only if THIS process bound it to this session: the stored id may
+    // be another process's, and the same number here another session's chat.
+    const stored = transportForSession(sessionId);
+    if (stored != null && getStreamTransport(stored)?.appId === session.workspaceId) {
       void noteSessionOpen(sessionId, stored);
       return { chatId: stored };
     }
@@ -1140,7 +1135,7 @@ export function registerWorkspaceSessionHandlers(): void {
       const last = rows.at(-1);
       const running =
         runningElsewhere(sessionId) != null ||
-        (source.streamChatId != null && isChatStreamLive(source.streamChatId));
+        isChatStreamLive(transportForSession(sessionId) ?? 0);
       const copied = last && running && last.status === "interrupted" ? rows.slice(0, -1) : rows;
 
       const fork = await insertWorkspaceSession(source.workspaceId);
@@ -1221,8 +1216,8 @@ export function registerWorkspaceSessionHandlers(): void {
         .returning();
       if (!row) throw new Error("Session not found");
       // Other sessions address this one by name: keep the registry's current.
-      if (row.streamChatId != null)
-        void noteSessionOpen(sessionId, row.streamChatId);
+      const local = transportForSession(sessionId);
+      if (local != null) void noteSessionOpen(sessionId, local);
       return mapSession(row);
     },
   );
@@ -1254,13 +1249,7 @@ export function registerWorkspaceSessionHandlers(): void {
   );
 
   handle("sessions:delete", async (_event, sessionId: string) => {
-    const session = await db.query.chatSessions.findFirst({
-      where: eq(chatSessions.id, sessionId),
-    });
-    const streamChatId = await deleteSessionAndTransport(
-      sessionId,
-      session?.streamChatId ?? null,
-    );
+    const streamChatId = await deleteSessionAndTransport(sessionId);
     // Returned so the renderer can clear its per-chat atoms for this transport.
     return { ok: true, streamChatId };
   });
@@ -1329,9 +1318,7 @@ export function registerWorkspaceSessionHandlers(): void {
       );
       hydrateAttachmentStoreFromMessages(
         messages,
-        typeof session.streamChatId === "number"
-          ? session.streamChatId
-          : undefined,
+        transportForSession(session.id),
         session.id,
       );
       if (sessionLoadDiagEnabled()) {
@@ -1458,7 +1445,7 @@ export function registerWorkspaceSessionHandlers(): void {
 
     const next =
       (await generateSessionTitle(text, {
-        chatId: session.streamChatId ?? null,
+        chatId: transportForSession(session.id) ?? null,
       })) ?? deterministicTitle(text);
     if (
       next &&

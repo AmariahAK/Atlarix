@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { apps, automationRuns, automations, chatSessions } from "@/db/schema";
 import {
+  bindTransportToSession,
   createStreamTransport,
   deleteStreamTransport,
   getStreamTransport,
@@ -336,6 +337,7 @@ export async function executeAutomationRun(
   await broadcastRunUpdate(runId);
 
   const chatId = createStreamTransport(automation.workspaceId);
+  bindTransportToSession(chatId, sessionId);
   await db
     .update(chatSessions)
     .set({ streamChatId: chatId })

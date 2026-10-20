@@ -239,6 +239,35 @@ export function listStreamTransports(): Array<{
   }));
 }
 
+/**
+ * The session each of THIS process's transports is bound to.
+ *
+ * `chat_sessions.stream_chat_id` cannot say it: every Atlarix process numbers
+ * its own transports, and the column holds whichever id the process that
+ * opened the session LAST wrote. Read alone, it handed one session another's
+ * transport: two CLIs in one folder both had -1, and `/resume X` in the second
+ * reused its own -1, which was session Y's, so Y's pending approvals, job
+ * results and queued messages landed in X (multi-process audit, 2026-10-20).
+ */
+const sessionByTransport = new Map<number, string>();
+
+/** Record that this process bound `chatId` to `sessionId` (one transport per session). */
+export function bindTransportToSession(chatId: number, sessionId: string): void {
+  for (const [id, sid] of sessionByTransport) if (sid === sessionId && id !== chatId) sessionByTransport.delete(id);
+  sessionByTransport.set(chatId, sessionId);
+}
+
+/** The session this process bound `chatId` to, if it did. */
+export function sessionForTransport(chatId: number): string | undefined {
+  return ephemeralChats.has(chatId) ? sessionByTransport.get(chatId) : undefined;
+}
+
+/** This process's live transport for `sessionId`, if it has one. */
+export function transportForSession(sessionId: string): number | undefined {
+  for (const [id, sid] of sessionByTransport) if (sid === sessionId && ephemeralChats.has(id)) return id;
+  return undefined;
+}
+
 export function getStreamTransportAppId(chatId: number): number | undefined {
   return ephemeralChats.get(chatId)?.appId;
 }
@@ -265,6 +294,7 @@ export function deleteStreamTransport(chatId: number): boolean {
   void import("@/lib/agent/user-interjections")
     .then((m) => m.clearUserInterjections(chatId))
     .catch(() => {});
+  sessionByTransport.delete(chatId);
   return ephemeralChats.delete(chatId);
 }
 
