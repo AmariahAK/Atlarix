@@ -7,6 +7,7 @@ import {
   AGENT_SCRATCH_ROOT_NAME,
   ATLARIX_TEMP_PREFIX,
 } from "@/lib/agent-scratch";
+import { peerSocketPath } from "@/lib/peers/peers";
 
 const logger = log.scope("temp-hygiene");
 
@@ -118,24 +119,58 @@ export function releaseTempLease(): void {
   leasePath = null;
 }
 
-/** How many OTHER Atlarix processes are running; ended ones' files are removed. */
-async function otherLiveHolders(): Promise<number> {
+/**
+ * Atlarix processes that write NO lease: every build before leases (15.9.2 and
+ * older). A newer one quitting counted only leases, took the shared dirs as the
+ * last Atlarix, and deleted a running 15.9.2's scratch files (E4, 2 of 2). The
+ * update window makes that mix normal: the app updates itself, the CLI and the
+ * editor extension separately.
+ *
+ * Each of them holds a peer inbox named by its pid (lib/peers `peerSocketPath`),
+ * at a fixed place whatever TMPDIR or data folder it runs with, so a live one is
+ * a holder too. Never removed here: the inbox is its owner's.
+ */
+let peerSocketDirOverride: string | null = null;
+
+async function peerInboxPids(): Promise<number[]> {
+  const own = peerSocketPath(process.platform, 0);
+  const dir = peerSocketDirOverride ?? (process.platform === "win32" ? "\\\\.\\pipe\\" : path.dirname(own));
+  // This user's inboxes only: `atlarix-peer-<uid or user>-<pid>[.sock]`.
+  const prefix = path.basename(own).replace(/0(\.sock)?$/, "");
   let names: string[];
+  try {
+    names = await fsp.readdir(dir);
+  } catch {
+    return [];
+  }
+  return names.flatMap((name) => {
+    if (!name.startsWith(prefix)) return [];
+    const pid = Number(/^(\d+)(?:\.sock)?$/.exec(name.slice(prefix.length))?.[1]);
+    return Number.isInteger(pid) && pid > 0 ? [pid] : [];
+  });
+}
+
+/** How many OTHER Atlarix processes are running; ended ones' lease files are removed. */
+async function otherLiveHolders(): Promise<number> {
+  const live = new Set<number>();
+  let names: string[] = [];
   try {
     names = await fsp.readdir(leasesDir());
   } catch {
-    return 0;
+    /* no leases yet */
   }
-  let live = 0;
   for (const name of names) {
     const m = /^(\d+)\.json$/.exec(name);
     if (!m) continue;
     const pid = Number(m[1]);
     if (pid === process.pid) continue;
-    if (isAlive(pid)) live++;
+    if (isAlive(pid)) live.add(pid);
     else await fsp.rm(path.join(leasesDir(), name), { force: true }).catch(() => {});
   }
-  return live;
+  for (const pid of await peerInboxPids()) {
+    if (pid !== process.pid && isAlive(pid)) live.add(pid);
+  }
+  return live.size;
 }
 
 export type SweepOptions = {
@@ -261,4 +296,13 @@ export function startTempHygiene(surface: string): void {
 }
 
 /** Exported for tests — the predicate is the whole safety argument. */
-export const __testing = { sweepTempDirs, LIVE_WHILE_RUNNING, LEASES_DIR_NAME, otherLiveHolders };
+export const __testing = {
+  sweepTempDirs,
+  LIVE_WHILE_RUNNING,
+  LEASES_DIR_NAME,
+  otherLiveHolders,
+  /** Where peer inboxes are looked for (a temp dir in tests, not the real /tmp). */
+  setPeerSocketDir: (dir: string | null) => {
+    peerSocketDirOverride = dir;
+  },
+};
