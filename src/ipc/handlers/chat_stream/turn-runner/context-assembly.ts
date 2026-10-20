@@ -141,6 +141,7 @@ export async function runContextAssembly(
       id: number;
       role: string;
       content: string;
+      modelContent?: string | null;
     }[];
     const outcomeR = await executeCompressContext(
       { reason: compressReason },
@@ -150,6 +151,7 @@ export async function runContextAssembly(
           id: m.id,
           role: m.role,
           content: m.content || "",
+          modelContent: m.modelContent,
         })),
         // W6: the stream's REAL system prompt is in scope — no more
         // hardcoded 6000 (the ratio gate now sees the meter's scope).

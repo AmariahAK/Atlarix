@@ -522,6 +522,7 @@ export async function runBuildBranch(
                 id: number;
                 role: string;
                 content: string;
+                modelContent?: string | null;
               }[];
               const outcome = await executeCompressContext(
                 { reason },
@@ -531,6 +532,7 @@ export async function runBuildBranch(
                     id: m.id,
                     role: m.role,
                     content: m.content || "",
+                    modelContent: m.modelContent,
                   })),
                   systemPromptTokens: estimateTokens(systemPrompt),
                   inputTokens: 0,

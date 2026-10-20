@@ -22,7 +22,7 @@ import {
 import { extractTextFromRtfBuffer } from "@/lib/attachment-rtf-extract";
 import { classifyContent, SNIFF_SAMPLE_BYTES } from "@/lib/file-content-type";
 
-import { estimateTokens } from "@/ipc/utils/token_utils";
+import { flattenNativeForCompaction, parseNativeHistory } from "@/lib/ai/native-history";
 import {
   runSteppedCompaction,
   getUsableBudget,
@@ -100,17 +100,73 @@ ToolRegistry.register({
 // COMPRESS CONTEXT
 // ═══════════════════════════════════════════════════════════
 
+/** A transcript message: `modelContent` is an assistant turn's native tool history. */
+type TranscriptMessage = { id: number; role: string; content: string; modelContent?: string | null };
+
+/**
+ * A message as the forced compactions see it: an assistant turn's tool calls and
+ * results, not only its text.
+ *
+ * The text alone sized a tool-heavy session as short: five turns with thirty-odd
+ * tool calls each sent ~30k tokens a request, and `/compact` answered "the
+ * conversation is still short" (2 of 2 runs, 2026-10-20), because those calls and
+ * their results live in `modelContent`. The overflow retry, which compacts the
+ * same way, then found nothing to do and the turn failed. In full, not clipped:
+ * this text is what the history is MEASURED by, and the summariser bounds its own
+ * input.
+ */
+function compactionText(m: { role: string; content?: string | null; modelContent?: string | null }): string {
+  if (m.role === "assistant") {
+    const envelope = parseNativeHistory(m.modelContent);
+    if (envelope) {
+      return flattenNativeForCompaction(envelope.messages, Infinity)
+        .map((x) => (typeof x.content === "string" ? x.content : ""))
+        .filter(Boolean)
+        .join("\n\n");
+    }
+  }
+  return m.content ?? "";
+}
+
+function forCompaction(
+  messages: ReadonlyArray<{ id: number; role: string; content?: string | null; modelContent?: string | null }>,
+): Array<{ id: number; role: string; content: string }> {
+  return messages.map((m) => ({ id: m.id, role: m.role, content: compactionText(m) }));
+}
+
+/**
+ * Back to the transcript. A message compaction left as it was is the ORIGINAL,
+ * native tool history and all, so the turns kept after a summary still replay as
+ * real tool calls. A turn whose tool output was pruned keeps its own text without
+ * the tool history: the pruner replaces whole messages, and this one message is
+ * the whole turn, answer included. Anything else it changed (the summary) is its.
+ */
+function fromCompaction<T extends TranscriptMessage, A extends { id: number; content: string }>(
+  after: readonly A[],
+  before: readonly T[],
+): Array<T | A> {
+  const byId = new Map(before.map((m) => [m.id, m]));
+  return after.map((m) => {
+    const was = byId.get(m.id);
+    if (!was) return m;
+    if (compactionText(was) === m.content) return was;
+    if (was.role === "assistant" && parseNativeHistory(was.modelContent)) {
+      const { modelContent: _dropped, ...rest } = was;
+      return { ...rest, content: was.content ?? "" } as T;
+    }
+    return m;
+  });
+}
+
 export type ExecuteCompressContextContext = {
   chatId: number;
-  messages: Array<{ id: number; role: string; content: string }>;
+  messages: TranscriptMessage[];
   systemPromptTokens: number;
   inputTokens?: number;
   providerId?: string;
   sessionStats?: { toolCallCount?: number; delegationCount?: number };
   /** Replaces the caller's live transcript (in-memory transport) after compaction. */
-  setMessages: (
-    next: Array<{ id: number; role: string; content: string }>,
-  ) => void;
+  setMessages: (next: TranscriptMessage[]) => void;
   /**
    * The stream's already-resolved workspace session id (req.workspaceSessionId).
    * Preferred over re-resolving from `chatId` (which can be negative/unbound for
@@ -151,15 +207,9 @@ export async function forceCompactEphemeralChat(
   // token floor turns a genuinely small one down.
   if (!chat || chat.messages.length < 2) return false;
 
-  const msgList = chat.messages.map((m) => ({
-    id: m.id,
-    role: m.role,
-    content: m.content ?? "",
-  }));
-  const currentTokens = msgList.reduce(
-    (acc, m) => acc + estimateTokens(m.content || ""),
-    0,
-  );
+  const before = chat.messages as Array<(typeof chat.messages)[number] & { modelContent?: string | null }>;
+  const msgList = forCompaction(before);
+  const currentTokens = countMessagesTokens(msgList);
   // Half the current size as the target forces prune + summarize.
   const forcedLimit = Math.max(8_000, Math.floor(currentTokens / 2));
   // The compactor persists its own marker (chatId supplied) — the explicit
@@ -171,20 +221,26 @@ export async function forceCompactEphemeralChat(
   });
   if (!stepped.compactionApplied) return false;
 
-  chat.messages = stepped.modelContext.map((m) => ({
-    id: m.id,
-    chatId,
-    role: m.role as "user" | "assistant",
-    content: m.content || "",
-    createdAt: new Date(),
-  }));
+  // Transcript messages carry `createdAt`; the compactor's own (the summary) do not.
+  chat.messages = fromCompaction(stepped.modelContext, before).map((m) =>
+    "createdAt" in m
+      ? m
+      : {
+          id: m.id,
+          chatId,
+          role: m.role as "user" | "assistant",
+          content: m.content || "",
+          createdAt: new Date(),
+          ...("kind" in m && m.kind ? { kind: m.kind as never } : {}),
+        },
+  );
   logger.info(
     `[compaction] Forced compaction (${stepped.strategy}) freed ~${stepped.tokensFreed} tokens (chat ${chatId}, marker saved: ${stepped.summaryPersisted})`,
   );
   return {
     strategy: stepped.strategy,
     tokensBefore: currentTokens,
-    tokensAfter: stepped.modelContext.reduce((acc, m) => acc + estimateTokens(m.content || ""), 0),
+    tokensAfter: countMessagesTokens(forCompaction(chat.messages)),
   };
 }
 
@@ -209,11 +265,7 @@ export async function executeCompressContext(
       ? params.reason.trim()
       : "model-initiated";
 
-  const msgList = (ctx.messages ?? []).map((m) => ({
-    id: m.id,
-    role: m.role,
-    content: m.content ?? "",
-  }));
+  const msgList = forCompaction(ctx.messages ?? []);
   const tokensBefore = countMessagesTokens(msgList);
 
   const tierLimit = await getUsableBudget(ctx.providerId);
@@ -236,15 +288,9 @@ export async function executeCompressContext(
       workspaceSessionId: ctx.workspaceSessionId,
     },
   );
-  const afterList = stepped.modelContext ?? msgList;
-  const tokensAfter = countMessagesTokens(afterList);
-  ctx.setMessages(
-    afterList.map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.content || "",
-    })),
-  );
+  const next = fromCompaction(stepped.modelContext ?? msgList, ctx.messages ?? []);
+  const tokensAfter = countMessagesTokens(forCompaction(next));
+  ctx.setMessages(next);
   const summaryPersisted = stepped.summaryPersisted;
   const applied = stepped.compactionApplied === true;
   return {

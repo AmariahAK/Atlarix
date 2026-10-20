@@ -363,9 +363,14 @@ const FLATTEN_TOOL_RESULT_MAX_CHARS = 2_000;
  * compaction/summarization pipeline. Mirrors the legacy synthetic shapes so
  * summaries read the same as the old flattened history. Pure string messages
  * pass through by reference.
+ *
+ * `maxResultChars` bounds each tool result. The forced compactions pass
+ * Infinity: they SIZE the history from this text, and a clipped result made a
+ * tool-heavy session measure as short (lib/tools/workspace.ts).
  */
 export function flattenNativeForCompaction(
   messages: ModelMessage[],
+  maxResultChars = FLATTEN_TOOL_RESULT_MAX_CHARS,
 ): ModelMessage[] {
   return messages.map((m) => {
     if (typeof m.content === "string") return m;
@@ -375,7 +380,7 @@ export function flattenNativeForCompaction(
         .map((p) => {
           const name = String((p as { toolName?: string }).toolName ?? "tool");
           const output = (p as { output?: unknown }).output;
-          return `<tool_result tool="${name}">\n${flattenOutputText(output)}\n</tool_result>`;
+          return `<tool_result tool="${name}">\n${flattenOutputText(output, maxResultChars)}\n</tool_result>`;
         })
         .join("\n\n");
       // Tool results historically traveled as user-role synthetic messages.
@@ -402,16 +407,15 @@ export function flattenNativeForCompaction(
   });
 }
 
-function flattenOutputText(output: unknown): string {
+function flattenOutputText(output: unknown, max: number): string {
   if (output == null) return "";
-  if (typeof output === "string")
-    return output.slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+  if (typeof output === "string") return output.slice(0, max);
   const o = output as { type?: string; value?: unknown };
   if (o.type === "text" || o.type === "error-text") {
-    return String(o.value ?? "").slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+    return String(o.value ?? "").slice(0, max);
   }
   if (o.type === "json" || o.type === "error-json") {
-    return safeJson(o.value).slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+    return safeJson(o.value).slice(0, max);
   }
   if (o.type === "content" && Array.isArray(o.value)) {
     return (o.value as AnyPart[])
@@ -421,9 +425,9 @@ function flattenOutputText(output: unknown): string {
           : String((p as { text?: string }).text ?? ""),
       )
       .join("\n")
-      .slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+      .slice(0, max);
   }
-  return safeJson(output).slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+  return safeJson(output).slice(0, max);
 }
 
 // ─── Persist-time bounding (what the NEXT turn rehydrates) ──────────────────
