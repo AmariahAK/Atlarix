@@ -46,6 +46,7 @@ import {
 } from "../../lib/stream/stream-stop-sentinels";
 import { saveStoppedTurn } from "./chat_stream/turn-runner/stopped-turn";
 import log from "electron-log";
+import { turnIdForMessage } from "@/shared/turn-id";
 import fs from "node:fs";
 import * as path from "path";
 import * as os from "os";
@@ -1001,7 +1002,7 @@ export function registerChatStreamHandlers() {
           ephemeralChat.messages = updatedChat.messages;
         }
 
-        let streamTurnId = String(placeholderAssistantMessage.id);
+        let streamTurnId = turnIdForMessage(placeholderAssistantMessage.id, process.pid);
         snapshotTurnIdForTerminal = streamTurnId; // v12 2.3
         // Publish it so `chat:cancel` — which cannot see this scope — can report the
         // same id on a user-stopped end. Without it the Revert affordance never appears

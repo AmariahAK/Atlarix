@@ -7,6 +7,7 @@
  * note, a chat reopened from disk read the stopped request as still open).
  */
 import log from "electron-log";
+import { messageIdOfTurn } from "@/shared/turn-id";
 import type { ModelMessage } from "ai";
 import { LOOP_REPETITION_STREAM_STOP } from "@/lib/stream/stream-stop-sentinels";
 import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
@@ -72,8 +73,8 @@ ${stopNote}` : stopNote;
       // Onto the turn's own message, not a second one beside it: the copy
       // showed the stopped turn twice, once with and once without its
       // thinking (QA #34).
-      const pid = Number(streamTurnIdByChatId.get(req.chatId));
-      const own = Number.isFinite(pid)
+      const pid = messageIdOfTurn(streamTurnIdByChatId.get(req.chatId));
+      const own = pid != null
         ? getStreamTransport(req.chatId)?.messages.find(
             (m) => m.id === pid && m.role === "assistant",
           )

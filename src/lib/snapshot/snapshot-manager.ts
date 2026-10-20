@@ -34,6 +34,7 @@ import log from "electron-log";
 import { sanitizeLedgerDirSegment } from "@/lib/tasks/task-ledger";
 import { getUserDataPath } from "@/paths/paths";
 import { realAppPath } from "@/lib/canonical-app-path";
+import { turnIdForMessage } from "@/shared/turn-id";
 import {
   ATLARIX_GIT_AUTHOR_NAME,
   ATLARIX_GIT_AUTHOR_EMAIL,
@@ -113,6 +114,20 @@ function shadowGitDir(workspacePath: string, seg?: string): string {
 
 function turnManifestPath(gitDir: string, seg: string): string {
   return path.join(gitDir, TURNS_DIR, `${seg}.json`);
+}
+
+/**
+ * A turn id as it was recorded. A client holding only the turn's assistant
+ * message id (a stopped turn's client never hears the turn id) means this
+ * process's turn for that message, `<id>-<pid>` (shared/turn-id): the message
+ * ids a client has are this process's transport. One recorded before the pid
+ * was added is the bare id itself.
+ */
+function recordedTurnId(workspacePath: string, turnId: string): string {
+  if (!/^\d+$/.test(turnId)) return turnId;
+  const own = turnIdForMessage(Number(turnId), process.pid);
+  const seg = sanitizeLedgerDirSegment(own);
+  return fsSync.existsSync(turnManifestPath(shadowGitDir(workspacePath, seg), seg)) ? own : turnId;
 }
 
 /**
@@ -794,6 +809,7 @@ export async function previewRevert(
   workspacePath: string,
   turnIdsNewestFirst: string[],
 ): Promise<{ restores: string[]; kept: string[] }> {
+  turnIdsNewestFirst = turnIdsNewestFirst.map((t) => recordedTurnId(workspacePath, t));
   const primary = path.resolve(workspacePath);
   const state = new Map<string, string | null>();
   const restores = new Set<string>();
@@ -860,7 +876,8 @@ export async function revertSnapshot(params: {
   workspacePath: string;
   turnId: string;
 }): Promise<RevertSnapshotResult> {
-  const { workspacePath, turnId } = params;
+  const { workspacePath } = params;
+  const turnId = recordedTurnId(workspacePath, params.turnId);
   const roots = await turnRoots(workspacePath, turnId);
   const primary = path.resolve(workspacePath);
   let restored = 0;
@@ -901,7 +918,8 @@ export async function revertSnapshotFiles(params: {
   turnId: string;
   relativePaths: string[];
 }): Promise<RevertSnapshotResult> {
-  const { workspacePath, turnId, relativePaths } = params;
+  const { workspacePath, relativePaths } = params;
+  const turnId = recordedTurnId(workspacePath, params.turnId);
   if (relativePaths.length === 0) {
     return { success: true, restoredFiles: 0 };
   }
@@ -951,7 +969,8 @@ export async function readSnapshotFile(params: {
   /** Workspace-relative (`../sibling/x` for a granted root), as listSnapshotFiles shows it. */
   relativePath: string;
 }): Promise<{ existed: boolean; content: string } | null> {
-  const { workspacePath, turnId, relativePath } = params;
+  const { workspacePath, relativePath } = params;
+  const turnId = recordedTurnId(workspacePath, params.turnId);
   const seg = sanitizeLedgerDirSegment(turnId);
   const roots = await turnRoots(workspacePath, turnId);
   const [group] = groupPathsByRoot({ workspacePath, paths: [relativePath], grantedRoots: roots });
@@ -972,6 +991,7 @@ export async function snapshotExists(
   turnId: string,
 ): Promise<boolean> {
   if (!workspacePath || !turnId) return false;
+  turnId = recordedTurnId(workspacePath, turnId);
   const seg = sanitizeLedgerDirSegment(turnId);
   // A turn that ONLY touched a granted sibling still has a revertible snapshot — it just
   // lives in that root's shadow repo. Checking the primary alone would hide the Revert
@@ -1000,6 +1020,7 @@ export async function listSnapshotFiles(
   endRecorded: boolean;
 } | null> {
   if (!workspacePath || !turnId) return null;
+  turnId = recordedTurnId(workspacePath, turnId);
   const seg = sanitizeLedgerDirSegment(turnId);
   const primary = path.resolve(workspacePath);
   const filesChanged: string[] = [];
@@ -1053,6 +1074,7 @@ async function updateManifests(
   turnId: string,
   update: (m: SnapshotManifest) => boolean,
 ): Promise<SnapshotManifest[]> {
+  turnId = recordedTurnId(workspacePath, turnId);
   const seg = sanitizeLedgerDirSegment(turnId);
   const changed: SnapshotManifest[] = [];
   for (const root of await turnRoots(workspacePath, turnId)) {

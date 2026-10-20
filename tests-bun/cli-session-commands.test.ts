@@ -182,6 +182,9 @@ describe("the session's commands", () => {
     const preview = await s.undoPreview(mine!.id);
     expect(preview.turnIds.length).toBe(1);
     expect(preview.filesChanged.some((f) => f.endsWith("undo.ts"))).toBe(true);
+    // The turn is this process's: two processes numbering messages from the same
+    // clock tick no longer share a turn, or its snapshot (audit 1f).
+    expect(preview.turnIds[0]).toMatch(new RegExp(`^\\d+-${process.pid}$`));
 
     const done = waitFor(s, (st) => st.cells.some((c: any) => c.kind === "markdown" && c.text === "Left v alone."));
     const { restoredFiles } = await s.resendEdited(mine!.id, "just look at v", preview.turnIds);

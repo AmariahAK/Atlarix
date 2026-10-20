@@ -84,6 +84,7 @@ import {
   modelFailureUserMessage,
 } from "@/shared/texts";
 import log from "electron-log";
+import { messageIdOfTurn } from "@/shared/turn-id";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -543,9 +544,9 @@ export async function handleTurnError(
         // publishes for exactly this reason: this catch block sits outside
         // the scope that holds the placeholder (chat:cancel has the same
         // problem, and this is the map that solved it there).
-        const pid = Number(streamTurnIdByChatId.get(req.chatId));
+        const pid = messageIdOfTurn(streamTurnIdByChatId.get(req.chatId));
         const last =
-          (Number.isFinite(pid)
+          (pid != null
             ? chat.messages.find((m) => m.id === pid)
             : undefined) ?? chat.messages[chat.messages.length - 1];
         if (last?.role === "assistant") {

@@ -5,8 +5,9 @@
  * newest→oldest). These are the turns whose file changes a "correct" rewind
  * would also undo.
  *
- * A turn's shadow-snapshot is keyed by its `streamTurnId`, which for a normal
- * turn IS the assistant message id. So we fall back to `String(m.id)` when the
+ * A turn's shadow-snapshot is keyed by its `streamTurnId`: the assistant
+ * message id and the process that ran it (shared/turn-id). We fall back to
+ * `String(m.id)`, which main reads as its own turn for that message, when the
  * live `snapshotByMessageId` atom has no entry — crucially, the atom is only
  * populated on a clean `onEnd`, so a STOPPED/cancelled turn (the user hit stop
  * after seeing a bad edit) would otherwise be missed even though its file

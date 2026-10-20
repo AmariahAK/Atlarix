@@ -149,6 +149,7 @@ function isErrorLikeLine(line: string): boolean {
 }
 
 import { playNotify, playRemaining } from "@/lib/sounds";
+import { messageIdOfTurn } from "@/shared/turn-id";
 
 /** PASS6: cap renderer-held chat history to limit heap growth (SQLite still has full history). */
 const MAX_RENDERER_MESSAGES = 100;
@@ -2240,8 +2241,7 @@ export function useStreamChat({
               if (
                 lastAssistantForSnapshot &&
                 snapshotTurnId &&
-                Number.isFinite(Number(snapshotTurnId)) &&
-                Number(snapshotTurnId) === lastAssistantForSnapshot.id
+                messageIdOfTurn(snapshotTurnId) === lastAssistantForSnapshot.id
               ) {
                 getDefaultStore().set(
                   turnSnapshotTurnIdByMessageIdAtom,
