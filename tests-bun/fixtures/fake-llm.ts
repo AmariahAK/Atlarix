@@ -73,6 +73,9 @@ function reply(r: Reply, n: number): Response {
   );
 }
 
+/** What a title or summary request gets back. */
+export const AUX_TEXT = "A title";
+
 export interface FakeLlm {
   url: string;
   /** Every request, titles included; a turn's own carry `tools`. */
@@ -87,8 +90,12 @@ export function startFakeLlm(script: Reply[], port = 0): FakeLlm {
     port,
     async fetch(req) {
       if (!new URL(req.url).pathname.endsWith("/chat/completions")) return new Response("{}", { status: 404 });
-      const body = (await req.json()) as { messages: FakeLlm["requests"][0]["messages"]; tools?: unknown[] };
+      const body = (await req.json()) as { messages: FakeLlm["requests"][0]["messages"]; tools?: unknown[]; stream?: boolean };
       requests.push(body);
+      // A request that is not streamed (a title, a summary) gets one JSON answer.
+      if (body.stream !== true && !body.tools?.length) {
+        return Response.json({ ...base, object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: AUX_TEXT }, finish_reason: "stop" }], usage });
+      }
       if (!body.tools?.length) return reply({ text: "A title" }, 0);
       // One script step per model request that offers tools (a real turn step);
       // the last step repeats if the agent asks for more.

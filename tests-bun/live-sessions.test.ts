@@ -184,8 +184,11 @@ describe("a session followed from another process", () => {
       await b.interrupt();
       await until(() => idles() >= 2, 20_000);
 
+      // A stopped turn reads as ended at once, not at the next 15 s heartbeat:
+      // a follower went on showing "Running in the CLI" 5–11 s after Stop.
+      await until(following(b, () => b.state.following == null), 3_000);
+
       // Then this process runs the next turn itself, with the whole conversation.
-      await until(following(b, () => b.state.following == null));
       await b.submit("my turn");
       await idle(b);
       const mine = llm.requests.filter((r) => r.tools?.length).at(-1)!;

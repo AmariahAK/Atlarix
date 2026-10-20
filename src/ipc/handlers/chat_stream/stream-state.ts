@@ -96,7 +96,20 @@ export const activeStreams = new ActiveStreamRegistry();
 // live runStream() PROMISE per chat so a new dispatch can await the prior
 // leg's real termination (not just abort it) before starting, plus a monotonic
 // id stamped on terminal events so the renderer drops a stale leg's late end.
-export const activeStreamRuns = new Map<number, Promise<unknown>>();
+//
+// Its removal is a turn ending too: a stop deletes `activeStreams` first, while
+// the run promise is still here, so that change published `busy` = still
+// running, and nothing published again until the 15 s heartbeat. A surface
+// following the session went on showing "Running in the CLI" 5–11 s after Stop
+// (measured by ai-8e, 2026-10-20).
+class ActiveRunRegistry extends Map<number, Promise<unknown>> {
+  override delete(chatId: number): boolean {
+    const existed = super.delete(chatId);
+    if (existed) liveChanged(chatId);
+    return existed;
+  }
+}
+export const activeStreamRuns = new ActiveRunRegistry();
 export const activeStreamId = new Map<number, number>();
 let __streamIdCounter = 0;
 /** Next monotonic stream id (imports can't mutate a `let`, so wrap the counter). */
