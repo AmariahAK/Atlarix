@@ -403,9 +403,10 @@ export function registerLanguageModelHandlers() {
       }
       const providers = await getLanguageModelProviders();
       const provider = providers.find((p) => p.id === params.providerId);
-      if (!provider) {
-        throw new Error(`Provider with ID "${params.providerId}" not found`);
-      }
+      // Gone (deleted, or a stale selection names it): it has no models. Its own
+      // settings page asks again right after the delete, and this threw
+      // (Sentry ATLARIX-2Z, "custom::oai-list").
+      if (!provider) return [];
       if (provider.type === "local") {
         throw new Error("Local models cannot be fetched");
       }

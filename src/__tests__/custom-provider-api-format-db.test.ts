@@ -177,3 +177,18 @@ describe("the app's key check", () => {
     }
   });
 });
+
+/**
+ * Sentry ATLARIX-2Z (5 events): `Provider with ID "custom::oai-list" not found`.
+ * The provider's own settings page asks for its models again after the delete
+ * (the list is invalidated), and main threw for a provider that is gone.
+ */
+describe("a deleted custom provider", () => {
+  beforeEach(freshDb);
+
+  it("has no models, instead of an error", async () => {
+    await call("create-custom-language-model-provider", { id: "oai-list", name: "OAI list", apiBaseUrl: "http://127.0.0.1:1/v1" });
+    await call("delete-custom-language-model-provider", { providerId: "custom::oai-list" });
+    expect(await call("get-language-models", { providerId: "custom::oai-list" })).toEqual([]);
+  });
+});
