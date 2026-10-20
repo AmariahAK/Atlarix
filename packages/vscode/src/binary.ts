@@ -3,6 +3,8 @@
  *   1. the `atlarix.cliPath` setting (development, or a user's own build);
  *   2. the one shipped inside this extension (`bin/`, one per platform VSIX);
  *   3. `atlarix` on PATH (npm, Homebrew, winget).
+ * A cliPath that is set but can't run is not replaced by 2 or 3: it was a
+ * choice, and another version ran silently in its place (QA E16).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -32,9 +34,14 @@ function onPath(): string | null {
   return null;
 }
 
-export function findAtlarix(extensionPath: string, setting: string | undefined): string | null {
-  if (setting?.trim() && runnable(setting.trim())) return setting.trim();
+/** The program, or none; `badSetting`: the configured cliPath that can't run. */
+export type Found = { binary: string } | { binary: null; badSetting: string | null };
+
+export function findAtlarix(extensionPath: string, setting: string | undefined): Found {
+  const configured = setting?.trim();
+  if (configured) return runnable(configured) ? { binary: configured } : { binary: null, badSetting: configured };
   const bundled = path.join(extensionPath, "bin", EXE);
-  if (runnable(bundled)) return bundled;
-  return onPath();
+  if (runnable(bundled)) return { binary: bundled };
+  const found = onPath();
+  return found ? { binary: found } : { binary: null, badSetting: null };
 }

@@ -61,13 +61,20 @@ export function activate(context: vscode.ExtensionContext): void {
     if (connection?.alive) return connection;
     if (starting) return starting;
     starting = (async () => {
-      const binary = findAtlarix(context.extensionPath, vscode.workspace.getConfiguration("atlarix").get<string>("cliPath"));
-      if (!binary) {
+      const found = findAtlarix(context.extensionPath, vscode.workspace.getConfiguration("atlarix").get<string>("cliPath"));
+      if (found.binary === null) {
+        if (found.badSetting) {
+          void vscode.window
+            .showErrorMessage(`Atlarix can't run atlarix.cliPath: ${found.badSetting}`, "Open Settings")
+            .then((go) => go && vscode.commands.executeCommand("workbench.action.openSettings", "atlarix.cliPath"));
+          return null;
+        }
         void vscode.window
           .showErrorMessage("Atlarix couldn't find its agent program. Reinstall the extension, or install the CLI (npm i -g atlarix).", "Get Atlarix")
           .then((go) => go && vscode.env.openExternal(vscode.Uri.parse("https://atlarix.dev/download")));
         return null;
       }
+      const binary = found.binary;
       log.appendLine(`Starting ${binary} acp`);
       const c = new AtlarixConnection({
         binary,
@@ -108,7 +115,7 @@ export function activate(context: vscode.ExtensionContext): void {
     return starting;
   };
 
-  const binaryPath = () => findAtlarix(context.extensionPath, vscode.workspace.getConfiguration("atlarix").get<string>("cliPath"));
+  const binaryPath = () => findAtlarix(context.extensionPath, vscode.workspace.getConfiguration("atlarix").get<string>("cliPath")).binary;
   const RATING_KEY = "atlarix.rating";
   const turnFinished = () => {
     const { state, ask } = noteTurn(context.globalState.get<RatingState>(RATING_KEY) ?? { turns: 0, asked: false });
