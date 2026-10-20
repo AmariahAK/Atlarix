@@ -97,6 +97,14 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
   path doesn't call `recordFreeUsage`. Each free call reads ~16 keys (≈8 RCU), so about 2 free calls/s fills the
   20 RCU. Past that, throttled reads fall back to per-process counts (safe, just less exact). Raise RCU only
   while it stays ≤25 total across tables (free tier).
+- **Fair daily share (atlarix-proxy branch `bedrock-fair-share`, e24097c), built and tested, NOT deployed yet.**
+  Each user's daily Bedrock cap is today's money (this month's paced allowance less what was spent before today)
+  divided by free Auto's own active-user count (the larger of today's and this weekday last week's, from
+  `loadFreeUsageState`), times free Auto's new-account multiplier, kept between $0.05 and $0.30. Before this it was
+  a flat $0.30, so on a $1 day the first ~3 heavy users could use up the day. All 701 proxy tests pass. **To ship:**
+  `cd ~/Documents/Github/AI/atlarix-proxy && git checkout main && git merge --ff-only bedrock-fair-share && git push origin main`.
+  Railway deploys main on push. Check it's live by the commit (`railway status --json` → `meta.commitHash` =
+  e24097c), not by /health.
 - **Second replica: not done.** The sessions' permission check blocks production Railway changes. Per the
   proxy code, a second replica is safe from the first full UTC day after the flag went on, i.e. from
   **2026-10-21 00:00 UTC**. Before turning it on, check the Railway plan's usage page: a second replica roughly
