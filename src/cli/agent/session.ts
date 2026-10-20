@@ -352,10 +352,6 @@ export interface SubagentJob {
   stalled: boolean;
 }
 
-function formatTokenCount(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
-}
-
 export class AgentSession extends EventEmitter {
   readonly workspaceDir: string;
   appId = 0;
@@ -705,23 +701,18 @@ export class AgentSession extends EventEmitter {
       return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
     }
     const { forceCompactEphemeralChat } = await import("@/lib/tools/workspace");
+    const { compactResultMessage } = await import("@/lib/context/compact-result-message");
     this.update({ busy: true, phase: "Compacting…", turnStartedAt: Date.now() });
     try {
-      const done = await forceCompactEphemeralChat(this.chatId, this.model?.provider, {
-        workspaceSessionId: this.sessionId || null,
-        summarize: true,
-      });
-      if (!done) return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
-      // Said as what happened: a summary, or (when the summary could not be
-      // made) only older tool output dropped.
-      const what =
-        done.strategy === "summarized"
-          ? "Atlarix now works from a summary of it."
-          : "Older tool output was dropped; the conversation itself is kept.";
-      return {
-        ok: true,
-        message: `Compacted · ~${formatTokenCount(done.tokensBefore)} → ~${formatTokenCount(done.tokensAfter)} tokens. Earlier messages stay on screen; ${what}`,
-      };
+      // Summarised by the model this session runs on, not the app's.
+      const model = this.turnModel() ?? this.model;
+      return compactResultMessage(
+        await forceCompactEphemeralChat(this.chatId, model?.provider, {
+          workspaceSessionId: this.sessionId || null,
+          summarize: true,
+          ...(model ? { model } : {}),
+        }),
+      );
     } finally {
       this.update({ busy: false, phase: null, turnStartedAt: null, contextPercent: null, contextUsed: null, contextLimit: null });
     }

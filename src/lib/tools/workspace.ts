@@ -23,6 +23,7 @@ import { extractTextFromRtfBuffer } from "@/lib/attachment-rtf-extract";
 import { classifyContent, SNIFF_SAMPLE_BYTES } from "@/lib/file-content-type";
 
 import { flattenNativeForCompaction, parseNativeHistory } from "@/lib/ai/native-history";
+import type { ForcedCompaction } from "@/lib/context/compact-result-message";
 import {
   runSteppedCompaction,
   getUsableBudget,
@@ -187,8 +188,8 @@ export type ExecuteCompressContextContext = {
  * v11.1 overflow recovery: aggressively compact an ephemeral chat's message
  * list after a provider context-overflow error. Bypasses the usage-ratio
  * gates by feeding an artificially low budget (the provider just told us the
- * real window is smaller than our estimate). Returns true when anything
- * was compacted (the retry dispatch then sees the smaller history).
+ * real window is smaller than our estimate). `ok` when anything was
+ * compacted (the retry dispatch then sees the smaller history).
  */
 export async function forceCompactEphemeralChat(
   chatId: number,
@@ -198,14 +199,16 @@ export async function forceCompactEphemeralChat(
     workspaceSessionId?: string | null;
     /** The user asked (/compact): end in a summary. */
     summarize?: boolean;
+    /** The model the conversation runs on; else found from the chat's last request. */
+    model?: { provider: string; name: string };
   },
-): Promise<false | { strategy: string; tokensBefore: number; tokensAfter: number }> {
+): Promise<ForcedCompaction> {
   const { getStreamTransport } = await import("@/lib/chat/stream-transport");
   const chat = getStreamTransport(chatId);
   // Size decides, not count: one long explore turn is two messages and 100k
   // tokens (QA: a resumed session said "still short"). The compactor's own
   // token floor turns a genuinely small one down.
-  if (!chat || chat.messages.length < 2) return false;
+  if (!chat || chat.messages.length < 2) return { ok: false, reason: "short" };
 
   const before = chat.messages as Array<(typeof chat.messages)[number] & { modelContent?: string | null }>;
   const msgList = forCompaction(before);
@@ -218,8 +221,9 @@ export async function forceCompactEphemeralChat(
     chatId,
     workspaceSessionId: opts?.workspaceSessionId,
     ...(opts?.summarize ? { summarize: true } : {}),
+    ...(opts?.model ? { model: opts.model } : {}),
   });
-  if (!stepped.compactionApplied) return false;
+  if (!stepped.compactionApplied) return { ok: false, reason: stepped.summaryFailed ? "failed" : "short" };
 
   // Transcript messages carry `createdAt`; the compactor's own (the summary) do not.
   chat.messages = fromCompaction(stepped.modelContext, before).map((m) =>
@@ -238,6 +242,7 @@ export async function forceCompactEphemeralChat(
     `[compaction] Forced compaction (${stepped.strategy}) freed ~${stepped.tokensFreed} tokens (chat ${chatId}, marker saved: ${stepped.summaryPersisted})`,
   );
   return {
+    ok: true,
     strategy: stepped.strategy,
     tokensBefore: currentTokens,
     tokensAfter: countMessagesTokens(forCompaction(chat.messages)),

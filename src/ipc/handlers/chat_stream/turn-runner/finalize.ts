@@ -739,8 +739,8 @@ export async function handleTurnError(
           req.chatId,
           readSettings().selectedModel?.provider,
           { workspaceSessionId: req.workspaceSessionId },
-        ).catch(() => false as const);
-        if (compacted) {
+        ).catch(() => ({ ok: false }) as const);
+        if (compacted.ok) {
           logger.warn(
             `[stream:${req.chatId}] Context overflow — compacted and retrying dispatch once`,
           );

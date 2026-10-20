@@ -75,7 +75,8 @@ function reply(r: Reply, n: number): Response {
 
 export interface FakeLlm {
   url: string;
-  requests: Array<{ messages: Array<{ role: string; content: unknown }> }>;
+  /** Every request, titles included; a turn's own carry `tools`. */
+  requests: Array<{ messages: Array<{ role: string; content: unknown }>; tools?: unknown[] }>;
   stop(): void;
 }
 

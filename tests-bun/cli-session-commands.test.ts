@@ -354,7 +354,7 @@ describe("the session's commands", () => {
     expect(JSON.stringify(task.tool)).not.toContain("fromWebContents");
     expect(JSON.stringify(task.tool)).not.toContain("ENOENT");
     // The turn carried its mode prompt, which was silently dropped outside this repo.
-    expect(JSON.stringify(llm.requests[0])).toContain("[Active Skill: modes/");
+    expect(JSON.stringify(llm.requests.find((r) => r.tools?.length))).toContain("[Active Skill: modes/");
     // It ran on THIS session's model (the CLI's own choice), not the app's
     // saved one: its request reached the same fake model.
     expect(JSON.stringify(task.tool)).not.toContain("isn't offered");

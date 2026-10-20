@@ -334,7 +334,8 @@ describe("AgentSession", () => {
     expect(s.sessionId).toBe(""); // a shell run alone starts no session
     await s.submit("what does it say?");
     await waitFor(s, (st) => !st.busy);
-    const first = JSON.stringify(llm.requests[0]?.messages ?? []);
+    // The turn's request (the session's title is asked of the same model, beside it).
+    const first = JSON.stringify(llm.requests.find((r) => r.tools?.length)?.messages ?? []);
     expect(first).toContain("hello from the file");
     expect(first).toContain("exit code 3");
     // The transcript shows what the user typed, not the context block.

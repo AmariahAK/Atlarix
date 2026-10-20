@@ -5,10 +5,19 @@
  * a cheaper summarizer picks one explicitly via `customSummarizationModel`.)
  */
 
-import type { UserSettings } from "./schemas";
+import type { LargeLanguageModel, UserSettings } from "./schemas";
 
-/** Returns the LargeLanguageModel to use for summarization and title generation. */
-export function getSummarizationModel(settings: UserSettings): {
+/**
+ * Returns the LargeLanguageModel to use for summarization and title generation.
+ * "Same" is the TURN's model when the caller knows it (`turnModelForChat`): a
+ * CLI, editor or user-agent session summarised with the app's choice sent its
+ * conversation to a provider it never picked, and failed outright when that one
+ * was unavailable (2026-10-20: "Atlarix Auto isn't offered right now" on /compact).
+ */
+export function getSummarizationModel(
+  settings: UserSettings,
+  turnModel?: LargeLanguageModel,
+): {
   provider: string;
   name: string;
   customModelId?: number;
@@ -17,6 +26,27 @@ export function getSummarizationModel(settings: UserSettings): {
   const mode = cfg?.summarizationModel ?? "same";
   if (mode === "custom" && cfg?.customSummarizationModel) {
     return cfg.customSummarizationModel;
+  }
+  return turnModel ?? settings.selectedModel;
+}
+
+/**
+ * The model a chat's turns run on: its last request's own (the CLI's, an
+ * editor's, a user agent's), else the app's. The same lookup a sub-agent uses
+ * (run-subagent.ts).
+ */
+export async function turnModelForChat(
+  chatId: number | null | undefined,
+  settings: UserSettings,
+): Promise<LargeLanguageModel> {
+  if (chatId != null) {
+    try {
+      const { lastStreamRequest } = await import("@/ipc/handlers/chat_stream/stream-state");
+      const own = lastStreamRequest.get(chatId)?.modelOverride;
+      if (own) return own;
+    } catch {
+      /* no stream state in this process: the app's model */
+    }
   }
   return settings.selectedModel;
 }
@@ -42,9 +72,10 @@ export async function getSummarizationModelAsync(
   return getSummarizationModel(settings);
 }
 
-/** Compaction summarization: use the selected (or custom) summarization model. */
+/** Compaction summarization: the turn's model (or the custom summarization model). */
 export async function getCompactionSummarizationModel(
   settings: UserSettings,
+  turnModel?: LargeLanguageModel,
 ): Promise<{ provider: string; name: string; customModelId?: number }> {
-  return getSummarizationModel(settings);
+  return getSummarizationModel(settings, turnModel);
 }

@@ -34,7 +34,7 @@
 import { generateText } from "ai";
 import { readSettings } from "../../main/settings";
 import { getModelClient } from "../../ipc/utils/get_model_client";
-import { getCompactionSummarizationModel } from "../summarization_model";
+import { getCompactionSummarizationModel, turnModelForChat } from "../summarization_model";
 import {
   CONTEXT_COMPACTION_SYSTEM,
   buildCompactionUserPromptPrefix,
@@ -679,6 +679,8 @@ export interface RunSteppedCompactionResult {
    * (nothing to persist) or when no session id could be resolved.
    */
   summaryPersisted: boolean;
+  /** A summary was asked of the model and none came back (an error, or an empty answer). */
+  summaryFailed?: boolean;
 }
 
 /**
@@ -765,6 +767,8 @@ export async function runSteppedCompaction(
      * transport and would silently fail to persist the marker.
      */
     workspaceSessionId?: string | null;
+    /** The model the conversation runs on, for the summary (else found from `chatId`). */
+    model?: { provider: string; name: string };
   },
 ): Promise<RunSteppedCompactionResult> {
   if (messages.length === 0) {
@@ -815,6 +819,7 @@ export async function runSteppedCompaction(
   let tokensFreed = 0;
   let strategy: CompactionStrategy = "none";
   let summaryText: string | undefined;
+  let summaryFailed = false;
 
   // Step 1.5: Microcompact — DROP stale tool outputs entirely (no LLM call).
   // Cheapest reduction; often gets us back under budget before truncation or
@@ -913,7 +918,9 @@ export async function runSteppedCompaction(
           content: m.content ?? "",
         })),
         chatId: opts?.chatId,
+        model: opts?.model,
       });
+      if (!summary) summaryFailed = true;
 
       // v11.1 guard: a runaway summary defeats the purpose — cap it at 25%
       // of the budget. The call's own `maxOutputTokens` (COMPACTION_MAX_OUTPUT_
@@ -989,6 +996,7 @@ export async function runSteppedCompaction(
     usageRatio,
     compactionApplied: strategy !== "none",
     summaryPersisted,
+    ...(summaryFailed ? { summaryFailed: true } : {}),
   };
 }
 
@@ -1150,6 +1158,8 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
   } | null;
   /** v10: when set, summarization tokens count toward this chat's turn usage. */
   chatId?: number;
+  /** The turn's model, when the caller knows it; else found from `chatId` (summarization_model.ts). */
+  model?: { provider: string; name: string };
 }): Promise<string | null> {
   const { messages } = params;
   if (messages.length === 0) return null;
@@ -1192,7 +1202,10 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
 
   try {
     const settings = readSettings();
-    const summarizationModel = await getCompactionSummarizationModel(settings);
+    const summarizationModel = await getCompactionSummarizationModel(
+      settings,
+      params.model ?? (await turnModelForChat(params.chatId, settings)),
+    );
     const { modelClient } = await getModelClient(summarizationModel, settings, {
       purpose: "compaction",
     });

@@ -35,6 +35,7 @@ vi.mock("ai", () => ({ generateText: llm.generateText }));
 vi.mock("@/main/settings", () => ({ readSettings: () => ({}) }));
 vi.mock("@/lib/summarization_model", () => ({
   getCompactionSummarizationModel: async () => ({ provider: "test", name: "test-model" }),
+  turnModelForChat: async () => ({ provider: "test", name: "test-model" }),
 }));
 vi.mock("@/ipc/utils/get_model_client", () => ({
   getModelClient: async () => ({ modelClient: { model: {} } }),
@@ -101,8 +102,8 @@ describe("a tool-heavy session is not 'still short'", () => {
 
     const done = await forceCompactEphemeralChat(chatId, "test", { workspaceSessionId: "s-1", summarize: true });
 
-    expect(done).not.toBe(false);
-    if (!done) return;
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
     expect(done.strategy).toBe("summarized");
     // 150 read_file results of ~1.6k chars each: far more than the ~60 tokens of text.
     expect(done.tokensBefore).toBeGreaterThan(20_000);
@@ -114,10 +115,10 @@ describe("a tool-heavy session is not 'still short'", () => {
   it("the overflow retry compacts it (and so retries instead of failing the turn)", async () => {
     const chatId = transportWith(toolHeavySession());
 
-    // finalize.ts's call: no summarize flag; a truthy result is what reruns the turn.
+    // finalize.ts's call: no summarize flag; `ok` is what reruns the turn.
     const done = await forceCompactEphemeralChat(chatId, "test", { workspaceSessionId: "s-1" });
 
-    expect(done).not.toBe(false);
+    expect(done.ok).toBe(true);
   });
 
   it("turns kept after the summary still carry their native tool history", async () => {
