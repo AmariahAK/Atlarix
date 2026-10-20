@@ -91,7 +91,12 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
 
 - **Shared free-tier state is ON** (`ATLARIX_SHARED_FREE_STATE=on` on Railway project Atlarix-Proxy, service
   `Atlarix`, set by the owner 2026-10-20 ~23:25 UTC). Counters live in DynamoDB `atlarix-proxy-counters`
-  (eu-west-1, provisioned 20/20 = inside the always-free 25/25).
+  (eu-west-1, provisioned 20/20 = inside the always-free 25/25). **Live test passed 2026-10-20 23:34 UTC** (agent@
+  zeroed, one free turn, restored to 945¢): served by MiniMax, and the bedrock day/month/user rows counted it.
+  `free#pool`/`free#user` rows only appear once a turn goes past Bedrock (a cap or an outage), because the Bedrock
+  path doesn't call `recordFreeUsage`. Each free call reads ~16 keys (≈8 RCU), so about 2 free calls/s fills the
+  20 RCU. Past that, throttled reads fall back to per-process counts (safe, just less exact). Raise RCU only
+  while it stays ≤25 total across tables (free tier).
 - **Second replica: not done.** The sessions' permission check blocks production Railway changes. Per the
   proxy code, a second replica is safe from the first full UTC day after the flag went on, i.e. from
   **2026-10-21 00:00 UTC**. Before turning it on, check the Railway plan's usage page: a second replica roughly
