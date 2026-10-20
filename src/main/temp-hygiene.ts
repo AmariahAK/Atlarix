@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
+import net from "node:net";
 import path from "node:path";
 import log from "electron-log";
 import {
@@ -128,9 +129,70 @@ export function releaseTempLease(): void {
  *
  * Each of them holds a peer inbox named by its pid (lib/peers `peerSocketPath`),
  * at a fixed place whatever TMPDIR or data folder it runs with, so a live one is
- * a holder too. Never removed here: the inbox is its owner's.
+ * a holder too.
+ *
+ * Live means it ANSWERS, not that its pid is alive: a process killed or crashed
+ * leaves its socket file, and pids are reused (QA, 2026-10-21: 198 such files in
+ * /tmp, two of them named by pids now a zsh and an unrelated test run), so every
+ * Atlarix took itself to be one of several and never cleaned the shared dirs.
  */
 let peerSocketDirOverride: string | null = null;
+let connectOverride: ((p: string) => net.Socket) | null = null;
+
+/** One inbox: answered, refused (no listener: a leftover), or no word in time (kept, counted live). */
+function probeInbox(p: string, timeoutMs: number): Promise<"live" | "refused" | "unknown"> {
+  return new Promise((resolve) => {
+    const socket = (connectOverride ?? ((x: string) => net.connect(x)))(p);
+    const done = (v: "live" | "refused" | "unknown") => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(v);
+    };
+    const timer = setTimeout(() => done("unknown"), timeoutMs);
+    socket.once("connect", () => done("live"));
+    socket.once("error", (e: NodeJS.ErrnoException) =>
+      done(e.code === "ECONNREFUSED" || e.code === "ENOENT" || e.code === "ENOTSOCK" ? "refused" : "unknown"),
+    );
+  });
+}
+
+const PROBE_TIMEOUT_MS = 200;
+const PROBE_BUDGET_MS = 1_000;
+const PROBE_BATCH = 32;
+
+/**
+ * Pids whose inbox answers, or might (no answer in time, or not reached within
+ * the budget while the pid is alive). A refusing inbox file is removed: nothing
+ * owns it. Windows pipes vanish with their owner, so there is nothing to remove.
+ */
+async function liveInboxPids(): Promise<number[]> {
+  const candidates = (await peerInboxPids()).filter((pid) => pid !== process.pid);
+  const deadline = Date.now() + PROBE_BUDGET_MS;
+  const live: number[] = [];
+  for (let i = 0; i < candidates.length; i += PROBE_BATCH) {
+    const batch = candidates.slice(i, i + PROBE_BATCH);
+    if (Date.now() >= deadline) {
+      live.push(...batch.filter(isAlive));
+      continue;
+    }
+    const states = await Promise.all(
+      batch.map((pid) => probeInbox(inboxPath(pid), Math.min(PROBE_TIMEOUT_MS, deadline - Date.now()))),
+    );
+    batch.forEach((pid, k) => {
+      if (states[k] === "live" || (states[k] === "unknown" && isAlive(pid))) live.push(pid);
+      else if (states[k] === "refused" && process.platform !== "win32") {
+        void fsp.rm(inboxPath(pid), { force: true }).catch(() => {});
+      }
+    });
+  }
+  return live;
+}
+
+/** Where `pid`'s inbox is: its socket file, or on Windows its pipe. */
+function inboxPath(pid: number): string {
+  const own = peerSocketPath(process.platform, pid);
+  return peerSocketDirOverride ? path.join(peerSocketDirOverride, path.basename(own)) : own;
+}
 
 async function peerInboxPids(): Promise<number[]> {
   const own = peerSocketPath(process.platform, 0);
@@ -167,9 +229,7 @@ async function otherLiveHolders(): Promise<number> {
     if (isAlive(pid)) live.add(pid);
     else await fsp.rm(path.join(leasesDir(), name), { force: true }).catch(() => {});
   }
-  for (const pid of await peerInboxPids()) {
-    if (pid !== process.pid && isAlive(pid)) live.add(pid);
-  }
+  for (const pid of await liveInboxPids()) live.add(pid);
   return live.size;
 }
 
@@ -304,5 +364,9 @@ export const __testing = {
   /** Where peer inboxes are looked for (a temp dir in tests, not the real /tmp). */
   setPeerSocketDir: (dir: string | null) => {
     peerSocketDirOverride = dir;
+  },
+  /** How an inbox is reached (a stand-in that never answers, for the time limit). */
+  setConnect: (fn: ((p: string) => net.Socket) | null) => {
+    connectOverride = fn;
   },
 };

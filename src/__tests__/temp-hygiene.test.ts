@@ -14,7 +14,9 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 // The real temp root, captured BEFORE the `node:os` mock below rewrites
 // `tmpdir()` — otherwise this file would try to create its scratch dirs inside
@@ -52,7 +54,9 @@ beforeEach(() => {
   );
   // Peer inboxes are looked for here, not in the machine's real /tmp, where any
   // Atlarix running on this computer would change the answer.
-  peerDir = fs.mkdtempSync(path.join(REAL_TMP, "hygiene-peers-"));
+  // Short: a Unix socket path is capped at 104 bytes on macOS, and the real
+  // temp folder's path is most of that.
+  peerDir = fs.mkdtempSync(process.platform === "win32" ? path.join(REAL_TMP, "hygiene-peers-") : "/tmp/hyp-");
   __testing.setPeerSocketDir?.(peerDir);
 });
 
@@ -238,14 +242,35 @@ describe("several Atlarix processes at once (app, CLI, editors, headless)", () =
    * and deleted the running one's scratch file. Builds before leases still hold
    * a peer inbox named by their pid.
    */
-  const inbox = (pid: number) => {
-    const p = path.join(peerDir, path.basename(peerSocketPath(process.platform, pid)));
-    fs.writeFileSync(p, "");
+  const inboxFile = (pid: number) => path.join(peerDir, path.basename(peerSocketPath(process.platform, pid)));
+  const servers: net.Server[] = [];
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((srv) => new Promise((r) => srv.close(r))));
+    __testing.setConnect?.(null);
+  });
+  /** An inbox its owner is listening on. */
+  const inbox = async (pid: number) => {
+    const p = inboxFile(pid);
+    const srv = net.createServer((c) => c.destroy());
+    await new Promise<void>((r) => srv.listen(p, r));
+    servers.push(srv);
+    return p;
+  };
+  /** The socket file a killed or crashed owner left: nothing listens on it. */
+  const leftInbox = (pid: number) => {
+    const p = inboxFile(pid);
+    const child = spawnSync(process.execPath, [
+      "-e",
+      `require("node:net").createServer().listen(${JSON.stringify(p)}, () => process.kill(process.pid, "SIGKILL"))`,
+    ]);
+    expect(child.signal).toBe("SIGKILL");
+    expect(fs.existsSync(p)).toBe(true);
     return p;
   };
 
-  it("an older Atlarix with no lease, but its peer inbox, keeps the shared dirs", async () => {
-    inbox(livePid);
+  // Inboxes are named pipes on Windows (QA checks those live).
+  it.skipIf(process.platform === "win32")("an older Atlarix with no lease, but its peer inbox, keeps the shared dirs", async () => {
+    await inbox(livePid);
     const scratch = mkdir("atlarix-scratch");
     fs.writeFileSync(path.join(scratch, "its-file.txt"), "in use");
     const attachments = mkdir("atlarix-attachments");
@@ -256,14 +281,49 @@ describe("several Atlarix processes at once (app, CLI, editors, headless)", () =
     expect(fs.existsSync(fresh)).toBe(true);
   });
 
-  it("the inbox of an Atlarix that has ended, or another user's, protects nothing", async () => {
-    const ended = inbox(deadPid);
-    fs.writeFileSync(path.join(peerDir, "atlarix-peer-somebody-else-" + livePid + ".sock"), "");
+  // Inboxes are named pipes on Windows (QA checks those live).
+  it.skipIf(process.platform === "win32")("the inbox of an Atlarix that has ended, or another user's, protects nothing", async () => {
+    const ended = leftInbox(deadPid);
+    const theirs = path.join(peerDir, "atlarix-peer-somebody-else-" + livePid + ".sock");
+    fs.writeFileSync(theirs, "");
     const scratch = mkdir("atlarix-scratch");
     await sweep({ includeLive: true });
     expect(fs.existsSync(scratch)).toBe(false);
-    // Its owner's file, not ours to remove.
-    expect(fs.existsSync(ended)).toBe(true);
+    // Nothing owns a refusing inbox now: it goes. Another user's is left alone.
+    await vi.waitFor(() => expect(fs.existsSync(ended)).toBe(false));
+    expect(fs.existsSync(theirs)).toBe(true);
+  });
+
+  /**
+   * E4 alone (QA, 2 of 2): left inboxes named by pids since reused (a zsh, an
+   * unrelated test run) counted as running Atlarixes, so the shared dirs were
+   * never cleaned. Alive is not enough: the inbox must answer.
+   */
+  // Inboxes are named pipes on Windows (QA checks those live).
+  it.skipIf(process.platform === "win32")("a left inbox whose pid is alive again (reused) protects nothing, and is removed", async () => {
+    const left = leftInbox(livePid);
+    const scratch = mkdir("atlarix-scratch");
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(scratch)).toBe(false);
+    await vi.waitFor(() => expect(fs.existsSync(left)).toBe(false));
+  });
+
+  it("an inbox that does not answer in time is kept and counted, and many do not hold the sweep up", async () => {
+    // Connections that never complete: "don't know", which keeps the dirs.
+    __testing.setConnect?.(() => new net.Socket());
+    const files = Array.from({ length: 120 }, (_, i) => {
+      const p = inboxFile(livePid + 100_000 + i);
+      fs.writeFileSync(p, "");
+      return p;
+    });
+    fs.writeFileSync(inboxFile(livePid), "");
+    const scratch = mkdir("atlarix-scratch");
+    const t0 = Date.now();
+    await sweep({ includeLive: true });
+    expect(Date.now() - t0).toBeLessThan(2_000);
+    expect(fs.existsSync(scratch)).toBe(true);
+    expect(fs.existsSync(inboxFile(livePid))).toBe(true);
+    for (const f of files) expect(fs.existsSync(f)).toBe(true);
   });
 
   it("with nothing else running, quitting still cleans up", async () => {
