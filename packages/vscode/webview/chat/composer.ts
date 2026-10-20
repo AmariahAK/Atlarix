@@ -551,10 +551,19 @@ function interject(kind: "steer" | "queue"): void {
   if (!text) return;
   input.value = "";
   refreshSuggest();
-  void rpc<{ started: boolean }>("_atlarix/interject", { sessionId: state.sessionId, text, kind })
+  void rpc<{ started: boolean; wait?: string }>("_atlarix/interject", { sessionId: state.sessionId, text, kind })
     .then((r) => {
+      if (r.started) return;
+      // A command waits for the turn (it is never sent as text), and a message
+      // whose turn ended but the panel has not heard yet would be dropped by
+      // sendText: back in the box, either way (QA E10).
+      if (r.wait || state.busy) {
+        restoreUnsent(text);
+        if (r.wait) setWorkingNote(r.wait);
+        return;
+      }
       // The turn ended just before it arrived: send it as the next message.
-      if (!r.started) sendText(text, []);
+      sendText(text, []);
     })
     .catch(() => (input.value = text));
 }

@@ -301,6 +301,29 @@ describe("atlarix acp", () => {
     }
   }, 120_000);
 
+  it("a command typed while a turn runs is never the model's text: it waits for the turn (QA E10)", async () => {
+    const e = await editor(
+      [{ tool: "run_command", args: { command: "sleep 3", description: "wait a bit" } }, { text: "Done waiting." }],
+      undefined,
+      { _meta: { atlarix: {} } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const turn = e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "wait for me" }] });
+    for (const t0 = Date.now(); !e.updates.some((u) => u.update.sessionUpdate === "tool_call"); ) {
+      if (Date.now() - t0 > 20_000) throw new Error("the turn never started its command");
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    for (const kind of ["steer", "queue"] as const) {
+      const r = await e.agent.interject(sessionId, "/compact", kind);
+      expect(r.started).toBe(false);
+      expect(r.wait).toMatch(/\/compact/);
+    }
+    await turn;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(JSON.stringify(e.llm.requests)).not.toContain("/compact");
+    expect(e.llm.requests.filter((q) => q.tools?.length)).toHaveLength(2);
+  }, 60_000);
+
   it("switches mode through the config option and the legacy set_mode", async () => {
     const e = await editor([]);
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });

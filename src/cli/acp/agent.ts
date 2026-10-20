@@ -230,11 +230,20 @@ class Thread {
    * CLI's Enter and Tab. Idle, either starts a turn like a prompt would not:
    * the editor sends a prompt then, so this only answers while busy.
    */
-  async interject(text: string, kind: "steer" | "queue"): Promise<{ pending: Array<{ id: string; text: string; kind: string }>; started: boolean }> {
+  async interject(
+    text: string,
+    kind: "steer" | "queue",
+  ): Promise<{ pending: Array<{ id: string; text: string; kind: string }>; started: boolean; wait?: string }> {
     const t = text.trim();
     if (!t) return { pending: this.session.state.pending, started: false };
     const elsewhere = !!this.session.state.following;
     if (!this.session.state.busy && !elsewhere) return { pending: this.session.state.pending, started: false };
+    // A command (/compact, a skill) is never the model's text, steered or
+    // queued: it runs as a command once the turn is over (QA E10).
+    const command = /^\/([\w-]+)(?:\s|$)/.exec(t)?.[1];
+    if (command && (BUILTIN_COMMANDS.includes(command) || this.skills.some((s) => s.name === command))) {
+      return { pending: this.session.state.pending, started: false, wait: `Wait for this turn to finish, then send /${command}.` };
+    }
     // Running elsewhere, Tab steers too: held for after, it would open a turn
     // here that no editor asked for.
     if (kind === "queue" && !elsewhere) this.session.queueNext(t);
@@ -1170,7 +1179,7 @@ export class AcpAgent {
   }
 
   /** Atlarix's extension, back after a while away: one line on where this session stands. */
-  interject(sessionId: string, text: string, kind: "steer" | "queue") {
+  interject(sessionId: string, text: string, kind: "steer" | "queue"): ReturnType<Thread["interject"]> {
     return this.thread(sessionId).interject(text, kind);
   }
 
