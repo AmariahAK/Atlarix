@@ -25,7 +25,7 @@ import { isTelemetryOptedIn } from "@/hooks/useSettings";
  */
 
 let client: ReturnType<typeof posthog.init> | null = null;
-let pendingConfig: { apiKey: string; analyticsId: string } | null = null;
+let pendingConfig: { apiKey: string; analyticsId: string; appVersion?: string } | null = null;
 
 /** The live client, or null while the user has not opted in. */
 export function getPostHogClient(): ReturnType<typeof posthog.init> | null {
@@ -33,8 +33,8 @@ export function getPostHogClient(): ReturnType<typeof posthog.init> | null {
 }
 
 /** Remember the config without starting anything. */
-export function setPostHogConfig(apiKey: string, analyticsId: string): void {
-  pendingConfig = { apiKey, analyticsId };
+export function setPostHogConfig(apiKey: string, analyticsId: string, appVersion?: string): void {
+  pendingConfig = { apiKey, analyticsId, appVersion };
 }
 
 /**
@@ -68,6 +68,11 @@ export function ensurePostHogInitialized(): ReturnType<
     },
   });
   posthog.identify(pendingConfig.analyticsId);
+  // The main process stamps these on its events; the window's said surface null.
+  posthog.register({
+    surface: "app",
+    ...(pendingConfig.appVersion ? { app_version: pendingConfig.appVersion } : {}),
+  });
   return client;
 }
 

@@ -145,6 +145,8 @@ export interface AppProps {
   signIn?: (show: (lines: Line[]) => void) => Promise<string>;
   /** A command to run as the screen opens (`atlarix --resume`). */
   startWith?: string;
+  /** How this terminal session began, for `session_started`. */
+  launch?: "new" | "resume" | "continue";
   /** Starts the background self-update (src/cli/update.ts). */
   autoUpdate?: (notify: (e: UpdateEvent) => void) => void;
   /** Opens a link in the browser. Tests pass a recorder: a test must never open the user's browser. */
@@ -418,6 +420,7 @@ export function App({
   chromeStatus,
   signIn,
   startWith,
+  launch,
   autoUpdate,
   openUrl,
   ratingChance = RATING_CHANCE,
@@ -659,8 +662,8 @@ export function App({
     void services.analytics
       .consent()
       .then((c) => {
-        services.analytics.track("cli_opened", { version, os: process.platform });
-        services.analytics.track("session_started");
+        // The version and OS ride on every event already (cli_opened said them again).
+        services.analytics.track("session_started", { how: launch ?? "new" });
         if (c === "unset" && !host.open) openAnalytics(screen(), true);
       })
       .catch(() => {});

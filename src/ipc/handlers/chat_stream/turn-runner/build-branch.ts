@@ -34,7 +34,6 @@ import { feedTerminalOutput } from "@/lib/streams/StreamManager";
 import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import { ToolRegistry } from "@/lib/tools";
 import { isReadOnlyWorkMode, toolExecutionChatMode } from "@/lib/work-mode";
-import { captureSafe } from "@/main/lib/analytics";
 import { type ChatContextReport } from "@/ipc/ipc_types";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { cwdNoteForCommand } from "@/lib/commands/cwd-note";
@@ -1404,17 +1403,6 @@ export async function runBuildBranch(
     : AGENTIC_PROSE_ONLY_MAX_DEFAULT;
   let totalToolExecutions = 0; // Track total tools executed across all iterations
 
-  let streamAbortLedgerCompleteCaptured = false;
-  const captureStreamAbortLedgerCompleteIfNeeded = () => {
-    if (streamAbortLedgerCompleteCaptured) return;
-    streamAbortLedgerCompleteCaptured = true;
-    captureSafe("stream_abort_ledger_complete", {
-      chat_id: req.chatId,
-      iterations: agenticIteration,
-      tools_executed: totalToolExecutions,
-    });
-  };
-
   const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } =
     await import("@/ipc/utils/text_tool_parser");
   const useTextToolFallback = shouldUseTextToolFallback(
@@ -2023,7 +2011,6 @@ export async function runBuildBranch(
       logger.log(
         `[Agentic Loop] Stream stopped after task ledger complete (chat ${req.chatId})`,
       );
-      captureStreamAbortLedgerCompleteIfNeeded();
     } else if (!abortController.signal.aborted) {
       throw streamError;
     }

@@ -177,11 +177,14 @@ async function interactive(): Promise<void> {
   let devState: import("./agent/models").CliState = { model, recent: [], favorites: [] };
 
   const { runTui } = await import("./tui/run");
+  // Retention's daily signal, from the terminal too (once a day, shared with the app).
+  void import("../main/lib/analytics").then((m) => m.trackActiveDay()).catch(() => {});
   await runTui({
     session,
     version: VERSION,
     modelLabel,
     openResume: argv.includes("--resume") && !resumeById,
+    launch: argv.includes("--resume") ? "resume" : argv.includes("-c") || argv.includes("--continue") ? "continue" : "new",
     signIn: signInInTui,
     chromeStatus,
     autoUpdate: devUrl ? undefined : (notify) => void import("./update").then((m) => m.startAutoUpdate(VERSION, notify)),

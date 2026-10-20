@@ -271,14 +271,14 @@ export class SubscriptionManager {
     // the PostHog UI, and so internal accounts can be filtered there by
     // email rather than hardcoding addresses into a shipped binary.
     try {
-      const { identifyUser, capture } = await import("../main/lib/analytics");
+      const { identifyUser, trackTier } = await import("../main/lib/analytics");
       identifyUser(user.id, {
         email: user.email,
         name,
         tier: effectiveTier,
         plan,
       });
-      capture("tier_identified", { tier: effectiveTier });
+      trackTier(effectiveTier);
     } catch {
       /* non-fatal */
     }
@@ -473,8 +473,8 @@ export class SubscriptionManager {
         };
 
         try {
-          const { capture } = await import("../main/lib/analytics");
-          capture("tier_identified", { tier: this.session.effectiveTier });
+          const { trackTier } = await import("../main/lib/analytics");
+          trackTier(this.session.effectiveTier ?? this.session.plan);
         } catch {
           /* non-fatal */
         }

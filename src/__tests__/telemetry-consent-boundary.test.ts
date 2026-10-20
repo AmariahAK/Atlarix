@@ -128,7 +128,7 @@ describe("PostHog writes nothing to the device before consent", () => {
     initSpy.mockClear();
     identifySpy.mockClear();
     vi.doMock("posthog-js", () => ({
-      default: { init: initSpy, identify: identifySpy },
+      default: { init: initSpy, identify: identifySpy, register: vi.fn() },
     }));
   });
 
@@ -221,7 +221,7 @@ describe("location for opted-in usage data", () => {
   it("the app's client no longer blanks the address PostHog locates from", async () => {
     vi.resetModules();
     const init = vi.fn(() => ({ __client: true }));
-    vi.doMock("posthog-js", () => ({ default: { init, identify: vi.fn() } }));
+    vi.doMock("posthog-js", () => ({ default: { init, identify: vi.fn(), register: vi.fn() } }));
     vi.doMock("@/hooks/useSettings", () => ({ isTelemetryOptedIn: () => true }));
     const m = await import("@/lib/analytics/posthog-client");
     m.setPostHogConfig("phc_key", "anon-1");

@@ -843,7 +843,7 @@ export async function onReady() {
     platform: process.platform,
     arch: os.arch(),
   });
-  trackSessionStarted();
+  trackSessionStarted({ how: "launch" });
   // Retention signal: at most one per calendar day, so "did they come back"
   // stops depending on which other events happen to be instrumented.
   trackActiveDay();

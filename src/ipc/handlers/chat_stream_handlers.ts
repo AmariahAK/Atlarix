@@ -2446,7 +2446,9 @@ export function registerChatStreamHandlers() {
           trackTurnCompleted(
             {
               chatId: req.chatId,
-              end: classifyTurnEnd(turnError, abortController.signal),
+              end: ctx.askUserEndedTurn
+                ? { outcome: "ask_user" }
+                : classifyTurnEnd(turnError, abortController.signal),
               ...ctx.analyticsTurn,
               hadHistory: ctx.analyticsTurn.hadHistory === true,
               automation: !!req.automation,

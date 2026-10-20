@@ -932,6 +932,25 @@ describe("command screens", () => {
     expect(frame).toContain("/model switch (Atlarix Auto is free)");
   });
 
+  it("session_started says how the session began, and cli_opened is gone", async () => {
+    const { serviceCalls } = await mount((s) => void (s.analytics.consent = async () => "opted_in"));
+    expect(await until(() => serviceCalls.some((c) => c[0] === "analytics.track" && c[1] === "session_started"))).toBe(true);
+    expect(serviceCalls.find((c) => c[1] === "session_started")).toEqual(["analytics.track", "session_started", { how: "new" }]);
+    expect(serviceCalls.some((c) => c[1] === "cli_opened")).toBe(false);
+
+    const calls: Call[] = [];
+    const services = fakeServices(calls);
+    services.analytics.consent = async () => "opted_in";
+    current?.renderer.destroy();
+    current = await testRender(
+      <App session={new FakeSession() as never} modelLabel="Atlarix Auto" version="15.0.0" onQuit={() => {}} plainMarkdown services={services} launch="continue" />,
+      { width: 120, height: 40, exitOnCtrlC: false },
+    );
+    await current.renderOnce();
+    expect(await until(() => calls.some((c) => c[1] === "session_started"))).toBe(true);
+    expect(calls.find((c) => c[1] === "session_started")![2]).toEqual({ how: "continue" });
+  });
+
   it("the session rating: only with analytics on, after a real session, and it sends only the rating", async () => {
     const { setup, session, serviceCalls } = await mount((s) => void (s.analytics.consent = async () => "opted_in"), undefined, 1);
     for (let i = 0; i < 8; i++) {

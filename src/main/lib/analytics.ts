@@ -503,6 +503,20 @@ export function trackTurnCompleted(
   }
 }
 
+let lastTierSent: string | null = null;
+
+/**
+ * The account's tier, sent when it CHANGES in this process (sign-in, an
+ * upgrade), as an event and a person property. It used to be sent on every
+ * session refresh: 274 events from 21 people in a month.
+ */
+export function trackTier(tier: string): void {
+  if (!tier || tier === lastTierSent) return;
+  if (!isOptedIn()) return;
+  lastTierSent = tier;
+  captureSafe("tier_identified", { tier, $set: { tier } });
+}
+
 let sessionStarted = false;
 
 /** Once per process: the app opened, the CLI started, or an editor's first session. */
