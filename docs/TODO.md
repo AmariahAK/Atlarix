@@ -241,9 +241,10 @@ to map the old one, build tag v15.1.0 with `build.sourcemap: "hidden"` and resol
   credit and has never used Reviewer. Reset to `free` when convenient.
 - **Sentry stack traces point at the bundle, not the source.** Every frame reads
   `app:///.vite/build/main.js:LINE:COL` (minified), so issues cannot be read or linked to code.
-  The Sentry project `atlarix` has no code mapping, and none would help until source maps are
-  uploaded per release. Needs a `SENTRY_AUTH_TOKEN` secret (scope `org:ci`) for a `sentry-cli
-  sourcemaps upload` step in `release.yml`. Once maps are in, add the code mapping under Settings
+  The Sentry project `atlarix` has no code mapping, and none would help without source maps. The
+  release now uploads them (`build-macos`, arm64: "Upload source maps to Sentry") once the repo has
+  a `SENTRY_AUTH_TOKEN` secret (scope `org:ci`); without it the step is skipped. Then add the code
+  mapping under Settings
   → Integrations → GitHub → Configurations → AmariahAK → Code Mappings: project `atlarix` →
   `AmariahAK/Atlarix`, branch `main`, stack root `app:///.vite/build/`, source root `src/`.
 

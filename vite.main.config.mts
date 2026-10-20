@@ -124,7 +124,10 @@ export default defineConfig({
     ]),
   ),
   build: {
-    sourcemap: false,
+    // "hidden": maps written beside the bundle for the release to upload to Sentry,
+    // with no reference in the shipped code. packageAfterPrune (forge.config.ts)
+    // deletes them from the app; only set when the release has a Sentry token.
+    sourcemap: process.env.ATLARIX_SOURCEMAPS === "1" ? "hidden" : false,
     // elkjs remains bundled (lazy import). OpenTelemetry is bundled for packaged resolution.
     rollupOptions: {
       external: [...mainRollupExternals],

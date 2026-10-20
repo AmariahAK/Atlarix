@@ -243,8 +243,10 @@ async function stripSourceMapsFromBuild(buildPath: string): Promise<number> {
       }
     }
   }
-  // Vite build has no sourcemaps; hook `npm install` still drops ~10k+ `.map` files under node_modules.
+  // The bundle's maps exist only for a release's Sentry upload (ATLARIX_SOURCEMAPS)
+  // and never ship; `npm install` also drops ~10k+ `.map` files under node_modules.
   await walk(path.join(buildPath, ".vite", "build"));
+  await walk(path.join(buildPath, ".vite", "renderer"));
   const nm = path.join(buildPath, "node_modules");
   try {
     await fs.access(nm);
