@@ -8,9 +8,7 @@
  *
  * ══ THROUGH THE PROXY, NEVER POSTGREST ══
  *
- * The opposite of `lib/skills/account-skills.ts`, deliberately, and the reason
- * is the credential. A skill is the user's own row under RLS with nothing
- * secret in it, so it is read directly. A connector's credential lives in
+ * The reason is the credential. A connector's credential lives in
  * `private.mcp_credentials` and is held by the proxy — which must have EXACTLY
  * ONE HOLDER. A second holder is a second place a token can leak from and a
  * second implementation of refresh. The desktop therefore never sees a
@@ -115,12 +113,40 @@ async function proxyPost<T>(path: string, payload: unknown): Promise<T | null> {
   }
 }
 
-/** Reused briefly — the list is rebuilt whenever the model asks what exists. */
-const CACHE_MS = 30_000;
-let cache: { at: number; servers: AccountConnector[] } | null = null;
+/**
+ * KEPT UNTIL SOMETHING SAYS IT CHANGED, never on a timer.
+ *
+ * A new user's app read `account_mcp_servers` 48 times in 70 minutes, every
+ * answer the same empty list (owner, 2026-10-20): the composer's MCP menu asked
+ * once per default server per render, and every other caller asked again. The
+ * list changes when the user adds, removes or toggles a server — here, through
+ * the writes below, which clear this — or on the website, which they reach by
+ * leaving the app. So it is read again on sign-in, on window focus (main.ts),
+ * when a CLI/ACP session starts (AgentSession), and after this client's own
+ * writes. An empty list is an answer and is kept like any other.
+ *
+ * Keyed by the account, so a different sign-in never sees the last one's rows.
+ * A failed read (null) is NOT kept: signed out or offline is not "none".
+ */
+let rowsCache: { user: string; rows: ConnectorView[] } | null = null;
+let rowsInFlight: { user: string; p: Promise<ConnectorView[] | null> } | null = null;
+let cache: { user: string; servers: AccountConnector[] } | null = null;
+/** Bumped by every clear, so a read that started before one is not kept after it. */
+let generation = 0;
 
 export function clearAccountConnectorsCache(): void {
+  generation++;
+  rowsCache = null;
+  rowsInFlight = null;
   cache = null;
+}
+
+/** Who is signed in, for the cache key; null when there is no real session. */
+async function accountKey(): Promise<string | null> {
+  const session = await getSession();
+  const token = session?.access_token;
+  if (!token || token === "atlarix-headless") return null;
+  return session?.user?.id ?? "";
 }
 
 /**
@@ -129,14 +155,26 @@ export function clearAccountConnectorsCache(): void {
  * A server that failed to list is RETURNED WITH ITS ERROR rather than dropped.
  * Dropping it tells the model the connector does not exist, so it plans around
  * an absence instead of reporting a failure the user could go and fix.
+ *
+ * No rows on the account means nothing to ask the proxy about: the proxy would
+ * read the same table to say so.
  */
 export async function listAccountConnectors(): Promise<AccountConnector[]> {
-  const now = Date.now();
-  if (cache && now - cache.at < CACHE_MS) return cache.servers;
+  const user = await accountKey();
+  if (user === null) return [];
+  if (cache?.user === user) return cache.servers;
+  const gen = generation;
+
+  const rows = await listConnectorRows();
+  if (rows && rows.length === 0) {
+    if (gen === generation) cache = { user, servers: [] };
+    return [];
+  }
 
   const body = await proxyPost<ListResponse>("/mcp/list", {});
-  const servers = body?.ok && Array.isArray(body.servers) ? body.servers : [];
-  cache = { at: now, servers };
+  if (!body) return [];
+  const servers = body.ok && Array.isArray(body.servers) ? body.servers : [];
+  if (gen === generation) cache = { user, servers };
   return servers;
 }
 
@@ -221,8 +259,7 @@ function writeMessage(code: unknown): string {
 }
 
 async function signedIn(): Promise<boolean> {
-  const session = await getSession();
-  return !!session?.access_token && session.access_token !== "atlarix-headless";
+  return (await accountKey()) !== null;
 }
 
 async function rpc(fn: string, input: Record<string, unknown>): Promise<WriteResult<Record<string, unknown>>> {
@@ -293,9 +330,29 @@ interface ConnectorDbRow {
   tools_cache: Array<{ name?: string }> | null;
 }
 
-/** The account's connectors as rows, or null when signed out or unreachable. */
+/**
+ * The account's connectors as rows, or null when signed out or unreachable.
+ * One read shared by every caller until the cache is cleared (see above).
+ */
 export async function listConnectorRows(): Promise<ConnectorView[] | null> {
-  if (!(await signedIn())) return null;
+  const user = await accountKey();
+  if (user === null) return null;
+  if (rowsCache?.user === user) return rowsCache.rows;
+  if (rowsInFlight?.user === user) return rowsInFlight.p;
+  const gen = generation;
+  const p = readConnectorRows()
+    .then((rows) => {
+      if (rows && gen === generation) rowsCache = { user, rows };
+      return rows;
+    })
+    .finally(() => {
+      if (rowsInFlight?.p === p) rowsInFlight = null;
+    });
+  rowsInFlight = { user, p };
+  return p;
+}
+
+async function readConnectorRows(): Promise<ConnectorView[] | null> {
   try {
     const read = (columns: string) =>
       getSupabaseClient().from("account_mcp_servers").select(columns).order("created_at", { ascending: true });

@@ -123,7 +123,7 @@ describe("recording a turn", () => {
               type: "tool-call",
               toolName: "read_file",
               input: {
-                path: "/Users/x/Library/Application Support/Atlarix/account-skills/pr-review.md",
+                path: "C:\\work\\app\\.atlarix\\skills\\review\\pr-review.md",
               },
             },
             {

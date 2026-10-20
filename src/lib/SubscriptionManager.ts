@@ -34,6 +34,21 @@ import { broadcastToAllWindows } from "../ipc/utils/broadcast_all_windows";
 
 const logger = log.scope("subscription");
 
+/** How long a focus waits before reading the plan again (see refreshPlanFromServer). */
+export const PLAN_FOCUS_REFRESH_MS = 10 * 60 * 1000;
+
+/**
+ * The account's MCP servers are read again on sign-in and sign-out (account-connectors.ts).
+ * Lazy: that module pulls in the proxy client, which this one should not load at startup.
+ */
+function clearAccountConnectors(): void {
+  void import("./mcp/account-connectors")
+    .then((m) => m.clearAccountConnectorsCache())
+    .catch(() => {
+      /* non-fatal */
+    });
+}
+
 // ============================================
 // TYPES
 // ============================================
@@ -152,10 +167,12 @@ export class SubscriptionManager {
           ) {
             return;
           }
+          clearAccountConnectors();
           await this.updateSession(session);
         } else {
           this.session = null;
           invalidatePlanCaches();
+          clearAccountConnectors();
           this.lastPlanFingerprint = "";
           this.lastPlanFingerprintAt = 0;
           // Drop the offline entitlement too — a signed-out machine must
@@ -497,17 +514,22 @@ export class SubscriptionManager {
    * handler only resumed realtime if it had first idled out after a 60s blur, so
    * upgrading and alt-tabbing straight back refreshed nothing at all.
    *
-   * Throttled, because focus fires on every window switch and this is a network read.
+   * At most once per 10 minutes on focus (owner, 2026-10-20): focus fires on every
+   * window switch, and at 15 s a new user's 70-minute session read `users` 26 times
+   * for nothing. The flow the read is for still gets it at once: opening a checkout
+   * or the billing portal (`notePlanPageOpened`) lets the next focus read regardless.
    */
   private static lastPlanRefreshAt = 0;
+  private static planPageOpened = false;
   private static planRefreshInFlight: Promise<void> | null = null;
-  static async refreshPlanFromServer(minIntervalMs = 15_000, fresh = true): Promise<void> {
+  static async refreshPlanFromServer(minIntervalMs = PLAN_FOCUS_REFRESH_MS, fresh = true): Promise<void> {
     const email = this.session?.email;
     if (!email) return;
     if (this.planRefreshInFlight) return this.planRefreshInFlight;
     const now = Date.now();
-    if (now - this.lastPlanRefreshAt < minIntervalMs) return;
+    if (now - this.lastPlanRefreshAt < minIntervalMs && !this.planPageOpened) return;
     this.lastPlanRefreshAt = now;
+    this.planPageOpened = false;
 
     this.planRefreshInFlight = (async () => {
       try {
@@ -542,6 +564,15 @@ export class SubscriptionManager {
       }
     })();
     return this.planRefreshInFlight;
+  }
+
+  /**
+   * A checkout or the billing portal was just opened (lemonsqueezy.ts,
+   * auth_handlers.ts): the plan may change there, so the next focus reads it
+   * whatever the interval.
+   */
+  static notePlanPageOpened(): void {
+    this.planPageOpened = true;
   }
 
   // ========================================
@@ -634,6 +665,7 @@ export class SubscriptionManager {
     await signOut();
     this.session = null;
     invalidatePlanCaches();
+    clearAccountConnectors();
     this.lastPlanFingerprint = "";
     this.lastPlanFingerprintAt = 0;
     // Tell every window, not just the one that clicked Sign out.

@@ -49,6 +49,22 @@ vi.mock("electron", () => ({
   },
 }));
 
+// Signed in, with a counted database: the index must not read the account's
+// skills on any surface but the Chrome extension (owner, 2026-10-20).
+const tablesRead: string[] = [];
+vi.mock("@/lib/auth/supabase-client", () => ({
+  getSession: async () => ({ access_token: "t", user: { id: "u-1" } }),
+  getSupabaseClient: () => ({
+    from: (table: string) => {
+      tablesRead.push(table);
+      const chain: Record<string, unknown> = {};
+      for (const k of ["select", "eq", "order"]) chain[k] = () => chain;
+      chain.then = (r: (v: unknown) => unknown) => r({ data: [], error: null });
+      return chain;
+    },
+  }),
+}));
+
 import { buildSkillIndex } from "@/lib/skills/skill-index";
 import { formatSkillIndexForPrompt } from "@/lib/skills/skill-index";
 
@@ -76,6 +92,11 @@ afterEach(async () => {
 });
 
 describe("skills index — pointers, not bodies", () => {
+  it("never reads the account's skills: turns cost no database read", async () => {
+    for (let turn = 0; turn < 20; turn++) await buildSkillIndex(workspace, "build");
+    expect(tablesRead).not.toContain("account_skills");
+  });
+
   it("keeps name/description/path on the ENTRY, and out of the prompt", async () => {
     await writeSkill(
       "house-style.md",

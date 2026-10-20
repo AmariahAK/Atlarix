@@ -34,6 +34,7 @@ async function freshManager(session: Record<string, unknown> | null) {
   (SM as { session: unknown }).session = session;
   return SM as unknown as {
     refreshPlanFromServer(ms?: number): Promise<void>;
+    notePlanPageOpened(): void;
     broadcastPlanChanged: unknown;
   };
 }
@@ -71,6 +72,38 @@ describe("refreshPlanFromServer", () => {
     // Focus fires on every window switch; without this the "cheaper than realtime"
     // claim stops being true for anyone who alt-tabs.
     expect(fetchPlanSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("focus reads at most once per 10 minutes", async () => {
+    // At 15 s, a session spent switching windows read `users` 26 times in 70
+    // minutes for nothing (owner, 2026-10-20).
+    snapshot = { plan: "free", effectiveTier: "free", banned: false };
+    const SM = await freshManager({ ...SESSION });
+    vi.useFakeTimers();
+    try {
+      for (let t = 0; t < 20 * 60_000; t += 30_000) {
+        await SM.refreshPlanFromServer();
+        vi.advanceTimersByTime(30_000);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fetchPlanSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("after a checkout or the billing portal opened, the next focus reads at once", async () => {
+    snapshot = { plan: "free", effectiveTier: "free", banned: false };
+    const SM = await freshManager({ ...SESSION });
+    await SM.refreshPlanFromServer();
+    await SM.refreshPlanFromServer();
+    expect(fetchPlanSnapshot).toHaveBeenCalledTimes(1);
+
+    SM.notePlanPageOpened();
+    await SM.refreshPlanFromServer();
+    expect(fetchPlanSnapshot).toHaveBeenCalledTimes(2);
+    // Once: the flag is spent by the read.
+    await SM.refreshPlanFromServer();
+    expect(fetchPlanSnapshot).toHaveBeenCalledTimes(2);
   });
 
   it("drops the cached tier even when the plan is unchanged", async () => {

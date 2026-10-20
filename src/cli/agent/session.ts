@@ -325,6 +325,15 @@ export interface TurnOptions {
   systemWake?: boolean;
 }
 
+/**
+ * A session starting (new, or resumed) reads the account's MCP servers again:
+ * they may have changed on the website or in another Atlarix. The CLI has no
+ * window focus, so this is its moment (lib/mcp/account-connectors.ts).
+ */
+function clearAccountMcpServers(): void {
+  void import("@/lib/mcp/account-connectors").then((m) => m.clearAccountConnectorsCache()).catch(() => {});
+}
+
 /** A running sub-agent (spawn-task.ts listRunningSubagentTasks). */
 export interface SubagentJob {
   taskId: string;
@@ -438,6 +447,7 @@ export class AgentSession extends EventEmitter {
    * session to the desktop app's list.
    */
   async newSession(): Promise<void> {
+    clearAccountMcpServers();
     this.sessionId = "";
     this.chatId = 0;
     this.messages = [];
@@ -504,6 +514,7 @@ export class AgentSession extends EventEmitter {
    */
   async resume(sessionId: string): Promise<void> {
     if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it), then resume.");
+    clearAccountMcpServers();
     const { chatId } = (await (await handler("sessions:allocate-transport"))({}, sessionId)) as { chatId: number };
     const got = (await (await handler("sessions:get"))({}, sessionId)) as {
       session: SessionSummary;

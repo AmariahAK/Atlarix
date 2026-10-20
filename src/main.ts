@@ -1764,6 +1764,9 @@ const createWindow = () => {
      * 93.5% of database execution time.
      */
     void SubscriptionManager.refreshPlanFromServer();
+    // The account's MCP servers may have changed on the website while the user was
+    // away. Cleared, not fetched: the next reader asks once (account-connectors.ts).
+    void import("./lib/mcp/account-connectors").then((m) => m.clearAccountConnectorsCache()).catch(() => {});
     if (!supabaseBgPaused) return;
     supabaseBgPaused = false;
     setAutoRefresh(true);
