@@ -110,6 +110,10 @@ describe("a tool-heavy session is not 'still short'", () => {
     expect(done.tokensAfter).toBeLessThan(done.tokensBefore);
     // The summary was written from what the tools returned, not only the prose.
     expect(llm.prompts.join("\n")).toContain(TOOL_RESULT_CANARY);
+    // …and from what each turn ANSWERED. E7 (QA, 3 of 3): a turn went in as one
+    // message with its answer last; the summariser's pruning keeps a message's
+    // head, so older answers never reached it and the agent misremembered them.
+    for (const t of [0, 1, 2]) expect(llm.prompts.join("\n")).toContain(`Done with step ${t}.`);
   });
 
   it("the overflow retry compacts it (and so retries instead of failing the turn)", async () => {

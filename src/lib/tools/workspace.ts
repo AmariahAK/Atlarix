@@ -115,15 +115,21 @@ type TranscriptMessage = { id: number; role: string; content: string; modelConte
  * same way, then found nothing to do and the turn failed. In full, not clipped:
  * this text is what the history is MEASURED by, and the summariser bounds its own
  * input.
+ *
+ * THE TURN'S ANSWER FIRST. Pruning keeps the head of a message that holds tool
+ * output, so with the answer last the summariser never saw the older turns'
+ * answers, and after /compact the agent misremembered what it had found (E7,
+ * 3 of 3: "dune" for a file whose codeword it had answered as "ember").
  */
 function compactionText(m: { role: string; content?: string | null; modelContent?: string | null }): string {
   if (m.role === "assistant") {
     const envelope = parseNativeHistory(m.modelContent);
     if (envelope) {
-      return flattenNativeForCompaction(envelope.messages, Infinity)
+      const tools = flattenNativeForCompaction(envelope.messages, Infinity)
         .map((x) => (typeof x.content === "string" ? x.content : ""))
         .filter(Boolean)
         .join("\n\n");
+      return [m.content?.trim(), tools].filter(Boolean).join("\n\n");
     }
   }
   return m.content ?? "";
