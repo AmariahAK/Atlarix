@@ -120,6 +120,12 @@ describe("atlarix acp", () => {
     expect(kinds).toContain("tool_call");
     expect(kinds).toContain("tool_call_update");
     expect(e.text(sessionId)).toContain("Changed v.");
+    // What you approved: one finished step after the edit's card, not text glued to the reply.
+    const said = e.updates.filter((u) => u.update.sessionUpdate === "tool_call" && u.update.toolCallId.startsWith("approved:"));
+    expect(said).toHaveLength(1);
+    expect(said[0]!.update).toMatchObject({ kind: "other", status: "completed", title: expect.stringMatching(/^You approved Atlarix to edit `.*v\.ts` this time$/) });
+    expect(e.updates.indexOf(said[0]!)).toBeGreaterThan(e.updates.indexOf(owner!));
+    expect(e.text(sessionId)).not.toContain("You approved");
   }, 60_000);
 
   it("No is obeyed: the command never runs", async () => {
@@ -140,6 +146,7 @@ describe("atlarix acp", () => {
     );
     expect(owner?.update).toMatchObject({ kind: "execute" });
     expect(fs.existsSync(doomed)).toBe(true);
+    expect(e.updates.some((u) => u.update.sessionUpdate === "tool_call" && u.update.toolCallId.startsWith("approved:"))).toBe(false);
   }, 60_000);
 
   it("switches mode through the config option and the legacy set_mode", async () => {
