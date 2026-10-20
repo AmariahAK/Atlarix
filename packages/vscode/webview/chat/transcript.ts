@@ -557,7 +557,10 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     node.dataset.output = text ?? existing?.dataset.output ?? "";
   } else {
     node = el("div", `step ${status}`);
-    node.append(el("span", "step__mark", status === "completed" ? MARK.done : status === "failed" ? MARK.failed : MARK.running), el("span", "step__title", title));
+    const head = el("span", "step__title", t.toolCallId.startsWith("approved:") ? "" : title);
+    // What you approved names the command or file in backticks: drawn as code, not as "`npm`".
+    if (t.toolCallId.startsWith("approved:")) title.split("`").forEach((s, i) => s && head.append(i % 2 ? el("code", "", s) : s));
+    node.append(el("span", "step__mark", status === "completed" ? MARK.done : status === "failed" ? MARK.failed : MARK.running), head);
     if (status === "failed" && text) {
       // Why it failed, on a line of its own (the CLI's "╰ reason"); all of it on hover.
       node.title = text;

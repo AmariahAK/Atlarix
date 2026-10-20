@@ -270,6 +270,28 @@ describe("what woke the agent", () => {
   });
 });
 
+describe("what you approved", () => {
+  it("goes to the editor as a finished step, once", () => {
+    const e: Emitted = new Map();
+    const note: Cell = {
+      kind: "notice",
+      id: "approved:op1",
+      level: "info",
+      text: "✓ You approved Atlarix to always run commands that start with `npm` in this folder",
+    };
+    expect(diffUpdates([note], e)).toEqual([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "approved:op1",
+        title: "You approved Atlarix to always run commands that start with `npm` in this folder",
+        kind: "other",
+        status: "completed",
+      },
+    ]);
+    expect(diffUpdates([note], e)).toEqual([]);
+  });
+});
+
 describe("a background sub-agent's report", () => {
   it("is what the agent said (or why it failed), not the call's start envelope", async () => {
     const { diffUpdates } = await import("@/cli/acp/updates");

@@ -671,6 +671,11 @@ body.needs-you .needs-badge {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.step__title code {
+  font-family: var(--mono);
+  color: var(--code);
+  font-size: 0.95em;
+}
 .step.in_progress .step__mark,
 .step.pending .step__mark {
   color: var(--primary);

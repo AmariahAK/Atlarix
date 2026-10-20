@@ -266,6 +266,12 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
         });
         continue;
       }
+      // What you just approved ("✓ You approved Atlarix to run `npm test` this
+      // time"): a finished step, so it never runs into the reply that follows.
+      if (c.id.startsWith("approved:")) {
+        out.push({ sessionUpdate: "tool_call", toolCallId: c.id, title: c.text.replace(/^✓\s*/, ""), kind: "other", status: "completed" });
+        continue;
+      }
       // A turn's error kept in the CLI transcript once the next turn starts
       // (session.ts turnNotices): the editor showed it when that turn failed.
       // Sent again it landed in the NEXT turn, beside its "Interrupted" (QA).
