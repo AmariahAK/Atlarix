@@ -58,6 +58,8 @@ export async function shutdownCli(code = 0): Promise<never> {
     // Analytics (only queued when the user opted in): sent before the exit.
     const { flushAndClose } = await import("@/main/lib/analytics");
     await withTimeout(flushAndClose(), 800);
+    const Sentry = await import("@sentry/electron/main");
+    await withTimeout(Sentry.flush(800), 900);
     const { drainPendingWork } = await import("@/lib/pending-work");
     await withTimeout(drainPendingWork(), 500);
     // After everything that could still write a temp file (as the app's quit).
@@ -99,7 +101,21 @@ export function installProcessGuards(): void {
       /* fall through to logging */
     }
     logger.error(`[cli] ${kind} (survived):`, reason);
+    void import("@sentry/electron/main")
+      .then((Sentry) => Sentry.captureException(reason, { tags: { mechanism: kind } }))
+      .catch(() => {});
   };
+  // Crash reports, as the app sends them (separate from the analytics answer,
+  // scrubbed; nothing when the editor's own telemetry is off).
+  void Promise.all([import("@sentry/electron/main"), import("@/lib/sentry-before-send"), import("electron")])
+    .then(([Sentry, { sentryBeforeSendDropExpected }, electron]) =>
+      Sentry.init({
+        dsn: process.env.SENTRY_DSN,
+        release: electron.app.getVersion(),
+        beforeSend: sentryBeforeSendDropExpected,
+      }),
+    )
+    .catch(() => {});
   process.on("unhandledRejection", survive("unhandled rejection"));
   process.on("uncaughtException", survive("uncaught exception"));
   for (const signal of ["SIGTERM", "SIGHUP"] as const) {

@@ -40,6 +40,11 @@ export const SENTRY_IGNORE_ERROR_PATTERNS: RegExp[] = [
   /NoOutputGeneratedError/i,
   /NoContentGeneratedError/i,
   /EmptyModelOutputAfterRetry/i,
+  // Expected outcomes the user is told about, not defects (Sentry, Oct 2026):
+  // a duplicate app name, and the catalog refresh timing out (it falls back to
+  // the cached catalog). The MCP cap is in WORKSPACE_CAP_SENTRY_PATTERNS.
+  /An app with this name already exists/i,
+  /models\.dev refresh exceeded/i,
 ];
 
 export function sentryMessageMatchesIgnoredPattern(combined: string): boolean {

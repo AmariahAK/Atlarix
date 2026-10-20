@@ -111,6 +111,9 @@ const PUBLIC_KEYS = [
   "ATLARIX_CORE_MODEL_4",
   "ATLARIX_CORE_MODEL_5",
   "POSTHOG_API_KEY",
+  // Crash reports (src/headless/sentry-stub.ts). A DSN is public by design: it
+  // can only send events to the project.
+  "SENTRY_DSN",
 ] as const;
 const buildEnv = Object.fromEntries(PUBLIC_KEYS.map((k) => [k, process.env[k] ?? ""]));
 const missing = PUBLIC_KEYS.slice(0, 3).filter((k) => !buildEnv[k]);
