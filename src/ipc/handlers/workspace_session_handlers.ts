@@ -447,8 +447,12 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
     orderBy: [desc(chatSessions.updatedAt)],
   });
 
-  // Not one this process has a transport for, nor one another process holds.
-  if (latest && transportForSession(latest.id) == null && !sessionsHeldElsewhere().has(latest.id)) {
+  // Not one this process has a transport for, nor one another process holds,
+  // nor one another process was just working in: it may hold it before the
+  // live registry says so (A7: a CLI's turn landed in an editor's new session).
+  const quiet = (r: { id: string; updatedAt: Date }) =>
+    createdHere.has(r.id) || r.updatedAt.getTime() < Date.now() - FRESH_EMPTY_MS;
+  if (latest && transportForSession(latest.id) == null && !sessionsHeldElsewhere().has(latest.id) && quiet(latest)) {
     await persistSessionStreamChatId(latest.id, input.chatId);
     logger.warn(
       `Bound transport chat ${input.chatId} to session ${latest.id} (workspace ${appId})`,
@@ -575,11 +579,12 @@ export function pickSessionReuse(
  */
 async function listSessionsWithMessageCounts(
   workspaceId: number,
-): Promise<{ id: string; title: string; messageCount: number }[]> {
+): Promise<{ id: string; title: string; createdAt: Date; messageCount: number }[]> {
   return db
     .select({
       id: chatSessions.id,
       title: chatSessions.title,
+      createdAt: chatSessions.createdAt,
       messageCount: sql<number>`count(${sessionMessages.id})`,
     })
     .from(chatSessions)
@@ -687,6 +692,19 @@ async function verifyTrulyEmptySession(
 /** Sessions this process's editor threads (ACP) hold; never reused or pruned. */
 const claimedSessions = new Set<string>();
 
+/** Sessions this process created: its own fresh empties are its to reuse. */
+const createdHere = new Set<string>();
+
+/**
+ * How long an empty session another process just created counts as its, even
+ * before the live registry says so. That process records the session there
+ * moments after creating it (once its inbox is up; a row goes stale after 45 s),
+ * and in that gap a CLI and an editor starting together both took the editor's
+ * new session as a leftover: one reused it, so both wrote into ONE session, or
+ * pruned it under its owner (A7, QA 4 of 5). A real leftover is older.
+ */
+const FRESH_EMPTY_MS = 2 * 60_000;
+
 export async function startWorkspaceSession(
   workspaceId: number,
   opts: { claim?: boolean } = {},
@@ -718,8 +736,12 @@ export async function startWorkspaceSession(
     // its session before the first message, and reusing it would put two
     // threads on one session, pruning it would delete it under them.
     const held = sessionsHeldElsewhere();
+    const freshSince = Date.now() - FRESH_EMPTY_MS;
     const rows = (await listSessionsWithMessageCounts(workspaceId)).filter(
-      (r) => !held.has(r.id) && !claimedSessions.has(r.id),
+      (r) =>
+        !held.has(r.id) &&
+        !claimedSessions.has(r.id) &&
+        (createdHere.has(r.id) || r.createdAt.getTime() < freshSince),
     );
     const { reuseId, pruneIds } = pickSessionReuse(rows);
     if (rows.length > 0) {
@@ -801,6 +823,7 @@ async function insertWorkspaceSession(
       updatedAt: now,
     })
     .returning();
+  createdHere.add(id);
   return mapSession(row);
 }
 
