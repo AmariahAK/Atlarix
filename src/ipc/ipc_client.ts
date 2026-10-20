@@ -4246,6 +4246,12 @@ export class IpcClient {
     return this.ipcRenderer.invoke("chat:interject-flush", chatId);
   }
 
+  /** Another surface following a chat this window runs pressed Stop. */
+  public onRemoteStop(listener: (payload: { chatId: number }) => void): () => void {
+    const off = this.ipcRenderer.on("chat:remote-stop", (payload) => listener(payload as { chatId: number }));
+    return typeof off === "function" ? off : () => {};
+  }
+
   public onUserInterjections(
     listener: (payload: {
       chatId: number;

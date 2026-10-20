@@ -4,12 +4,15 @@ import { isStreamingByIdAtom } from "@/atoms/chatAtoms";
 export const activeWorkspaceSessionIdAtom = atom<string | null>(null);
 
 /**
- * A session handed over from the CLI (`/handoff app`), waiting for its
- * workspace's session list to mount and open it (lib/peers).
+ * A session to open as if its row had been clicked, waiting for its
+ * workspace's session list to mount and open it: one handed over from the CLI
+ * (`/handoff app`, lib/peers), or a fork made from the composer (`/fork`).
+ * `note` is what the toast says (the handoff's when absent).
  */
 export const pendingSessionHandoffAtom = atom<{
   sessionId: string;
   workspaceId: number;
+  note?: string;
 } | null>(null);
 
 /**

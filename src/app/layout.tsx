@@ -19,7 +19,7 @@ import { pendingSessionHandoffAtom } from "@/atoms/sessionAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import { useAppLocale } from "@/hooks/useAppLocale";
 import type { ZoomLevel } from "@/lib/schemas";
-import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, isStreamingByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
@@ -272,6 +272,18 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // Applies `appLanguage` to i18next and stamps document.lang (Turkish casing
   // depends on the attribute, not just on the catalog).
   useAppLocale();
+  // Another Atlarix following a chat this window runs pressed Stop: stop it here,
+  // as this window's own Stop button would (lib/peers, main-host.ts).
+  useEffect(
+    () =>
+      IpcClient.getInstance().onRemoteStop(({ chatId }) => {
+        const store = getDefaultStore();
+        if (store.get(isStreamingByIdAtom).get(chatId) !== true) return;
+        store.set(isStreamingByIdAtom, (prev) => new Map(prev).set(chatId, false));
+        IpcClient.getInstance().cancelChatStream(chatId);
+      }),
+    [],
+  );
   const { settings } = useSettings();
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);

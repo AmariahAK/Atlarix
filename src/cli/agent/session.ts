@@ -352,8 +352,8 @@ type SavedMessage = {
 /** How often a session looks for a turn of it running elsewhere: drafts are saved every 1.5 s. */
 const FOLLOW_POLL_MS = 1_500;
 
-/** Where a turn of this session is running, in "Running in …". */
-export const SURFACE_NAMES = { app: "the app", cli: "the CLI", editor: "the editor", chrome: "the browser" } as const;
+export { SURFACE_NAMES } from "@/lib/peers/peer-message";
+import { SURFACE_NAMES } from "@/lib/peers/peer-message";
 
 /**
  * A session starting (new, or resumed) reads the account's MCP servers again:

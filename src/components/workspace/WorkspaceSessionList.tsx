@@ -421,13 +421,13 @@ export function WorkspaceSessionList({
       : sessions;
   }, [sessions, activeSessionId]);
 
-  // A session handed over from the CLI: open it as if it had been clicked.
+  // A session handed over from the CLI, or a fork: open it as if it had been clicked.
   useEffect(() => {
     if (!pendingHandoff || pendingHandoff.workspaceId !== workspaceId) return;
     setPendingHandoff(null);
-    void handleSelectSession(pendingHandoff.sessionId).then(() =>
-      showInfo("Continued from the terminal"),
-    );
+    void loadSessions()
+      .then(() => handleSelectSession(pendingHandoff.sessionId))
+      .then(() => showInfo(pendingHandoff.note ?? "Continued from the terminal"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingHandoff, workspaceId]);
 
@@ -592,6 +592,23 @@ export function WorkspaceSessionList({
                     }}
                   >
                     {t("sessions.continueInTerminal")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // A copy as saved now, opened beside the original (sessions:fork).
+                      void IpcClient.getInstance()
+                        .forkWorkspaceSession(session.id)
+                        .then(async (made) => {
+                          await loadSessions();
+                          onSessionsChange?.();
+                          await handleSelectSession(made.id);
+                          showInfo(`Forked as “${made.title}”`);
+                        })
+                        .catch((err) => showError(err));
+                    }}
+                  >
+                    {t("sessions.fork")}
                   </DropdownMenuItem>
                   {/* App → editor handoff: Atlarix's extension opens the same session (lib/peers/open-in-editor). */}
                   <DropdownMenuSub>

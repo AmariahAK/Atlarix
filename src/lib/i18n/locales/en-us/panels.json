@@ -1,6 +1,7 @@
 {
   "sessions": {
     "continueInTerminal": "Continue in terminal",
+    "fork": "Fork",
     "openInEditor": "Open in your editor"
   },
   "automations": {
