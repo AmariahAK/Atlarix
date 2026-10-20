@@ -49,6 +49,7 @@
  */
 
 import { commandSegments, unquotedSkeleton } from "./command-segments";
+import { programWords } from "./command-words";
 
 export interface MutationMatch {
   /** Stable, kebab-case id — used as the always-allow permission key. */
@@ -267,8 +268,11 @@ export function getMutationMatchIds(segment: string): string[] {
     ids.add("protected-path");
   }
 
+  // Also as the program reads it: `git -C . commit` and `CI=1 git commit` put
+  // something in front of the words these patterns anchor on.
+  const program = programWords(trimmed).join(" ").toLowerCase();
   for (const { id, pattern } of MUTATING_PATTERNS) {
-    if (pattern.test(lower)) ids.add(id);
+    if (pattern.test(lower) || pattern.test(program)) ids.add(id);
   }
 
   if (!ids.has("protected-path") && redirectsToFile(trimmed)) {

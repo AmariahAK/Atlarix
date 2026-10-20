@@ -21,6 +21,7 @@
  */
 
 import { commandSegments } from "./command-segments";
+import { programWords } from "./command-words";
 
 export interface DangerMatch {
   /** Stable, kebab-case id — used as the always-allow permission key. */
@@ -36,64 +37,16 @@ function dangerMatches(d: DangerMatch, command: string): boolean {
   return d.pattern.test(command) || (d.also?.(command) ?? false);
 }
 
-/** Shell words, quotes removed: enough to read a git invocation, not a shell. */
-function shellWords(segment: string): string[] {
-  const words: string[] = [];
-  const re = /"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g;
-  let cur = "";
-  let last = -1;
-  for (let m = re.exec(segment); m; m = re.exec(segment)) {
-    const part = m[1] ?? m[2] ?? m[3] ?? "";
-    // Adjacent pieces (`-c"a b"`) are one word.
-    if (m.index === last) cur += part;
-    else {
-      if (last !== -1) words.push(cur);
-      cur = part;
-    }
-    last = m.index + m[0].length;
-  }
-  if (last !== -1) words.push(cur);
-  return words;
-}
-
-/** git's own options before the subcommand that take the NEXT word as their value. */
-const GIT_GLOBAL_WITH_VALUE = new Set([
-  "-c",
-  "-C",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--exec-path",
-  "--super-prefix",
-  "--config-env",
-  "--attr-source",
-  "--list-cmds",
-]);
-/** Words that run the command after them as it is. */
-const COMMAND_PREFIXES = new Set(["command", "env", "nohup", "time", "nice"]);
-
 /**
  * Each git invocation in a command: its subcommand and that subcommand's
- * arguments, wherever git's own options and the flags fall.
- *
- * `git\s+reset\s+--hard` read words in a fixed order, so `git reset -q --hard`
- * and `git -c x=y reset --hard` discarded uncommitted work without a card
- * (E5, 3 of 3 builds). The regexes still run beside this; it only adds matches.
+ * arguments, wherever git's own options and the flags fall (programWords). The
+ * regexes still run beside this; it only adds matches.
  */
 function gitInvocations(command: string): Array<{ sub: string; args: string[] }> {
   const out: Array<{ sub: string; args: string[] }> = [];
   for (const seg of commandSegments(command)) {
-    const words = shellWords(seg.replace(/^[\s(]+|[\s)]+$/g, ""));
-    let i = 0;
-    while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!) || COMMAND_PREFIXES.has(words[i]!))) i++;
-    if (!/(^|[\\/])git(\.exe)?$/i.test(words[i] ?? "")) continue;
-    i++;
-    while (i < words.length && words[i]!.startsWith("-")) {
-      i += GIT_GLOBAL_WITH_VALUE.has(words[i]!) ? 2 : 1;
-    }
-    const sub = words[i];
-    if (!sub) continue;
-    const rest = words.slice(i + 1);
+    const [program, sub, ...rest] = programWords(seg);
+    if (program !== "git" || !sub) continue;
     const end = rest.indexOf("--");
     out.push({ sub: sub.toLowerCase(), args: end === -1 ? rest : rest.slice(0, end) });
   }
