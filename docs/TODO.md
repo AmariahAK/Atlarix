@@ -22,25 +22,104 @@ not trust it.
 
 ---
 
-## 🔨 In flight — 15.10.0 on dev, waiting only for its Windows pass
+## 🔨 Handover 2026-10-21 — for the owner's fresh session (15.10.0 is ready on dev, NOT released)
 
-15.10.0 is merged and tested on the Mac. The full vitest and bun suites pass. Before tagging, the Windows queue at the
-bottom of `~/.atlarix-e2e/team/STATUS.md` has to pass on the VM. The VM needs about 2 GB more free memory than the Mac
-had overnight, so quit the browser first.
-- **The queue:** E11 (VS Code close cleans up), E15 (Past chats), E16 (an unusable cliPath), the stop-to-idle
-  timing, E4 (temp sweep, alone and with a named-pipe holder), E13 (a junction is one workspace), and the
-  Windows CLI pass.
+The owner said on 2026-10-21: "no release, do everything but that". Everything below is what is left. Each item
+says where it stands, exactly what to do, and how to check it worked. The team's live notes are in
+`~/.atlarix-e2e/team/STATUS.md` (newest lines at the bottom) and `~/.atlarix-e2e/team/MORNING.md`.
 
-## Next session (from the 2026-10-20 overnight run)
+### A. Release 15.10.0 (when you have ~1 hour)
 
-- **Owner: rotate `ATLARIX_TEST_ANTHROPIC_KEY`.** A session printed its environment into its own transcript.
-- **AWS, free Auto on Bedrock** (live for everyone since 2026-10-21 00:06 MYT: MiniMax M2.5 → Kimi K2.5;
-  $30/month, $1/day, $0.30 per user per day):
-  - read the 08:00 MYT daily emails for the first real cost per user;
-  - set `ATLARIX_SHARED_FREE_STATE=on` on the proxy (1 replica);
-  - add a second replica only from the next UTC day.
-- **1 Nov:** compare the AWS `atlarix-comp-pro` run (expect every user `duplicate`) with pg_cron's grant, then
-  decide whether to unschedule pg_cron `comp-pro-allowance-monthly`.
+**State.** `dev` holds all of 15.10.0. The version (package.json + lock), README "Current release: v15.10.0", the
+CHANGELOG `## [15.10.0] (2026-10-21)`, the models snapshot and the extension versions are already done.
+Mac QA is complete (CLI, ACP, VS Code panel, Chrome panel, analytics, multi-process stress); the full vitest (6,162)
+and bun (267) suites pass, plus check:ts / check:lint / check:sandbox / check:i18n. Windows QA and app QA were still
+running when this was written; their results are the last lines of STATUS.md. **Don't tag until both say PASS, or
+until each FAIL in them is fixed on dev and re-checked.**
+
+**Steps** (the full runbook is in memory `atlarix-release-distribution`):
+1. If anything was merged after the CHANGELOG entry, add it to `docs/CHANGELOG.md` under 15.10.0, then run
+   `./scripts/ci/extract-changelog.sh 15.10.0 400` and check the notes aren't empty.
+2. Run locally: `npm run check:ts && npm run check:lint && npm run check:sandbox && npm run check:i18n && npm test`.
+3. `git checkout main && git merge --ff-only origin/dev` (or a merge commit if main moved), then
+   `git push origin main`.
+4. Make the repo public (`gh repo edit AmariahAK/Atlarix --visibility public --accept-visibility-change-consequences`).
+   Wait for the `release.yml` quality job on main to go green.
+5. `git tag -a v15.10.0 -m "Atlarix 15.10.0" && git push origin v15.10.0`. Watch each job's steps (`gh run watch`);
+   a hung step shows no log until it ends.
+6. Check what users get: `gh release list --repo AmariahAK/atlarix-releases --limit 2` (not Draft, marked Latest);
+   `curl -sSL https://github.com/AmariahAK/atlarix-releases/releases/latest/download/latest-mac.yml | head -1`
+   shows 15.10.0; the release body is the real notes, not the ~560-char placeholder.
+7. Make the repo private again (`--visibility private`) as soon as publish is green.
+8. Launchpad (`atlarix-launchpad`): bump `package.json` to 15.10.0; in `public/CHANGELOG.md` bump the
+   "product summary (as of …)" header and prepend a plain-language `## Atlarix 15.10.0 — …` (live sessions across
+   app/CLI/editors, `/fork` everywhere, approvals that remember folder grants, compaction that works). Run
+   `npm run build`, push, then curl the live site.
+9. **Store uploads (by hand):** the 8 `.vsix` files at marketplace.visualstudio.com/manage/publishers/atlarix,
+   then the Microsoft Store resubmission (the `unvirtualizedResources` justification is in the MSIX manifest
+   comment). winget stays blocked on microsoft/winget-pkgs#446527.
+10. **Note:** the release now uploads Sentry source maps. The `SENTRY_AUTH_TOKEN` repo secret is set (Sentry org
+    token "atlarix-release-ci", org:ci, created 2026-10-21). If the "Upload source maps" step fails, the token or
+    `SENTRY_ORG=norah-labs` / `SENTRY_PROJECT=atlarix` in release.yml is the place to look. The step skips without
+    failing when there's no token.
+
+### B. App checks that only a signed-in app window can do
+
+The app QA on 2026-10-21 ran on the headless agent@ session (CLI/ACP), because nobody could sign the app in: the
+atlarix.dev sign-in is a password plus a Turnstile captcha, which the sessions may not do. ai-2f marked those items
+"headless-verified, app UI not run" in STATUS.md. To finish them yourself, launch a dev app on a scratch profile
+(never your own):
+`ATLARIX_USER_DATA_DIR=$HOME/.atlarix-e2e/free-agent npx electron-forge start -- --user-data-dir=$HOME/.atlarix-e2e/free-agent/electron`
+from a worktree with its own `node_modules` (not a symlink). Sign in as agent@atlarix.dev (password in the
+Keychain, service `atlarix-sandbox-agent`). Then check:
+- **Live sessions:** start a turn in the CLI on the same scratch profile (`ATLARIX_USER_DATA_DIR=… atlarix`), open
+  that session in the app. It should show "Running in the CLI" and follow the reply as it grows. Type in the app:
+  the text lands in the CLI turn as a mid-turn message. Stop in the app stops the CLI turn within ~1.5 s. Then
+  the reverse (CLI follows an app turn).
+- **`/fork` in the app** (composer slash command and the session-menu "Fork"): a new tab "<title> (fork)" with
+  the same messages; the original is unchanged.
+- **Approvals (951722b7):** two edits in `src/`, approve the first with "allow edits in src/". The second card
+  should clear on its own, and each operation should run once.
+- **E13:** open a symlinked folder in the app and its real folder in the CLI. There should be ONE workspace, and
+  `/undo` should work across both.
+- **L4 (46310069):** delete a custom provider from its settings page. No "Provider with ID … not found" error.
+- **Polling (16a12f54):** 30 min idle shows almost no Supabase reads. The `users` row is read again after
+  Upgrade/Manage billing.
+- After the run, launch the installed /Applications/Atlarix once, so the `atlarix://` link handler points back to it.
+
+### C. AWS / proxy
+
+- **Shared free-tier state is ON** (`ATLARIX_SHARED_FREE_STATE=on` on Railway project Atlarix-Proxy, service
+  `Atlarix`, set by the owner 2026-10-20 ~23:25 UTC). Counters live in DynamoDB `atlarix-proxy-counters`
+  (eu-west-1, provisioned 20/20 = inside the always-free 25/25).
+- **Second replica: not done.** The sessions' permission check blocks production Railway changes. Per the
+  proxy code, a second replica is safe from the first full UTC day after the flag went on, i.e. from
+  **2026-10-21 00:00 UTC**. Before turning it on, check the Railway plan's usage page: a second replica roughly
+  doubles the proxy's RAM/CPU bill. Only do it if that stays inside the plan's included usage (the rule is
+  nothing that bills). How: Railway dashboard → Atlarix-Proxy → Atlarix → Settings → Replicas = 2. Check: both
+  replicas serve `/health`, and a free Auto request from agent@ still answers. The CloudWatch alarm
+  "atlarix-*" emails stay quiet.
+- **To let a session do Railway changes without you next time,** add a Bash allow rule for
+  `railway variable set` / `railway up` in Claude Code settings. The auto-mode check calls them production deploys.
+- **Read the daily cost emails** (08:00 MYT, from the `atlarix-daily-digest` Lambda) for the first real free-Auto
+  cost per user. The caps are $30/month, $1/day, $0.30 per user per day (proxy `bedrock-pool.ts` `BEDROCK_BUDGET`).
+- **1 Nov:** the `atlarix-comp-pro` Lambda runs 00:15 UTC. It should report every user as `duplicate`, because
+  pg_cron `comp-pro-allowance-monthly` grants first. Check `credit_grants` for Nov, then decide whether to
+  unschedule the pg_cron job, so only one of them grants.
+
+### D. Small leftovers
+
+- **Your own profile:** a QA slip on 2026-10-21 00:41 created one empty session
+  (`3d6af3f8-1349-4503-b90a-1e613485eed5`, workspace 58) in your real Atlarix data. It's harmless; delete it from
+  the session list if you like.
+- **PostHog alert** "Turn error rate above 15%" (dashboard 1040467) can fire on a quiet day from one failure. Raise
+  it or make it relative once traffic grows.
+- **CLI binary is +10 MB** (97 → 108 MB) because it now carries a positions-only source map for crash reports.
+  It's a one-line revert if you'd rather keep it small.
+- **Sentry code mapping:** fixed 2026-10-21. `app:///.vite/build/` → `src/` had been saved on the Book-Library
+  repo; it is now on AmariahAK/Atlarix. Check one new app crash links to the right file.
+- **ATLARIX-3Z** ("Maximum update depth exceeded"): see Open queue item 8. Map it the next time it fires (now
+  that source maps upload).
 
 **Verified live 2026-10-19 (15.9.1, unchanged in 15.9.2), on the real Anthropic API:** Sonnet 5.5,
 Opus 5.5, Haiku 5.5 and Fable 5.1 get `thinking: adaptive` + `output_config.effort` as chosen
