@@ -27,7 +27,8 @@ beforeAll(() => {
   ws = fs.mkdtempSync(path.join(os.tmpdir(), "acp-ws-"));
 });
 
-type Decide = (req: RequestPermissionRequest) => acp.RequestPermissionOutcome;
+/** `signal`: aborted when the agent withdraws the request ($/cancel_request). */
+type Decide = (req: RequestPermissionRequest, signal: AbortSignal) => acp.RequestPermissionOutcome | Promise<acp.RequestPermissionOutcome>;
 
 async function editor(
   script: Reply[],
@@ -56,9 +57,9 @@ async function editor(
   const ext: Array<{ method: string; params: Record<string, unknown> }> = [];
   const client = acp
     .client({ name: "test-editor" })
-    .onRequest("session/request_permission", (ctx) => {
+    .onRequest("session/request_permission", async (ctx) => {
       asked.push(ctx.params);
-      return { outcome: decide(ctx.params) };
+      return { outcome: await decide(ctx.params, ctx.signal) };
     })
     .onNotification("session/update", (ctx) => {
       updates.push(ctx.params);
@@ -147,6 +148,54 @@ describe("atlarix acp", () => {
     expect(owner?.update).toMatchObject({ kind: "execute" });
     expect(fs.existsSync(doomed)).toBe(true);
     expect(e.updates.some((u) => u.update.sessionUpdate === "tool_call" && u.update.toolCallId.startsWith("approved:"))).toBe(false);
+  }, 60_000);
+
+  it("a card a saved rule answered is withdrawn from the editor, and not answered No", async () => {
+    // QA E2: two edits in src/ at once, "allow edits in src/" on the first card.
+    // The second card was already sent; it stayed open after its edit had run.
+    fs.mkdirSync(path.join(ws, "src"), { recursive: true });
+    fs.writeFileSync(path.join(ws, "src", "a.ts"), "export const a = 1;\n");
+    fs.writeFileSync(path.join(ws, "src", "b.ts"), "export const b = 1;\n");
+    let withdrawn = false;
+    let release: (() => void) | null = null;
+    const e = await editor(
+      [
+        {
+          tools: [
+            { tool: "edit_file", args: { path: "src/a.ts", operation: "replace", old_content: "export const a = 1;", new_content: "export const a = 2;" } },
+            { tool: "edit_file", args: { path: "src/b.ts", operation: "replace", old_content: "export const b = 1;", new_content: "export const b = 2;" } },
+          ],
+        },
+        { text: "Both changed." },
+      ],
+      (req, signal) => {
+        if (req.options.some((o) => o.optionId === "always_allow_directory") && !release) {
+          release = () => {};
+          // A person takes a moment: the second card arrives while this one is open.
+          return new Promise((res) => setTimeout(() => res({ outcome: "selected", optionId: "always_allow_directory" }), 300));
+        }
+        // The second card: nobody clicks it. It must be taken back.
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => {
+            withdrawn = true;
+            resolve({ outcome: "cancelled" });
+          });
+          release = () => resolve({ outcome: "cancelled" });
+        });
+      },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const r = await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "set both to 2" }] });
+    await new Promise((res) => setTimeout(res, 200));
+    (release as (() => void) | null)?.();
+    expect(r.stopReason).toBe("end_turn");
+    expect(fs.readFileSync(path.join(ws, "src", "a.ts"), "utf8")).toContain("a = 2");
+    expect(fs.readFileSync(path.join(ws, "src", "b.ts"), "utf8")).toContain("b = 2");
+    expect(e.asked).toHaveLength(2);
+    expect(withdrawn).toBe(true);
+    // One line, for the card you answered; none for the one the rule answered.
+    const said = e.updates.filter((u) => u.update.sessionUpdate === "tool_call" && u.update.toolCallId.startsWith("approved:"));
+    expect(said).toHaveLength(1);
   }, 60_000);
 
   it("switches mode through the config option and the legacy set_mode", async () => {

@@ -50,7 +50,8 @@ export interface McpResult {
 
 export interface SessionListener {
   update(n: SessionNotification): void;
-  permission(req: RequestPermissionRequest): Promise<RequestPermissionResponse>;
+  /** `withdrawn`: aborted when the agent takes the card back (something else answered it). */
+  permission(req: RequestPermissionRequest, withdrawn: AbortSignal): Promise<RequestPermissionResponse>;
   peerWaiting(): void;
   /** What is running in the session changed. */
   tasksChanged?(count: number): void;
@@ -134,7 +135,7 @@ export class AtlarixConnection {
       .onRequest("session/request_permission", (ctx) => {
         const l = this.listeners.get(ctx.params.sessionId);
         if (!l) return { outcome: { outcome: "cancelled" } };
-        return l.permission(ctx.params);
+        return l.permission(ctx.params, ctx.signal);
       })
       .onNotification("session/update", (ctx) => {
         this.listeners.get(ctx.params.sessionId)?.update(ctx.params);

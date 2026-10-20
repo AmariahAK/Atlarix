@@ -119,6 +119,8 @@ class Thread {
   readonly emitted: Emitted = new Map();
   private chain: Promise<unknown> = Promise.resolve();
   private readonly asked = new Set<string>();
+  /** Approval cards the editor still shows, to take back if something else answers them. */
+  private readonly openCards = new Map<string, AbortController>();
   private turn: { done: () => void; cancelled: boolean } | null = null;
   /** Set a config option as the editor's picker does (the agent's setConfigOption): /effort uses it. */
   setOption: ((configId: string, value: string) => Promise<SessionConfigOption[]>) | null = null;
@@ -306,14 +308,24 @@ class Thread {
       this.asked.add(a.operationId);
       const owner = approvalOwner(a, s.cells);
       void this.flush().then(async () => {
+        // Answered meanwhile without a card (a rule saved on another one): nothing to ask.
+        if (!this.session.state.approvals.some((x) => x.operationId === a.operationId)) return;
         const toolCall = approvalToolCall(a, owner ?? undefined);
+        const card = new AbortController();
+        this.openCards.set(a.operationId, card);
         const r = await this.client()
-          .request("session/request_permission", {
-            sessionId: this.id,
-            toolCall,
-            options: approvalOptions(a, owner != null),
-          })
+          .request(
+            "session/request_permission",
+            { sessionId: this.id, toolCall, options: approvalOptions(a, owner != null) },
+            { cancellationSignal: card.signal },
+          )
           .catch(() => ({ outcome: { outcome: "cancelled" as const } }));
+        this.openCards.delete(a.operationId);
+        // Taken back (below): already decided, so answering it would be a second answer (QA E2).
+        if (card.signal.aborted) {
+          if (!owner) void this.send({ sessionUpdate: "tool_call_update", toolCallId: toolCall.toolCallId, status: this.turn?.cancelled ? "failed" : "completed" });
+          return;
+        }
         const mode = approvalMode(a, r.outcome);
         await this.session.answerApproval(a.operationId, mode);
         // A prompt with its own card: close it. One inside a tool call is
@@ -326,6 +338,11 @@ class Thread {
           });
         }
       });
+    }
+    // A card answered without the editor (a saved rule covered it, or the turn
+    // stopped): take it back, or it stayed open after its edit had run (QA E2).
+    for (const [operationId, card] of this.openCards) {
+      if (!s.approvals.some((x) => x.operationId === operationId)) card.abort();
     }
     const c = s.mcpConsent;
     if (c && !this.asked.has(`mcp:${c.requestId}`)) {
