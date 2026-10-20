@@ -8,7 +8,7 @@
 import path from "node:path";
 import { db } from "@/db";
 import { apps } from "@/db/schema";
-import { normalizeAppPath } from "@/lib/canonical-app-path";
+import { normalizeAppPath, realAppPath } from "@/lib/canonical-app-path";
 
 export async function workspaceAppIdForPath(dir: string): Promise<number> {
   const want = normalizeAppPath(dir);
@@ -21,7 +21,7 @@ export async function workspaceAppIdForPath(dir: string): Promise<number> {
   if (hit) return hit.id;
   const [row] = db
     .insert(apps)
-    .values({ name: path.basename(dir) || dir, path: dir })
+    .values({ name: path.basename(dir) || dir, path: realAppPath(dir) })
     .returning({ id: apps.id })
     .all();
   return row!.id;

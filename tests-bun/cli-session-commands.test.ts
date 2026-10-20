@@ -375,7 +375,8 @@ describe("the session's commands", () => {
     s.on("change", approve);
     await idleAfter(s, () => s.submit("sketch the login flow"));
     s.off("change", approve);
-    const file = path.join(ws, ".atlarix", "relics", "login-flow", "index.html");
+    // The workspace as the OS names it (/var is /private/var on macOS): one folder, one spelling.
+    const file = path.join(fs.realpathSync(ws), ".atlarix", "relics", "login-flow", "index.html");
     expect(fs.readFileSync(file, "utf8")).toContain("<h1>Login</h1>");
     const line = s.state.cells.find((c: any) => c.kind === "tool" && c.tool.verb === "Relic") as any;
     expect(line.tool.output).toBe(`Saved ${file}`);

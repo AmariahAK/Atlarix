@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { parseRemoteUri } from "@/lib/workspace-fs";
 import { noteWorkspaceCreated } from "@/ipc/utils/workspace-quota";
 import { startWorkspaceSession } from "./workspace_session_handlers";
-import { normalizeAppPath } from "@/lib/canonical-app-path";
+import { normalizeAppPath, realAppPath } from "@/lib/canonical-app-path";
 
 export async function importWorkspaceFromPath({
   path: sourcePath,
@@ -75,7 +75,8 @@ export async function importWorkspaceFromPath({
     .insert(apps)
     .values({
       name: appName,
-      path: sourcePath,
+      // A local folder as the OS names it, symlinks resolved (E13).
+      path: remote ? sourcePath : realAppPath(sourcePath),
       installCommand: installCommand ?? null,
       startCommand: startCommand ?? null,
       workspaceKind,

@@ -5,6 +5,7 @@ import {
 } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import * as schema from "./schema";
+import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { getAtlarixAppPath, getUserDataPath } from "../paths/paths";
@@ -30,6 +31,7 @@ import {
   serializeApiKeyForDb,
 } from "@/lib/security/db-secrets";
 import { groupDuplicateAppIds } from "@/lib/canonical-app-path";
+import { LIVE_SESSIONS_TABLE, PEER_STALE_MS } from "@/lib/peers/peers";
 
 const logger = log.scope("db");
 
@@ -830,6 +832,14 @@ function migratePlaintextApiKeysIfNeeded(sqlite: Database.Database): void {
  * ON DELETE CASCADE, so an un-re-pointed child would be silently cascade-deleted.
  * Idempotent: a no-op once no path-duplicates remain.
  */
+function otherAtlarixIsLive(sqlite: Database.Database): boolean {
+  if (!tableExists(sqlite, LIVE_SESSIONS_TABLE)) return false;
+  const row = sqlite
+    .prepare(`SELECT 1 FROM ${LIVE_SESSIONS_TABLE} WHERE last_seen > ? AND host = ? AND pid != ? LIMIT 1`)
+    .get(Date.now() - PEER_STALE_MS, os.hostname(), process.pid);
+  return row != null;
+}
+
 export function mergeDuplicateAppsByPathIfNeeded(
   sqlite: Database.Database,
 ): void {
@@ -840,6 +850,12 @@ export function mergeDuplicateAppsByPathIfNeeded(
   }>;
   const dupGroups = groupDuplicateAppIds(rows);
   if (dupGroups.length === 0) return;
+  // Another Atlarix on this database holds the duplicate's id in memory: deleting
+  // the row under it fails its next session insert. The next open merges.
+  if (otherAtlarixIsLive(sqlite)) {
+    logger.log(`[DB] ${dupGroups.length} duplicate apps group(s) left for the next open: another Atlarix is running`);
+    return;
+  }
 
   // Plain re-points. Tables dropped in earlier migrations (pivot_*/blueprint_*)
   // are skipped via tableExists.
@@ -855,6 +871,16 @@ export function mergeDuplicateAppsByPathIfNeeded(
     ["blueprint_snapshots", "workspace_id"],
     ["project_snapshots", "workspace_id"],
     ["review_patterns", "workspace_id"],
+    // Missing until E13 (2026-10-20): both CASCADE on the duplicate's delete, so
+    // every merge deleted that folder's automations; hooks were left pointing at
+    // an id that no longer exists.
+    ["automations", "workspace_id"],
+    ["atlarix_hooks", "workspace_id"],
+  ];
+  // Counters unique per (workspace, …keys): a row both have is ADDED into the
+  // canonical's, never dropped — these are history, not settings.
+  const SUMMED_FKS: Array<[table: string, col: string, keys: string[], sums: string[]]> = [
+    ["edit_stats", "workspace_id", ["day", "provider", "model_id"], ["lines_added", "lines_removed", "edits"]],
   ];
   // Collision re-points: a UNIQUE/PK on (fk, …keys) means re-pointing a duplicate
   // could collide with a row the canonical app already has — drop the duplicate's
@@ -866,10 +892,30 @@ export function mergeDuplicateAppsByPathIfNeeded(
   ];
 
   let merged = 0;
+  const moved: Record<string, number> = {};
+  const count = (table: string, n: number) => {
+    if (n > 0) moved[table] = (moved[table] ?? 0) + n;
+  };
   const run = sqlite.transaction(() => {
     for (const ids of dupGroups) {
       const canonical = ids[0]!;
       for (const dup of ids.slice(1)) {
+        for (const [table, col, keys, sums] of SUMMED_FKS) {
+          if (!tableExists(sqlite, table)) continue;
+          const match = keys.map((k) => `c.${k} = d.${k}`).join(" AND ");
+          for (const sum of sums) {
+            sqlite
+              .prepare(
+                `UPDATE ${table} AS c SET ${sum} = c.${sum} + (SELECT d.${sum} FROM ${table} d WHERE d.${col} = ? AND ${match}) WHERE c.${col} = ? AND EXISTS (SELECT 1 FROM ${table} d WHERE d.${col} = ? AND ${match})`,
+              )
+              .run(dup, canonical, dup);
+          }
+          const keyCols = keys.join(", ");
+          sqlite
+            .prepare(`DELETE FROM ${table} WHERE ${col} = ? AND (${keyCols}) IN (SELECT ${keyCols} FROM ${table} WHERE ${col} = ?)`)
+            .run(dup, canonical);
+          count(table, Number(sqlite.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(canonical, dup).changes));
+        }
         for (const [table, col, keys] of COLLISION_FKS) {
           if (!tableExists(sqlite, table)) continue;
           const keyCols = keys.join(", ");
@@ -879,15 +925,11 @@ export function mergeDuplicateAppsByPathIfNeeded(
               `DELETE FROM ${table} WHERE ${col} = ? AND ${lhs} IN (SELECT ${keyCols} FROM ${table} WHERE ${col} = ?)`,
             )
             .run(dup, canonical);
-          sqlite
-            .prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`)
-            .run(canonical, dup);
+          count(table, Number(sqlite.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(canonical, dup).changes));
         }
         for (const [table, col] of PLAIN_FKS) {
           if (!tableExists(sqlite, table)) continue;
-          sqlite
-            .prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`)
-            .run(canonical, dup);
+          count(table, Number(sqlite.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(canonical, dup).changes));
         }
         sqlite.prepare("DELETE FROM apps WHERE id = ?").run(dup);
         merged += 1;
@@ -897,7 +939,9 @@ export function mergeDuplicateAppsByPathIfNeeded(
   run();
   if (merged > 0) {
     logger.log(
-      `[DB] Bug 5: merged ${merged} duplicate apps row(s) into canonical (oldest) rows by normalized path.`,
+      `[DB] merged ${merged} duplicate apps row(s) into the oldest row for the same folder (symlinks resolved); moved: ${
+        Object.entries(moved).map(([t, n]) => `${t}=${n}`).join(" ") || "nothing"
+      }`,
     );
   }
 }
