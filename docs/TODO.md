@@ -18,21 +18,29 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-21
 
 ---
 
-## 🔨 In flight — landed on dev, not yet released
+## 🔨 In flight — 15.10.0 on dev, waiting only for its Windows pass
 
-- **Analytics: `workspace_opened` once per workspace per run** (2435dd2c), not on every read
-  (it was ~113 per person per week).
-- **The cost line prices Claude from the catalog.** A direct turn (your own key, Bedrock, a provider
-  on the Anthropic format) is now priced from the models.dev row for that provider and model, not
-  only a static table. That table had no Fable, so a Fable turn showed no cost, and it priced
-  the 5.5 models at 4.x rates (Haiku 5.5 at 10x: $1/$5 for $0.10/$0.50). Haiku 5.5's
-  over-100k-context price applies once a request passes 100k. Cache writes on the Anthropic format
-  are priced at the 1h rate (2x input) the header is written at, not 1.25x.
-  `src/lib/routing/byok-pricing.ts`, published from `src/lib/models_dev.ts`.
+15.10.0 is merged and tested on the Mac. The full vitest and bun suites pass. Before tagging, the Windows queue at the
+bottom of `~/.atlarix-e2e/team/STATUS.md` has to pass on the VM. The VM needs about 2 GB more free memory than the Mac
+had overnight, so quit the browser first.
+- **The queue:** E11 (VS Code close cleans up), E15 (Past chats), E16 (an unusable cliPath), the stop-to-idle
+  timing, E4 (temp sweep, alone and with a named-pipe holder), E13 (a junction is one workspace), and the
+  Windows CLI pass.
+
+## Next session (from the 2026-10-20 overnight run)
+
+- **Owner: rotate `ATLARIX_TEST_ANTHROPIC_KEY`.** A session printed its environment into its own transcript.
+- **AWS, free Auto on Bedrock** (live for everyone since 2026-10-21 00:06 MYT: MiniMax M2.5 → Kimi K2.5;
+  $30/month, $1/day, $0.30 per user per day):
+  - read the 08:00 MYT daily emails for the first real cost per user;
+  - set `ATLARIX_SHARED_FREE_STATE=on` on the proxy (1 replica);
+  - add a second replica only from the next UTC day.
+- **1 Nov:** compare the AWS `atlarix-comp-pro` run (expect every user `duplicate`) with pg_cron's grant, then
+  decide whether to unschedule pg_cron `comp-pro-allowance-monthly`.
 
 **Verified live 2026-10-19 (15.9.1, unchanged in 15.9.2), on the real Anthropic API:** Sonnet 5.5,
 Opus 5.5, Haiku 5.5 and Fable 5.1 get `thinking: adaptive` + `output_config.effort` as chosen
