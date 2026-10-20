@@ -847,9 +847,10 @@ export class AgentSession extends EventEmitter {
 
   /** Summarise the conversation so far, as the agent does when the context fills. */
   async compact(): Promise<{ ok: boolean; message: string }> {
-    if (this.state.busy) return { ok: false, message: "Compacting waits for the turn to finish (esc stops it)." };
+    // Following first: a follower reads busy too, and its esc stops the OTHER surface's turn.
     const elsewhere = this.followingNote();
     if (elsewhere) return { ok: false, message: elsewhere };
+    if (this.state.busy) return { ok: false, message: "Compacting waits for the turn to finish (esc stops it)." };
     if (!this.chatId || this.messages.length < 2) {
       return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
     }

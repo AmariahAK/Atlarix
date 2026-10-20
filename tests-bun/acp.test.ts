@@ -810,4 +810,24 @@ describe("atlarix acp", () => {
     const all = await e.conn.agent.request<{ sessions: Array<{ sessionId: string; folder?: string }> }>("_atlarix/sessions", { all: true });
     expect(all.sessions.find((s) => s.sessionId === sessionId)?.folder).toBeTruthy();
   }, 60_000);
+
+  // A6: following a turn another surface runs, a mode change and /compact said
+  // nothing (the mode silently stayed; /compact said "esc stops it", which would
+  // stop the OTHER surface's turn).
+  it("following another surface's turn: a mode change and /compact say why they wait", async () => {
+    const e = await editor([]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const session = (e.agent as never as { threads: Map<string, { session: { state: { mode: string } } }> }).threads.get(sessionId)!.session;
+    (session as never as { update(p: object): void }).update({ busy: true, following: { surface: "app", name: "x" } });
+
+    const refused = await e.conn.agent.request("session/set_mode", { sessionId, modeId: "plan" }).then(
+      () => null,
+      (err: Error) => err.message,
+    );
+    expect(refused).toContain("Running in the app — wait for it to finish.");
+    expect(session.state.mode).toBe("build");
+
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/compact" }] });
+    expect(e.text(sessionId)).toContain("Running in the app — wait for it to finish.");
+  }, 60_000);
 });

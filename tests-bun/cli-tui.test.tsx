@@ -872,3 +872,63 @@ describe("the prompt box colours what it will do", () => {
     expect(session.calls.some((c) => c[0] === "recap")).toBe(true);
   });
 });
+
+/**
+ * A6 (ai-2f): following a turn another surface runs, /undo and /compact went
+ * into the after-this-turn queue with nothing said, then fired on their own
+ * when that turn ended; a mode change said nothing either.
+ */
+describe("following a turn another surface runs", () => {
+  const NOTE = "Running in the app — wait for it to finish.";
+  class FollowingSession extends FakeSession {
+    following = true;
+    followingNote() {
+      return this.following ? NOTE : null;
+    }
+    override setMode(m: string) {
+      this.calls.push(["setMode", m]);
+      if (this.following) return NOTE as never;
+      this.set({ mode: m as SessionState["mode"] });
+      return null as never;
+    }
+    myMessages() {
+      this.calls.push(["myMessages"]);
+      return [{ id: 1, text: "earlier" }];
+    }
+    async compact() {
+      this.calls.push(["compact"]);
+      return { ok: true, message: "Compacted." };
+    }
+  }
+
+  for (const cmd of ["/undo", "/compact"]) {
+    it(`${cmd} says why it waits, and does not run by itself when that turn ends`, async () => {
+      const session = new FollowingSession();
+      session.set({ busy: true, following: { surface: "app", name: "x" } } as never);
+      const { setup } = await mount(session);
+      await setup.mockInput.typeText(cmd);
+      await settle(setup);
+      setup.mockInput.pressEnter();
+      const frame = await frameContaining(setup, "wait for it to finish");
+      expect(frame).toContain(NOTE);
+      expect(frame).not.toContain("runs after this turn");
+
+      session.following = false;
+      session.set({ busy: false, following: undefined } as never);
+      await settle(setup);
+      await Bun.sleep(200);
+      await settle(setup);
+      expect(session.calls.some((c) => c[0] === "myMessages" || c[0] === "compact")).toBe(false);
+      expect(setup.captureCharFrame()).not.toContain("Go back to a message");
+    });
+  }
+
+  it("shift+tab says why the mode stays", async () => {
+    const session = new FollowingSession();
+    session.set({ busy: true, following: { surface: "app", name: "x" } } as never);
+    const { setup } = await mount(session);
+    setup.mockInput.pressTab({ shift: true });
+    expect(await frameContaining(setup, "wait for it to finish")).toContain(NOTE);
+    expect(session.state.mode).toBe("build");
+  });
+});

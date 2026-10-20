@@ -1145,6 +1145,14 @@ export function App({
 
   runCommandRef.current = (name, rest) => runCommand(name, rest, true);
   const runCommand = (name: string, rest = "", afterTurn = false) => {
+    // Another surface runs this session's turn: these wait for IT, and say so.
+    // Queued, they fired on their own when that turn ended (A6).
+    const elsewhere = name === "/undo" || name === "/compact" ? session.followingNote?.() : null;
+    if (elsewhere) {
+      composer.current?.clear();
+      flash(elsewhere);
+      return;
+    }
     if (!afterTurn && state.busy && AFTER_TURN.has(name)) {
       composer.current?.clear();
       setDeferred((d) => [...d, { id: Date.now(), name, rest }]);
