@@ -35,8 +35,8 @@
  */
 
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+import { atlarixHomeDir } from "@/paths/atlarix-home";
 import log from "electron-log";
 
 const logger = log.scope("agent-memory");
@@ -64,7 +64,7 @@ export function setAgentMemoryRootOverride(dir: string | null): void {
 }
 
 function globalAtlarixRoot(): string {
-  return globalRootOverride ?? path.join(os.homedir(), ".atlarix");
+  return globalRootOverride ?? atlarixHomeDir();
 }
 
 /**

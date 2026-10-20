@@ -217,7 +217,11 @@ async function interactive(): Promise<void> {
  */
 async function prepareCliData(devUrl: string | undefined): Promise<void> {
   if (devUrl) {
-    process.env.ATLARIX_USER_DATA_DIR ??= path.join(os.homedir(), ".atlarix", "dev-data");
+    if (!process.env.ATLARIX_USER_DATA_DIR) {
+      process.env.ATLARIX_USER_DATA_DIR = path.join(os.homedir(), ".atlarix", "dev-data");
+      // A local model, not a scratch profile: the person's rules and memory apply.
+      process.env.ATLARIX_HOME_DIR ??= path.join(os.homedir(), ".atlarix");
+    }
     process.env.ATLARIX_CLI_DEV_PROVIDER = "1";
     process.env.ATLARIX_CLIENT_PROGRAM = "Atlarix CLI";
     process.env.ATLARIX_SURFACE ??= "cli";

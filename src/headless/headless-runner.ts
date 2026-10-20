@@ -115,6 +115,8 @@ export async function runHeadlessAgent(
     process.env.ATLARIX_USER_DATA_DIR = fs.mkdtempSync(
       path.join(os.tmpdir(), "atlarix-headless-ud-"),
     );
+    // Only the database is throwaway: the person's rules and memory still apply.
+    process.env.ATLARIX_HOME_DIR ??= path.join(os.homedir(), ".atlarix");
   }
   process.env.ATLARIX_HEADLESS = "1";
   // Benchmark integrity: force native function-calling (no text/XML tool shim)

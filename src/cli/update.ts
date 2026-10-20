@@ -23,6 +23,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { atlarixHomeDir } from "@/paths/atlarix-home";
 import { isNewer } from "@/main/update-helpers";
 
 const REPO = "AmariahAK/atlarix-releases";
@@ -108,7 +109,7 @@ function defaultDeps(): UpdateDeps {
     binary: fs.realpathSync(process.execPath),
     latestUrl: base ? `${base}/latest` : "https://releases.atlarix.dev/latest",
     downloadBase: (v) => (base ? `${base}/download/v${v}` : `https://github.com/${REPO}/releases/download/v${v}`),
-    stampFile: path.join(os.homedir(), ".atlarix", "update-check.json"),
+    stampFile: path.join(atlarixHomeDir(), "update-check.json"),
     run: (cmd, args) =>
       new Promise((resolve, reject) => {
         const child = spawn(cmd, args, { stdio: "ignore" });

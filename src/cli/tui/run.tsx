@@ -6,8 +6,8 @@
  * behind breaks the user's shell.
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { atlarixHomeDir } from "@/paths/atlarix-home";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import type { AgentSession } from "../agent/session";
@@ -51,7 +51,7 @@ let restoreStderr: (() => void) | null = null;
 function quietStderr(): void {
   if (restoreStderr) return;
   const original = process.stderr.write.bind(process.stderr);
-  const dir = path.join(os.homedir(), ".atlarix", "logs");
+  const dir = path.join(atlarixHomeDir(), "logs");
   let log: fs.WriteStream | null = null;
   try {
     fs.mkdirSync(dir, { recursive: true });
