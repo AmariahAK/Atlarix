@@ -26,6 +26,15 @@ import type { TurnEnd, TurnErrorKind } from "@/lib/analytics/turn-end";
 const ANALYTICS_ID_FILE = "analytics-id.json";
 const POSTHOG_HOST = "https://eu.i.posthog.com";
 
+/**
+ * Where events go: PostHog, or a stub on this machine for a live test
+ * (`ATLARIX_POSTHOG_HOST=http://127.0.0.1:<port>`). Only a loopback address
+ * is honoured, so the variable can never send anyone's usage elsewhere.
+ */
+export function posthogHost(env: string | undefined = process.env.ATLARIX_POSTHOG_HOST): string {
+  return env && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(env) ? env.replace(/\/$/, "") : POSTHOG_HOST;
+}
+
 let client: PostHog | null = null;
 
 function getAnalyticsIdPath(): string {
@@ -74,7 +83,7 @@ export function getPostHog(): PostHog | null {
   // Batched: up to 20 events or 30 s per request, not one request per event.
   // The CLI and ACP still send what is queued on exit (flushAndClose).
   client = new PostHog(apiKey, {
-    host: POSTHOG_HOST,
+    host: posthogHost(),
     disableGeoip: false,
     flushAt: 20,
     flushInterval: 30_000,

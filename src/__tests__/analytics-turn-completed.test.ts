@@ -195,4 +195,12 @@ describe("turn_completed", () => {
     expect(billingOf("ollama", "local")).toBe("local");
     expect(billingOf("openai")).toBe("byok");
   });
+
+  it("a stub host is honoured only on this machine", () => {
+    expect(analytics.posthogHost("http://127.0.0.1:9461")).toBe("http://127.0.0.1:9461");
+    expect(analytics.posthogHost("http://localhost:9461/")).toBe("http://localhost:9461");
+    expect(analytics.posthogHost("https://evil.example")).toBe("https://eu.i.posthog.com");
+    expect(analytics.posthogHost("http://127.0.0.1.evil.example")).toBe("https://eu.i.posthog.com");
+    expect(analytics.posthogHost(undefined)).toBe("https://eu.i.posthog.com");
+  });
 });
