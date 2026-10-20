@@ -450,3 +450,29 @@ describe("web sources", () => {
     expect(cells.map((c) => (c.kind === "markdown" ? c.text : "")).join("")).toBe("Done.");
   });
 });
+
+/**
+ * A4: compress_context with nothing to compact answers success:false,
+ * status:"noop". It did what it should; the CLI drew it ✕ (the app's cards
+ * already settle it as done).
+ */
+describe("a no-op tool result", () => {
+  const noop = JSON.stringify({ success: false, status: "noop", summary: "Already compact: nothing worth compacting." });
+
+  it("is done, live and when read back", async () => {
+    const { activityToolLine, toolLine } = await import("@/cli/agent/transcript");
+    expect(activityToolLine({ id: "a", toolName: "compress_context", status: "error", resultText: noop }).status).toBe("success");
+    expect(
+      toolLine({ type: "tool", id: "b", callId: "c", toolName: "compress_context", status: "error", args: {}, resultText: noop } as never).status,
+    ).toBe("success");
+  });
+
+  it("a real failure still fails", async () => {
+    const { activityToolLine, toolLine } = await import("@/cli/agent/transcript");
+    const failed = JSON.stringify({ success: false, error: "boom" });
+    expect(activityToolLine({ id: "a", toolName: "compress_context", status: "error", resultText: failed }).status).toBe("error");
+    expect(
+      toolLine({ type: "tool", id: "b", callId: "c", toolName: "read_file", status: "error", args: {}, resultText: noop } as never).status,
+    ).toBe("error");
+  });
+});

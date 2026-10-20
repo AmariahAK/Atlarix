@@ -7,6 +7,7 @@
  * Pure: the TUI renders cells; src/__tests__/cli-transcript.test.ts pins the rules.
  */
 import { writePrevious } from "@/lib/chat/write-previous";
+import { noopSummary } from "@/lib/chat/stream-tool-display";
 import { plainStepText } from "@/lib/tasks/plan-checklist";
 import { displayTitle } from "@/shared/mcp-catalog";
 import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
@@ -98,8 +99,9 @@ export function activityToolLine(p: {
   detail?: unknown;
 }): ToolLine {
   const name = typeof p.toolName === "string" ? p.toolName : "tool";
-  const st = p.status === "running" ? "running" : p.status === "error" || p.status === "failed" ? "error" : "success";
   const raw = typeof p.resultText === "string" ? p.resultText : undefined;
+  const failed = (p.status === "error" || p.status === "failed") && !noopSummary(name, raw);
+  const st = p.status === "running" ? "running" : failed ? "error" : "success";
   const r = toolResultText(name, raw);
   return {
     id: String(p.id ?? `${name}-${Math.random()}`),
@@ -561,7 +563,9 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
     id: part.id,
     verb: VERBS[part.toolName] ?? part.toolName.replace(/_/g, " "),
     target: toolTarget(part.toolName, part.args),
-    status: part.status,
+    // A no-op (compress_context with nothing to compact) says success:false but
+    // did what it should: done, not ✕ (A4; the app's cards settle it the same way).
+    status: part.status === "error" && noopSummary(part.toolName, part.resultText) ? "success" : part.status,
     result: part.resultText,
     error: part.error,
     // A plan the agent wrote: the plan itself, to read and correct where it was
