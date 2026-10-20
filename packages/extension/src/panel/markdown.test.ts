@@ -76,6 +76,53 @@ describe("links", () => {
   });
 });
 
+describe("[text](url) links", () => {
+  it("links the text, without the brackets, and with the same rel and target", () => {
+    // QA E8: the brackets showed, and only the bare URL inside was linked.
+    render("Read [the docs](https://example.com/docs) first.");
+    const links = host.querySelectorAll("a");
+    expect(links).toHaveLength(1);
+    expect(links[0]!.textContent).toBe("the docs");
+    expect(links[0]!.getAttribute("href")).toBe("https://example.com/docs");
+    expect(links[0]!.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(links[0]!.getAttribute("target")).toBe("_blank");
+    expect(host.textContent).toBe("Read the docs first.");
+  });
+
+  it("renders a Sources list as one link per item", () => {
+    render("**Sources**\n- [Foo (bar) - Wikipedia](https://en.wikipedia.org/wiki/Foo_(bar)) · en.wikipedia.org\n- [Guide](https://example.com/guide)");
+    const links = [...host.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://en.wikipedia.org/wiki/Foo_(bar)", "https://example.com/guide"]);
+    expect(links.map((a) => a.textContent)).toEqual(["Foo (bar) - Wikipedia", "Guide"]);
+    expect(host.textContent).not.toContain("](");
+  });
+
+  it("allows mailto:", () => {
+    render("[write to us](mailto:hi@example.com)");
+    expect(host.querySelector("a")?.getAttribute("href")).toBe("mailto:hi@example.com");
+  });
+
+  it("never makes a link of javascript:, data: or vbscript:, however it is spelled", () => {
+    for (const href of ["javascript:alert(1)", "JavaScript:alert(1)", "data:text/html,<script>alert(1)</script>", "vbscript:msgbox(1)", "//evil.example/x", "/relative"]) {
+      render(`[x](${href})`);
+      expect(host.querySelector("a"), href).toBeNull();
+      expect(host.textContent, href).toContain("[x]");
+    }
+  });
+
+  it("keeps the link text as text, never markup", () => {
+    render("[<img src=x onerror=alert(1)>](https://example.com)");
+    expect(host.querySelector("img")).toBeNull();
+    expect(host.querySelector("a")?.textContent).toBe("<img src=x onerror=alert(1)>");
+  });
+
+  it("leaves a [text](url) inside a code span alone", () => {
+    render("`[a](https://example.com)`");
+    expect(host.querySelector("a")).toBeNull();
+    expect(host.querySelector("code")?.textContent).toBe("[a](https://example.com)");
+  });
+});
+
 describe("blocks", () => {
   it("renders a fenced block as pre > code with its language", () => {
     render("```ts\nconst x = 1;\n```");
