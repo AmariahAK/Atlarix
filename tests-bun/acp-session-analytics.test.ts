@@ -20,6 +20,7 @@ mock.module("@/main/lib/analytics", () => ({
   trackActiveDay: () => void calls.push(["active_day", undefined]),
   trackAnalyticsTurnedOn: () => void calls.push(["analytics_on", undefined]),
   captureSafe: (event: string, p?: unknown) => void calls.push([event, p]),
+  trackTurnCompleted: (r: unknown) => void calls.push(["turn", r]),
 }));
 
 let ws: string;
@@ -143,4 +144,20 @@ describe("an editor's sessions in usage analytics", () => {
     // Back on: the process's start and the day, not sent while it was off, go now.
     expect(calls.some((c) => c[0] === "analytics_on")).toBe(true);
   }, 30_000);
+
+  it("a turn refused before it starts (signed out) is an auth error, not ok (QA A10)", async () => {
+    const e = await editor();
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    calls.length = 0;
+    // The dev provider skips the sign-in check; without it a scratch profile has no session.
+    delete process.env.ATLARIX_CLI_DEV_PROVIDER;
+    try {
+      await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] }).catch(() => {});
+      await settle();
+    } finally {
+      process.env.ATLARIX_CLI_DEV_PROVIDER = "1";
+    }
+    const turns = calls.filter((c) => c[0] === "turn").map((c) => (c[1] as { end: unknown }).end);
+    expect(turns).toEqual([{ outcome: "error", errorKind: "auth" }]);
+  }, 60_000);
 });

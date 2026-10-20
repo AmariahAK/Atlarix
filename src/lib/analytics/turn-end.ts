@@ -42,6 +42,7 @@ export type TurnErrorKind =
   | "no_output"
   | "content_rejected"
   | "tool_loop"
+  | "no_workspace"
   | "other";
 
 export interface TurnErrorClass {

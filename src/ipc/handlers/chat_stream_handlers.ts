@@ -193,7 +193,7 @@ import { registerRevertHandlers } from "./chat_stream/revert-handlers";
 import { registerSessionHandlers } from "./chat_stream/session-handlers";
 import { createStreamTurnContext } from "./chat_stream/turn-context";
 import { trackTurnCompleted } from "@/main/lib/analytics";
-import { classifyTurnEnd } from "@/lib/analytics/turn-end";
+import { classifyTurnEnd, classifyTurnError, type TurnEnd } from "@/lib/analytics/turn-end";
 import { noteTurn } from "@/lib/analytics/turn-stats";
 import { buildPromptBundle } from "./chat_stream/turn-runner/prompt-bundle";
 import { type SimpleStreamTextDeps } from "./chat_stream/turn-runner/simple-stream-text";
@@ -351,6 +351,9 @@ export function registerChatStreamHandlers() {
       // How the turn ended, for `turn_completed` (sent in `finally`).
       let turnError: unknown = undefined;
       let turnRerun = false;
+      // A turn refused before it starts (signed out, blocked prompt, no
+      // workspace) returns from inside the try with no error to classify.
+      let turnRefused: TurnEnd | undefined;
       // A2: set when runAgentTurn ends the turn with background work still
       // outstanding (the turn is OVER, not held open). Surfaced on
       // chat:response:end (rich build emit AND the ensureTerminal fallback) so
@@ -473,6 +476,7 @@ export function registerChatStreamHandlers() {
           await preflight.time("auth", () => requireAuthSession());
         } catch (e) {
           if (e instanceof AuthRequiredError) {
+            turnRefused = { outcome: "error", errorKind: "auth" };
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
               streamId,
@@ -484,6 +488,8 @@ export function registerChatStreamHandlers() {
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
+            // Ended here: the `finally`'s ensureTerminal must not send a second end.
+            ctx.streamTerminated = true;
             if (activeStreamId.get(req.chatId) === streamId)
               activeStreams.delete(req.chatId);
             return;
@@ -497,6 +503,7 @@ export function registerChatStreamHandlers() {
           }
         } catch (e) {
           if (e instanceof ChatPromptSafetyError) {
+            turnRefused = { outcome: "error", errorKind: "content_rejected" };
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
               streamId,
@@ -508,6 +515,7 @@ export function registerChatStreamHandlers() {
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
+            ctx.streamTerminated = true;
             if (activeStreamId.get(req.chatId) === streamId)
               activeStreams.delete(req.chatId);
             return;
@@ -516,6 +524,8 @@ export function registerChatStreamHandlers() {
             e instanceof Error &&
             /maximum length|Invalid prompt/i.test(e.message)
           ) {
+            const refused = classifyTurnError(e);
+            turnRefused = { outcome: "error", errorKind: refused.kind };
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
               streamId,
@@ -527,6 +537,7 @@ export function registerChatStreamHandlers() {
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
+            ctx.streamTerminated = true;
             if (activeStreamId.get(req.chatId) === streamId)
               activeStreams.delete(req.chatId);
             return;
@@ -550,6 +561,7 @@ export function registerChatStreamHandlers() {
           const legacyMsg =
             "Legacy database chats were removed. Open a workspace session from the sidebar.";
           logger.warn(`Chat ${req.chatId} rejected: legacy positive chat id`);
+          turnRefused = { outcome: "error", errorKind: "other" };
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
             streamId,
@@ -579,6 +591,7 @@ export function registerChatStreamHandlers() {
             logger.warn(
               `Chat ${req.chatId} rejected: ephemeral chat without workspace`,
             );
+            turnRefused = { outcome: "error", errorKind: "no_workspace" };
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
               streamId,
@@ -2446,9 +2459,11 @@ export function registerChatStreamHandlers() {
           trackTurnCompleted(
             {
               chatId: req.chatId,
-              end: ctx.askUserEndedTurn
-                ? { outcome: "ask_user" }
-                : classifyTurnEnd(turnError, abortController.signal),
+              end:
+                turnRefused ??
+                (ctx.askUserEndedTurn
+                  ? { outcome: "ask_user" }
+                  : classifyTurnEnd(turnError, abortController.signal)),
               ...ctx.analyticsTurn,
               hadHistory: ctx.analyticsTurn.hadHistory === true,
               automation: !!req.automation,
