@@ -292,6 +292,29 @@ describe("AgentSession", () => {
     ]);
   }, 90_000);
 
+  it("with several calls at once, the receipt sits under the call whose card was answered", async () => {
+    // A2 (QA 2/2): three edits in one step; the line went under the third.
+    llm.stop();
+    const w = fs.mkdtempSync(path.join(os.tmpdir(), "cli-a2-ws-"));
+    fs.mkdirSync(path.join(w, "src"));
+    llm = startFakeLlm([
+      { tools: ["q1", "q2", "q3"].map((n) => ({ tool: "edit_file", args: { path: `src/${n}.ts`, operation: "write", content: `export const ${n} = 1;\n` } })) },
+      { text: "Wrote them." },
+    ]);
+    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: w, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+    await s.start();
+    await s.submit("write three files");
+    await waitFor(s, (st) => st.approvals.length > 0 && st.cells.filter((c: any) => c.kind === "tool").length >= 3, 30_000);
+    const card = s.state.approvals.find((a) => JSON.stringify(a.request).includes("q1.ts"))!;
+    await s.answerApproval(card.operationId, "once");
+    const cells = s.state.cells as any[];
+    const at = cells.findIndex((c) => c.id === `approved:${card.operationId}`);
+    expect(cells[at - 1]).toMatchObject({ kind: "tool", tool: { target: "src/q1.ts" } });
+    for (const a of s.state.approvals) await s.answerApproval(a.operationId, "once");
+    await waitFor(s, (st) => !st.busy, 30_000);
+  }, 90_000);
+
   it("'always allow' is remembered: the next such command does not ask", async () => {
     llm.stop();
     fs.writeFileSync(path.join(ws, "a1.txt"), "1");

@@ -31,7 +31,7 @@ import {
 } from "./transcript";
 
 import { conversationText } from "./btw";
-import { approvalConfirmation } from "./approval-choices";
+import { approvalConfirmation, firstPreview } from "./approval-choices";
 import { inlinePlan } from "./inline-plan";
 import { handler } from "./ipc";
 import { readCliState, turnModelFor } from "./models";
@@ -292,6 +292,23 @@ export function placeWakeNotes(cells: readonly Cell[], notes: readonly WakeNote[
     out.splice(at, 0, { kind: "notice", id: n.cellId ?? `wake:${n.id}`, level: "info", text: n.text });
   }
   return out;
+}
+
+/**
+ * The running call an approval card was for, by its command or file: with
+ * several calls in one step (three edits at once), "the last line" was the
+ * last call, so the receipt sat under the wrong one (A2, QA 2/2). Paths compare
+ * either way round: the card's may be absolute where the call's is relative.
+ */
+export function askingToolCell(cells: readonly Cell[], asked: { command?: string; path?: string }): string | null {
+  const same = (target: string) =>
+    (!!asked.command && target === asked.command) ||
+    (!!asked.path && !!target && (target === asked.path || asked.path.endsWith(`/${target}`) || target.endsWith(`/${asked.path}`)));
+  for (let i = cells.length - 1; i >= 0; i--) {
+    const c = cells[i]!;
+    if (c.kind === "tool" && c.tool.status === "running" && same(c.tool.target)) return c.id;
+  }
+  return null;
 }
 
 /** The line a wake note goes under: the last one on screen that a turn's own lines are built from. */
@@ -1764,7 +1781,7 @@ export class AgentSession extends EventEmitter {
       this.wakeNotes.push({
         id: operationId,
         cellId: `approved:${operationId}`,
-        afterCellId: lastAnchorCell(this.state.cells),
+        afterCellId: askingToolCell(this.state.cells, firstPreview(answered!)) ?? lastAnchorCell(this.state.cells),
         afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
         text: line,
       });
