@@ -80,7 +80,11 @@ function toolHeavySession() {
   const rows: Array<{ id: number; role: string; content: string; modelContent?: string }> = [];
   for (let t = 0; t < 5; t++) {
     rows.push({ id: t * 2 + 1, role: "user", content: `Step ${t}: keep going.` });
-    rows.push({ id: t * 2 + 2, role: "assistant", content: `Done with step ${t}.`, modelContent: toolTurnEnvelope(t) });
+    // As stored: the turn's tool calls inline in its display content, the answer last.
+    const inline = Array.from({ length: 30 }, (_, i) =>
+      `<atlarix-tool-call name="read_file">{"path":"src/f${i}.ts"}</atlarix-tool-call><atlarix-tool-result name="read_file">${"const x = 1;\n".repeat(120)}</atlarix-tool-result>`,
+    ).join("\n");
+    rows.push({ id: t * 2 + 2, role: "assistant", content: `${inline}\nDone with step ${t}.`, modelContent: toolTurnEnvelope(t) });
   }
   return rows;
 }
@@ -159,7 +163,7 @@ describe("a tool-heavy session is not 'still short'", () => {
     const answers = next.filter((m) => m.role === "assistant" && m.id > 0);
     // Every turn keeps its own answer. The newest keep their tool calls too; an
     // older one whose tool output was pruned is its text alone.
-    expect(answers.map((m) => m.content)).toEqual([0, 1, 2, 3, 4].map((t) => `Done with step ${t}.`));
+    expect(answers.map((m) => m.content.split("\n").at(-1))).toEqual([0, 1, 2, 3, 4].map((t) => `Done with step ${t}.`));
     expect(answers.at(-1)!.modelContent).toMatch(/^\{"v":1,"kind":"native-history"/);
   });
 });

@@ -24,6 +24,7 @@ import { classifyContent, SNIFF_SAMPLE_BYTES } from "@/lib/file-content-type";
 
 import { flattenNativeForCompaction, parseNativeHistory } from "@/lib/ai/native-history";
 import type { ForcedCompaction } from "@/lib/context/compact-result-message";
+import { removeAtlarixTags, removeNonEssentialTags } from "@/ipc/handlers/chat_stream/message-postprocess";
 import {
   runSteppedCompaction,
   getUsableBudget,
@@ -119,20 +120,22 @@ type TranscriptMessage = { id: number; role: string; content: string; modelConte
  * THE TURN'S ANSWER FIRST. Pruning keeps the head of a message that holds tool
  * output, so with the answer last the summariser never saw the older turns'
  * answers, and after /compact the agent misremembered what it had found (E7,
- * 3 of 3: "dune" for a file whose codeword it had answered as "ember").
+ * 3 of 3: "dune" for a file whose codeword it had answered as "ember"). The
+ * answer is the turn's prose: its display content also carries the calls inline
+ * (`<atlarix-tool-call>`…), so it is stripped the way dispatch strips it.
  */
 function compactionText(m: { role: string; content?: string | null; modelContent?: string | null }): string {
-  if (m.role === "assistant") {
-    const envelope = parseNativeHistory(m.modelContent);
-    if (envelope) {
-      const tools = flattenNativeForCompaction(envelope.messages, Infinity)
-        .map((x) => (typeof x.content === "string" ? x.content : ""))
-        .filter(Boolean)
-        .join("\n\n");
-      return [m.content?.trim(), tools].filter(Boolean).join("\n\n");
-    }
-  }
-  return m.content ?? "";
+  if (m.role !== "assistant") return m.content ?? "";
+  // Without an envelope, the prose is all the model is sent of the turn (dispatch
+  // strips the inline blocks too), so it is all there is to measure.
+  const answer = removeAtlarixTags(removeNonEssentialTags(m.content ?? ""));
+  const envelope = parseNativeHistory(m.modelContent);
+  if (!envelope) return answer;
+  const tools = flattenNativeForCompaction(envelope.messages, Infinity)
+    .map((x) => (typeof x.content === "string" ? x.content : ""))
+    .filter(Boolean)
+    .join("\n\n");
+  return answer ? `${answer}\n\n${tools}` : tools;
 }
 
 function forCompaction(
