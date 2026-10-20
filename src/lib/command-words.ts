@@ -7,6 +7,8 @@
  * read. Enough of a shell to see the program and its arguments; not a shell.
  */
 
+import { stripLeadingWrappers } from "./command-segments";
+
 /** Shell words, quotes removed. */
 export function shellWords(segment: string): string[] {
   const words: string[] = [];
@@ -40,26 +42,26 @@ const GIT_GLOBAL_WITH_VALUE = new Set([
   "--attr-source",
   "--list-cmds",
 ]);
-/** Words that run the command after them as it is. */
-const COMMAND_PREFIXES = new Set(["command", "env", "nohup", "time", "nice"]);
-
 /**
- * The segment from its program on: `VAR=x` assignments and plain wrappers
- * skipped, and for git the binary's path dropped and git's own options (with
- * their values) skipped, so it reads `git <subcommand> <args…>`.
+ * The segment from its program on: what may stand in front of it skipped (the
+ * one definition, command-segments.ts), and for git the binary's path dropped
+ * and git's own options (with their values) skipped, so it reads
+ * `git <subcommand> <args…>`.
  */
 export function programWords(segment: string): string[] {
-  const words = shellWords(segment.replace(/^[\s(]+|[\s)]+$/g, ""));
+  const words = shellWords(stripLeadingWrappers(segment.replace(/^[\s(]+|[\s)]+$/g, "")));
   let i = 0;
-  while (
-    i < words.length &&
-    (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!) || COMMAND_PREFIXES.has(words[i]!))
-  )
-    i++;
-  if (!/(^|[\\/])git(\.exe)?$/i.test(words[i] ?? "")) return words.slice(i);
+  if (!/(^|[\\/])git(\.exe)?$/i.test(words[i] ?? "")) return words;
   i++;
   while (i < words.length && words[i]!.startsWith("-")) {
     i += GIT_GLOBAL_WITH_VALUE.has(words[i]!) ? 2 : 1;
   }
   return ["git", ...words.slice(i)];
 }
+
+/**
+ * An alias defined on the command line (`git -c alias.x='reset --hard' x`): what
+ * runs cannot be known from the words, so both gates ask (dangerous-commands.ts,
+ * mutating-commands.ts) rather than read the alias's name as a subcommand.
+ */
+export const GIT_INLINE_ALIAS = /\bgit\b.*\s(?:-c\s*["']?|--config-env[=\s]+["']?)alias\./i;

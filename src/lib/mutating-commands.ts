@@ -49,7 +49,7 @@
  */
 
 import { commandSegments, unquotedSkeleton } from "./command-segments";
-import { programWords } from "./command-words";
+import { GIT_INLINE_ALIAS, programWords } from "./command-words";
 
 export interface MutationMatch {
   /** Stable, kebab-case id — used as the always-allow permission key. */
@@ -91,6 +91,12 @@ export const MUTATING_PATTERNS: MutationMatch[] = [
       /^git\s+(add|commit|push|pull|merge|rebase|reset|revert|restore|clean|rm|mv|cherry-pick|am|apply|stash\s+(drop|pop|clear)|branch\s+-[dD]|tag\s+-d|remote\s+(add|remove|rm|set-url))\b/,
     explanation:
       "This changes the repository — staged files, history, the working tree, or a remote.",
+  },
+  // An alias defined on the command line can be any subcommand (command-words.ts).
+  {
+    id: "git-inline-alias",
+    pattern: GIT_INLINE_ALIAS,
+    explanation: "This defines a git alias on the command line, so whether it changes the repository can't be checked.",
   },
   // `checkout` / `switch` are deliberately absent from the generic rule above:
   // branch navigation is read-safe and is exactly what someone planning a change

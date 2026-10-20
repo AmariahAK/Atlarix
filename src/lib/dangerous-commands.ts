@@ -21,7 +21,7 @@
  */
 
 import { commandSegments } from "./command-segments";
-import { programWords } from "./command-words";
+import { GIT_INLINE_ALIAS, programWords } from "./command-words";
 
 export interface DangerMatch {
   /** Stable, kebab-case id — used as the always-allow permission key. */
@@ -142,6 +142,12 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
     also: gitSub("reset", (args) => args.includes("--hard")),
     explanation:
       "This discards ALL uncommitted changes and moves the branch pointer — local work not committed will be permanently lost.",
+  },
+  {
+    id: "git-inline-alias",
+    pattern: GIT_INLINE_ALIAS,
+    explanation:
+      "This defines a git alias on the command line, so what it actually runs can't be checked.",
   },
   // ── Exfiltration / arbitrary-execution primitives (v14.8.12 security review) ──
   // Flagged "dangerous" so they DENY in unattended automation runs and PROMPT
