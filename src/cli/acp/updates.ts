@@ -187,7 +187,7 @@ function movedText(c: Cell & { kind: "markdown" | "thought" }, emitted: Emitted,
 export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { replay?: boolean; ids?: boolean } = {}): SessionUpdate[] {
   const out: SessionUpdate[] = [];
   const present = new Set(cells.map(key));
-  for (const c of cells) {
+  for (const [i, c] of cells.entries()) {
     const k = key(c);
     const before = emitted.get(k);
     if (c.kind === "markdown" || c.kind === "thought") {
@@ -201,9 +201,13 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       if (!c.text.startsWith(prev)) continue;
       const delta = c.text.slice(prev.length);
       if (!delta) continue;
+      // A message straight after another (the Sources list after the reply) is
+      // the same stream to the editor: without a break it read
+      // "Here is the answer.**Sources**" (QA E3).
+      const apart = !prev && c.kind === "markdown" && cells[i - 1]?.kind === "markdown";
       out.push({
         sessionUpdate: c.kind === "markdown" ? "agent_message_chunk" : "agent_thought_chunk",
-        content: { type: "text", text: delta },
+        content: { type: "text", text: apart ? `\n\n${delta}` : delta },
       });
     } else if (c.kind === "tool") {
       const t = c.tool;

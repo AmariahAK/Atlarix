@@ -259,6 +259,28 @@ describe("a reply whose position in the message moves", () => {
   });
 });
 
+describe("two messages in a row", () => {
+  it("are kept apart: the Sources list does not glue onto the reply (QA E3)", () => {
+    const e: Emitted = new Map();
+    const reply = md("5:0", "Here is the answer.");
+    const list = "**Sources**\n- [x](https://example.com)";
+    const sources = md("5:sources", list);
+    expect(diffUpdates([reply, sources], e)).toEqual([
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Here is the answer." } },
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "\n\n**Sources**\n- [x](https://example.com)" } },
+    ]);
+    // Only its first text: what it adds later is its own tail.
+    expect(diffUpdates([reply, md("5:sources", `${list}\n- [y](https://example.org)`)], e)).toEqual([
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "\n- [y](https://example.org)" } },
+    ]);
+  });
+
+  it("a message on its own, or after a tool call, starts with no blank line", () => {
+    const e: Emitted = new Map();
+    expect(diffUpdates([md("6:0", "Hi.")], e)).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hi." } }]);
+  });
+});
+
 describe("what woke the agent", () => {
   it("goes to the editor as a finished step, once", () => {
     const e: Emitted = new Map();
