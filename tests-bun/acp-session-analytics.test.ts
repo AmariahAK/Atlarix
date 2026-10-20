@@ -130,7 +130,10 @@ describe("an editor's sessions in usage analytics", () => {
     delete process.env.ATLARIX_HOST_TELEMETRY;
     await e.conn.agent.request("_atlarix/host_telemetry", { enabled: false });
     expect(process.env.ATLARIX_HOST_TELEMETRY).toBe("off");
+    calls.length = 0;
     await e.conn.agent.request("_atlarix/host_telemetry", { enabled: true });
     expect(process.env.ATLARIX_HOST_TELEMETRY).toBeUndefined();
+    // Back on: the day is reported at once (trackActiveDay sends it once a day).
+    expect(calls.some((c) => c[0] === "active_day")).toBe(true);
   }, 30_000);
 });
