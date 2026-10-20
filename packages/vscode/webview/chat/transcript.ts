@@ -556,10 +556,12 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     node = commandCard(title || "Command", text ?? existing?.dataset.output ?? "", status);
     node.dataset.output = text ?? existing?.dataset.output ?? "";
   } else {
-    node = el("div", `step ${status}`);
-    const head = el("span", "step__title", t.toolCallId.startsWith("approved:") ? "" : title);
+    const approved = t.toolCallId.startsWith("approved:");
+    // What you approved wraps: cut short, the file or rule at its end was lost (QA).
+    node = el("div", `step ${status}${approved ? " step--approved" : ""}`);
+    const head = el("span", "step__title", approved ? "" : title);
     // What you approved names the command or file in backticks: drawn as code, not as "`npm`".
-    if (t.toolCallId.startsWith("approved:")) title.split("`").forEach((s, i) => s && head.append(i % 2 ? el("code", "", s) : s));
+    if (approved) title.split("`").forEach((s, i) => s && head.append(i % 2 ? el("code", "", s) : s));
     node.append(el("span", "step__mark", status === "completed" ? MARK.done : status === "failed" ? MARK.failed : MARK.running), head);
     if (status === "failed" && text) {
       // Why it failed, on a line of its own (the CLI's "╰ reason"); all of it on hover.

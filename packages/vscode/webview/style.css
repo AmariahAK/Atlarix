@@ -671,6 +671,9 @@ body.needs-you .needs-badge {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.step--approved .step__title {
+  white-space: normal;
+}
 .step__title code {
   font-family: var(--mono);
   color: var(--code);

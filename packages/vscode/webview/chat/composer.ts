@@ -6,7 +6,7 @@
  */
 import type { PermissionOption, ToolCallUpdate } from "@agentclientprotocol/sdk";
 import type { ContextItem } from "../../src/protocol";
-import { filterCommands, mentionAt, slashQuery } from "../logic";
+import { filterCommands, mentionAt, recordsAnswer, slashQuery } from "../logic";
 import { post, rpc } from "../rpc";
 import { modelName, on, state } from "../state";
 import { button, el, icon, iconButton, MODE_NAME, tokens } from "../ui";
@@ -336,7 +336,10 @@ function renderApproval(): void {
     acts.append(
       button(label, cls, () => {
         post({ type: "permission", requestId: a.requestId, optionId: o.optionId });
-        T.approvalRecord(meta?.command ? `$ ${meta.command}` : (meta?.path ?? a.toolCall.title ?? "Approval"), label, o.kind.startsWith("reject"));
+        const denied = o.kind.startsWith("reject");
+        if (recordsAnswer(meta, a.toolCall.toolCallId, denied)) {
+          T.approvalRecord(meta?.command ? `$ ${meta.command}` : (meta?.path ?? a.toolCall.title ?? "Approval"), label, denied);
+        }
         approvalDone(a.requestId);
       }),
     );

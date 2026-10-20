@@ -141,3 +141,20 @@ export function dayGroup(iso: string | number | Date, now: Date = new Date()): s
   if (diff < 7) return "This week";
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
+
+/**
+ * Whether the chat keeps its own record of a card you answered. Atlarix says
+ * what you approved itself (a step after the card) when the card names a
+ * command, a file or a folder outside, and a No inside a call shows on that
+ * call's card: a record of either here showed every answer twice (QA E9).
+ * `meta`: the card's own facts, present on permission cards only.
+ */
+export function recordsAnswer(
+  meta: { command?: string | null; path?: string | null; outside?: string | null; details?: string[] } | undefined,
+  toolCallId: string,
+  denied: boolean,
+): boolean {
+  if (!meta) return true;
+  if (denied) return toolCallId.startsWith("approval:");
+  return !(meta.command || meta.path || meta.outside);
+}

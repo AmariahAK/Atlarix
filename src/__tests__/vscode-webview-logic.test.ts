@@ -14,6 +14,7 @@ import {
   matchProviders,
   mentionAt,
   providerModelCount,
+  recordsAnswer,
   slashQuery,
   toGroups,
 } from "../../packages/vscode/webview/logic";
@@ -121,5 +122,25 @@ describe("an edit's diff", () => {
       { kind: "add", text: "x" },
       { kind: "ctx", text: "h" },
     ]);
+  });
+});
+
+describe("an answered card's record in the chat", () => {
+  // QA E9: every answer showed twice, the panel's record and Atlarix's own line.
+  it("is left to Atlarix when it says what you approved (a command, a file, outside the folder)", () => {
+    expect(recordsAnswer({ command: "git reset --hard" }, "1:t:run_command_0", false)).toBe(false);
+    expect(recordsAnswer({ path: "src/a.ts" }, "1:t:edit_file_0", false)).toBe(false);
+    expect(recordsAnswer({ outside: "/tmp/x" }, "approval:op1", false)).toBe(false);
+  });
+
+  it("is left to the call's own card for a No inside it", () => {
+    expect(recordsAnswer({ path: "src/a.ts" }, "1:t:edit_file_0", true)).toBe(false);
+  });
+
+  it("is kept where nothing else says it: a No on a card of its own, and cards Atlarix does not confirm", () => {
+    expect(recordsAnswer({ command: "rm -rf build" }, "approval:op2", true)).toBe(true);
+    expect(recordsAnswer({ details: ["When: every day"] }, "approval:op3", false)).toBe(true);
+    expect(recordsAnswer(undefined, "auto-consent", false)).toBe(true);
+    expect(recordsAnswer(undefined, "mcp-consent:7", true)).toBe(true);
   });
 });
