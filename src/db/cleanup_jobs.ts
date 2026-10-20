@@ -6,7 +6,7 @@
 import os from "node:os";
 import { db, getDb } from "./index";
 import { chatSessions, workspaceModifications, cleanupLog } from "./schema";
-import { lt, and, eq, inArray, notInArray } from "drizzle-orm";
+import { lt, and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { tableExists } from "./migration_seed_verification";
 import { LIVE_SESSIONS_TABLE, PEER_STALE_MS } from "@/lib/peers/peers";
 import log from "electron-log";
@@ -221,14 +221,16 @@ export function scheduleCleanupJobs(): void {
 }
 
 /**
- * Check if cleanup needs to run on app startup
+ * Check if cleanup needs to run on app startup: the LAST run's date. Ascending,
+ * this read the first run ever, so from its second day the cleanup ran on every
+ * start (QA, 2026-10-21).
  */
-async function checkAndRunStartupCleanup(): Promise<void> {
+export async function checkAndRunStartupCleanup(): Promise<void> {
   try {
     const lastCleanup = await db
       .select()
       .from(cleanupLog)
-      .orderBy(cleanupLog.cleanupDate)
+      .orderBy(desc(cleanupLog.cleanupDate))
       .limit(1)
       .get();
 

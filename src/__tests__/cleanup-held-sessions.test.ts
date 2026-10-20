@@ -11,8 +11,8 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import type Database from "better-sqlite3";
 import { db, getDb, initializeDatabase } from "@/db/index";
-import { apps, chatSessions } from "@/db/schema";
-import { runDailyCleanup } from "@/db/cleanup_jobs";
+import { apps, chatSessions, cleanupLog } from "@/db/schema";
+import { checkAndRunStartupCleanup, runDailyCleanup } from "@/db/cleanup_jobs";
 import { LIVE_SESSIONS_TABLE } from "@/lib/peers/peers";
 
 let sqlite: Database.Database;
@@ -48,5 +48,27 @@ describe("the 30-day session cleanup", () => {
     expect(exists("held")).toBe(true);
     expect(exists("gone")).toBe(false);
     expect(exists("was-held")).toBe(false);
+  });
+});
+
+/**
+ * QA (2026-10-21): the startup check read the FIRST cleanup ever (ascending), so
+ * from its second day the daily cleanup ran on every app start.
+ */
+describe("the startup check", () => {
+  it("goes by the last cleanup, so one an hour ago means none now", async () => {
+    db.delete(cleanupLog).run();
+    const day = 24 * 60 * 60 * 1000;
+    db.insert(cleanupLog).values({ cleanupDate: new Date(Date.now() - 40 * day) }).run();
+    db.insert(cleanupLog).values({ cleanupDate: new Date(Date.now() - 60 * 60 * 1000) }).run();
+    await checkAndRunStartupCleanup();
+    expect(db.select().from(cleanupLog).all()).toHaveLength(2);
+  });
+
+  it("a day and more since the last one runs it", async () => {
+    db.delete(cleanupLog).run();
+    db.insert(cleanupLog).values({ cleanupDate: new Date(Date.now() - 30 * 60 * 60 * 1000) }).run();
+    await checkAndRunStartupCleanup();
+    expect(db.select().from(cleanupLog).all()).toHaveLength(2);
   });
 });
