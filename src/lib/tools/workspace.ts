@@ -8,6 +8,7 @@
  * and ask_user from execution-tools.
  */
 
+import { noteTurn } from "@/lib/analytics/turn-stats";
 import { ToolRegistry, createParameters, stringParam } from "./registry";
 
 import path from "path";
@@ -233,6 +234,8 @@ export async function forceCompactEphemeralChat(
     ...(opts?.model ? { model: opts.model } : {}),
   });
   if (!stepped.compactionApplied) return { ok: false, reason: stepped.summaryFailed ? "failed" : "short" };
+  // A manual /compact between turns lands on the next turn's count.
+  noteTurn(chatId, "compactions");
 
   // Transcript messages carry `createdAt`; the compactor's own (the summary) do not.
   chat.messages = fromCompaction(stepped.modelContext, before).map((m) =>

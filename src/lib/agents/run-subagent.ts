@@ -9,6 +9,7 @@
  * tool labels.
  */
 
+import { noteTurn } from "@/lib/analytics/turn-stats";
 import { streamText, type ModelMessage, type ToolSet } from "ai";
 import log from "electron-log";
 import {
@@ -266,6 +267,7 @@ export async function runSubagent(
   const delegationChatMode = args.delegationChatMode ?? "ask";
   const delegationId = args.delegationId?.trim() || `task-${Date.now()}`;
   const emit = args.emit;
+  noteTurn(args.chatId, "subagents");
 
   // Writer mode runs in build mode against the REAL workspace — it reads the
   // user's actual files, and its edits never reach disk because every one is

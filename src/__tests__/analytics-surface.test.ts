@@ -80,10 +80,15 @@ describe("every event says where it came from", () => {
 });
 
 describe("turn_completed and session_started", () => {
-  it("one turn_completed per turn, with how it ended", () => {
-    trackTurnCompleted({ outcome: "ask_user", mode: "build" });
-    expect(captured.map((c) => c.event)).toEqual(["turn_completed"]);
-    expect(captured[0]!.properties).toMatchObject({ outcome: "ask_user", mode: "build", surface: "app" });
+  it("one turn_completed per turn, with how it ended", async () => {
+    trackTurnCompleted({ chatId: 1, end: { outcome: "ask_user" }, mode: "build", durationMs: 1, hadHistory: false, outputTokens: 1 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(captured.map((c) => c.event)).toContain("turn_completed");
+    expect(captured.find((c) => c.event === "turn_completed")!.properties).toMatchObject({
+      outcome: "ask_user",
+      mode: "build",
+      surface: "app",
+    });
   });
 
   it("session_started fires once per process", () => {
@@ -94,7 +99,7 @@ describe("turn_completed and session_started", () => {
 
   it("sends nothing without consent", () => {
     consent = "opted_out";
-    trackTurnCompleted({ outcome: "ok" });
+    trackTurnCompleted({ chatId: 2, end: { outcome: "ok" }, durationMs: 1, hadHistory: false, outputTokens: 1 });
     expect(captured).toEqual([]);
   });
 });
@@ -108,23 +113,5 @@ describe("our own accounts are marked internal", () => {
   it("marks everyone else as not internal", () => {
     identifyUser("u2", { email: "someone@example.com" });
     expect(identified[0]!.properties).toMatchObject({ internal: false });
-  });
-});
-
-describe("how a thrown turn ended", () => {
-  const aborted = (reason: unknown) => {
-    const c = new AbortController();
-    c.abort(reason);
-    return c.signal;
-  };
-  it("names each ending without its message", async () => {
-    const { turnOutcome } = await import("@/lib/agent/run-agent-turn");
-    const { ASK_USER_STREAM_STOP, USER_CANCEL_STREAM_STOP } = await import("@/lib/stream/stream-stop-sentinels");
-    expect(turnOutcome(new Error("x"), aborted(ASK_USER_STREAM_STOP))).toEqual({ outcome: "ask_user" });
-    expect(turnOutcome(new Error("x"), aborted(new DOMException(USER_CANCEL_STREAM_STOP, "AbortError")))).toEqual({ outcome: "stopped" });
-    expect(turnOutcome(new Error("x"), aborted("something_else"))).toEqual({ outcome: "aborted" });
-    const live = new AbortController().signal;
-    expect(turnOutcome(Object.assign(new Error("secret prompt text"), { statusCode: 400 }), live)).toEqual({ outcome: "error", errorKind: "http_400" });
-    expect(turnOutcome(new TypeError("secret"), live)).toEqual({ outcome: "error", errorKind: "TypeError" });
   });
 });

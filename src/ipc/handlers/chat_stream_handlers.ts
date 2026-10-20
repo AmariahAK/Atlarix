@@ -192,6 +192,9 @@ import { registerLifecycleHandlers } from "./chat_stream/lifecycle-handlers";
 import { registerRevertHandlers } from "./chat_stream/revert-handlers";
 import { registerSessionHandlers } from "./chat_stream/session-handlers";
 import { createStreamTurnContext } from "./chat_stream/turn-context";
+import { trackTurnCompleted } from "@/main/lib/analytics";
+import { classifyTurnEnd } from "@/lib/analytics/turn-end";
+import { noteTurn } from "@/lib/analytics/turn-stats";
 import { buildPromptBundle } from "./chat_stream/turn-runner/prompt-bundle";
 import { type SimpleStreamTextDeps } from "./chat_stream/turn-runner/simple-stream-text";
 import { processResponseChunkUpdate as runProcessResponseChunkUpdate } from "./chat_stream/turn-runner/response-chunk-update";
@@ -344,6 +347,10 @@ export function registerChatStreamHandlers() {
 
     const runStream = async () => {
       const ctx = createStreamTurnContext();
+      const turnStartedAt = Date.now();
+      // How the turn ended, for `turn_completed` (sent in `finally`).
+      let turnError: unknown = undefined;
+      let turnRerun = false;
       // A2: set when runAgentTurn ends the turn with background work still
       // outstanding (the turn is OVER, not held open). Surfaced on
       // chat:response:end (rich build emit AND the ensureTerminal fallback) so
@@ -1083,22 +1090,15 @@ export function registerChatStreamHandlers() {
             () => getModelClient(effectiveModel, settings, mainOptions),
           );
           let modelClient = initialModelClientBundle.modelClient;
-          // Usage by who pays for it (Core, own key, local), for people who
-          // opted in to analytics: own-key turns never reach Core's numbers.
-          {
-            const { trackModelTurn } = await import("@/main/lib/analytics");
-            const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
-            const providerType = (await getLanguageModelProviders().catch(() => [])).find(
-              (p) => p.id === effectiveModel.provider,
-            )?.type;
-            trackModelTurn({
-              provider: initialModelClientBundle.fellBackToCore ? "compass" : effectiveModel.provider,
-              providerType,
-              model: effectiveModel.name,
-              mode: mainOptions.workMode,
-              fellBackToCore: initialModelClientBundle.fellBackToCore,
-            });
-          }
+          // For this turn's `turn_completed`, sent once it has ended. No lookup
+          // here: who pays is worked out then, and only for people who opted in.
+          Object.assign(ctx.analyticsTurn, {
+            mode: mainOptions.workMode,
+            provider: effectiveModel.provider,
+            model: effectiveModel.name,
+            effort: settings.effort || undefined,
+            fellBackToCore: initialModelClientBundle.fellBackToCore,
+          });
           // Surface the no-key → Atlarix Core fallback so the user knows their
           // selected model isn't what answered (and how to switch back).
           if (initialModelClientBundle.fellBackToCore) {
@@ -1260,6 +1260,8 @@ export function registerChatStreamHandlers() {
               sourceCommitHash?: string;
               commitHash?: string;
             };
+            // This turn's own user message and reply are already in it.
+            ctx.analyticsTurn.hadHistory = updatedChat.messages.length > 2;
             let messageHistory = updatedChat.messages.map(
               (
                 message: Msg & { modelContent?: string | null; kind?: string },
@@ -2419,6 +2421,7 @@ export function registerChatStreamHandlers() {
 
         // Stream completed successfully; cleanup is done by chat:cancel/chat:abort or response:end
       } catch (error) {
+        turnError = error;
         // Outer-catch body extracted to ./chat_stream/turn-runner/finalize.
         const outcome = await handleTurnError(error, ctx, {
           overflowRetried,
@@ -2431,9 +2434,31 @@ export function registerChatStreamHandlers() {
         // below ran as the retry STARTED, and its ensureTerminal sent this
         // stream's end then — the client ended the turn with nothing to save and
         // dropped the retry's real end as a repeat, so the answer showed but was
-        // never stored (A5).
-        if (outcome?.rerun) return await runStream();
+        // never stored (A5). The retry reports the turn, with this retry counted
+        // (the forced compaction counted itself).
+        if (outcome?.rerun) {
+          turnRerun = true;
+          noteTurn(req.chatId, "retries");
+          return await runStream();
+        }
       } finally {
+        if (!turnRerun) {
+          trackTurnCompleted(
+            {
+              chatId: req.chatId,
+              end: classifyTurnEnd(turnError, abortController.signal),
+              ...ctx.analyticsTurn,
+              hadHistory: ctx.analyticsTurn.hadHistory === true,
+              automation: !!req.automation,
+              durationMs: Date.now() - turnStartedAt,
+              outputTokens: ctx.turnOutputTokens,
+            },
+            async (id) => {
+              const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+              return (await getLanguageModelProviders()).find((p) => p.id === id)?.type;
+            },
+          );
+        }
         // Finalize any browser/preview session recordings captured this turn and
         // hand the renderer a reference to play them back (proof of work).
         ctx.stopAgentOrchestrator?.();

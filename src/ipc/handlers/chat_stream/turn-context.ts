@@ -80,6 +80,16 @@ export interface StreamTurnContext {
   delegatedAgentsThisTurn: string[];
   delegationsStartedThisTurn: number;
   inFlightDelegationKeys: Set<string>;
+
+  // ── analytics: what `turn_completed` reports, set as the turn learns it ──
+  analyticsTurn: {
+    mode?: string;
+    provider?: string;
+    model?: string;
+    effort?: string;
+    fellBackToCore?: boolean;
+    hadHistory?: boolean;
+  };
 }
 
 /** Fresh per-turn context with the same initial values the bare locals had. */
@@ -109,5 +119,6 @@ export function createStreamTurnContext(): StreamTurnContext {
     delegatedAgentsThisTurn: [],
     delegationsStartedThisTurn: 0,
     inFlightDelegationKeys: new Set<string>(),
+    analyticsTurn: {},
   };
 }

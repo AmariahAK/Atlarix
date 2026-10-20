@@ -9,6 +9,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { noteTurn } from "@/lib/analytics/turn-stats";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import type { ModelMessage } from "ai";
@@ -131,6 +132,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
       if (networkAttempt >= RECONNECT_DELAYS_MS.length) return null;
       const delay = jitteredDelay(networkAttempt, retryAfterMs(fault));
       networkAttempt++;
+      noteTurn(params.chatId, "retries");
       logger.warn(
         `[stream] Network error after ${resumeMessages.length} completed step-message(s) — resuming from them after ${delay}ms (attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}): ${
           fault instanceof Error ? fault.message : String(fault)
@@ -210,6 +212,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
         if (networkAttempt < RECONNECT_DELAYS_MS.length) {
           const delay = jitteredDelay(networkAttempt);
           networkAttempt++;
+          noteTurn(params.chatId, "retries");
           logger.warn(
             `[stream] Stalled (no chunks), retrying after ${delay}ms (attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length})`,
           );
@@ -333,6 +336,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
         emptyOutputAttempt < MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS - 1
       ) {
         emptyOutputAttempt++;
+        noteTurn(params.chatId, "retries");
         logger.warn(
           `[stream] Empty output on attempt ${emptyOutputAttempt}/${MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS}, retrying after ${STREAM_EMPTY_OUTPUT_RETRY_DELAY_MS}ms...`,
         );
@@ -387,6 +391,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
         const retryAfter = retryAfterMs(err);
         const delay = jitteredDelay(networkAttempt, retryAfter);
         networkAttempt++;
+        noteTurn(params.chatId, "retries");
         logger.warn(
           `[stream] Network error on attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}, retrying after ${delay}ms${
             retryAfter != null ? " (Retry-After)" : ""

@@ -26,12 +26,7 @@ import {
   getMutationFailureFeedback,
   getUnverifiedEditFeedback,
 } from "@/lib/agent/mutation-verify";
-import { trackTaskStarted, trackTaskCompleted, trackTurnCompleted } from "@/main/lib/analytics";
-import {
-  ASK_USER_STREAM_STOP,
-  USER_CANCEL_STREAM_STOP,
-  abortReasonSentinel,
-} from "@/lib/stream/stream-stop-sentinels";
+import { noteTurn, noteTurnLoopTotals } from "@/lib/analytics/turn-stats";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import {
   hasNativeToolParts,
@@ -205,16 +200,6 @@ export interface AgentTurnResult {
   forcedTextFinish: boolean;
 }
 
-/** Coarse duration buckets for the turn-completed analytics event. */
-function durationBucket(ms: number): string {
-  const s = ms / 1000;
-  if (s < 10) return "<10s";
-  if (s < 30) return "10-30s";
-  if (s < 120) return "30s-2m";
-  if (s < 600) return "2-10m";
-  return ">10m";
-}
-
 /** Normalize an AbortController reason into an Error for throw/propagation. */
 function abortReasonError(reason: unknown): Error {
   if (reason instanceof Error) return reason;
@@ -222,50 +207,17 @@ function abortReasonError(reason: unknown): Error {
 }
 
 /**
- * One `turn_completed` per turn, however it ends: `ok`, `ask_user` (it ended on
- * a question for the user), `stopped` (the user stopped it), `aborted` or
- * `error`. The old funnel counted successes only, so a failing turn was
- * invisible. An error carries its status or class, never its message.
+ * Runs the turn's loop. `turn_completed` is sent by the stream around it
+ * (chat_stream_handlers), which also sees failures before the loop starts;
+ * the loop only leaves its totals for it.
  */
 export async function runAgentTurn(
   profile: AgentProfile,
   rt: TurnRuntime,
 ): Promise<AgentTurnResult> {
-  const started = Date.now();
-  const report = (outcome: string, extra: Record<string, unknown> = {}) =>
-    trackTurnCompleted({
-      outcome,
-      mode: profile.mode,
-      duration_bucket: durationBucket(Date.now() - started),
-      ...extra,
-    });
-  try {
-    const result = await runAgentTurnInner(profile, rt);
-    report("ok", { iterations: result.iterations, tool_count: result.totalToolExecutions });
-    return result;
-  } catch (e) {
-    const { outcome, errorKind } = turnOutcome(e, rt.abortController.signal);
-    report(outcome, errorKind ? { error_kind: errorKind } : {});
-    throw e;
-  }
-}
-
-/** How a thrown turn ended, for `turn_completed`. No message text, ever. */
-export function turnOutcome(
-  error: unknown,
-  signal: AbortSignal,
-): { outcome: "ask_user" | "stopped" | "aborted" | "error"; errorKind?: string } {
-  if (signal.aborted) {
-    const sentinel = abortReasonSentinel(signal.reason);
-    if (sentinel === ASK_USER_STREAM_STOP) return { outcome: "ask_user" };
-    if (sentinel === USER_CANCEL_STREAM_STOP) return { outcome: "stopped" };
-    return { outcome: "aborted" };
-  }
-  const err = error as { statusCode?: unknown; name?: unknown } | null;
-  return {
-    outcome: "error",
-    errorKind: typeof err?.statusCode === "number" ? `http_${err.statusCode}` : String(err?.name ?? "Error"),
-  };
+  const result = await runAgentTurnInner(profile, rt);
+  noteTurnLoopTotals(rt.chatId, { iterations: result.iterations, tool_count: result.totalToolExecutions });
+  return result;
 }
 
 async function runAgentTurnInner(
@@ -275,9 +227,6 @@ async function runAgentTurnInner(
   const L = profile.loopLogLabel;
   const streamDebugLogging = isStreamDebugLoggingEnabled();
   const stripXML = profile.stripTextToolXML ?? ((t: string) => t);
-
-  // Funnel: a real agent turn is starting (fires first_task_started once).
-  trackTaskStarted({ mode: profile.mode });
 
   const loopStartTime = Date.now();
   let agenticIteration = 0;
@@ -533,6 +482,7 @@ async function runAgentTurnInner(
             break;
           }
           stallResumeAttempts++;
+          noteTurn(rt.chatId, "retries");
           logger.info(
             `${L} Stall-resume ${stallResumeAttempts}/${MAX_STALL_RESUME_ATTEMPTS}: continuing from ${resumeFromStall.length} completed step-message(s)`,
           );
@@ -922,6 +872,7 @@ async function runAgentTurnInner(
       });
       if (compaction.compacted) {
         agenticMessages = compaction.messages;
+        noteTurn(rt.chatId, "compactions");
       }
     }
 
@@ -949,18 +900,6 @@ async function runAgentTurnInner(
     }
   }
 
-  // Funnel: the turn ran to a natural end (fires first_task_completed once,
-  // then task_completed on every subsequent success). A thrown turn never
-  // reaches here, so failures/aborts are not counted as completed.
-  trackTaskCompleted({
-    mode: profile.mode,
-    iterations: agenticIteration,
-    toolExecutions: totalToolExecutions,
-    // Bucketed, not raw: engagement is the question ("was this a quick edit or
-    // a long build"), and a raw duration on a low-volume event is closer to a
-    // fingerprint than a metric.
-    duration_bucket: durationBucket(Date.now() - loopStartTime),
-  });
   return {
     fullResponse,
     iterations: agenticIteration,

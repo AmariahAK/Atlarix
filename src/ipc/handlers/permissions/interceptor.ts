@@ -7,6 +7,7 @@
  * v0.9.1 Update: Added async waitForApproval() blocking mechanism
  */
 
+import { noteTurn } from "@/lib/analytics/turn-stats";
 import * as fs from "fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "path";
@@ -652,6 +653,7 @@ export class PermissionInterceptor extends EventEmitter {
     });
 
     const silentOut = silent || this.shouldAlwaysAutoApprove(request);
+    noteTurn(this.activeChatId || undefined, silentOut ? "approvals_auto" : "approvals_asked");
     if (!silentOut) {
       // Emit event for frontend to pick up
       this.emit("permission-request", {

@@ -8,6 +8,8 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { noteTurnStreamError } from "@/lib/analytics/turn-stats";
+import { classifyTurnError } from "@/lib/analytics/turn-end";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import { streamText, isStepCount } from "ai";
@@ -1038,6 +1040,9 @@ export async function simpleStreamText(
       // wrapper with only the SDK's synthetic `NoOutputGeneratedError` to inspect
       // (see `recordedNetworkError`), so for a request-phase failure it retried on
       // the empty-output path and never on this one.
+      // For `turn_completed`: the SDK hands the turn a bare "no output" in its
+      // place, so the status and kind are kept here (a word, never the text).
+      noteTurnStreamError(req.chatId, classifyTurnError(error));
       if (isNetworkStreamError(error)) {
         recordedNetworkError = error;
         logger.warn(

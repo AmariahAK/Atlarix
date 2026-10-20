@@ -20,6 +20,8 @@ import { PostHog } from "posthog-node";
 import { readSettings, writeSettings } from "../settings";
 import { v4 as uuidv4 } from "uuid";
 import { atlarixEditor, atlarixSurface } from "@/ipc/shared/core_proxy";
+import { drainTurnStats } from "@/lib/analytics/turn-stats";
+import type { TurnEnd, TurnErrorKind } from "@/lib/analytics/turn-end";
 
 const ANALYTICS_ID_FILE = "analytics-id.json";
 const POSTHOG_HOST = "https://eu.i.posthog.com";
@@ -348,89 +350,145 @@ export function billingOf(provider: string, providerType?: string): TurnBilling 
   return "byok";
 }
 
-/**
- * The billing of the most recent turn, added to task_* events so the existing
- * funnels break down by it. Two turns running at once can mix this up; the
- * `model_turn` event itself is always exact.
- */
-let lastTurn: { billing: TurnBilling; provider: string } | null = null;
+/** The per-chat choices of the last reported turn, for `changed`. */
+const lastChoice = new Map<number, { mode?: string; model?: string; effort?: string }>();
+/** Turns reported per chat in this process. */
+const turnsInProcess = new Map<number, number>();
 
-/**
- * One `model_turn` per agent turn: who paid for the model, which provider and
- * model, no content. Usage used to be read from paid Core alone, so someone on
- * their own key or a local model looked like they had dropped off. The person
- * properties make the whole person segmentable (`uses_byok`, `last_billing`).
- */
-export function trackModelTurn(t: {
-  provider: string;
-  providerType?: string;
-  model: string;
+function turnIndexBucket(n: number): string {
+  if (n <= 1) return "1";
+  if (n <= 5) return "2-5";
+  if (n <= 20) return "6-20";
+  return "21+";
+}
+
+/** Coarse duration buckets: a raw duration on a low-volume event is closer to a fingerprint than a metric. */
+export function durationBucket(ms: number): string {
+  const s = ms / 1000;
+  if (s < 10) return "<10s";
+  if (s < 30) return "10-30s";
+  if (s < 120) return "30s-2m";
+  if (s < 600) return "2-10m";
+  return ">10m";
+}
+
+/** One finished turn, as the stream saw it. No content. */
+export interface TurnReport {
+  chatId: number;
+  end: TurnEnd;
   mode?: string;
+  provider?: string;
+  model?: string;
+  effort?: string;
   fellBackToCore?: boolean;
-}): void {
-  try {
-    const billing = t.fellBackToCore ? "core" : billingOf(t.provider, t.providerType);
-    lastTurn = { billing, provider: t.provider };
-    captureSafe("model_turn", {
-      billing,
-      provider: t.provider,
-      model: t.model,
-      ...(t.mode ? { mode: t.mode } : {}),
-      ...(t.fellBackToCore ? { fell_back_to_core: true } : {}),
-      $set: {
-        last_billing: billing,
-        last_provider: t.provider,
-        ...(billing === "byok" ? { uses_byok: true } : billing === "local" ? { uses_local: true } : { uses_core: true }),
-      },
-      ...(billing === "byok" ? { $set_once: { first_byok_at: new Date().toISOString() } } : {}),
-    });
-  } catch {
-    /* analytics must never break the turn */
-  }
-}
-
-function withBilling(properties?: Record<string, unknown>): Record<string, unknown> | undefined {
-  return lastTurn ? { ...properties, billing: lastTurn.billing, provider: lastTurn.provider } : properties;
-}
-
-/** The first real agent turn in a workspace started (fires once). */
-export function trackTaskStarted(properties?: Record<string, unknown>): void {
-  try {
-    if (!isOptedIn()) return;
-    if (readSettings().firstTaskStartedAt) return;
-    writeSettings({ firstTaskStartedAt: Date.now() });
-    captureSafe("first_task_started", withBilling(properties));
-  } catch {
-    /* analytics must never break the turn */
-  }
+  automation?: boolean;
+  durationMs: number;
+  /** The chat had messages before this turn (a resumed or continued chat). */
+  hadHistory: boolean;
+  outputTokens: number;
 }
 
 /**
- * An agent turn finished successfully. The first success fires
- * `first_task_completed`; every success after that fires `task_completed`.
+ * `turn_completed`: one per turn, on every surface, with everything about the
+ * turn: how it ended and why, the mode, model, effort and who paid, what
+ * changed since the chat's last turn, and how many approvals, compactions,
+ * sub-agents and retries it took. Switches and approvals are fields here, not
+ * events of their own; `model_turn` and the renderer's `core_turn_*` are gone.
+ *
+ * Called after the turn has ended. The counters are drained whatever the
+ * consent (they must not pile up); everything else, the provider lookup
+ * included, happens only for people who opted in.
  */
-export function trackTaskCompleted(properties?: Record<string, unknown>): void {
+export function trackTurnCompleted(
+  r: TurnReport,
+  providerTypeOf?: (providerId: string) => Promise<string | undefined>,
+): void {
   try {
+    const stats = drainTurnStats(r.chatId);
+    const prev = lastChoice.get(r.chatId);
+    const choice = { mode: r.mode, model: r.model, effort: r.effort };
+    lastChoice.set(r.chatId, choice);
+    const n = (turnsInProcess.get(r.chatId) ?? 0) + 1;
+    turnsInProcess.set(r.chatId, n);
     if (!isOptedIn()) return;
-    if (!readSettings().firstTaskCompletedAt) {
-      writeSettings({ firstTaskCompletedAt: Date.now() });
-      captureSafe("first_task_completed", withBilling(properties));
-    } else {
-      captureSafe("task_completed", withBilling(properties));
+
+    let { outcome, errorKind, httpStatus } = r.end;
+    const se = stats.streamError;
+    // The stream saw the real failure; the turn only saw the SDK's stand-in.
+    if (se && outcome === "error" && (errorKind === "no_output" || errorKind === "other")) {
+      errorKind = se.kind as TurnErrorKind;
+      httpStatus = se.httpStatus;
+    } else if (se && outcome === "ok" && r.outputTokens === 0) {
+      outcome = "error";
+      errorKind = se.kind as TurnErrorKind;
+      httpStatus = se.httpStatus;
     }
-  } catch {
-    /* analytics must never break the turn */
-  }
-}
+    const changed = prev ? (["mode", "model", "effort"] as const).filter((k) => prev[k] !== choice[k]) : [];
 
-/**
- * One per agent turn, with how it ended (run-agent-turn.ts) and who paid for
- * its model. "First turn" is the first one per person in PostHog: no marker
- * on disk to go stale or survive a reinstall.
- */
-export function trackTurnCompleted(properties: Record<string, unknown>): void {
-  try {
-    captureSafe("turn_completed", withBilling(properties));
+    void (async () => {
+      const providerType =
+        r.provider && !r.fellBackToCore ? await providerTypeOf?.(r.provider).catch(() => undefined) : undefined;
+      const provider = r.fellBackToCore ? "compass" : r.provider;
+      const billing: TurnBilling | undefined = r.fellBackToCore
+        ? "core"
+        : r.provider
+          ? billingOf(r.provider, providerType)
+          : undefined;
+      const durationBucketValue = durationBucket(r.durationMs);
+      captureSafe("turn_completed", {
+        outcome,
+        ...(errorKind ? { error_kind: errorKind } : {}),
+        ...(httpStatus ? { http_status: httpStatus } : {}),
+        ...(se && outcome === "ok" ? { recovered_error_kind: se.kind } : {}),
+        ...(r.mode ? { mode: r.mode } : {}),
+        ...(provider ? { provider } : {}),
+        ...(r.model ? { model: r.model } : {}),
+        ...(billing ? { billing } : {}),
+        effort: r.effort ?? "none",
+        ...(r.fellBackToCore ? { fell_back_to_core: true } : {}),
+        origin: r.automation ? "automation" : "user",
+        changed,
+        ...(changed.includes("mode") ? { prev_mode: prev?.mode } : {}),
+        ...(changed.includes("model") ? { prev_model: prev?.model } : {}),
+        duration_bucket: durationBucketValue,
+        turn_index_bucket: turnIndexBucket(n),
+        resumed_session: n === 1 && r.hadHistory,
+        ...stats.counts,
+        ...(stats.loop ?? {}),
+        ...(billing
+          ? {
+              $set: {
+                last_billing: billing,
+                last_provider: provider,
+                ...(billing === "byok" ? { uses_byok: true } : billing === "local" ? { uses_local: true } : { uses_core: true }),
+              },
+              ...(billing === "byok" ? { $set_once: { first_byok_at: new Date().toISOString() } } : {}),
+            }
+          : {}),
+      });
+      // The old activation funnel, one more release (5673ba5a), now with THIS
+      // turn's billing. It used to read a global "last turn", which two turns
+      // running at once mixed up.
+      const funnel = {
+        ...(r.mode ? { mode: r.mode } : {}),
+        ...(billing ? { billing, provider } : {}),
+        ...(stats.loop ? { iterations: stats.loop.iterations, toolExecutions: stats.loop.tool_count } : {}),
+        duration_bucket: durationBucketValue,
+      };
+      const settings = readSettings();
+      if (!settings.firstTaskStartedAt) {
+        writeSettings({ firstTaskStartedAt: Date.now() });
+        captureSafe("first_task_started", funnel);
+      }
+      if (outcome === "ok") {
+        if (!settings.firstTaskCompletedAt) {
+          writeSettings({ firstTaskCompletedAt: Date.now() });
+          captureSafe("first_task_completed", funnel);
+        } else {
+          captureSafe("task_completed", funnel);
+        }
+      }
+    })().catch(() => {});
   } catch {
     /* analytics must never break the turn */
   }
