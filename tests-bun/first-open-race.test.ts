@@ -38,3 +38,35 @@ it("several first opens at once all come up, on one database", async () => {
     }
   }
 }, 180_000);
+
+/**
+ * A9 (QA): a lock left by a process that ended mid-open, whose pid now belongs
+ * to another live process, cost the full 30 s wait on EVERY start, and stayed.
+ */
+it("an old lock naming someone else's live pid is taken at once", async () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "first-open-"));
+  try {
+    const lock = path.join(userData, "sqlite.db.init-lock");
+    fs.writeFileSync(lock, String(process.ppid)); // alive, and not an Atlarix opening this database
+    const old = new Date(Date.now() - 31_000); // taken longer ago than any open lasts
+    fs.utimesSync(lock, old, old);
+    const t0 = Date.now();
+    expect(await open(userData)).toBe("OK");
+    expect(Date.now() - t0).toBeLessThan(15_000);
+    expect(fs.existsSync(lock)).toBe(false);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}, 60_000);
+
+it("a fresh lock naming a live pid is waited out once, then gone", async () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "first-open-"));
+  try {
+    const lock = path.join(userData, "sqlite.db.init-lock");
+    fs.writeFileSync(lock, String(process.ppid));
+    expect(await open(userData)).toBe("OK");
+    expect(fs.existsSync(lock)).toBe(false);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}, 90_000);

@@ -182,6 +182,8 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
  * reached only if the holder hung, and then this one goes ahead anyway.
  */
 const INIT_LOCK_WAIT_MS = 30_000;
+/** Older than the wait: no open holds it that long, so it was left by one that ended. */
+const INIT_LOCK_STALE_MS = INIT_LOCK_WAIT_MS;
 
 /**
  * One process at a time opens and migrates the database. Two first opens at
@@ -210,16 +212,23 @@ function takeInitLock(dbPath: string): () => void {
     } catch {
       continue; // released between the two calls: try again
     }
-    // Empty: its owner created it and has not written its pid yet.
+    // Empty: its owner created it and has not written its pid yet. Older than the
+    // wait (its file time is when it was taken): left by a process that ended
+    // mid-open, whose pid may now be someone else's (A9).
     const holder = Number(said);
-    const ended = said ? !Number.isInteger(holder) || holder <= 0 || !pidAlive(holder) : age > 5_000;
+    const ended =
+      age > INIT_LOCK_STALE_MS ||
+      (said ? !Number.isInteger(holder) || holder <= 0 || !pidAlive(holder) : age > 5_000);
     if (ended) {
       fs.rmSync(lockPath, { force: true });
       continue;
     }
     if (Date.now() >= deadline) {
+      // Taken over, so it goes when this open ends: left as it was, every start
+      // after this one waited the full time again (A9).
       logger.warn(`[DB] Process ${holder} has held the database's first-open lock for ${INIT_LOCK_WAIT_MS / 1000}s; opening anyway.`);
-      return () => {};
+      fs.writeFileSync(lockPath, String(process.pid));
+      return () => fs.rmSync(lockPath, { force: true });
     }
     Atomics.wait(wait, 0, 0, 50);
   }
