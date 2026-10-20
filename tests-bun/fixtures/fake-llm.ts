@@ -10,7 +10,9 @@ export type Reply =
   /** Several calls in one step (parallel tool calls). */
   | { tools: Array<{ tool: string; args: Record<string, unknown> }>; delayMs?: number }
   /** `waitMs`: nothing at all is sent for that long (a stop "before the first token"). */
-  | { text: string; delayMs?: number; waitMs?: number };
+  | { text: string; delayMs?: number; waitMs?: number }
+  /** The provider refuses the request: this HTTP status and message. */
+  | { status: number; error: string };
 
 const enc = new TextEncoder();
 const base = { id: "fake", object: "chat.completion.chunk", created: 0, model: "fake-model" };
@@ -32,6 +34,9 @@ function sse(chunks: object[], delayMs = 0, waitMs = 0): Response {
 }
 
 function reply(r: Reply, n: number): Response {
+  if ("status" in r) {
+    return Response.json({ error: { message: r.error, type: "invalid_request_error" } }, { status: r.status });
+  }
   if ("tools" in r) {
     return sse(
       [

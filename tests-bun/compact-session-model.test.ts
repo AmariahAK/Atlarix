@@ -69,3 +69,41 @@ describe("/compact in the CLI", () => {
     expect(res.message).toMatch(/Couldn't compact/);
   }, 180_000);
 });
+
+/**
+ * Sentry ATLARIX-2Y (84 events): Core answered "Prompt exceeds max length" and
+ * the turn failed. Two faults: the wording was not recognised, and a too-long
+ * 400 from ANY provider was taken as a refusal, so the turn ended before its
+ * one compact-and-retry ran.
+ */
+describe("a request too long for the model", () => {
+  it("is compacted and retried, and the turn answers", async () => {
+    // Big enough that compacting it frees real room, as a real overflow's history is.
+    for (const n of ["big1", "big2", "big3"]) {
+      const lines = Array.from({ length: 700 }, (_, i) => `export const ${n}_${i} = computeValue${i}(input${i}, "label ${i} for ${n}");`);
+      fs.writeFileSync(path.join(ws, `${n}.ts`), lines.join("\n") + "\n");
+    }
+    const llm = startFakeLlm([
+      { tool: "read_file", args: { path: "big1.ts" } },
+      { text: "Read a." },
+      { tool: "read_file", args: { path: "big2.ts" } },
+      { text: "Read b." },
+      { tool: "read_file", args: { path: "big3.ts" } },
+      { text: "Read c." },
+      { status: 400, error: "Prompt exceeds max length" },
+      { text: "Recovered after compacting." },
+    ]);
+    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" }) });
+    await s.start();
+    for (const n of ["a", "b", "c", "go on"]) {
+      await s.submit(n.length === 1 ? `read ${n}.ts` : n);
+      for (let i = 0; i < 600 && s.state.busy; i++) await new Promise((r) => setTimeout(r, 50));
+    }
+    // The retry is its own dispatch: the session can read idle for a moment between.
+    const answered = () => s.state.cells.some((c) => c.kind === "markdown" && c.text === "Recovered after compacting.");
+    for (let i = 0; i < 600 && !answered(); i++) await new Promise((r) => setTimeout(r, 50));
+    expect(answered()).toBe(true);
+    expect(s.state.lastError).toBeNull();
+  }, 180_000);
+});

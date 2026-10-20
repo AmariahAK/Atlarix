@@ -293,6 +293,11 @@ export async function runStreamRoundWithEmptyOutputRetry(
         );
       }
 
+      // Too long for the model: the original error, so handleTurnError's
+      // overflow branch compacts and retries (not the SDK's "no output").
+      const overflow = bundle?.getRecordedOverflow?.();
+      if (overflow != null) throw overflow;
+
       // The provider refused the request itself (bad key, no access): the same
       // request is refused again, and onError already said why.
       const refusal = bundle?.getRecordedRefusal?.();

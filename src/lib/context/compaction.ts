@@ -1056,7 +1056,7 @@ export function isContextOverflowError(error: unknown): boolean {
       : "";
   const haystack = `${message}\n${responseBody}`;
   if (!haystack.trim()) return false;
-  return /context[_\s-]?length[_\s-]?exceeded|maximum context|context window|prompt is too long|too many tokens|maximum length|input length and `max_tokens` exceed|reduce the length of the messages|exceeds the maximum number of tokens/i.test(
+  return /context[_\s-]?length[_\s-]?exceeded|maximum context|context window|prompt is too long|too many tokens|maximum length|input length and `max_tokens` exceed|reduce the length of the messages|exceeds the maximum number of tokens|exceeds (?:the )?max(?:imum)? length/i.test(
     haystack,
   );
 }

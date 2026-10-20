@@ -11,6 +11,7 @@
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import { streamText, isStepCount } from "ai";
+import { isContextOverflowError } from "@/lib/context/compaction";
 import type { ModelMessage, ToolSet } from "ai";
 import type { UserSettings, LargeLanguageModel } from "@/lib/schemas";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
@@ -536,6 +537,14 @@ export async function simpleStreamText(
    * be refused again nor replaces that reason with "Something went wrong".
    */
   let recordedRefusal: unknown = null;
+  /**
+   * The request was too long for the model. Not a refusal: handleTurnError
+   * compacts and retries once, and says so only if that fails too. Reported
+   * here as a refusal, the turn ended at the refusal branch before the overflow
+   * one, so the retry never ran for a 400 "too long" from any provider
+   * (Sentry ATLARIX-2Y: Core's "Prompt exceeds max length", 84 events).
+   */
+  let recordedOverflow: unknown = null;
   /** Running per-tool token attribution for THIS turn's live meter. */
   const turnBuckets = {
     filesRead: 0,
@@ -1047,6 +1056,13 @@ export async function simpleStreamText(
         );
         return;
       }
+      // The SDK hands onError its event, `{ error }`; the provider's words are inside.
+      const cause = (error as { error?: unknown } | null)?.error ?? error;
+      if (isContextOverflowError(cause)) {
+        recordedOverflow = cause;
+        logger.warn("[stream] onError: the request is too long for the model (compacting and retrying)", error);
+        return;
+      }
       let errorMessage = (error as any)?.error?.message;
       const responseBody = error?.error?.responseBody;
       if (errorMessage && responseBody) {
@@ -1212,6 +1228,8 @@ export async function simpleStreamText(
     getRecordedNetworkError: (): unknown => recordedNetworkError,
     /** A refusal `onError` already reported; see `recordedRefusal`. */
     getRecordedRefusal: (): unknown => recordedRefusal,
+    /** A too-long request `onError` held back for the turn's compact-and-retry; see `recordedOverflow`. */
+    getRecordedOverflow: (): unknown => recordedOverflow,
   };
 }
 
