@@ -203,4 +203,16 @@ describe("turn_completed", () => {
     expect(analytics.posthogHost("http://127.0.0.1.evil.example")).toBe("https://eu.i.posthog.com");
     expect(analytics.posthogHost(undefined)).toBe("https://eu.i.posthog.com");
   });
+
+  it("nothing when the host editor's telemetry is off", async () => {
+    process.env.ATLARIX_HOST_TELEMETRY = "off";
+    try {
+      trackTurnCompleted(base());
+      analytics.capture("x");
+      await flush();
+      expect(captured).toEqual([]);
+    } finally {
+      delete process.env.ATLARIX_HOST_TELEMETRY;
+    }
+  });
 });

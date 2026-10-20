@@ -65,6 +65,9 @@ export function getOrCreateAnonymousId(): string {
 }
 
 function isOptedIn(): boolean {
+  // The editor running us has its own telemetry switched off (VS Code passes
+  // this): nothing is sent, whatever the Atlarix answer.
+  if (process.env.ATLARIX_HOST_TELEMETRY === "off") return false;
   const settings = readSettings();
   return settings.telemetryConsent === "opted_in";
 }
