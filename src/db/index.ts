@@ -168,6 +168,85 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   fs.mkdirSync(getUserDataPath(), { recursive: true });
   fs.mkdirSync(getAtlarixAppPath("."), { recursive: true });
 
+  const releaseInitLock = takeInitLock(dbPath);
+  try {
+    return openAndMigrate(dbPath);
+  } finally {
+    releaseInitLock();
+  }
+}
+
+/**
+ * How long a process waits for another one's first open to finish. A first
+ * open migrates an empty file; that takes well under a second, so this is
+ * reached only if the holder hung, and then this one goes ahead anyway.
+ */
+const INIT_LOCK_WAIT_MS = 30_000;
+
+/**
+ * One process at a time opens and migrates the database. Two first opens at
+ * once (the app and the CLI on a new profile) migrated the same empty file
+ * together: one met "database is locked" or "table already exists", and its
+ * retry deleted the file the other was still migrating, so both failed with
+ * "disk I/O error" (A8, QA 2 of 3). The lock is a file beside the database
+ * holding its owner's pid; one whose owner has ended is taken over.
+ */
+function takeInitLock(dbPath: string): () => void {
+  const lockPath = `${dbPath}.init-lock`;
+  const deadline = Date.now() + INIT_LOCK_WAIT_MS;
+  const wait = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+      return () => fs.rmSync(lockPath, { force: true });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return () => {};
+    }
+    let said = "";
+    let age = 0;
+    try {
+      said = fs.readFileSync(lockPath, "utf8").trim();
+      age = Date.now() - fs.statSync(lockPath).mtimeMs;
+    } catch {
+      continue; // released between the two calls: try again
+    }
+    // Empty: its owner created it and has not written its pid yet.
+    const holder = Number(said);
+    const ended = said ? !Number.isInteger(holder) || holder <= 0 || !pidAlive(holder) : age > 5_000;
+    if (ended) {
+      fs.rmSync(lockPath, { force: true });
+      continue;
+    }
+    if (Date.now() >= deadline) {
+      logger.warn(`[DB] Process ${holder} has held the database's first-open lock for ${INIT_LOCK_WAIT_MS / 1000}s; opening anyway.`);
+      return () => {};
+    }
+    Atomics.wait(wait, 0, 0, 50);
+  }
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * "Locked", "busy" or an I/O error: another process has the file open. Never a
+ * reason to delete it, whatever else failed.
+ */
+function isFileInUseError(error: unknown): boolean {
+  const code = String((error as { code?: unknown })?.code ?? "");
+  const message = error instanceof Error ? error.message : String(error);
+  return /^SQLITE_(BUSY|LOCKED|IOERR)/.test(code) || /database is locked|database is busy|disk I\/O error/i.test(message);
+}
+
+function openAndMigrate(dbPath: string): BetterSQLite3Database<typeof schema> & {
+  $client: Database.Database;
+} {
   const maxAttempts = 2;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -376,7 +455,7 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       // deletes someone's chat history, whatever went wrong.
       const shared = process.env.ATLARIX_DB_SHARED === "1";
       const canRetry =
-        attempt < maxAttempts - 1 && !unknownHash && !tooNew && !shared;
+        attempt < maxAttempts - 1 && !unknownHash && !tooNew && !shared && !isFileInUseError(error);
 
       if (canRetry) {
         logger.warn(
