@@ -108,6 +108,52 @@ describe("dangerous-commands — destructive git ops (v14.8.6)", () => {
     expect(isDangerousCommand("git reset HEAD~1")).toBe(false);
     expect(isDangerousCommand("git commit -m 'force the build'")).toBe(false);
   });
+
+  // E5 (QA, 3 of 3 builds): the regexes read words in one fixed order, so a flag
+  // before `--hard` or an option before `reset` discarded work without a card.
+  it("git reset --hard asks however the words are ordered", () => {
+    for (const cmd of [
+      "git reset -q --hard",
+      "git reset --quiet --hard HEAD~1",
+      "git -c x=y reset --hard",
+      "git -C ../repo reset --hard",
+      "git --git-dir=.git --work-tree=. reset --hard",
+      "git --no-pager -c core.pager=cat reset -q --hard origin/main",
+      'git -c "user.name=a b" reset --hard',
+      "GIT_DIR=.git git reset -q --hard",
+      "/usr/bin/git reset -q --hard",
+      "cd repo && git -c x=y reset --hard",
+      "(git reset -q --hard)",
+    ]) {
+      expect(getDangerMatchIds(cmd), cmd).toContain("git-reset-hard");
+    }
+  });
+
+  it("a force push asks however it is spelled", () => {
+    for (const cmd of [
+      "git -c x=y push --force",
+      "git -C repo push origin main --force",
+      "git push -f",
+      "git push -uf origin main",
+      "git push origin +main",
+      "git --no-pager push origin +refs/heads/a:refs/heads/b",
+    ]) {
+      expect(getDangerMatchIds(cmd), cmd).toContain("git-push-force");
+    }
+    expect(getDangerMatchIds("git -c x=y push --force-with-lease")).toContain("git-push-force-with-lease");
+  });
+
+  it("the order-free reading adds no false alarms", () => {
+    for (const cmd of [
+      "git -c x=y reset HEAD~1",
+      "git reset -- --hard", // a path named --hard
+      "git push -u origin main",
+      "git -C repo push --follow-tags",
+      "git log --format=%f",
+    ]) {
+      expect(getDangerMatchIds(cmd).filter((id) => id.startsWith("git-")), cmd).toEqual([]);
+    }
+  });
 });
 
 describe("dangerous-commands — pattern ids + dangerLabelKey (Fix 2 unification)", () => {
