@@ -2377,10 +2377,13 @@ export async function seedDevProvider(opts: {
       set: { api_base_url: opts.baseUrl, ...wire },
     })
     .run();
-  db.insert(schema.language_models)
-    .values({ displayName: opts.model, apiName: opts.model, customProviderId: id })
-    .onConflictDoNothing()
-    .run();
+  // No unique key to conflict on: onConflictDoNothing added the same row on
+  // every start (QA saw 4 after 4).
+  const { and, eq } = await import("drizzle-orm");
+  const lm = schema.language_models;
+  if (!db.select({ id: lm.id }).from(lm).where(and(eq(lm.apiName, opts.model), eq(lm.customProviderId, id))).get()) {
+    db.insert(lm).values({ displayName: opts.model, apiName: opts.model, customProviderId: id }).run();
+  }
   const { writeSettings } = await import("@/main/settings");
   writeSettings({
     providerSettings: { [id]: { apiKey: { value: opts.apiKey ?? "dev" } } },
