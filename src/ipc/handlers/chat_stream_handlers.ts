@@ -948,9 +948,12 @@ export function registerChatStreamHandlers() {
         let activeUserAgent:
           | import("@/lib/agents/user-agents").UserAgent
           | null = null;
-        // Per-turn req override wins; else the persisted picker selection.
-        const agentName =
-          req.agentOverride ?? settings.selectedAgent ?? undefined;
+        // Only a request that NAMES an agent runs as one. `settings.selectedAgent`
+        // is left from the picker v14.8.9 removed (agents are `task` targets now,
+        // and picking a mode clears it), and a stale value applied by halves on
+        // every surface: its prompt, with the request's own mode and model, so a
+        // read-only agent was handed Build's edit and command tools (A1).
+        const agentName = req.agentOverride;
         if (agentName && chat?.app?.path) {
           const { loadUserAgent } = await import("@/lib/agents/user-agents");
           activeUserAgent = loadUserAgent(
@@ -961,11 +964,14 @@ export function registerChatStreamHandlers() {
             const { settingsPatchForWorkMode } = await import(
               "@/lib/work-mode"
             );
+            // All of it or none of it: the agent's mode and model replace the
+            // request's own, which would otherwise win downstream.
+            req.workModeOverride = activeUserAgent.mode;
             settings = {
               ...settings,
               ...settingsPatchForWorkMode(activeUserAgent.mode),
             };
-            if (activeUserAgent.model && !req.modelOverride) {
+            if (activeUserAgent.model) {
               const slash = activeUserAgent.model.indexOf("/");
               req.modelOverride =
                 slash > 0

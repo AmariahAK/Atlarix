@@ -363,4 +363,62 @@ describe("AgentSession", () => {
     expect(cell).toMatchObject({ tool: { status: "interrupted" } });
     expect(s.shellRunning).toBe(false);
   }, 30_000);
+
+  // A1 (QA, 2/2): a `selectedAgent` left in settings (the picker that wrote it was
+  // removed in v14.8.9) applied by halves to every CLI turn: its prompt, with the
+  // CLI's own Build tools, so a read-only agent could edit and run commands.
+  describe("a user agent applies whole or not at all", () => {
+    const toolNames = (r: { tools?: unknown[] } | undefined) =>
+      (r?.tools ?? []).map((t: any) => t.function?.name ?? t.name);
+    const askAgentFolder = () => {
+      const w = fs.mkdtempSync(path.join(os.tmpdir(), "cli-agent-ws-"));
+      fs.mkdirSync(path.join(w, ".atlarix", "agents"), { recursive: true });
+      fs.writeFileSync(
+        path.join(w, ".atlarix", "agents", "askagent.md"),
+        "---\ndescription: QA ask agent\nmode: ask\n---\nYou are the QA ask agent.\n",
+      );
+      return w;
+    };
+
+    it("a stale agent pick in settings is not applied at all", async () => {
+      llm.stop();
+      llm = startFakeLlm([{ text: "Hi." }]);
+      const { writeSettings } = await import("../src/main/settings");
+      writeSettings({ selectedAgent: "askagent" } as never);
+      try {
+        const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+        const s = new AgentSession({ workspaceDir: askAgentFolder(), model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+        await s.start();
+        await s.submit("hello");
+        await waitFor(s, (st) => !st.busy);
+        const turn = llm.requests.find((r) => r.tools?.length);
+        expect(JSON.stringify(turn?.messages)).not.toContain("QA ask agent");
+        // The CLI's own mode (Build) decides the tools.
+        expect(toolNames(turn)).toContain("edit_file");
+      } finally {
+        writeSettings({ selectedAgent: "" } as never);
+      }
+    }, 60_000);
+
+    it("an agent the request names gets its mode's tools, not the request's", async () => {
+      llm.stop();
+      llm = startFakeLlm([{ text: "Hi." }]);
+      const electron = (await import("electron")) as any;
+      const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+      const s = new AgentSession({ workspaceDir: askAgentFolder(), model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+      await s.start();
+      const stream = electron.getRegisteredHandler("chat:stream");
+      electron.ipcMain.handle("chat:stream", (e: unknown, req: object) => stream(e, { ...req, agentOverride: "askagent" }));
+      try {
+        await s.submit("hello");
+        await waitFor(s, (st) => !st.busy);
+      } finally {
+        electron.ipcMain.handle("chat:stream", stream);
+      }
+      const turn = llm.requests.find((r) => r.tools?.length);
+      expect(JSON.stringify(turn?.messages)).toContain("QA ask agent");
+      // Explore's set: no file edits (its commands are permission-gated read-only).
+      expect(toolNames(turn)).not.toContain("edit_file");
+    }, 60_000);
+  });
 });
