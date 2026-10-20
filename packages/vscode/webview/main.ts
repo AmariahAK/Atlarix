@@ -273,7 +273,8 @@ onHost((m: HostMessage) => {
         emit("usage");
       }
       // A replay just finished: fold its finished turns as a live turn folds.
-      if (replaying && !m.replay && m.sessionId === state.sessionId) T.foldReplayedTurns();
+      const replayed = replaying && !m.replay && m.sessionId === state.sessionId;
+      if (replayed) T.foldReplayedTurns();
       replaying = m.replay;
       if (m.configOptions.length) applyOptions(m.configOptions);
       else if (m.modes) {
@@ -282,7 +283,9 @@ onHost((m: HostMessage) => {
         emit("options");
       }
       if (!m.replay) {
-        T.endTurn();
+        // After a replay its last reply stays open: a turn still running in
+        // the CLI carries on in it, not in a second reply (QA E14).
+        if (!replayed) T.endTurn();
         void showHome();
         void C.refreshApproveLine();
         C.sessionArrived();

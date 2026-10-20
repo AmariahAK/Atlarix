@@ -282,6 +282,11 @@ describe("atlarix acp", () => {
       await until(() => working().some((w) => w.following === true));
       expect(working().find((w) => w.following === true)).toMatchObject({ sessionId, title: "Running in the CLI" });
       await until(() => e.updates.some((u) => u.sessionId === sessionId && u.update.sessionUpdate === "tool_call"));
+      // The panel goes to another chat and back: told again where it runs (QA E14).
+      const told = working().length;
+      await e.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+      await until(() => working().length > told, 5_000);
+      expect(working().at(-1)).toMatchObject({ title: "Running in the CLI", following: true });
 
       // Typed in the panel while it runs elsewhere: to A's turn.
       const r = await e.agent.interject(sessionId, "also check the empty file case", "steer");

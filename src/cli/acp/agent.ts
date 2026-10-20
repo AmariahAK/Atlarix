@@ -487,6 +487,16 @@ class Thread {
     await this.flush();
   }
 
+  /**
+   * A load (the panel back on this chat): where its turn runs, again. It is
+   * sent once, when that changes, and the panel may have been on another chat
+   * then; it showed no "Running in the CLI" and no Stop (QA E14).
+   */
+  resendWorking(): void {
+    if (!this.extras() || !this.followingSent) return;
+    void this.client().notify("_atlarix/working", { sessionId: this.id, title: this.followingSent, following: true }).catch(() => {});
+  }
+
   /** The model list changed (a key saved or removed): tell the editor. */
   sendOptions(): void {
     void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
@@ -1119,7 +1129,10 @@ export class AcpAgent {
     await t.replay();
     await t.resendPlan();
     t.sendUsage();
-    setTimeout(() => void t.refreshCommands(), 0);
+    setTimeout(() => {
+      void t.refreshCommands();
+      t.resendWorking();
+    }, 0);
     return { configOptions: await this.configOptions(t), modes: this.modes(t) };
   }
 
