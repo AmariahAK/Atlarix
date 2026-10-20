@@ -18,7 +18,6 @@ import type { StreamTurnContext } from "@/ipc/handlers/chat_stream/turn-context"
 import type { ModeSystemKey } from "@/prompts/system_prompt";
 import type { ModelClient } from "@/ipc/utils/get_model_client";
 import type { SimpleStreamTextDeps } from "@/ipc/handlers/chat_stream/turn-runner/simple-stream-text";
-import type { UserAgent } from "@/lib/agents/user-agents";
 import { shouldAutoApprovePermissions } from "@/lib/agents/agent-runtime";
 import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import { attachDelegationToolsToSet } from "@/lib/agents/register-delegation-tools";
@@ -63,7 +62,6 @@ import { applyFileScopePreflightInStream } from "@/ipc/handlers/file_permission_
 import { registerInterceptor } from "@/ipc/handlers/permissions/handlers";
 import { PermissionInterceptor } from "@/ipc/handlers/permissions/interceptor";
 import { runAgentTurn } from "@/lib/agent/run-agent-turn";
-import { renderUserAgentSystemBlock } from "@/lib/agents/user-agents";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
 import {
   buildToolModelOutput,
@@ -110,7 +108,6 @@ export interface AskBranchDeps {
   streamTurnId: string;
   STREAM_CONTINUATION_MAX: number;
   chatMessages: ModelMessage[];
-  activeUserAgent: UserAgent | null;
   hasWorkspace: boolean;
   promptIdentityOpts: {
     activeModel: LargeLanguageModel;
@@ -167,7 +164,6 @@ export async function runAskBranch(
     streamTurnId,
     STREAM_CONTINUATION_MAX,
     chatMessages,
-    activeUserAgent,
     hasWorkspace,
     promptIdentityOpts,
     logTtftOnce,
@@ -296,7 +292,6 @@ export async function runAskBranch(
       provider: effectiveModel?.provider,
       builtinProviderId: modelClient.builtinProviderId,
     },
-    userAgentTools: activeUserAgent?.tools ?? null,
     unattended: Boolean(req.automation),
   });
   const askToolsToInclude = askResolved.tools;
@@ -1006,11 +1001,8 @@ export async function runAskBranch(
             registeredToolNames: askOfferedNames,
             ...promptIdentityOpts,
           });
-          const askHeader = activeUserAgent
-            ? `${renderUserAgentSystemBlock(activeUserAgent)}\n\n${askParts.stableHeader}`
-            : askParts.stableHeader;
           return {
-            systemPromptOverride: askHeader,
+            systemPromptOverride: askParts.stableHeader,
             dynamicSystemTail: askParts.dynamicTail,
           };
         },

@@ -941,59 +941,6 @@ export function registerChatStreamHandlers() {
           };
         }
 
-        // v12 7A: user-defined agent (.atlarix/agents/<name>.md). Resolved
-        // BEFORE the model + work-mode resolve below so its base mode, model
-        // override, and (later) custom system block + tool allowlist all take
-        // effect. Composes with everything downstream (capability trim, hooks).
-        let activeUserAgent:
-          | import("@/lib/agents/user-agents").UserAgent
-          | null = null;
-        // Only a request that NAMES an agent runs as one. `settings.selectedAgent`
-        // is left from the picker v14.8.9 removed (agents are `task` targets now,
-        // and picking a mode clears it), and a stale value applied by halves on
-        // every surface: its prompt, with the request's own mode and model, so a
-        // read-only agent was handed Build's edit and command tools (A1).
-        const agentName = req.agentOverride;
-        if (agentName && chat?.app?.path) {
-          const { loadUserAgent } = await import("@/lib/agents/user-agents");
-          activeUserAgent = loadUserAgent(
-            resolveAppPath(chat.app.path),
-            agentName,
-          );
-          if (activeUserAgent) {
-            const { settingsPatchForWorkMode } = await import(
-              "@/lib/work-mode"
-            );
-            // All of it or none of it: the agent's mode and model replace the
-            // request's own, which would otherwise win downstream.
-            req.workModeOverride = activeUserAgent.mode;
-            settings = {
-              ...settings,
-              ...settingsPatchForWorkMode(activeUserAgent.mode),
-            };
-            if (activeUserAgent.model) {
-              const slash = activeUserAgent.model.indexOf("/");
-              req.modelOverride =
-                slash > 0
-                  ? {
-                      provider: activeUserAgent.model.slice(0, slash),
-                      name: activeUserAgent.model.slice(slash + 1),
-                    }
-                  : {
-                      provider: settings.selectedModel.provider,
-                      name: activeUserAgent.model,
-                    };
-            }
-            logger.log(
-              `[user-agent] active: ${activeUserAgent.name} (mode=${activeUserAgent.mode}${activeUserAgent.model ? `, model=${activeUserAgent.model}` : ""})`,
-            );
-          } else {
-            logger.warn(
-              `[user-agent] "${req.agentOverride}" not found — ignored`,
-            );
-          }
-        }
-
         // Add a placeholder assistant message immediately
         // For ephemeral chats, we'll use a placeholder ID
         // (v12 3.1: monotonic counter — Date.now() collided in-millisecond.
@@ -1551,15 +1498,6 @@ export function registerChatStreamHandlers() {
             // round takes the per-turn tail back out (splitDynamicTail).
             let baseSystemPrompt = joinSystemPromptParts(baseParts);
             const baseDynamicTail = baseParts.dynamicTail;
-            // v12 7A: prepend the user agent's system block (build path +
-            // every non-ask consumer of `systemPrompt`; the ask branch injects
-            // it into its own rebuilt header below).
-            if (activeUserAgent) {
-              const { renderUserAgentSystemBlock } = await import(
-                "@/lib/agents/user-agents"
-              );
-              baseSystemPrompt = `${renderUserAgentSystemBlock(activeUserAgent)}\n\n${baseSystemPrompt}`;
-            }
             let contextSections: ContextSection[] = [];
 
             // v12 S18: the six pre-flight context loads (mode skill, repo
@@ -2347,7 +2285,6 @@ export function registerChatStreamHandlers() {
                 streamTurnId,
                 STREAM_CONTINUATION_MAX,
                 chatMessages,
-                activeUserAgent,
                 hasWorkspace,
                 promptIdentityOpts,
                 logTtftOnce,
@@ -2403,7 +2340,6 @@ export function registerChatStreamHandlers() {
                 streamTurnId,
                 STREAM_CONTINUATION_MAX,
                 chatMessages,
-                activeUserAgent,
                 hasWorkspace,
                 logTtftOnce,
                 handleStreamStall,

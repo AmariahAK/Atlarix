@@ -35,8 +35,6 @@ import {
 /** Plan workMode routes through the ask tier but needs the plan tool. */
 const PLAN_WRITE_TOOLS = ["plan"] as const;
 
-const DELEGATION_TOOL_NAMES = ["task"] as const;
-
 export interface ResolveToolsetInput {
   branch: "ask" | "build";
   effectiveWorkMode: ModeRegistryKey;
@@ -48,8 +46,6 @@ export interface ResolveToolsetInput {
     provider?: string;
     builtinProviderId?: string;
   };
-  /** v12 7A: the active user agent's `tools:` allowlist (null/undefined = all). */
-  userAgentTools?: readonly string[] | null;
   /**
    * Automation runs: no human responder and no visible UI, but the full app
    * infra (MCP servers, web search) exists — a lighter drop-set than headless.
@@ -61,7 +57,7 @@ export interface ResolvedToolset {
   /** Final include list — metadata order preserved. */
   tools: ToolMetadata[];
   capabilityProfile: ModelCapabilityProfile;
-  /** workMode + trim + user-agent gate for attaching the delegation tools. */
+  /** workMode + trim gate for attaching the delegation tools. */
   delegationAllowed: boolean;
   /** Pre-trim count (for the branch's [capability] log). */
   preTrimCount: number;
@@ -70,8 +66,7 @@ export interface ResolvedToolset {
 export function resolveToolsetForSession(
   input: ResolveToolsetInput,
 ): ResolvedToolset {
-  const { branch, effectiveWorkMode, hasWorkspace, model, userAgentTools } =
-    input;
+  const { branch, effectiveWorkMode, hasWorkspace, model } = input;
 
   // Stage 1 — registry metadata (branch-specific starting surface).
   let candidates: ToolMetadata[];
@@ -119,10 +114,6 @@ export function resolveToolsetForSession(
             (hasWorkspace && isWorkspaceIntegrationTool(t.name)),
         );
 
-  // v12 7A — user-agent allowlist intersection (composes with the trim).
-  const preTrim = userAgentTools
-    ? modeFiltered.filter((t) => userAgentTools.includes(t.name))
-    : modeFiltered;
 
   // v13: the capability TRIM stage (tool-count cap) is gone — at ~22 tools the
   // surface is already minimal, so every model gets the full mode allowlist.
@@ -195,7 +186,7 @@ export function resolveToolsetForSession(
   const headlessHasPaidSearch = getPinnedCoreToken() != null;
   const afterHeadless =
     process.env.ATLARIX_HEADLESS === "1"
-      ? preTrim.filter(
+      ? modeFiltered.filter(
           (t) =>
             !DRIVES_A_VIEW(t.name) &&
             !(
@@ -206,7 +197,7 @@ export function resolveToolsetForSession(
               )
             ),
         )
-      : preTrim;
+      : modeFiltered;
   const tools = input.unattended
     ? afterHeadless.filter(
         (t) => !DRIVES_A_VIEW(t.name) && !UNATTENDED_DROP.has(t.name),
@@ -216,20 +207,13 @@ export function resolveToolsetForSession(
   // Sub-agent (`task`) surface: available in EVERY mode (v13 — parallel
   // read-only scouts help build/debug too, matching Claude Code's Task tool).
   // Still off on weak (maxTools-capped) profiles (a weak model orchestrating
-  // sub-agents of itself is the 1.6 failure mode) and when a user agent's
-  // allowlist excludes it.
-  const agentAllowsDelegation =
-    !userAgentTools ||
-    userAgentTools.some((t) =>
-      (DELEGATION_TOOL_NAMES as readonly string[]).includes(t),
-    );
-  const delegationAllowed =
-    capabilityProfile.maxTools == null && agentAllowsDelegation;
+  // sub-agents of itself is the 1.6 failure mode).
+  const delegationAllowed = capabilityProfile.maxTools == null;
 
   return {
     tools,
     capabilityProfile,
     delegationAllowed,
-    preTrimCount: preTrim.length,
+    preTrimCount: modeFiltered.length,
   };
 }

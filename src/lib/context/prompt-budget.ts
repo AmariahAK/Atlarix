@@ -93,7 +93,6 @@ export type MeasureToolSurfaceInput = {
     provider?: string;
     builtinProviderId?: string;
   };
-  userAgentTools?: readonly string[] | null;
   unattended?: boolean;
 };
 
@@ -118,7 +117,6 @@ export function measureToolSurface(
     hasWorkspace: input.hasWorkspace,
     workspaceIntegrationEligible: input.workspaceIntegrationEligible,
     model: input.model,
-    userAgentTools: input.userAgentTools ?? null,
     unattended: input.unattended,
   });
 

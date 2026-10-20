@@ -403,8 +403,9 @@ describe("AgentSession", () => {
 
   // A1 (QA, 2/2): a `selectedAgent` left in settings (the picker that wrote it was
   // removed in v14.8.9) applied by halves to every CLI turn: its prompt, with the
-  // CLI's own Build tools, so a read-only agent could edit and run commands.
-  describe("a user agent applies whole or not at all", () => {
+  // CLI's own Build tools, so a read-only agent could edit and run commands. A
+  // turn never runs as a user agent now; agents are `task` targets only.
+  describe("a turn is never a user agent", () => {
     const toolNames = (r: { tools?: unknown[] } | undefined) =>
       (r?.tools ?? []).map((t: any) => t.function?.name ?? t.name);
     const askAgentFolder = () => {
@@ -437,25 +438,5 @@ describe("AgentSession", () => {
       }
     }, 60_000);
 
-    it("an agent the request names gets its mode's tools, not the request's", async () => {
-      llm.stop();
-      llm = startFakeLlm([{ text: "Hi." }]);
-      const electron = (await import("electron")) as any;
-      const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
-      const s = new AgentSession({ workspaceDir: askAgentFolder(), model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
-      await s.start();
-      const stream = electron.getRegisteredHandler("chat:stream");
-      electron.ipcMain.handle("chat:stream", (e: unknown, req: object) => stream(e, { ...req, agentOverride: "askagent" }));
-      try {
-        await s.submit("hello");
-        await waitFor(s, (st) => !st.busy);
-      } finally {
-        electron.ipcMain.handle("chat:stream", stream);
-      }
-      const turn = llm.requests.find((r) => r.tools?.length);
-      expect(JSON.stringify(turn?.messages)).toContain("QA ask agent");
-      // Explore's set: no file edits (its commands are permission-gated read-only).
-      expect(toolNames(turn)).not.toContain("edit_file");
-    }, 60_000);
   });
 });
