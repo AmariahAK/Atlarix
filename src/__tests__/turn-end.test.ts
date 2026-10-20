@@ -50,6 +50,12 @@ describe("classifyTurnError", () => {
     expect(classifyTurnError(late)).toEqual({ kind: "quota", httpStatus: 402 });
   });
 
+  it("a refused request keeps its status: a rejected key is auth, not just 'refused' (QA, ai-2f)", () => {
+    const rejected = api(401, '{"error":{"message":"Invalid API key provided","type":"authentication_error"}}');
+    expect(classifyTurnError(new ProviderRefusedRequestError({ error: rejected }))).toEqual({ kind: "auth", httpStatus: 401 });
+    expect(classifyTurnError(new ProviderRefusedRequestError(api(404)))).toEqual({ kind: "provider_refused", httpStatus: 404 });
+  });
+
   it("finds the status inside the SDK's wrappers", () => {
     const wrapped = Object.assign(new Error("RetryError"), { lastError: api(429) });
     expect(classifyTurnError(wrapped)).toEqual({ kind: "rate_limit", httpStatus: 429 });

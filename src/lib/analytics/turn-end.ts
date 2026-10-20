@@ -63,7 +63,8 @@ function layers(err: unknown): Record<string, unknown>[] {
     const o = cur as Record<string, unknown>;
     out.push(o);
     if (o.error && typeof o.error === "object") out.push(o.error as Record<string, unknown>);
-    cur = o.cause ?? o.lastError;
+    // ProviderRefusedRequestError keeps the provider's own error as `refusal`.
+    cur = o.cause ?? o.lastError ?? o.refusal;
   }
   return out;
 }
@@ -105,9 +106,10 @@ export function classifyTurnError(err: unknown): TurnErrorClass {
   if (/free_usage_limit|insufficient_credit/.test(body) || httpStatus === 402) return at("quota");
   if (/free_busy/.test(body)) return at("rate_limit");
   if (isContextOverflowError(err)) return at("context_overflow");
+  // Before "refused": a provider refusing a rejected key is an auth failure.
+  if (httpStatus === 401 || httpStatus === 403) return at("auth");
   if (err instanceof ProviderRefusedRequestError || name === "ProviderRefusedRequestError") return at("provider_refused");
   if (name === "ChatPromptSafetyError") return at("content_rejected");
-  if (httpStatus === 401 || httpStatus === 403) return at("auth");
   if (httpStatus === 429) return at("rate_limit");
   if (httpStatus === 408 || httpStatus === 504 || name === "TimeoutError") return at("timeout");
   if (httpStatus !== undefined && httpStatus >= 500) return at("provider_5xx");
