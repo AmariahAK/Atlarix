@@ -160,6 +160,17 @@ no `effort` on Sonnet 5 / 5.5, Opus 4.7+, Haiku 5.5 and Fable, so the API's defa
 `max`. Seen on the wire 2026-10-19. Only benchmark runs use the flag (the app, CLI and editors
 use `/effort`, which arrives as chosen); `--effort max` works today.
 
+### 8. "Maximum update depth exceeded" in the window, once (Sentry ATLARIX-3Z)
+
+Six events on 2026-10-08, all from 15.1.0 on one Mac (the owner's, by the device); none since,
+on any release. No component stack or breadcrumbs (the window's Sentry sends neither), and no
+source maps then. The minified chain: React's root event listener → an `onChange` → a jotai
+atom write in `chatAtoms` → the loop. So an input's change handler writes a chat atom whose
+subscribers write back. Not mapped on purpose: builds now carry hidden source maps (1ef9c8dd),
+so a recurrence resolves straight from Sentry. If it recurs, resolve its frames and fix there;
+to map the old one, build tag v15.1.0 with `build.sourcemap: "hidden"` and resolve
+`index-DiRzEsx2.js` 751:43960 and 792:92224.
+
 ---
 
 ## ⚠️ Known and NOT fixed — deliberately, with reasons
