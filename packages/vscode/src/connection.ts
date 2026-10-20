@@ -350,9 +350,18 @@ export class AtlarixConnection {
   }
 
   dispose(): void {
+    const child = this.child;
     this.conn?.close();
-    this.child?.kill();
     this.conn = null;
     this.child = null;
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    // EOF, not a kill: the agent closes its sessions, runs its exit sweep and
+    // releases its temp lease, then exits (bounded). Killed, it never did on
+    // Windows, where kill() is TerminateProcess (QA E11). The kill is only for
+    // one that hangs.
+    child.stdin?.end();
+    const backstop = setTimeout(() => child.kill(), 5_000);
+    backstop.unref?.();
+    child.once("exit", () => clearTimeout(backstop));
   }
 }
