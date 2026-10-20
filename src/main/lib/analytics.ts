@@ -528,12 +528,29 @@ export function trackTier(tier: string): void {
 }
 
 let sessionStarted = false;
+/** A start that could not be sent yet (analytics off), sent once they come on. */
+let pendingStart: Record<string, unknown> | null = null;
 
 /** Once per process: the app opened, the CLI started, or an editor's first session. */
 export function trackSessionStarted(properties?: Record<string, unknown>): void {
   if (sessionStarted) return;
+  if (!isOptedIn()) {
+    pendingStart ??= properties ?? {};
+    return;
+  }
   sessionStarted = true;
+  pendingStart = null;
   captureSafe("session_started", properties);
+}
+
+/**
+ * Analytics just came on (the consent answer, the CLI's /analytics, the
+ * editor's own telemetry switch): this process's start and today's active day,
+ * which were not sent while they were off, are sent now, once each.
+ */
+export function trackAnalyticsTurnedOn(): void {
+  if (pendingStart && !sessionStarted) trackSessionStarted(pendingStart);
+  trackActiveDay();
 }
 
 /**

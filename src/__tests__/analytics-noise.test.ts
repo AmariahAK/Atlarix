@@ -31,7 +31,7 @@ vi.mock("../main/settings", () => ({ readSettings: settings, writeSettings: writ
 vi.mock("../../main/settings", () => ({ readSettings: settings, writeSettings: write, isSecretEncryptionAvailable: () => true }));
 
 process.env.POSTHOG_API_KEY = "phc_test";
-const { trackTier, trackActiveDay } = await import("@/main/lib/analytics");
+const { trackTier, trackActiveDay, trackSessionStarted } = await import("@/main/lib/analytics");
 
 beforeEach(() => {
   captured.length = 0;
@@ -99,5 +99,22 @@ describe("active_day", () => {
     // The handler's write is what turns it on (the store overrides `consent`).
     await handlers.get("set-user-settings")!({}, { telemetryConsent: "opted_in" });
     expect(days()).toHaveLength(1);
+  });
+});
+
+describe("session_started", () => {
+  it("a process that started with analytics off says so once they are turned on (QA, ai-48)", async () => {
+    consent = "opted_out";
+    trackSessionStarted({ how: "launch" });
+    expect(captured.filter((c) => c.event === "session_started")).toHaveLength(0);
+    const { registerSettingsHandlers } = await import("@/ipc/handlers/settings_handlers");
+    registerSettingsHandlers();
+    await handlers.get("set-user-settings")!({}, { telemetryConsent: "opted_in" });
+    const started = captured.filter((c) => c.event === "session_started");
+    expect(started).toHaveLength(1);
+    expect(started[0]!.properties.how).toBe("launch");
+    // Still once per process.
+    trackSessionStarted({ how: "launch" });
+    expect(captured.filter((c) => c.event === "session_started")).toHaveLength(1);
   });
 });

@@ -700,11 +700,15 @@ export const realServices: CliServices = {
       const { writeSettings } = await import("@/main/settings");
       writeSettings({ telemetryConsent: v });
       // Analytics just turned on (the CLI's /analytics, an editor's question):
-      // today counts as an active day from now.
-      if (v === "opted_in") await import("@/main/lib/analytics").then((m) => m.trackActiveDay()).catch(() => {});
+      // this process's start and today's active day.
+      if (v === "opted_in") await import("@/main/lib/analytics").then((m) => m.trackAnalyticsTurnedOn()).catch(() => {});
     },
     track(event, properties) {
-      void import("@/main/lib/analytics").then((m) => m.captureSafe(event, properties)).catch(() => {});
+      // The start goes through its own path: once per process, and kept until
+      // analytics come on if they are off now.
+      void import("@/main/lib/analytics")
+        .then((m) => (event === "session_started" ? m.trackSessionStarted(properties) : m.captureSafe(event, properties)))
+        .catch(() => {});
     },
   },
   account: {

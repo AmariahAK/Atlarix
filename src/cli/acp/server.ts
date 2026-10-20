@@ -199,8 +199,8 @@ export function buildAgentApp(
       if (ctx.params.enabled === false) process.env.ATLARIX_HOST_TELEMETRY = "off";
       else {
         delete process.env.ATLARIX_HOST_TELEMETRY;
-        // Back on: today counts as an active day from now (sent once a day).
-        await import("@/main/lib/analytics").then((m) => m.trackActiveDay()).catch(() => {});
+        // Back on: this process's start and today's active day, sent once each.
+        await import("@/main/lib/analytics").then((m) => m.trackAnalyticsTurnedOn()).catch(() => {});
       }
       return { enabled: ctx.params.enabled !== false };
     })

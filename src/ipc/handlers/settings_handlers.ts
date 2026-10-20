@@ -6,7 +6,7 @@ import { readSettings, isSecretEncryptionAvailable } from "../../main/settings";
 import {
   trackAcquisitionSource,
   trackPeerPushPrompt,
-  trackActiveDay,
+  trackAnalyticsTurnedOn,
   getSignedInUserId,
 } from "../../main/lib/analytics";
 import { ACQUISITION_DETAIL_MAX } from "../../lib/community/acquisition";
@@ -47,8 +47,8 @@ export function registerSettingsHandlers() {
       // Mode and model choices reach analytics on the next turn
       // (`turn_completed.changed`), from every surface, not from here.
       const next = readSettings();
-      // Analytics just turned on: today counts as an active day from now.
-      if (next.telemetryConsent === "opted_in" && prev.telemetryConsent !== "opted_in") trackActiveDay();
+      // Analytics just turned on: this process's start and today's active day.
+      if (next.telemetryConsent === "opted_in" && prev.telemetryConsent !== "opted_in") trackAnalyticsTurnedOn();
       // EVERY WINDOW, not just the one that asked. `useSettings` loads once per
       // window into a jotai atom and nothing invalidated the others, so a second
       // window kept showing stale settings until it was reloaded — which is why

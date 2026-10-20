@@ -18,6 +18,7 @@ mock.module("@/main/lib/analytics", () => ({
   ...real,
   trackSessionStarted: (p?: unknown) => void calls.push(["session_started", p]),
   trackActiveDay: () => void calls.push(["active_day", undefined]),
+  trackAnalyticsTurnedOn: () => void calls.push(["analytics_on", undefined]),
   captureSafe: (event: string, p?: unknown) => void calls.push([event, p]),
 }));
 
@@ -139,7 +140,7 @@ describe("an editor's sessions in usage analytics", () => {
     calls.length = 0;
     await e.conn.agent.request("_atlarix/host_telemetry", { enabled: true });
     expect(process.env.ATLARIX_HOST_TELEMETRY).toBeUndefined();
-    // Back on: the day is reported at once (trackActiveDay sends it once a day).
-    expect(calls.some((c) => c[0] === "active_day")).toBe(true);
+    // Back on: the process's start and the day, not sent while it was off, go now.
+    expect(calls.some((c) => c[0] === "analytics_on")).toBe(true);
   }, 30_000);
 });
