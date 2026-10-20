@@ -1207,10 +1207,9 @@ export class AcpAgent {
   private setMode(t: Thread, modeId: string): void {
     const m = MODES.find((x) => x.id === modeId);
     if (!m) throw RequestError.invalidParams(undefined, `unknown mode ${modeId}`);
-    // Another surface runs the turn: refused with why, so the editor's picker
-    // stays on the mode in force instead of silently not switching (A6).
-    const waits = t.session.setMode(m.id);
-    if (waits) throw RequestError.invalidRequest(undefined, waits);
+    // Running in another surface: the mode waits for that turn (the session says so).
+    const refused = t.session.setMode(m.id);
+    if (refused) throw RequestError.invalidRequest(undefined, refused);
   }
 
   async closeAll(): Promise<void> {
