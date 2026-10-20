@@ -88,7 +88,9 @@ function go(v: View): void {
     C.focusInput();
     return;
   }
-  stack.push(v);
+  // The page already on top is drawn again, not stacked twice: Back would show it again.
+  if (stack.at(-1)?.name === v.name) stack[stack.length - 1] = v;
+  else stack.push(v);
   page.classList.remove("hidden");
   page.scrollTop = 0;
   if (v.name === "history") void renderHistory(page, navApi);

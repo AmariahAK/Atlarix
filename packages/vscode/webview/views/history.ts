@@ -108,7 +108,9 @@ export async function renderHistory(page: HTMLElement, nav: Nav): Promise<void> 
     const item = el("div", `hrow${r.sessionId === state.sessionId ? " current" : ""}`);
     const open = button("", "hrow__open", () => {
       post({ type: "load-session", sessionId: r.sessionId, ...(r.folder ? { folder: r.folder } : {}) });
-      nav.back();
+      // The chat, whatever this page was opened over: "back" could land on this
+      // page again and cover the chat it opened (QA E15).
+      nav.go({ name: "chat" });
     });
     const meta = [r.mode ? (MODE_NAME[r.mode] ?? r.mode) : "", relTime(r.updatedAt), scope === "all" && r.folderName ? r.folderName : ""].filter(Boolean).join(" · ");
     open.append(el("span", "hrow__title", r.title || "Untitled"), el("span", "hrow__meta", meta));
