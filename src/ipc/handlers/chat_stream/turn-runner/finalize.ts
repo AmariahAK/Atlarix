@@ -453,6 +453,8 @@ export async function finalizeTurn(
                 ...(ctx.turnCacheCreationTokens > 0
                   ? { cacheCreationInputTokens: ctx.turnCacheCreationTokens }
                   : {}),
+                // The largest request's size picks a context-priced tier.
+                ...(ctx.maxTokensUsed ? { contextTokens: ctx.maxTokensUsed } : {}),
               }
             : null,
           ctx.turnActualCostUsd > 0 ? ctx.turnActualCostUsd : null,

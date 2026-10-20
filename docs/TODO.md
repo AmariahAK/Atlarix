@@ -1,9 +1,10 @@
 # Atlarix TODO
 
-**Current version:** 15.9.1 (2026-10-18): the newest Claude models (Sonnet 5 / 5.5, Opus 4.7+, Haiku
-5.5, Fable) think adaptively with `/effort` instead of refusing a token budget. 15.9.0 brought providers you
-add on the Anthropic API format (Bedrock, gateways), Build mode's lasting prompt cache and a faster CLI
-start. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.9.2 (2026-10-18): a leaner prompt, and browser and DeepSeek fixes. 15.9.1
+brought adaptive thinking on the newest Claude models (Sonnet 5 / 5.5, Opus 4.7+, Haiku 5.5, Fable)
+with `/effort`; 15.9.0 brought providers you add on the Anthropic API format (Bedrock, gateways),
+Build mode's lasting prompt cache and a faster CLI start. Narrative in
+[`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -17,16 +18,27 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-17
+**Last updated:** 2026-10-19
 
 ---
 
 ## 🔨 In flight — landed on dev, not yet released
 
-Nothing.
+- **Analytics: `workspace_opened` once per workspace per run** (2435dd2c), not on every read
+  (it was ~113 per person per week).
+- **The cost line prices Claude from the catalog.** A direct turn (your own key, Bedrock, a provider
+  on the Anthropic format) is now priced from the models.dev row for that provider and model, not
+  only a static table. That table had no Fable, so a Fable turn showed no cost, and it priced
+  the 5.5 models at 4.x rates (Haiku 5.5 at 10x: $1/$5 for $0.10/$0.50). Haiku 5.5's
+  over-100k-context price applies once a request passes 100k. Cache writes on the Anthropic format
+  are priced at the 1h rate (2x input) the header is written at, not 1.25x.
+  `src/lib/routing/byok-pricing.ts`, published from `src/lib/models_dev.ts`.
 
-**Not verified live (15.9.1):** this AWS account is refused the newest Claude models ("not available
-for this account"; AWS Sales request sent 2026-10-18). Run one Sonnet 5.5 turn with thinking on once access opens.
+**Verified live 2026-10-19 (15.9.1, unchanged in 15.9.2), on the real Anthropic API:** Sonnet 5.5,
+Opus 5.5, Haiku 5.5 and Fable 5.1 get `thinking: adaptive` + `output_config.effort` as chosen
+(`low` and `max` checked); Haiku 4.5 still gets a budget; a provider on the Anthropic format
+pointed at api.anthropic.com reads 24.4k of the Build prompt from cache on the second message.
+Bedrock's newest-model access (AWS Sales request 2026-10-18) is no longer needed for this check.
 
 **Known limit from 15.9.0:** Bedrock reads the request body before the key, so a bad Bedrock
 token is only caught by the first message (it fails cleanly; nothing is billed). A key-prefix
@@ -140,6 +152,13 @@ Still missing:
 literal word "atlarix" and /pricing had never been crawled: the bottleneck is AUTHORITY, not
 markup. The movement comes from third-party pages (the CWS listing, the GitHub Marketplace
 listing, launches).
+
+### 7. Headless `--deep-thinking` sends no level on adaptive Claude
+
+`atlarix run --deep-thinking` ("the model's highest reasoning level") sends adaptive thinking with
+no `effort` on Sonnet 5 / 5.5, Opus 4.7+, Haiku 5.5 and Fable, so the API's default applies, not
+`max`. Seen on the wire 2026-10-19. Only benchmark runs use the flag (the app, CLI and editors
+use `/effort`, which arrives as chosen); `--effort max` works today.
 
 ---
 

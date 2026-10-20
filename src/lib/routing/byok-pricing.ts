@@ -12,12 +12,20 @@
  *      `actualCostUsd` and it wins outright.
  *   2. OpenRouter-routed models — the cached model row's `pricing`
  *      (per-token USD strings) is authoritative and always current.
- *   3. Direct BYOK (anthropic/openai/…) — a small static table below.
- * If neither yields a price, return null — NEVER guess a number (a wrong
+ *   3. Direct BYOK (anthropic/openai/bedrock/…) — the models.dev catalog's
+ *      row for that provider and model (bundled, refreshed hourly), so a new
+ *      model is priced the day the catalog lists it. The static table missed
+ *      Fable entirely and priced the 5.5 models at 4.x rates.
+ *   4. A small static table below, for routes the catalog has no row for.
+ * If none yields a price, return null — NEVER guess a number (a wrong
  * spend figure is worse than no figure).
  *
  * v13.2 cache-aware: cached reads are billed at the provider's cache-read
- * rate (Anthropic 0.1×, OpenAI 0.1–0.5×), Anthropic cache writes at 1.25×.
+ * rate (Anthropic 0.1×, OpenAI 0.1–0.5×). Anthropic cache writes are 2× input
+ * wherever Atlarix speaks Anthropic's format: the system header is cached for
+ * an hour (anthropic-cache-breakpoints.ts), and its write is nearly all of a
+ * turn's. The catalog's `cache_write` is the 5-minute 1.25×; the history
+ * breakpoints that do write at that rate are small, so 2× errs slightly high.
  * Token semantics differ per provider family:
  *   - anthropic/bedrock-style: `inputTokens` EXCLUDES cache reads/writes
  *     (they arrive separately as cachedInputTokens / cacheCreationInputTokens)
@@ -26,12 +34,17 @@
  * Missing cache rate → those tokens fall back to the full input rate
  * (conservative overstatement, never null).
  *
- * Static Claude rates verified via the claude-api skill (per 1M tokens):
+ * The static Claude rates are the 4.x family's (per 1M tokens), a fallback
+ * only for routes the catalog has no row for (a Claude model behind an
+ * OpenAI-compatible proxy):
  *   Opus 4.x:   $5 in / $25 out      Sonnet 4.x: $3 in / $15 out
  *   Haiku 4.5:  $1 in / $5 out
- * Keep these in sync with the claude-api skill on model launches.
  */
 
+import {
+  anthropicCatalogModelId,
+  anthropicFormatCapabilityId,
+} from "./custom-provider-format";
 import { getCachedOpenRouterModelRow } from "./tier-context-limits";
 
 interface PerMillionRate {
@@ -123,6 +136,59 @@ export interface TurnUsageSplit {
   cachedInputTokens?: number;
   /** Cache-write tokens (`usage.inputTokenDetails.cacheWriteTokens`). */
   cacheCreationInputTokens?: number;
+  /** The turn's largest single request: picks a context-priced tier (Haiku 5.5 over 100k). */
+  contextTokens?: number;
+}
+
+/** A models.dev `cost` row: USD per million tokens. */
+export interface CatalogCost {
+  input: number;
+  output: number;
+  cache_read?: number;
+  cache_write?: number;
+  /** Higher rates once a request's context passes `tier.size`. */
+  tiers?: Array<Omit<CatalogCost, "tiers"> & { tier?: { type?: string; size?: number } }>;
+}
+
+/** Keys: `${providerId}:${modelId}`, lowercased. Written on every catalog load. */
+const catalogCostById = new Map<string, CatalogCost>();
+
+/** Replace the catalog's prices (models_dev.ts, on every load or refresh). */
+export function registerModelsDevPrices(
+  entries: ReadonlyArray<{ providerId: string; modelId: string; cost: CatalogCost }>,
+): void {
+  catalogCostById.clear();
+  for (const e of entries) {
+    catalogCostById.set(`${e.providerId}:${e.modelId}`.toLowerCase(), e.cost);
+  }
+}
+
+function toRate(c: Omit<CatalogCost, "tiers">): PerMillionRate {
+  return {
+    inputPerMtok: c.input,
+    outputPerMtok: c.output,
+    ...(typeof c.cache_read === "number" ? { cacheReadPerMtok: c.cache_read } : {}),
+    ...(typeof c.cache_write === "number" ? { cacheWritePerMtok: c.cache_write } : {}),
+  };
+}
+
+/** The catalog's rate for this provider's model, at the tier the request's context reached. */
+function catalogRate(
+  model: { name: string; builtinProviderId?: string },
+  contextTokens: number | undefined,
+): PerMillionRate | null {
+  if (!model.builtinProviderId) return null;
+  // A provider added on the Anthropic format is priced from Anthropic's row,
+  // under the id Anthropic's catalog uses (Bedrock's is longer).
+  const providerId = anthropicFormatCapabilityId(model.builtinProviderId);
+  const modelId = providerId === model.builtinProviderId ? model.name : anthropicCatalogModelId(model.name);
+  const cost = catalogCostById.get(`${providerId}:${modelId}`.toLowerCase());
+  // Zero is how the catalog lists a model it has no price for (local, free tiers).
+  if (!cost || !(cost.input > 0 || cost.output > 0)) return null;
+  const tier = (cost.tiers ?? [])
+    .filter((t) => t.tier?.type === "context" && (t.tier.size ?? Infinity) < (contextTokens ?? 0))
+    .sort((a, b) => (b.tier?.size ?? 0) - (a.tier?.size ?? 0))[0];
+  return toRate(tier ?? cost);
 }
 
 /** Pull input/output token counts from an AI-SDK usage object (provider-shape tolerant). */
@@ -160,10 +226,10 @@ export function inputOutputTokensFromUsage(
   };
 }
 
-function rateForModel(model: {
-  name: string;
-  builtinProviderId?: string;
-}): PerMillionRate | null {
+function rateForModel(
+  model: { name: string; builtinProviderId?: string },
+  contextTokens?: number,
+): PerMillionRate | null {
   // 1. OpenRouter cached row (per-TOKEN USD strings → per-MTok).
   if (model.builtinProviderId === "openrouter" || model.name.includes("/")) {
     const row = getCachedOpenRouterModelRow(model.name) as
@@ -197,7 +263,10 @@ function rateForModel(model: {
       }
     }
   }
-  // 2. Static table.
+  // 2. The catalog's row for this provider.
+  const fromCatalog = catalogRate(model, contextTokens);
+  if (fromCatalog) return fromCatalog;
+  // 3. Static table.
   for (const { test, rate } of STATIC_RATES) {
     if (test.test(model.name)) return rate;
   }
@@ -235,13 +304,17 @@ export function estimateTurnCostUsd(
     return Math.round(actualCostUsd * 1e6) / 1e6;
   }
   if (!usage) return null;
-  const rate = rateForModel(model);
+  const rate = rateForModel(model, usage.contextTokens);
   if (!rate) return null;
 
   const cachedRead = usage.cachedInputTokens ?? 0;
   const cacheWrite = usage.cacheCreationInputTokens ?? 0;
   const readRate = rate.cacheReadPerMtok ?? rate.inputPerMtok;
-  const writeRate = rate.cacheWritePerMtok ?? rate.inputPerMtok;
+  // Speaking Anthropic's format, the header is written for an hour: 2× input.
+  const writeRate =
+    anthropicFormatCapabilityId(model.builtinProviderId) === "anthropic"
+      ? 2 * rate.inputPerMtok
+      : (rate.cacheWritePerMtok ?? rate.inputPerMtok);
 
   const fullRateInput = Math.max(
     0,
