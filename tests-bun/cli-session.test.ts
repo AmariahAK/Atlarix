@@ -201,6 +201,8 @@ describe("AgentSession", () => {
     expect(s.state.approvals.map((a: any) => a.operationId)).toEqual(["op_a"]);
     s.onSend("operation-status", { operationId: "op_a", status: "completed" });
     expect(s.state.approvals).toEqual([]);
+    // Nobody answered these here: no "You approved" line for either.
+    expect(s.state.cells.some((c: any) => c.id.startsWith("approved:"))).toBe(false);
   }, 60_000);
 
   it("thinking and the answer reach the screen as they stream, though main keeps writing the row it sent", async () => {
@@ -242,6 +244,11 @@ describe("AgentSession", () => {
     await waitFor(s, (st) => !st.busy);
     expect(fs.existsSync(path.join(ws, "doomed.txt"))).toBe(false);
     expect(s.state.cells.filter((c: any) => c.kind !== "footer").at(-1)).toMatchObject({ kind: "markdown", text: "Removed." });
+    // What you approved, under the command that asked (as Codex CLI and Claude Code do).
+    const cells = s.state.cells as any[];
+    const at = cells.findIndex((c) => c.id === `approved:${req.operationId}`);
+    expect(cells[at]).toMatchObject({ kind: "notice", level: "info", text: "✓ You approved Atlarix to run `rm doomed.txt` this time" });
+    expect(cells[at - 1]).toMatchObject({ kind: "tool" });
   }, 60_000);
 
   it("Esc stops a long command: the turn ends, the tool reads interrupted, the process is gone, the session lives on", async () => {

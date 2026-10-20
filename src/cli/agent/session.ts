@@ -31,6 +31,7 @@ import {
 } from "./transcript";
 
 import { conversationText } from "./btw";
+import { approvalConfirmation } from "./approval-choices";
 import { inlinePlan } from "./inline-plan";
 import { handler } from "./ipc";
 import { readCliState, turnModelFor } from "./models";
@@ -246,8 +247,15 @@ export async function changeFolderSession(sessionId: string, change: { rename: s
 
 let interjectionSeq = 0;
 
-/** A "◇ … finished · 21s" line, kept under the line that was last when it finished. */
-export type WakeNote = { id: string; afterCellId: string; afterMessageId: string; text: string };
+/**
+ * A "◇ … finished · 21s" line, kept under the line that was last when it
+ * finished. `cellId` names a note that is not a wake: "approved:<op>", the line
+ * an answered approval leaves (approvalConfirmation).
+ */
+export type WakeNote = { id: string; afterCellId: string; afterMessageId: string; text: string; cellId?: string };
+
+/** Notes placed by placeWakeNotes: never the anchor for another one. */
+const isNoteCell = (id: string) => id.startsWith("wake:") || id.startsWith("approved:");
 
 /**
  * Put each wake note after the line that was last when it finished. Anchoring
@@ -272,8 +280,8 @@ export function placeWakeNotes(cells: readonly Cell[], notes: readonly WakeNote[
         }
       }
     }
-    while (at < out.length && out[at]!.id.startsWith("wake:")) at++;
-    out.splice(at, 0, { kind: "notice", id: `wake:${n.id}`, level: "info", text: n.text });
+    while (at < out.length && isNoteCell(out[at]!.id)) at++;
+    out.splice(at, 0, { kind: "notice", id: n.cellId ?? `wake:${n.id}`, level: "info", text: n.text });
   }
   return out;
 }
@@ -282,7 +290,7 @@ export function placeWakeNotes(cells: readonly Cell[], notes: readonly WakeNote[
 function lastAnchorCell(cells: readonly Cell[]): string {
   for (let i = cells.length - 1; i >= 0; i--) {
     const c = cells[i]!;
-    if (c.kind === "recap" || c.kind === "footer" || c.id.startsWith("wake:") || c.id.includes(":turn-notice")) continue;
+    if (c.kind === "recap" || c.kind === "footer" || isNoteCell(c.id) || c.id.includes(":turn-notice")) continue;
     return c.id;
   }
   return "";
@@ -1602,7 +1610,22 @@ export class AgentSession extends EventEmitter {
     operationId: string,
     approvalMode: "once" | "deny" | "always_allow" | "always_allow_file" | "always_allow_directory",
   ): Promise<void> {
-    this.update({ approvals: this.state.approvals.filter((a) => a.operationId !== operationId) });
+    const answered = this.state.approvals.find((a) => a.operationId === operationId);
+    const line = answered ? approvalConfirmation(answered, approvalMode) : null;
+    // Under the line that asked: the tool call the turn is waiting on is the last one now.
+    if (line) {
+      this.wakeNotes.push({
+        id: operationId,
+        cellId: `approved:${operationId}`,
+        afterCellId: lastAnchorCell(this.state.cells),
+        afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
+        text: line,
+      });
+    }
+    this.update({
+      approvals: this.state.approvals.filter((a) => a.operationId !== operationId),
+      ...(line ? { cells: this.cellsFor(this.state.busy) } : {}),
+    });
     await (await handler("execute-permission"))({}, {
       chatId: this.chatId,
       operationId,
