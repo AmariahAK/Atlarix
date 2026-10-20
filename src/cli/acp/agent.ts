@@ -277,6 +277,15 @@ class Thread {
     return { message };
   }
 
+  /**
+   * The turn was stopped: here (session/cancel), or from another surface,
+   * whose Stop lands as Esc in the session and not through this editor; then
+   * this turn's footer says so. It ended as a normal finish (QA E12).
+   */
+  private stopped(turn: { cancelled: boolean }, cellsBefore: ReadonlySet<string>): boolean {
+    return turn.cancelled || this.session.state.cells.some((c) => c.kind === "footer" && !!c.interrupted && !cellsBefore.has(c.id));
+  }
+
   /** Updates go out in order: each waits for the one before it. */
   private send(update: SessionUpdate): Promise<unknown> {
     this.chain = this.chain
@@ -511,6 +520,7 @@ class Thread {
   async resend(messageId: number, text: string, restore: boolean): Promise<PromptResponse> {
     if (this.session.state.busy) throw RequestError.invalidParams(undefined, "Wait for this turn to finish (or stop it), then go back.");
     const preview = restore ? await this.session.undoPreview(messageId) : null;
+    const cellsBefore = new Set(this.session.state.cells.map((c) => c.id));
     const turn = { done: () => {}, cancelled: false };
     const finished = new Promise<void>((resolve) => (turn.done = resolve));
     this.turn = turn;
@@ -531,7 +541,7 @@ class Thread {
     for (const u of diffUpdates(this.session.state.cells, this.emitted, { ids: this.extras() })) void this.send(u);
     await this.afterTurn();
     await this.flush();
-    if (turn.cancelled) return { stopReason: "cancelled" };
+    if (this.stopped(turn, cellsBefore)) return { stopReason: "cancelled" };
     const err = this.session.state.lastError;
     if (err && err !== errorBefore) throw RequestError.internalError(undefined, err);
     // Files the restore left alone (changed since): Atlarix's extension says so.
@@ -729,6 +739,7 @@ class Thread {
         void this.send({ sessionUpdate: "plan", entries: [] });
       }
     }
+    const cellsBefore = new Set(this.session.state.cells.map((c) => c.id));
     const turn = { done: () => {}, cancelled: false };
     const finished = new Promise<void>((resolve) => (turn.done = resolve));
     this.turn = turn;
@@ -758,7 +769,7 @@ class Thread {
     for (const u of diffUpdates(this.session.state.cells, this.emitted)) void this.send(u);
     await this.afterTurn();
     await this.flush();
-    if (turn.cancelled) return { stopReason: "cancelled" };
+    if (this.stopped(turn, cellsBefore)) return { stopReason: "cancelled" };
     const err = this.session.state.lastError;
     if (err && err !== errorBefore && err.includes(AUTO_CONSENT_MARKER)) return this.autoConsent();
     if (err && err !== errorBefore) {
@@ -793,6 +804,7 @@ class Thread {
       });
       return { stopReason: "end_turn" };
     }
+    const cellsBefore = new Set(this.session.state.cells.map((c) => c.id));
     const turn = { done: () => {}, cancelled: false };
     const finished = new Promise<void>((resolve) => (turn.done = resolve));
     this.turn = turn;
@@ -806,7 +818,7 @@ class Thread {
     for (const u of diffUpdates(this.session.state.cells, this.emitted)) void this.send(u);
     await this.afterTurn();
     await this.flush();
-    if (turn.cancelled) return { stopReason: "cancelled" };
+    if (this.stopped(turn, cellsBefore)) return { stopReason: "cancelled" };
     const err = this.session.state.lastError;
     if (err) throw RequestError.internalError(undefined, err);
     return { stopReason: "end_turn" };

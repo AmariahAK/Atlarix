@@ -40,10 +40,13 @@ async function editor(
   const { AcpAgent } = await import("../src/cli/acp/agent");
   const { buildAgentApp } = await import("../src/cli/acp/server");
   const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });
+  /** The sessions the editor's threads run, for a test to reach past ACP. */
+  const sessions: InstanceType<typeof AgentSession>[] = [];
   const agent = new AcpAgent({
     createSession: async (cwd) => {
       const s = new AgentSession({ workspaceDir: cwd, model, surface: "editor", idlePeerMessages: "hold" });
       await s.start();
+      sessions.push(s);
       return s;
     },
     models: async () => ({ options: [{ ...model, label: "Fake" }], current: model }),
@@ -83,7 +86,7 @@ async function editor(
       .filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "agent_message_chunk")
       .map((u) => ((u.update as { content: { text?: string } }).content.text ?? ""))
       .join("");
-  return { llm, agent, conn, init, updates, asked, text, ext };
+  return { llm, agent, conn, init, updates, asked, text, ext, sessions };
 }
 
 describe("atlarix acp", () => {
@@ -327,6 +330,19 @@ describe("atlarix acp", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(JSON.stringify(e.llm.requests)).not.toContain("/compact");
     expect(e.llm.requests.filter((q) => q.tools?.length)).toHaveLength(2);
+  }, 60_000);
+
+  it("a turn stopped from another surface ends as stopped, not finished (QA E12)", async () => {
+    const e = await editor([{ tool: "run_command", args: { command: "sleep 30", description: "wait long" } }, { text: "unused" }]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const turn = e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "wait" }] });
+    for (const t0 = Date.now(); !e.updates.some((u) => u.update.sessionUpdate === "tool_call"); ) {
+      if (Date.now() - t0 > 20_000) throw new Error("the turn never started its command");
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // What another surface's Stop delivers to the process running the turn.
+    (e.sessions.at(-1) as unknown as { onSend(channel: string, payload: unknown): void }).onSend("chat:remote-stop", {});
+    expect((await turn).stopReason).toBe("cancelled");
   }, 60_000);
 
   it("switches mode through the config option and the legacy set_mode", async () => {
