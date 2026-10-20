@@ -30,7 +30,8 @@ after it is saved.
 background result can't land in another session, `/undo` snapshots never collide, temp files are cleaned
 without touching another running Atlarix (an older version included), and the daily cleanup never removes a
 session something still has open. A folder reached through a symlink is one workspace, and merging
-duplicates keeps their automations, hooks and stats.
+duplicates keeps their automations, hooks and stats. Two surfaces starting at the same moment get a session each, and two Atlarix opening a new
+profile together both start: before, one could fail and, retrying, delete the database the other was creating.
 
 **Smaller fixes.** Web sources show as a list of links, never raw JSON, in the CLI and editors; the VS Code
 panel has a copy button on code blocks and renders `[text](url)` links (as does the Chrome extension);
