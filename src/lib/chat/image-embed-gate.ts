@@ -51,16 +51,20 @@ export function pdfUnsupportedUserMessage(): string {
  * and the image matcher's broader "unsupported" clauses would otherwise claim a
  * document rejection and send the user hunting for a vision model.
  */
-export function isPdfContentRejectionError(err: unknown): boolean {
+export function isPdfContentRejectionError(err: unknown, sentDocument: boolean): boolean {
+  // Nothing to reject: Anthropic ends EVERY error with "Please consult our
+  // documentation at …", and a 400 about max_tokens on a turn with no PDF read as
+  // "The PDF you attached couldn't be sent" (E1, 2026-10-20).
+  if (!sentDocument) return false;
   const msg = collectErrorText(err);
   if (!msg) return false;
 
   const mentionsFilePart =
     msg.includes("input_file") ||
     msg.includes("file_url") ||
-    msg.includes("document") ||
+    /\bdocument\b/.test(msg) ||
     msg.includes("application/pdf") ||
-    msg.includes("pdf");
+    /\bpdf\b/.test(msg);
   if (!mentionsFilePart) return false;
 
   return (
@@ -74,6 +78,18 @@ export function isPdfContentRejectionError(err: unknown): boolean {
     msg.includes("unsupported") ||
     msg.includes("does not accept") ||
     msg.includes("not a valid")
+  );
+}
+
+/**
+ * Did this request carry a document (a `file` part that is not an image)? PDFs
+ * ride as `file` parts beside images (message-postprocess.ts).
+ */
+export function requestHasDocumentPart(messages: ReadonlyArray<{ content: unknown }>): boolean {
+  return messages.some(
+    (m) =>
+      Array.isArray(m.content) &&
+      m.content.some((p: { type?: string; mediaType?: string }) => p?.type === "file" && !p.mediaType?.startsWith("image/")),
   );
 }
 

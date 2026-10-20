@@ -56,6 +56,7 @@ import {
   isImageContentRejectionError,
   imageUnsupportedUserMessage,
   isPdfContentRejectionError,
+  requestHasDocumentPart,
   pdfUnsupportedUserMessage,
 } from "@/lib/chat/image-embed-gate";
 import { sentryCaptureExceptionSafe } from "@/ipc/handlers/chat_stream/sentry-safe";
@@ -1055,7 +1056,7 @@ export async function simpleStreamText(
       // Only Core INFRA errors (reachability / core_unavailable) warrant a
       // Sentry event; a user running out of credit (402) is expected state.
       let isCompassInfraError = false;
-      if (isPdfContentRejectionError(error)) {
+      if (isPdfContentRejectionError(error, requestHasDocumentPart(chatMessages))) {
         // Checked BEFORE the image matcher: a turn can carry both, and
         // the image matcher's broader "unsupported" clauses would
         // otherwise claim a document rejection and send the user off

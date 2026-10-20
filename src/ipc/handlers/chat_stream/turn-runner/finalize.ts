@@ -688,8 +688,11 @@ export async function handleTurnError(
       pdfUnsupportedUserMessage,
     } = await import("@/lib/chat/image-embed-gate");
     // PDF first — same ordering reason as the streaming path: a turn can
-    // carry both, and the image matcher would otherwise claim it.
-    const contentRejectionMessage = isPdfContentRejectionError(error)
+    // carry both, and the image matcher would otherwise claim it. Only when
+    // this turn's message had a PDF: the request itself is out of scope here.
+    const turnMessage = [...(getStreamTransport(req.chatId)?.messages ?? [])].reverse().find((m) => m.role === "user");
+    const sentPdf = !!turnMessage?.fileAttachments?.some((f) => f.mimeType === "application/pdf");
+    const contentRejectionMessage = isPdfContentRejectionError(error, sentPdf)
       ? pdfUnsupportedUserMessage()
       : isImageContentRejectionError(error)
         ? imageUnsupportedUserMessage()
