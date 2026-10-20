@@ -384,9 +384,16 @@ async function main(): Promise<void> {
       startBridge: () => void startCliBridge(),
       chromeStatus,
     });
-    // The editor closed the connection: the CLI's exit sweep, bounded.
+    // The editor closed the connection: the CLI's exit sweep, and what analytics
+    // and crash reports still have queued (a short editor session sent nothing
+    // before: QA X1), bounded together well inside VS Code's 5 s kill backstop.
     const { sweepTempOnQuit } = await import("../main/temp-hygiene");
-    await Promise.race([sweepTempOnQuit().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
+    const { flushAndClose } = await import("../main/lib/analytics");
+    const Sentry = await import("@sentry/electron/main");
+    await Promise.race([
+      Promise.all([sweepTempOnQuit().catch(() => {}), flushAndClose().catch(() => {}), Sentry.flush(1000)]),
+      new Promise((r) => setTimeout(r, 1500)),
+    ]);
     process.exit(0);
   }
   if (argv[0] === "keys") {

@@ -1117,23 +1117,37 @@ export class AcpAgent {
 
   /** Sessions already reported as opened: the panel loads an open chat again on every return to it. */
   private readonly sessionsOpened = new Set<string>();
+  /** New sessions not yet used: the panel opens an empty chat by itself on every launch. */
+  private readonly unusedNew = new Set<string>();
 
   /**
    * Usage analytics for an editor session (only with consent): the process's
    * `session_started` and the day's `active_day` once, and `session_opened`
-   * once per session, saying how: new, load (a past chat) or fork.
+   * once per session, saying how: new (sent at its first prompt, so the empty
+   * chat a panel opens by itself is not a session), load (a past chat) or fork.
    */
   private reportSessionOpened(sessionId: string, how: "new" | "load" | "fork"): void {
-    if (this.sessionsOpened.has(sessionId)) return;
-    this.sessionsOpened.add(sessionId);
+    // Decided now, not after the import: a prompt can arrive before it resolves.
+    const send = how !== "new" && !this.sessionsOpened.has(sessionId);
+    if (how === "new") this.unusedNew.add(sessionId);
+    else this.sessionsOpened.add(sessionId);
     void import("@/main/lib/analytics")
       .then((m) => {
         // A failure the editor hit starting us last time (VS Code passes it).
         const hostError = process.env.ATLARIX_HOST_LAST_ERROR;
         m.trackSessionStarted(hostError ? { host_error: hostError } : undefined);
         m.trackActiveDay();
-        m.captureSafe("session_opened", { how });
+        if (send) m.captureSafe("session_opened", { how });
       })
+      .catch(() => {});
+  }
+
+  /** A new session's first prompt: now it is one. */
+  private reportFirstUse(sessionId: string): void {
+    if (!this.unusedNew.delete(sessionId) || this.sessionsOpened.has(sessionId)) return;
+    this.sessionsOpened.add(sessionId);
+    void import("@/main/lib/analytics")
+      .then((m) => m.captureSafe("session_opened", { how: "new" }))
       .catch(() => {});
   }
 
@@ -1183,8 +1197,6 @@ export class AcpAgent {
     const made = await this.forkCopy(sessionId).catch((e: Error) => {
       throw RequestError.invalidRequest(undefined, e.message);
     });
-    // Before the load below, which would otherwise count it as a past chat opened.
-    this.reportSessionOpened(made.id, "fork");
     return { sessionId: made.id, ...(await this.loadSession(cwd, made.id, mcpServers)) };
   }
 
@@ -1194,6 +1206,12 @@ export class AcpAgent {
     if (open?.state.busy) throw new Error("Wait for this turn to finish (or stop it), then fork.");
     if (open && !open.myMessages().length) throw new Error("Send a message first: there is nothing to fork yet.");
     const made = (await (await handler("sessions:fork"))({}, sessionId, title ? { title } : undefined)) as { id: string; title: string | null };
+    // Counted here, for both forks (session/fork and a typed /fork), before an
+    // editor loads the copy, which would otherwise count as a past chat opened.
+    this.sessionsOpened.add(made.id);
+    void import("@/main/lib/analytics")
+      .then((m) => m.captureSafe("session_opened", { how: "fork" }))
+      .catch(() => {});
     return { id: made.id, title: made.title ?? "Untitled" };
   }
 
@@ -1306,6 +1324,7 @@ export class AcpAgent {
   }
 
   prompt(sessionId: string, blocks: readonly ContentBlock[], meta?: unknown): Promise<PromptResponse> {
+    this.reportFirstUse(sessionId);
     return this.thread(sessionId).prompt(blocks, promptMeta(meta));
   }
 

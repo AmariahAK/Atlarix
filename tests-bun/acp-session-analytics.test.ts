@@ -74,6 +74,31 @@ describe("an editor's sessions in usage analytics", () => {
     e.llm.close?.();
   }, 60_000);
 
+  it("an empty chat the panel opens by itself is not a session until it is used", async () => {
+    calls.length = 0;
+    const e = await editor();
+    await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await settle();
+    expect(opened()).toEqual([]);
+    // The process still started (the panel opened).
+    expect(calls.some((c) => c[0] === "session_started")).toBe(true);
+  }, 60_000);
+
+  it("a typed /fork counts as a fork, and opening the copy after it does not count again", async () => {
+    calls.length = 0;
+    const e = await editor();
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
+    const before = new Set((await e.conn.agent.request<{ sessions: Array<{ sessionId: string }> }>("session/list", { cwd: ws })).sessions.map((x) => x.sessionId));
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/fork" }] });
+    await settle();
+    const copy = (await e.conn.agent.request<{ sessions: Array<{ sessionId: string }> }>("session/list", { cwd: ws })).sessions.find((x) => !before.has(x.sessionId));
+    expect(copy).toBeDefined();
+    await e.conn.agent.request("session/load", { sessionId: copy!.sessionId, cwd: ws, mcpServers: [] });
+    await settle();
+    expect(opened()).toEqual(["new", "fork"]);
+  }, 60_000);
+
   it("a process that starts on a past chat still says the session started", async () => {
     calls.length = 0;
     const first = await editor();
