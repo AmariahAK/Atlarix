@@ -1115,10 +1115,31 @@ export class AcpAgent {
     return t;
   }
 
+  /** Sessions already reported as opened: the panel loads an open chat again on every return to it. */
+  private readonly sessionsOpened = new Set<string>();
+
+  /**
+   * Usage analytics for an editor session (only with consent): the process's
+   * `session_started` and the day's `active_day` once, and `session_opened`
+   * once per session, saying how: new, load (a past chat) or fork.
+   */
+  private reportSessionOpened(sessionId: string, how: "new" | "load" | "fork"): void {
+    if (this.sessionsOpened.has(sessionId)) return;
+    this.sessionsOpened.add(sessionId);
+    void import("@/main/lib/analytics")
+      .then((m) => {
+        // A failure the editor hit starting us last time (VS Code passes it).
+        const hostError = process.env.ATLARIX_HOST_LAST_ERROR;
+        m.trackSessionStarted(hostError ? { host_error: hostError } : undefined);
+        m.trackActiveDay();
+        m.captureSafe("session_opened", { how });
+      })
+      .catch(() => {});
+  }
+
   async newSession(cwd: string, mcpServers?: unknown): Promise<NewSessionResponse> {
-    // Once per process: an editor's first session is this surface's start.
-    void import("@/main/lib/analytics").then((m) => m.trackSessionStarted()).catch(() => {});
     const t = await this.open(cwd);
+    this.reportSessionOpened(t.id, "new");
     t.editorMcpServers = sessionMcpServersFrom(mcpServers);
     await this.deps.setSessionMcpServers?.(t.id, t.editorMcpServers);
     // After the response, so the editor knows the session the list belongs to.
@@ -1133,6 +1154,7 @@ export class AcpAgent {
   ): Promise<{ configOptions: SessionConfigOption[]; modes: SessionModeState }> {
     const existing = this.threads.get(sessionId);
     const t = existing ?? (await this.open(cwd, sessionId));
+    this.reportSessionOpened(t.id, "load");
     t.editorMcpServers = sessionMcpServersFrom(mcpServers);
     await this.deps.setSessionMcpServers?.(t.id, t.editorMcpServers);
     // A thread this process already has open remembers what it sent; the
@@ -1161,6 +1183,8 @@ export class AcpAgent {
     const made = await this.forkCopy(sessionId).catch((e: Error) => {
       throw RequestError.invalidRequest(undefined, e.message);
     });
+    // Before the load below, which would otherwise count it as a past chat opened.
+    this.reportSessionOpened(made.id, "fork");
     return { sessionId: made.id, ...(await this.loadSession(cwd, made.id, mcpServers)) };
   }
 

@@ -7,7 +7,18 @@
  */
 import path from "node:path";
 import { noteTurn, ratingUrl, type RatingState } from "./rating";
-import { CONSENT_ASKED_KEY, CONSENT_DETAIL, CONSENT_QUESTION, DETAILS, NO, YES, consentFor, shouldAskConsent } from "./consent";
+import {
+  CONSENT_ASKED_KEY,
+  CONSENT_DETAIL,
+  CONSENT_QUESTION,
+  DETAILS,
+  HOST_ERROR_KEY,
+  NO,
+  YES,
+  agentTelemetryEnv,
+  consentFor,
+  shouldAskConsent,
+} from "./consent";
 import * as vscode from "vscode";
 import { findAtlarix } from "./binary";
 import { Chat, type ChatHost } from "./chat";
@@ -29,7 +40,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const askAnalyticsConsent = async (c: AtlarixConnection): Promise<void> => {
     try {
       const { consent } = await c.analyticsConsent();
-      if (!shouldAskConsent(consent, context.globalState.get<boolean>(CONSENT_ASKED_KEY) === true)) return;
+      const askedHere = context.globalState.get<boolean>(CONSENT_ASKED_KEY) === true;
+      if (!shouldAskConsent(consent, askedHere, vscode.env.isTelemetryEnabled)) return;
       await context.globalState.update(CONSENT_ASKED_KEY, true);
       let pick = await vscode.window.showInformationMessage(CONSENT_QUESTION, YES, NO, DETAILS);
       if (pick === DETAILS) {
@@ -41,6 +53,14 @@ export function activate(context: vscode.ExtensionContext): void {
       log.appendLine(`Analytics question skipped: ${(e as Error).message}`);
     }
   };
+
+  // VS Code's telemetry switch, changed while the agent runs: it stops (or
+  // resumes) the agent's analytics and crash reports at once.
+  context.subscriptions.push(
+    vscode.env.onDidChangeTelemetryEnabled((on) => {
+      if (connection?.alive) void connection.setHostTelemetry(on).catch(() => {});
+    }),
+  );
 
   const diffs = new DiffDocuments();
   const chats = new Set<Chat>();
@@ -63,6 +83,8 @@ export function activate(context: vscode.ExtensionContext): void {
     starting = (async () => {
       const found = findAtlarix(context.extensionPath, vscode.workspace.getConfiguration("atlarix").get<string>("cliPath"));
       if (found.binary === null) {
+        // Reported by the next run that starts (a word, never the path).
+        void context.globalState.update(HOST_ERROR_KEY, found.badSetting ? "cli_path_unusable" : "cli_not_found");
         if (found.badSetting) {
           void vscode.window
             .showErrorMessage(`Atlarix can't run atlarix.cliPath: ${found.badSetting}`, "Open Settings")
@@ -81,6 +103,7 @@ export function activate(context: vscode.ExtensionContext): void {
         cwd: workspace() ?? path.dirname(binary),
         version,
         editor: vscode.env.appName,
+        telemetryEnv: agentTelemetryEnv(vscode.env.isTelemetryEnabled, context.globalState.get<string>(HOST_ERROR_KEY)),
         log: (l) => log.appendLine(l),
         openUrl: (u, kind) => {
           // The agent opens its sign-in page in your browser itself; opening it
@@ -101,10 +124,13 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         await c.start();
         connection = c;
+        // Reported by this run (session_started), so forget it.
+        void context.globalState.update(HOST_ERROR_KEY, undefined);
         void askAnalyticsConsent(c);
         return c;
       } catch (e) {
         log.appendLine(`Couldn't start Atlarix: ${(e as Error).message}`);
+        void context.globalState.update(HOST_ERROR_KEY, "start_failed");
         c.dispose();
         void vscode.window.showErrorMessage(`Atlarix couldn't start: ${(e as Error).message}`, "Show log").then((s) => s && log.show());
         return null;

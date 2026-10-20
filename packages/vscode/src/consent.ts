@@ -24,10 +24,28 @@ export const YES = "Yes, that's fine";
 export const NO = "No thanks";
 export const DETAILS = "Details";
 
-/** Ask only when nobody has answered anywhere, and only once from this editor. */
-export function shouldAskConsent(consent: string, askedHere: boolean): boolean {
-  return consent === "unset" && !askedHere;
+/**
+ * Ask only when nobody has answered anywhere, only once from this editor, and
+ * never while the editor's own telemetry is off (then nothing is sent anyway).
+ */
+export function shouldAskConsent(consent: string, askedHere: boolean, hostTelemetry = true): boolean {
+  return hostTelemetry && consent === "unset" && !askedHere;
 }
+
+/**
+ * What the agent is started with: the editor's telemetry switch (off stops
+ * usage analytics and crash reports in the agent), and a failure the editor
+ * hit starting it last time, reported once by the run that does start.
+ */
+export function agentTelemetryEnv(hostTelemetry: boolean, lastHostError?: string): Record<string, string> {
+  return {
+    ...(hostTelemetry ? {} : { ATLARIX_HOST_TELEMETRY: "off" }),
+    ...(hostTelemetry && lastHostError ? { ATLARIX_HOST_LAST_ERROR: lastHostError } : {}),
+  };
+}
+
+/** Where the last failed start is remembered (a word, never the message). */
+export const HOST_ERROR_KEY = "atlarix.lastHostError";
 
 /** A button's label to the setting it stands for; anything else is no answer. */
 export function consentFor(pick: string | undefined): "opted_in" | "opted_out" | null {

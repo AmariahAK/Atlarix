@@ -6,6 +6,7 @@ import {
   YES,
   consentFor,
   shouldAskConsent,
+  agentTelemetryEnv,
 } from "../../packages/vscode/src/consent";
 
 describe("the editor asks about usage analytics once", () => {
@@ -39,5 +40,19 @@ describe("the editor asks about usage analytics once", () => {
     }
     expect(YES).toBe("Yes, that's fine");
     expect(NO).toBe("No thanks");
+  });
+});
+
+describe("VS Code's own telemetry switch", () => {
+  it("off: never asked, and the agent sends nothing", () => {
+    expect(shouldAskConsent("unset", false, false)).toBe(false);
+    expect(agentTelemetryEnv(false)).toEqual({ ATLARIX_HOST_TELEMETRY: "off" });
+    expect(agentTelemetryEnv(false, "start_failed")).toEqual({ ATLARIX_HOST_TELEMETRY: "off" });
+  });
+
+  it("on: asked as before; a failed start last time is passed on to report", () => {
+    expect(shouldAskConsent("unset", false, true)).toBe(true);
+    expect(agentTelemetryEnv(true)).toEqual({});
+    expect(agentTelemetryEnv(true, "cli_not_found")).toEqual({ ATLARIX_HOST_LAST_ERROR: "cli_not_found" });
   });
 });

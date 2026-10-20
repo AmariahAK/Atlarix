@@ -1,0 +1,98 @@
+/**
+ * An editor's sessions, for usage analytics: `session_opened` once per
+ * session saying how (new, a past chat loaded, a fork), and the process's
+ * `session_started` + `active_day`, whichever way the editor starts. Before,
+ * an editor that opened a past chat first never sent session_started, and
+ * the VS Code panel loads an open chat again every time you go back to it.
+ */
+import { beforeAll, describe, expect, it, mock } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import * as acp from "@agentclientprotocol/sdk";
+import { startFakeLlm } from "./fixtures/fake-llm";
+
+const calls: Array<[string, unknown]> = [];
+const real = await import("../src/main/lib/analytics");
+mock.module("@/main/lib/analytics", () => ({
+  ...real,
+  trackSessionStarted: (p?: unknown) => void calls.push(["session_started", p]),
+  trackActiveDay: () => void calls.push(["active_day", undefined]),
+  captureSafe: (event: string, p?: unknown) => void calls.push([event, p]),
+}));
+
+let ws: string;
+beforeAll(() => {
+  process.env.ATLARIX_USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "acp-an-ud-"));
+  process.env.ATLARIX_CLI_DEV_PROVIDER = "1";
+  process.env.ATLARIX_SURFACE = "cli";
+  process.env.ATLARIX_PEER_SURFACE = "editor";
+  ws = fs.mkdtempSync(path.join(os.tmpdir(), "acp-an-ws-"));
+});
+
+async function editor() {
+  const llm = startFakeLlm([{ text: "Hello." }, { text: "Again." }]);
+  const { AgentSession, seedDevProvider, listFolderSessions, changeFolderSession } = await import("../src/cli/agent/session");
+  const { AcpAgent } = await import("../src/cli/acp/agent");
+  const { buildAgentApp } = await import("../src/cli/acp/server");
+  const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });
+  const agent = new AcpAgent({
+    createSession: async (cwd) => {
+      const s = new AgentSession({ workspaceDir: cwd, model, surface: "editor", idlePeerMessages: "hold" });
+      await s.start();
+      return s;
+    },
+    models: async () => ({ options: [{ ...model, label: "Fake" }], current: model }),
+    rememberModel: () => {},
+    listSessions: (cwd) => listFolderSessions(cwd),
+    changeSession: (id, change) => changeFolderSession(id, change),
+  });
+  const conn = acp
+    .client({ name: "test-editor" })
+    .onNotification("session/update", () => {})
+    .connect(buildAgentApp(agent, "test"));
+  await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
+  return { llm, conn };
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 50));
+const opened = () => calls.filter((c) => c[0] === "session_opened").map((c) => (c[1] as { how: string }).how);
+
+describe("an editor's sessions in usage analytics", () => {
+  it("new, load and fork, each session once", async () => {
+    const e = await editor();
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
+    // The panel loads an open chat again each time you return to it.
+    await e.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/fork", { sessionId, cwd: ws, mcpServers: [] });
+    await settle();
+    expect(opened()).toEqual(["new", "fork"]);
+    expect(calls.some((c) => c[0] === "session_started")).toBe(true);
+    expect(calls.some((c) => c[0] === "active_day")).toBe(true);
+    e.llm.close?.();
+  }, 60_000);
+
+  it("a process that starts on a past chat still says the session started", async () => {
+    calls.length = 0;
+    const first = await editor();
+    const { sessionId } = await first.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await first.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
+    calls.length = 0;
+    const second = await editor();
+    await second.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+    await settle();
+    expect(opened()).toEqual(["load"]);
+    expect(calls.some((c) => c[0] === "session_started")).toBe(true);
+  }, 60_000);
+
+  it("the editor's telemetry switch, changed while the agent runs", async () => {
+    const e = await editor();
+    delete process.env.ATLARIX_HOST_TELEMETRY;
+    await e.conn.agent.request("_atlarix/host_telemetry", { enabled: false });
+    expect(process.env.ATLARIX_HOST_TELEMETRY).toBe("off");
+    await e.conn.agent.request("_atlarix/host_telemetry", { enabled: true });
+    expect(process.env.ATLARIX_HOST_TELEMETRY).toBeUndefined();
+  }, 30_000);
+});

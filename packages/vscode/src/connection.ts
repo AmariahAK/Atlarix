@@ -76,6 +76,8 @@ export interface ConnectionOptions {
   version: string;
   /** The host editor (VS Code, Cursor, Windsurf…), reported with usage. */
   editor?: string;
+  /** Extra environment for the agent: the editor's telemetry switch (consent.ts agentTelemetryEnv). */
+  telemetryEnv?: Record<string, string>;
   log: (line: string) => void;
   /** A page to open: Atlarix's sign-in, or an MCP server's (the CLI prints them on stderr). */
   openUrl: (url: string, kind: "sign-in" | "open") => void;
@@ -109,6 +111,7 @@ export class AtlarixConnection {
         ...process.env,
         ATLARIX_ACP_CLIENT: "vscode",
         ...(this.opts.editor ? { ATLARIX_ACP_EDITOR: this.opts.editor } : {}),
+        ...this.opts.telemetryEnv,
       },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
@@ -290,6 +293,11 @@ export class AtlarixConnection {
 
   setAnalyticsConsent(consent: "opted_in" | "opted_out"): Promise<unknown> {
     return this.agent.request("_atlarix/analytics_set", { consent });
+  }
+
+  /** The editor's telemetry switch changed while the agent runs. */
+  setHostTelemetry(enabled: boolean): Promise<unknown> {
+    return this.agent.request("_atlarix/host_telemetry", { enabled });
   }
 
   handoff(sessionId: string): Promise<unknown> {

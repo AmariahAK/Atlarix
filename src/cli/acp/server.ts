@@ -193,6 +193,13 @@ export function buildAgentApp(
       await realServices.analytics.setConsent(v);
       return { consent: v };
     })
+    // The editor's own telemetry switch, changed while we run (VS Code). Off
+    // stops usage analytics and crash reports here, whatever the Atlarix answer.
+    .onRequest("_atlarix/host_telemetry", (p) => p as { enabled?: unknown }, async (ctx) => {
+      if (ctx.params.enabled === false) process.env.ATLARIX_HOST_TELEMETRY = "off";
+      else delete process.env.ATLARIX_HOST_TELEMETRY;
+      return { enabled: ctx.params.enabled !== false };
+    })
     .onRequest("_atlarix/account", (p) => p as { sessionId?: string }, async (ctx) => {
       const { realServices } = await import("../agent/services");
       const a = realServices.account;
