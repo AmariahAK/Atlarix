@@ -3,6 +3,48 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.10.0] (2026-10-21) — live sessions and /fork everywhere, safer approvals, and compaction that works
+
+**Live sessions.** A session open in two places now stays in step. When the CLI, the app, VS Code or Zed is
+running a turn, every other surface showing that session follows it as it happens: "Running in the CLI"
+(or the app, or VS Code) with Stop. What you type there goes to the running turn, Stop stops it, and once it
+ends your next message runs where you are, with the full history. `/undo`, `/compact` and a mode change say
+why they wait instead of doing nothing. **`/fork`** copies a conversation into a new session, in the CLI, the
+app (also in the session menu), VS Code and any editor that supports forking over ACP; the original is left
+as it was, and `/undo` still restores files in the copy.
+
+**Approvals.** After you answer a card, one line says what you allowed: "You approved Atlarix to always run
+commands that start with `git` in this folder", in the CLI and in editors. A rule you save ("allow edits in
+src/") now answers the cards it covers straight away, nothing runs twice, and editors take back a card a rule
+already answered. "Always allow" in Explore and Plan saves the rule that is actually checked, so it takes.
+The check for risky commands now reads git the way git does: `git reset -q --hard`, `git -c x=y reset --hard`,
+`git -C dir …`, a command behind `timeout`, `xargs` or `env -S`, and a git alias defined inline all ask
+first; read-only modes also see a commit hidden behind git's options or an environment variable.
+
+**Compaction.** `/compact` counts what your tools returned, so a tool-heavy session is no longer "still
+short"; it summarises with the session's own model, keeps what each turn found, and says so when a summary
+fails. A request too long for the model is now compacted and retried instead of failing, and the answer
+after it is saved.
+
+**Several Atlarix at once.** Two processes on one machine no longer mix up sessions: an approval or a
+background result can't land in another session, `/undo` snapshots never collide, temp files are cleaned
+without touching another running Atlarix (an older version included), and the daily cleanup never removes a
+session something still has open. A folder reached through a symlink is one workspace, and merging
+duplicates keeps their automations, hooks and stats.
+
+**Smaller fixes.** Web sources show as a list of links, never raw JSON, in the CLI and editors; the VS Code
+panel has a copy button on code blocks and renders `[text](url)` links (as does the Chrome extension);
+`/undo` to your first message renames the session; an Anthropic error is no longer reported as a PDF you
+never attached; a turn uses its own model's output limit; the cost line prices Claude from the catalog (Fable
+and the 5.5 models were missing or priced as 4.x); VS Code tells you when its configured CLI path can't run
+instead of quietly using another; closing VS Code lets Atlarix clean up first.
+
+**Less load, better data.** The app reads your account on events, not on timers, and no longer fetches
+account skills. Analytics send one complete event per turn (how it ended and why, mode and model changes,
+approvals, compaction, sub-agents) and fewer, truer events overall; no error text, prompt or path is ever
+sent, and VS Code's own telemetry switch is honoured. The CLI and editors now send crash reports too, with
+home paths and emails removed.
+
 ## [15.9.2] (2026-10-18) — a leaner prompt, and browser and DeepSeek fixes
 
 **A leaner prompt on every turn.** Today's models need to be told what is true and what is
