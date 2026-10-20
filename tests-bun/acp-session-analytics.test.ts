@@ -112,6 +112,19 @@ describe("an editor's sessions in usage analytics", () => {
     expect(calls.some((c) => c[0] === "session_started")).toBe(true);
   }, 60_000);
 
+  it("a failed start the editor remembered is reported with the next start (E-f)", async () => {
+    calls.length = 0;
+    process.env.ATLARIX_HOST_LAST_ERROR = "cli_not_found";
+    try {
+      const e = await editor();
+      await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+      await settle();
+      expect(calls.find((c) => c[0] === "session_started")?.[1]).toEqual({ host_error: "cli_not_found" });
+    } finally {
+      delete process.env.ATLARIX_HOST_LAST_ERROR;
+    }
+  }, 60_000);
+
   it("the editor's telemetry switch, changed while the agent runs", async () => {
     const e = await editor();
     delete process.env.ATLARIX_HOST_TELEMETRY;
