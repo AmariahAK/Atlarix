@@ -3,9 +3,12 @@
  * Runs daily to clean old sessions and summarize modifications
  */
 
-import { db } from "./index";
+import os from "node:os";
+import { db, getDb } from "./index";
 import { chatSessions, workspaceModifications, cleanupLog } from "./schema";
-import { lt, and, eq, inArray } from "drizzle-orm";
+import { lt, and, eq, inArray, notInArray } from "drizzle-orm";
+import { tableExists } from "./migration_seed_verification";
+import { LIVE_SESSIONS_TABLE, PEER_STALE_MS } from "@/lib/peers/peers";
 import log from "electron-log";
 import { schedule } from "node-cron";
 
@@ -14,15 +17,31 @@ const logger = log.scope("cleanup-jobs");
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * Delete workspace chat sessions not updated in 30 days.
+ * Sessions an Atlarix on this machine has open now (this one included), from
+ * the live-sessions registry: an idle session can sit open well past 30 days.
+ */
+function sessionsHeldOpen(): string[] {
+  const sqlite = getDb().$client;
+  if (!tableExists(sqlite, LIVE_SESSIONS_TABLE)) return [];
+  const rows = sqlite
+    .prepare(`SELECT DISTINCT session_id FROM ${LIVE_SESSIONS_TABLE} WHERE last_seen > ? AND host = ?`)
+    .all(Date.now() - PEER_STALE_MS, os.hostname()) as Array<{ session_id: string }>;
+  return rows.map((r) => r.session_id);
+}
+
+/**
+ * Delete workspace chat sessions not updated in 30 days, except one a running
+ * Atlarix holds open: deleting it under that process lost what it saved next.
  */
 async function cleanupOldSessions(): Promise<number> {
   const thirtyDaysAgo = new Date(Date.now() - THIRTY_DAYS_MS);
 
   try {
+    const held = sessionsHeldOpen();
+    const old = lt(chatSessions.updatedAt, thirtyDaysAgo);
     const result = await db
       .delete(chatSessions)
-      .where(lt(chatSessions.updatedAt, thirtyDaysAgo))
+      .where(held.length ? and(old, notInArray(chatSessions.id, held)) : old)
       .run();
 
     const deleted = result.changes || 0;
