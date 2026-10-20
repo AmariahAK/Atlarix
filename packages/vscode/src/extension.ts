@@ -412,7 +412,9 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-export function deactivate(): void {
-  connection?.dispose();
+/** VS Code waits on this: the agent gets to clean up before the window goes (QA E11). */
+export function deactivate(): Promise<void> | undefined {
+  const c = connection;
   connection = null;
+  return c?.dispose();
 }

@@ -349,19 +349,31 @@ export class AtlarixConnection {
     return this.agent.request<McpResult>("_atlarix/mcp", { sessionId, action, ...args });
   }
 
-  dispose(): void {
+  /**
+   * Let the agent go. EOF, not a kill: it closes its sessions, runs its exit
+   * sweep and releases its temp lease, then exits (bounded). Killed, it never
+   * did on Windows, where kill() is TerminateProcess (QA E11). Resolves once
+   * it has exited, for deactivate to wait on: on Windows the agent also dies
+   * with the extension host (libuv's job object). The kill is only for one
+   * that hangs.
+   */
+  dispose(): Promise<void> {
     const child = this.child;
     this.conn?.close();
     this.conn = null;
     this.child = null;
-    if (!child || child.exitCode !== null || child.signalCode !== null) return;
-    // EOF, not a kill: the agent closes its sessions, runs its exit sweep and
-    // releases its temp lease, then exits (bounded). Killed, it never did on
-    // Windows, where kill() is TerminateProcess (QA E11). The kill is only for
-    // one that hangs.
+    if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
     child.stdin?.end();
-    const backstop = setTimeout(() => child.kill(), 5_000);
-    backstop.unref?.();
-    child.once("exit", () => clearTimeout(backstop));
+    return new Promise((resolve) => {
+      const backstop = setTimeout(() => {
+        child.kill();
+        resolve();
+      }, 5_000);
+      backstop.unref?.();
+      child.once("exit", () => {
+        clearTimeout(backstop);
+        resolve();
+      });
+    });
   }
 }

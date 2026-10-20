@@ -56,6 +56,24 @@ describe.skipIf(process.platform === "win32")("the panel's agent, when the panel
     }
   }, 20_000);
 
+  it("can be waited for: VS Code waits on deactivate, and on Windows the agent dies with the host", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vsc-dispose-"));
+    const binary = path.join(dir, "atlarix");
+    fs.writeFileSync(binary, AGENT, { mode: 0o755 });
+    const mark = path.join(dir, "mark");
+    process.env.FAKE_AGENT_MARK = mark;
+    const c = new AtlarixConnection({ binary, cwd: dir, version: "test", log: () => {}, openUrl: () => {}, onExit: () => {} });
+    try {
+      await c.start();
+      await c.dispose();
+      // Resolved only once it had cleaned up and exited (QA E11, Windows).
+      expect(fs.existsSync(mark)).toBe(true);
+    } finally {
+      delete process.env.FAKE_AGENT_MARK;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it("is killed after a while if it hangs on its way out", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vsc-dispose-"));
     const binary = path.join(dir, "atlarix");
