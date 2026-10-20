@@ -320,6 +320,43 @@ describe("AgentSession", () => {
     expect(fs.existsSync(path.join(ws, "a2.txt"))).toBe(false);
   }, 90_000);
 
+  it("in Explore, 'always' on a change saves the rule the gate checks: the next one does not ask", async () => {
+    // E6 (QA, 3 of 3): the card carried the gate's `mutate:package-manifest-write`,
+    // but "always" saved from the interceptor's copy, which had no key, so it fell
+    // back to `npm`, a rule the read-only gate never consults.
+    llm.stop();
+    const w = fs.mkdtempSync(path.join(os.tmpdir(), "cli-e6-ws-"));
+    fs.writeFileSync(path.join(w, "package.json"), JSON.stringify({ name: "qa", version: "1.0.0" }));
+    llm = startFakeLlm([
+      { tool: "run_command", args: { command: "npm pkg set version=1.0.1", description: "bump" } },
+      { text: "Bumped." },
+      { tool: "run_command", args: { command: "npm pkg set description=qa", description: "describe" } },
+      { text: "Described." },
+    ]);
+    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: w, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+    await s.start();
+    s.setMode("ask");
+    await s.submit("bump the version");
+    await waitFor(s, (st) => st.approvals.length > 0, 30_000);
+    const card = s.state.approvals[0]!;
+    expect(JSON.stringify(card.request)).toContain("mutate:package-manifest-write");
+    await s.answerApproval(card.operationId, "always_allow");
+    await waitFor(s, (st) => !st.busy);
+    // The line says the rule that was saved: a class of change, not "`npm` commands".
+    expect((s.state.cells as any[]).find((c) => c.id === `approved:${card.operationId}`)?.text).toBe(
+      "✓ You approved Atlarix to always make changes like `npm pkg set version=1.0.1` in this folder",
+    );
+    let asked = false;
+    const on = (st: { approvals: unknown[] }) => void (asked ||= st.approvals.length > 0);
+    s.on("change", on);
+    await s.submit("now describe it");
+    await waitFor(s, (st) => !st.busy && st.cells.some((c: any) => c.kind === "markdown" && c.text === "Described."), 30_000);
+    s.off("change", on);
+    expect(asked).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(w, "package.json"), "utf8")).description).toBe("qa");
+  }, 90_000);
+
   it("!command runs in the folder, streams into a cell, and the agent sees it with the next message only", async () => {
     llm.stop();
     llm = startFakeLlm([{ text: "That file says hello." }, { text: "Second." }, { text: "Third." }]);

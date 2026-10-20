@@ -293,6 +293,7 @@ export function enrichRunCommandPermissionRequest<
   const preview = permRequest.preview as {
     command?: string;
     isDangerous?: boolean;
+    commandCategory?: string;
   };
   const preflight = runCommandCategoryPreflight(
     preview.command ?? "",
@@ -300,6 +301,11 @@ export function enrichRunCommandPermissionRequest<
     workspaceRoot,
     readOnlySource,
   );
+  // Onto the STORED request too, not only the card: "always" saves the key from
+  // the interceptor's copy (execute-permission), which had none, so it fell back
+  // to the first word. In Explore that saved `npm` while the gate asks for
+  // `mutate:package-manifest-write`, and the rule never covered a command (E6).
+  preview.commandCategory = preflight.category;
   const dangerous = preflight.type === "prompt" ? preflight.dangerous : false;
   // System-scope = changes something OUTSIDE the project (on-device install, sudo,
   // outside-workspace write). A8/M-1: pass the REAL workspace root so the
