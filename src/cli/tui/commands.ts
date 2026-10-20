@@ -22,6 +22,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/handoff", description: "Continue this session in the Atlarix app (from the app: Continue in terminal)", group: "session" },
   { name: "/undo", description: "Go back to one of your messages: edit and resend it, restoring files (esc esc too)", group: "session" },
   { name: "/compact", description: "Summarise the conversation so far to free up context", group: "session" },
+  { name: "/fork", description: "Carry on in a copy of this session; the original stays as it is (/fork <name> names it)", group: "session" },
   { name: "/effort", description: "How hard the model thinks: its own levels, as it lists them (ctrl+t: top or default)", group: "session" },
   { name: "/plan", description: "This session's plan: show it, or /plan share to save it as a page", group: "session" },
   { name: "/build", description: "Build the plan that is ready", group: "session" },

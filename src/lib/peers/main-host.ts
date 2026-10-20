@@ -12,10 +12,11 @@ import { apps, chatSessions } from "@/db/schema";
 import {
   isPlaceholderTitle,
   noteLiveSession,
+  publishPeerState,
   startPeerInbox,
   type Surface,
 } from "./peers";
-import { isChatStreamLive } from "@/ipc/handlers/chat_stream/stream-state";
+import { isChatStreamLive, onStreamLiveChange } from "@/ipc/handlers/chat_stream/stream-state";
 import { recordUserInterjection } from "@/lib/agent/user-interjections";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import { readSettings } from "@/main/settings";
@@ -92,6 +93,8 @@ async function openSessionInApp(
   return { ok: true };
 }
 
+let unhookLive: (() => void) | null = null;
+
 /** Start the inbox for this process. Never throws. */
 export async function startPeerMessaging(surface: Surface): Promise<void> {
   try {
@@ -128,6 +131,16 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
             status: "peer_message",
           });
         },
+        // Another surface following this session: the user's own words for the
+        // turn (the path a message typed here mid-turn takes), and Stop, which
+        // the surface running the chat presses for itself, as its own Stop
+        // button would (the app's window, the CLI: `chat:remote-stop`).
+        steer: (chatId, id, text) => {
+          recordUserInterjection(chatId, { id: `remote-${id}`, text });
+        },
+        stop: (chatId) => {
+          broadcastToAllWindows("chat:remote-stop", { chatId });
+        },
         ...(surface === "app" ? { openSession: openSessionInApp } : {}),
         inbound: () => {
           try {
@@ -140,6 +153,9 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
         },
       },
     });
+    // `busy` as a turn starts and ends, not on the next heartbeat: a surface
+    // following the session would otherwise see it up to 15 s late.
+    unhookLive ??= onStreamLiveChange(() => publishPeerState());
   } catch (e) {
     logger.warn(`messaging between sessions is off: ${(e as Error).message}`);
   }

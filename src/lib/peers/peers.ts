@@ -81,7 +81,12 @@ export interface PeerSessionRow {
 }
 
 interface PeerFrame {
-  type: "peer-message" | "open-session";
+  /**
+   * "steer" and "stop" are for a session this process is RUNNING a turn of,
+   * sent by another surface showing the same session (it follows the turn):
+   * the user's own words for that turn, or the user stopping it.
+   */
+  type: "peer-message" | "open-session" | "steer" | "stop";
   token: string;
   to: string;
   id: string;
@@ -108,6 +113,10 @@ export interface PeerHost {
    * Only the app implements it: a CLI cannot open a terminal for itself.
    */
   openSession?(sessionId: string): Promise<{ ok: boolean; error?: string }>;
+  /** The user's words for the running turn, as if typed here mid-turn. */
+  steer?(chatId: number, id: string, text: string): void;
+  /** Stop the running turn, as the stop button here would. */
+  stop?(chatId: number): void;
 }
 
 /** The row every process publishes for itself, so a handoff can find "the app" even with no session open. */
@@ -275,6 +284,14 @@ function publish(): void {
   }
 }
 
+/**
+ * Publish this process's rows now: a turn started or ended. On the heartbeat
+ * alone, a surface following the session saw the turn up to 15 s late.
+ */
+export function publishPeerState(): void {
+  publish();
+}
+
 /** Start this process's inbox. Idempotent; failures leave messaging off, never the app. */
 export async function startPeerInbox(opts: {
   surface: Surface;
@@ -406,7 +423,7 @@ function accept(socket: net.Socket): void {
 export async function receive(
   f: PeerFrame,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!f || (f.type !== "peer-message" && f.type !== "open-session"))
+  if (!f || !["peer-message", "open-session", "steer", "stop"].includes(f.type))
     return { ok: false, error: "unknown frame" };
   if (!token || f.token !== token)
     return { ok: false, error: "not authorised" };
@@ -416,6 +433,7 @@ export async function receive(
     }
     return hostImpl.openSession(String(f.to ?? ""));
   }
+  if (f.type === "steer" || f.type === "stop") return control(f);
   let target = local.get(f.to);
   if (!target || !hostImpl) return { ok: false, error: "no such session here" };
   if (hostImpl.inbound() === "refuse")
@@ -498,6 +516,37 @@ export async function receive(
   return { ok: true };
 }
 
+/**
+ * Steer or stop a turn this process runs, for another surface following it.
+ *
+ * NOT RUNNING IS AN ANSWER, not a failure: a turn that ended between the
+ * sender's check and this frame answers "not running", and the sender then
+ * sends the message as its own turn, so it is never lost.
+ *
+ * Steer text is the USER's (typed in the other window), so it is queued as
+ * their own mid-turn message, never wrapped as a peer's, and the per-sender rate
+ * limit (which exists for agents messaging agents) does not apply.
+ */
+async function control(f: PeerFrame): Promise<{ ok: boolean; error?: string }> {
+  const target = local.get(f.to);
+  if (!target || target.deliver || !hostImpl) return { ok: false, error: "no such session here" };
+  if (!hostImpl.isBusy(target.chatId)) return { ok: false, error: NOT_RUNNING };
+  if (f.type === "stop") {
+    if (!hostImpl.stop) return { ok: false, error: "this Atlarix cannot stop it" };
+    hostImpl.stop(target.chatId);
+    return { ok: true };
+  }
+  const text = typeof f.text === "string" ? f.text.trim() : "";
+  if (!text) return { ok: false, error: "empty message" };
+  if (text.length > PEER_TEXT_CAP) return { ok: false, error: `message over ${PEER_TEXT_CAP} characters` };
+  if (!hostImpl.steer) return { ok: false, error: "this Atlarix cannot take it" };
+  hostImpl.steer(target.chatId, f.id || randomUUID(), text);
+  return { ok: true };
+}
+
+/** What `control` answers when the turn has already ended. */
+export const NOT_RUNNING = "not running";
+
 // ─── other sessions: list + send ─────────────────────────────────────────────
 
 interface Row {
@@ -512,6 +561,10 @@ interface Row {
   surface: string;
   busy: number;
   last_seen: number;
+}
+
+function asSurface(s: string): Surface {
+  return s === "cli" || s === "chrome" || s === "editor" ? s : "app";
 }
 
 function processAlive(pid: number): boolean {
@@ -570,10 +623,7 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       sessionId: r.session_id,
       name: r.name,
       workspace: r.workspace,
-      surface:
-        r.surface === "cli" || r.surface === "chrome" || r.surface === "editor"
-          ? r.surface
-          : "app",
+      surface: asSurface(r.surface),
       busy: r.busy === 1,
       pid: r.pid,
     });
@@ -658,49 +708,100 @@ export function resolvePeer(
   return { row: best };
 }
 
+/**
+ * The other process running a turn of this session right now, if any: a live
+ * row for it from another pid, marked busy. Then this process only FOLLOWS the
+ * session (re-reads it, steers and stops that turn) until the turn ends.
+ */
+export function runningElsewhere(sessionId: string): PeerSessionRow | null {
+  const row = runningRow(sessionId);
+  return row
+    ? {
+        sessionId: row.session_id,
+        name: row.name,
+        workspace: row.workspace,
+        surface: asSurface(row.surface),
+        busy: true,
+        pid: row.pid,
+      }
+    : null;
+}
+
+function runningRow(sessionId: string): Row | undefined {
+  return liveRows()
+    .filter((r) => r.session_id === sessionId && r.pid !== process.pid && r.busy === 1)
+    .sort((a, b) => b.last_seen - a.last_seen)[0];
+}
+
+/** Send the user's words to the turn running elsewhere; `NOT_RUNNING` when it has ended. */
+export function steerElsewhere(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  return controlElsewhere(sessionId, "steer", text);
+}
+
+/** Stop the turn running elsewhere; `NOT_RUNNING` when it has ended. */
+export function stopElsewhere(sessionId: string): Promise<{ ok: boolean; error?: string }> {
+  return controlElsewhere(sessionId, "stop", "");
+}
+
+function controlElsewhere(
+  sessionId: string,
+  type: "steer" | "stop",
+  text: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const row = runningRow(sessionId);
+  if (!row) return Promise.resolve({ ok: false, error: NOT_RUNNING });
+  return sendFrame(
+    row.socket,
+    {
+      type,
+      token: row.token,
+      to: row.session_id,
+      id: randomUUID(),
+      text,
+      from: { sessionId, name: "", surface, workspace: row.workspace },
+    },
+    "that session did not answer",
+  );
+}
+
 /** Deliver a message to another session; resolves with the receiver's answer. */
 export function sendPeerMessage(
   row: { socket: string; token: string; session_id: string },
   from: PeerFrame["from"],
   text: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const frame: PeerFrame = {
-    type: "peer-message",
-    token: row.token,
-    to: row.session_id,
-    id: randomUUID(),
-    text,
-    from,
-  };
+  // Delivering to a CLI's placeholder first creates its session (seconds).
+  return sendFrame(
+    row.socket,
+    { type: "peer-message", token: row.token, to: row.session_id, id: randomUUID(), text, from },
+    "that session did not answer",
+  );
+}
+
+/** One frame to another process's inbox, and its answer. */
+function sendFrame(
+  socketPath: string,
+  frame: PeerFrame,
+  timeoutError: string,
+): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => {
-    const socket = net.connect(row.socket);
+    const socket = net.connect(socketPath);
     const reader = new FrameReader();
     const finish = (r: { ok: boolean; error?: string }) => {
       socket.destroy();
       resolve(r);
     };
-    // Delivering to a CLI's placeholder first creates its session (seconds).
-    socket.setTimeout(30_000, () =>
-      finish({ ok: false, error: "that session did not answer" }),
-    );
+    socket.setTimeout(30_000, () => finish({ ok: false, error: timeoutError }));
     socket.once("connect", () => socket.write(encodeFrame(frame)));
     socket.on("data", (chunk) => {
       try {
-        const [reply] = reader.push(chunk) as Array<{
-          ok: boolean;
-          error?: string;
-        }>;
+        const [reply] = reader.push(chunk) as Array<{ ok: boolean; error?: string }>;
         if (reply) finish(reply);
       } catch {
         finish({ ok: false, error: "garbled reply" });
       }
     });
-    socket.once("error", (e) =>
-      finish({
-        ok: false,
-        error: `could not reach that session (${e.message})`,
-      }),
-    );
+    socket.once("error", (e) => finish({ ok: false, error: `could not reach that session (${e.message})` }));
   });
 }
 
@@ -738,38 +839,16 @@ export function requestOpenInApp(
   app: { socket: string; token: string },
   sessionId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const frame = {
-    type: "open-session",
-    token: app.token,
-    to: sessionId,
-    id: randomUUID(),
-    text: "",
-    from: { sessionId, name: "", surface, workspace: "" },
-  };
-  return new Promise((resolve) => {
-    const socket = net.connect(app.socket);
-    const reader = new FrameReader();
-    const finish = (r: { ok: boolean; error?: string }) => {
-      socket.destroy();
-      resolve(r);
-    };
-    socket.setTimeout(30_000, () =>
-      finish({ ok: false, error: "the app did not answer" }),
-    );
-    socket.once("connect", () => socket.write(encodeFrame(frame)));
-    socket.on("data", (chunk) => {
-      try {
-        const [reply] = reader.push(chunk) as Array<{
-          ok: boolean;
-          error?: string;
-        }>;
-        if (reply) finish(reply);
-      } catch {
-        finish({ ok: false, error: "garbled reply" });
-      }
-    });
-    socket.once("error", (e) =>
-      finish({ ok: false, error: `could not reach the app (${e.message})` }),
-    );
-  });
+  return sendFrame(
+    app.socket,
+    {
+      type: "open-session",
+      token: app.token,
+      to: sessionId,
+      id: randomUUID(),
+      text: "",
+      from: { sessionId, name: "", surface, workspace: "" },
+    },
+    "the app did not answer",
+  );
 }

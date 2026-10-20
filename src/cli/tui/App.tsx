@@ -320,7 +320,7 @@ function TipLine({ tip }: { tip: Tip }) {
 }
 
 /** Commands that change the conversation: typed mid-turn, they wait for it to end. */
-const AFTER_TURN = new Set(["/compact", "/new", "/resume", "/undo", "/import"]);
+const AFTER_TURN = new Set(["/compact", "/new", "/resume", "/undo", "/import", "/fork"]);
 
 /** "context 23% · 47k/205k", or null before the first step reports. */
 export function contextLabel(s: Pick<SessionState, "contextPercent" | "contextUsed" | "contextLimit">): string | null {
@@ -1208,6 +1208,11 @@ export function App({
       }
       case "/rename":
         return openRename(ctx, rest);
+      case "/fork":
+        return void session.fork(rest.trim() || undefined).then(
+          (made) => flash(`Forked as “${made.title}”. The original is in /resume.`, 6000),
+          (e: Error) => flash(e.message, 6000, "error"),
+        );
       case "/handoff":
         flash("Handing this session to the Atlarix app…", 4000);
         return void session
@@ -1263,7 +1268,8 @@ export function App({
             })),
             onChoose: (item) => {
               host.closeAll();
-              session.setMode(item.id as WorkMode);
+              const waits = session.setMode(item.id as WorkMode);
+              if (waits) flash(waits);
             },
           }),
         );
@@ -1519,7 +1525,7 @@ export function App({
     if (key.name === "escape") {
       key.preventDefault();
       if (session.stopShell) return session.stopShell();
-      if (state.busy) return void session.interrupt();
+      if (state.busy || state.following) return void session.interrupt();
       // esc esc on an empty box: go back to an earlier message (Claude Code, Codex).
       if (!composer.current?.text()) {
         const now = Date.now();
@@ -1533,7 +1539,8 @@ export function App({
     // ctrl+y does the same: VS Code's "Tab Moves Focus" mode (ctrl+shift+m)
     // takes shift+tab before the terminal ever sees it.
     if ((key.name === "tab" && key.shift) || (key.name === "y" && key.ctrl)) {
-      session.setMode(MODES[(MODES.indexOf(state.mode) + 1) % MODES.length]!);
+      const waits = session.setMode(MODES[(MODES.indexOf(state.mode) + 1) % MODES.length]!);
+      if (waits) flash(waits);
       key.preventDefault();
       return;
     }

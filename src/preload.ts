@@ -67,6 +67,11 @@ const validInvokeChannels = [
   "sessions:resolve-for-transport",
   "sessions:create",
   "sessions:rename",
+  "sessions:running-elsewhere",
+  "sessions:revision",
+  "sessions:steer-remote",
+  "sessions:stop-remote",
+  "sessions:fork",
   "sessions:set-work-mode",
   "sessions:delete",
   "sessions:prune-if-empty",
@@ -405,6 +410,7 @@ const validReceiveChannels = [
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "sessions:title-updated", // main → renderer: a session was named (placeholder, then generated title)
   "chat:interjections", // main → renderer: the pending mid-turn-message queue changed
+  "chat:remote-stop", // main → renderer: another surface following this chat pressed Stop
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)
   "automations:changed", // main → renderer: a definition was created/updated/deleted (incl. by the agent)
   "automations:focus-feed", // main → renderer: OS-notification click → open the automations tab

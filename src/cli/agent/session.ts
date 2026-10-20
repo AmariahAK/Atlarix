@@ -96,6 +96,11 @@ export interface SessionState {
   mcpConsent: McpConsentRequest | null;
   /** MCP servers the agent suggested connecting, newest last (mcp-suggestions.ts). */
   mcpSuggestions: McpSuggestionCard[];
+  /**
+   * Another surface is running a turn of this session: this one follows it
+   * (re-reads it as it grows; what you type goes to that turn; Stop stops it).
+   */
+  following: { surface: "cli" | "app" | "chrome" | "editor"; name: string } | null;
 }
 
 /** A suggestion card as the CLI and ACP show it. */
@@ -333,6 +338,23 @@ export interface TurnOptions {
   systemWake?: boolean;
 }
 
+/** A session's message as saved (`sessions:get`). */
+type SavedMessage = {
+  id: string;
+  role: string;
+  content: string;
+  status?: string | null;
+  modelContent?: string | null;
+  snapshotTurnId?: string | null;
+  maxTokensUsed?: number | null;
+};
+
+/** How often a session looks for a turn of it running elsewhere: drafts are saved every 1.5 s. */
+const FOLLOW_POLL_MS = 1_500;
+
+/** Where a turn of this session is running, in "Running in …". */
+export const SURFACE_NAMES = { app: "the app", cli: "the CLI", editor: "the editor", chrome: "the browser" } as const;
+
 /**
  * A session starting (new, or resumed) reads the account's MCP servers again:
  * they may have changed on the website or in another Atlarix. The CLI has no
@@ -422,6 +444,7 @@ export class AgentSession extends EventEmitter {
       automationUnread: 0,
       mcpConsent: null,
       mcpSuggestions: [],
+      following: null,
     };
   }
 
@@ -442,6 +465,7 @@ export class AgentSession extends EventEmitter {
     await this.newSession();
     // Finished automations in this folder, from any Atlarix: wake to act on them.
     this.startAutomationClaims();
+    this.startFollowing();
   }
 
   /**
@@ -468,10 +492,13 @@ export class AgentSession extends EventEmitter {
     this.interrupted.clear();
     this.turnNotices.clear();
     this.lastTurnOwner = null;
+    this.remoteSteers = [];
+    this.followRevision = "";
     this.update({
       cells: [],
       approvals: [],
       pending: [],
+      following: null,
       lastError: null,
       busy: false,
       phase: null,
@@ -491,7 +518,10 @@ export class AgentSession extends EventEmitter {
     if (this.appId) void this.registerPendingPeer();
   }
 
-  setMode(mode: WorkMode): void {
+  /** Null when set; else why it waits (another surface is running the turn). */
+  setMode(mode: WorkMode): string | null {
+    const elsewhere = this.followingNote();
+    if (elsewhere) return elsewhere;
     this.update({ mode });
     // A deliberate choice in this session, stamped on it as the desktop does,
     // so resuming it (here or in the app) comes back in the same mode.
@@ -500,6 +530,7 @@ export class AgentSession extends EventEmitter {
         .then((h) => h({}, this.sessionId, mode))
         .catch(() => {});
     }
+    return null;
   }
 
   // ─── earlier sessions (/resume) ────────────────────────────────────────────
@@ -520,10 +551,7 @@ export class AgentSession extends EventEmitter {
     if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it), then resume.");
     clearAccountMcpServers();
     const { chatId } = (await (await handler("sessions:allocate-transport"))({}, sessionId)) as { chatId: number };
-    const got = (await (await handler("sessions:get"))({}, sessionId)) as {
-      session: SessionSummary;
-      messages: Array<{ id: string; role: string; content: string; status?: string | null; modelContent?: string | null; snapshotTurnId?: string | null; maxTokensUsed?: number | null }>;
-    };
+    const got = (await (await handler("sessions:get"))({}, sessionId)) as { session: SessionSummary; messages: SavedMessage[] };
     const rows = got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
     await (await handler("sessions:hydrate-transport"))({}, { chatId, sessionId, rows });
     await this.newSession();
@@ -531,17 +559,8 @@ export class AgentSession extends EventEmitter {
     this.chatId = chatId;
     // Reachable by its real id now (allocate-transport registered it).
     void import("@/lib/peers/peers").then((m) => m.forgetLiveSession(this.pendingPeerId()));
-    // modelContent: what the model was sent, when it differs from what you
-    // typed (pastes expanded); the transcript shows the paste from it.
-    this.messages = got.messages.map((m, i) => ({ id: i + 1, role: m.role, content: m.content, modelContent: m.modelContent ?? null }));
-    for (const m of this.messages) {
-      if (m.role === "user") this.seenUserIds.add(String(m.id));
-      else this.persisted.add(String(m.id));
-    }
-    got.messages.forEach((m, i) => {
-      if (m.snapshotTurnId) this.turnSnapshots.set(String(i + 1), m.snapshotTurnId);
-    });
-    for (const id of interruptedRowIds(got.messages)) this.interrupted.add(id);
+    this.applySaved(got.messages);
+    this.startFollowing();
     const mode = got.session.workMode;
     const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
     const plan = await getLatestPlanArtifact(sessionId, "plan").catch(() => null);
@@ -561,6 +580,116 @@ export class AgentSession extends EventEmitter {
         this.update({ contextUsed: last, contextLimit: this.contextWindow, contextPercent: Math.min(100, Math.round((last / this.contextWindow) * 100)) });
       }
     }
+  }
+
+  /** The session's saved messages as this session's own: what resume and a follow show. */
+  private applySaved(saved: SavedMessage[]): void {
+    // modelContent: what the model was sent, when it differs from what you
+    // typed (pastes expanded); the transcript shows the paste from it.
+    this.messages = saved.map((m, i) => ({ id: i + 1, role: m.role, content: m.content, modelContent: m.modelContent ?? null }));
+    this.seenUserIds.clear();
+    this.persisted.clear();
+    this.turnSnapshots.clear();
+    this.interrupted.clear();
+    for (const m of this.messages) {
+      if (m.role === "user") this.seenUserIds.add(String(m.id));
+      else this.persisted.add(String(m.id));
+    }
+    saved.forEach((m, i) => {
+      if (m.snapshotTurnId) this.turnSnapshots.set(String(i + 1), m.snapshotTurnId);
+    });
+    // The turn being written elsewhere is saved as "interrupted" while it runs:
+    // it is not, so it is not drawn as stopped.
+    const live = this.state.following ? String(saved.length) : null;
+    for (const id of interruptedRowIds(saved)) if (id !== live) this.interrupted.add(id);
+  }
+
+  // ─── following a turn another surface runs ─────────────────────────────────
+  //
+  // A session is live where its turn runs (lib/peers: runningElsewhere). While
+  // another process runs one, this session re-reads it as the turn's draft
+  // grows, sends what you type to that turn and stops it from here. When that
+  // turn ends, one last read and the transport rebuilt from the database: the
+  // next message runs here, with the whole conversation.
+
+  private followTimer: ReturnType<typeof setInterval> | null = null;
+  private followChecking = false;
+  private followRevision = "";
+  /** What you sent to the turn running elsewhere, shown until it appears there. */
+  private remoteSteers: string[] = [];
+
+  private startFollowing(): void {
+    if (this.followTimer) return;
+    this.followTimer = setInterval(() => void this.checkFollowing(), FOLLOW_POLL_MS);
+    (this.followTimer as { unref?: () => void }).unref?.();
+  }
+
+  /** Exported for tests: one poll. */
+  async checkFollowing(): Promise<void> {
+    if (this.followChecking || this.state.busy || !this.sessionId) return;
+    this.followChecking = true;
+    try {
+      const where = (await (await handler("sessions:running-elsewhere"))({}, this.sessionId)) as SessionState["following"];
+      if (where) {
+        if (this.state.following?.surface !== where.surface) this.update({ following: where });
+        const rev = (await (await handler("sessions:revision"))({}, this.sessionId)) as string;
+        if (rev !== this.followRevision) {
+          this.followRevision = rev;
+          await this.reload();
+        }
+      } else if (this.state.following) {
+        await this.stopFollowing();
+      }
+    } catch {
+      /* the next poll asks again */
+    } finally {
+      this.followChecking = false;
+    }
+  }
+
+  /** Read the session again from the database: the read half of `resume`. */
+  private async reload(): Promise<SavedMessage[]> {
+    const got = (await (await handler("sessions:get"))({}, this.sessionId)) as { session: SessionSummary; messages: SavedMessage[] };
+    this.applySaved(got.messages);
+    const said = new Set(got.messages.filter((m) => m.role === "user").map((m) => m.content.trim()));
+    this.remoteSteers = this.remoteSteers.filter((t) => !said.has(t));
+    this.syncPending();
+    this.update({ cells: this.cellsFor(false), title: got.session.title });
+    return got.messages;
+  }
+
+  /** The other turn ended: read it once more, and carry on from the database here. */
+  private async stopFollowing(): Promise<void> {
+    this.update({ following: null });
+    this.followRevision = "";
+    const saved = await this.reload();
+    const rows = saved.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
+    await (await handler("sessions:hydrate-transport"))({}, { chatId: this.chatId, sessionId: this.sessionId, rows });
+    this.remoteSteers = [];
+    this.syncPending();
+    // Held with Tab while it ran: it opens the next turn, here.
+    const next = this.queue.shift();
+    this.syncPending();
+    if (next) await this.startTurn(next.text);
+  }
+
+  /** What /undo, /compact and a mode change say while another surface runs the turn. */
+  followingNote(): string | null {
+    const f = this.state.following;
+    return f ? `Running in ${SURFACE_NAMES[f.surface]} — wait for it to finish.` : null;
+  }
+
+  /**
+   * `/fork [name]`: carry on in a copy of this conversation as saved now, in a
+   * new session in this folder. The original stays as it was. While another
+   * surface runs a turn, the copy holds the turns that have finished.
+   */
+  async fork(title?: string): Promise<SessionSummary> {
+    if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it), then fork.");
+    if (!this.sessionId) throw new Error("Send a message first: there is nothing to fork yet.");
+    const made = (await (await handler("sessions:fork"))({}, this.sessionId, title ? { title } : undefined)) as SessionSummary;
+    await this.resume(made.id);
+    return made;
   }
 
   /** `atlarix -c`: the newest session in this folder, if there is one. */
@@ -657,6 +786,8 @@ export class AgentSession extends EventEmitter {
    * and with `restoreTurnIds` the files those turns changed go back first.
    */
   async resendEdited(messageId: number, text: string, restoreTurnIds: string[] | null): Promise<{ restoredFiles: number; kept: string[] }> {
+    const elsewhere = this.followingNote();
+    if (elsewhere) throw new Error(elsewhere);
     if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it).");
     let restoredFiles = 0;
     let keptFiles: string[] = [];
@@ -697,6 +828,8 @@ export class AgentSession extends EventEmitter {
   /** Summarise the conversation so far, as the agent does when the context fills. */
   async compact(): Promise<{ ok: boolean; message: string }> {
     if (this.state.busy) return { ok: false, message: "Compacting waits for the turn to finish (esc stops it)." };
+    const elsewhere = this.followingNote();
+    if (elsewhere) return { ok: false, message: elsewhere };
     if (!this.chatId || this.messages.length < 2) {
       return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
     }
@@ -1044,12 +1177,25 @@ export class AgentSession extends EventEmitter {
       await this.steer(text);
       return;
     }
+    if (this.state.following) {
+      // To the turn running elsewhere, as your own mid-turn message there.
+      const sent = (await (await handler("sessions:steer-remote"))({}, this.sessionId, text)) as { ok: boolean };
+      if (sent.ok) {
+        this.remoteSteers.push(text.trim());
+        this.syncPending();
+        return;
+      }
+      // That turn has ended (or cannot be reached): this one carries on, from
+      // the database, and your message opens its next turn here.
+      await this.stopFollowing();
+      if (this.state.busy) return void (await this.steer(text));
+    }
     await this.startTurn(text, opts);
   }
 
   /** Held until the running turn ends, then sent as the next turn. Editable until then. */
   queueNext(text: string): void {
-    if (!this.state.busy) {
+    if (!this.state.busy && !this.state.following) {
       void this.startTurn(text);
       return;
     }
@@ -1083,7 +1229,8 @@ export class AgentSession extends EventEmitter {
 
   private syncPending(steers?: Array<{ id: string; text: string }>): void {
     if (steers) this.steers = steers.map((s) => ({ id: s.id, text: s.text, kind: "steer" as const }));
-    this.update({ pending: [...this.steers, ...this.queue] });
+    const remote = this.remoteSteers.map((text, i) => ({ id: `r${i}`, text, kind: "steer" as const }));
+    this.update({ pending: [...this.steers, ...remote, ...this.queue] });
   }
 
   /**
@@ -1100,6 +1247,8 @@ export class AgentSession extends EventEmitter {
     await this.interrupt();
     if (this.automationPoll) clearInterval(this.automationPoll);
     this.automationPoll = null;
+    if (this.followTimer) clearInterval(this.followTimer);
+    this.followTimer = null;
     this.detachWindow?.();
     this.detachWindow = null;
     const peers = await import("@/lib/peers/peers");
@@ -1300,6 +1449,10 @@ export class AgentSession extends EventEmitter {
 
   /** Esc: stop the running turn. The session stays; the next message starts a new turn. */
   async interrupt(): Promise<void> {
+    if (this.state.following && !this.state.busy) {
+      await (await handler("sessions:stop-remote"))({}, this.sessionId).catch(() => null);
+      return;
+    }
     if (!this.state.busy) return;
     this.interruptRequested = true;
     // A job reporting in later must not restart what the user just stopped.
@@ -1643,6 +1796,10 @@ export class AgentSession extends EventEmitter {
       // Left on screen, it was answered again (owner, 2026-10-19).
       case "operation-status":
         if (p.status !== "pending" && p.status !== "queued") this.dropApproval(String(p.operationId ?? ""));
+        return;
+      // Another surface following this session pressed Stop: as Esc here.
+      case "chat:remote-stop":
+        void this.interrupt();
         return;
       case "chat:response:chunk": {
         if (this.state.retrying) this.update({ retrying: null });

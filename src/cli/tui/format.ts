@@ -2,7 +2,7 @@
  * Small text rules for the CLI screen. Pure (src/__tests__/cli-format.test.ts).
  */
 import os from "node:os";
-import type { SessionState } from "../agent/session";
+import { SURFACE_NAMES, type SessionState } from "../agent/session";
 
 /** `~` for home, then cut from the middle so the folder's own name survives: `~/…/p2/ws`. */
 export function abbreviatePath(p: string, max: number, home = os.homedir()): string {
@@ -37,7 +37,11 @@ const GERUND: Record<string, string> = {
 };
 
 /** What the working line says: from what is happening, never internal phase names. */
-export function activityLabel(state: Pick<SessionState, "cells" | "approvals" | "busy"> & { retrying?: string | null }): string | null {
+export function activityLabel(
+  state: Pick<SessionState, "cells" | "approvals" | "busy"> & { retrying?: string | null; following?: SessionState["following"] },
+): string | null {
+  // Another surface runs this session's turn; this one shows it as it goes.
+  if (state.following && !state.busy) return `Running in ${SURFACE_NAMES[state.following.surface]} · following`;
   if (!state.busy) return null;
   if (state.approvals.length) return "Waiting for you";
   if (state.retrying) return state.retrying;

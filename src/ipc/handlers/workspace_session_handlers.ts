@@ -34,7 +34,14 @@ import {
 } from "@/lib/diag/session-load-diag";
 import { requireAuthSession } from "@/lib/auth/require_auth_session";
 import { noteSessionOpen } from "@/lib/peers/main-host";
-import { forgetLiveSession, sessionsHeldElsewhere } from "@/lib/peers/peers";
+import {
+  forgetLiveSession,
+  runningElsewhere,
+  sessionsHeldElsewhere,
+  steerElsewhere,
+  stopElsewhere,
+} from "@/lib/peers/peers";
+import { isChatStreamLive, lastStreamRequest } from "./chat_stream/stream-state";
 import { WorkModeSchema, type WorkMode } from "@/lib/schemas";
 import {
   createStreamTransport,
@@ -403,6 +410,16 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
 }): Promise<string> {
   const provided = input.workspaceSessionId?.trim();
   if (provided) return provided;
+
+  // The session this process's transport last ran a turn of, before the shared
+  // column. A transport id is this PROCESS's (every process counts from -1), and
+  // `stream_chat_id` is overwritten by whichever process opened the session
+  // last: once another surface opened it to follow a turn running here, the
+  // lookup below found nothing for this process's id, and a message typed
+  // mid-turn (or a plan, or a compaction marker) went to no session (live
+  // sessions, 2026-10-20).
+  const running = lastStreamRequest.get(input.chatId)?.workspaceSessionId?.trim();
+  if (running) return running;
 
   if (!isStreamTransportId(input.chatId)) {
     throw new Error(
@@ -1057,6 +1074,106 @@ export function registerWorkspaceSessionHandlers(): void {
     void noteSessionOpen(sessionId, chatId);
     return { chatId };
   });
+
+  // ─── Live sessions across surfaces ─────────────────────────────────────────
+  //
+  // A session is LIVE WHERE ITS TURN RUNS. While another process runs a turn of
+  // it, every other surface showing it follows: re-reads it as the turn's draft
+  // grows (`revision`), sends what the user types to that turn (`steer-remote`)
+  // and stops it (`stop-remote`). No owner and no locks: when that turn ends,
+  // either surface may start the next.
+
+  /** The surface running a turn of this session right now, or null. */
+  handle("sessions:running-elsewhere", async (_event, sessionId: string) => {
+    const row = runningElsewhere(sessionId);
+    return row ? { surface: row.surface, name: row.name } : null;
+  });
+
+  /**
+   * A cheap token that changes whenever the session's messages do: rows added,
+   * a draft growing, a draft finishing. A follower polls it and re-reads the
+   * session only when it moves.
+   */
+  handle("sessions:revision", async (_event, sessionId: string) => {
+    const [r] = await db
+      .select({
+        n: sql<number>`count(*)`,
+        chars: sql<number>`coalesce(sum(length(${sessionMessages.content})), 0) + coalesce(sum(length(${sessionMessages.modelContent})), 0)`,
+        open: sql<number>`coalesce(sum(${sessionMessages.status} != 'complete'), 0)`,
+      })
+      .from(sessionMessages)
+      .where(eq(sessionMessages.sessionId, sessionId));
+    return `${r?.n ?? 0}.${r?.chars ?? 0}.${r?.open ?? 0}`;
+  });
+
+  /** The user's words for the turn running elsewhere; `{ok:false, error:"not running"}` once it has ended. */
+  handle("sessions:steer-remote", async (_event, sessionId: string, text: string) =>
+    steerElsewhere(sessionId, String(text ?? "")),
+  );
+
+  /** Stop the turn running elsewhere. */
+  handle("sessions:stop-remote", async (_event, sessionId: string) => stopElsewhere(sessionId));
+
+  /**
+   * `/fork`: the conversation as saved now, as a new session in the same folder,
+   * named "<title> (fork)" (or what the user named it). The original is untouched.
+   *
+   * Every column but the ids is copied, so a turn's native tool history
+   * (`modelContent`), its attachments, its frozen tool UI and its plan rows come
+   * along, and `snapshotTurnId` with them: `/undo` in the fork restores files,
+   * since snapshots are found by workspace and turn (performFullRevert). A turn
+   * still being written (the last row, interrupted, while the source runs) is
+   * left out: it is not finished, and the fork must not carry half of it.
+   */
+  handle(
+    "sessions:fork",
+    async (_event, sessionId: string, opts?: { title?: string }) => {
+      const source = await db.query.chatSessions.findFirst({
+        where: eq(chatSessions.id, sessionId),
+      });
+      if (!source) throw new Error("Session not found");
+      const rows = await db
+        .select()
+        .from(sessionMessages)
+        .where(eq(sessionMessages.sessionId, sessionId))
+        .orderBy(asc(sessionMessages.createdAt), sql`rowid asc`);
+      const last = rows.at(-1);
+      const running =
+        runningElsewhere(sessionId) != null ||
+        (source.streamChatId != null && isChatStreamLive(source.streamChatId));
+      const copied = last && running && last.status === "interrupted" ? rows.slice(0, -1) : rows;
+
+      const fork = await insertWorkspaceSession(source.workspaceId);
+      const named = opts?.title?.trim();
+      const [row] = await db
+        .update(chatSessions)
+        .set({
+          title: named || `${source.title?.trim() || "Untitled"} (fork)`,
+          titleSource: named ? "user" : "auto",
+          workMode: source.workMode,
+        })
+        .where(eq(chatSessions.id, fork.id))
+        .returning();
+      try {
+        // In chunks: one statement binds every column of every row, and a long
+        // session passes SQLite's limit on bound values.
+        for (let i = 0; i < copied.length; i += 200) {
+          await db.insert(sessionMessages).values(
+            copied.slice(i, i + 200).map(({ id: _id, sessionId: _from, ...rest }) => ({
+              ...rest,
+              id: randomUUID(),
+              sessionId: fork.id,
+            })),
+          );
+        }
+      } catch (e) {
+        // Never leave half a fork behind.
+        await db.delete(chatSessions).where(eq(chatSessions.id, fork.id));
+        throw e;
+      }
+      return mapSession(row ?? fork);
+    },
+  );
 
   /** App → CLI handoff: open the user's terminal on this session (lib/peers). */
   handle("sessions:continue-in-terminal", async (_event, sessionId: string) => {
