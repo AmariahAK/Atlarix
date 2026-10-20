@@ -30,6 +30,8 @@ beforeAll(async () => {
 afterAll(() => {
   child?.stdin?.end();
   child?.kill();
+  // Not the data folder: bun runs every test file in this process, on the database open there.
+  fs.rmSync(ws, { recursive: true, force: true });
 });
 
 it("a CLI starting beside an editor's brand-new session keeps to its own", async () => {
