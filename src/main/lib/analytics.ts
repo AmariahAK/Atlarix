@@ -367,6 +367,11 @@ const lastChoice = new Map<number, { mode?: string; model?: string; effort?: str
 /** Turns reported per chat in this process. */
 const turnsInProcess = new Map<number, number>();
 
+/** The mode as people see it: the code's "ask" is Explore everywhere in the UI. */
+function modeName(mode: string | undefined): string | undefined {
+  return mode === "ask" ? "explore" : mode;
+}
+
 function turnIndexBucket(n: number): string {
   if (n <= 1) return "1";
   if (n <= 5) return "2-5";
@@ -452,7 +457,7 @@ export function trackTurnCompleted(
         ...(errorKind ? { error_kind: errorKind } : {}),
         ...(httpStatus ? { http_status: httpStatus } : {}),
         ...(se && outcome === "ok" ? { recovered_error_kind: se.kind } : {}),
-        ...(r.mode ? { mode: r.mode } : {}),
+        ...(r.mode ? { mode: modeName(r.mode) } : {}),
         ...(provider ? { provider } : {}),
         ...(r.model ? { model: r.model } : {}),
         ...(billing ? { billing } : {}),
@@ -460,7 +465,7 @@ export function trackTurnCompleted(
         ...(r.fellBackToCore ? { fell_back_to_core: true } : {}),
         origin: r.automation ? "automation" : "user",
         changed,
-        ...(changed.includes("mode") ? { prev_mode: prev?.mode } : {}),
+        ...(changed.includes("mode") ? { prev_mode: modeName(prev?.mode) } : {}),
         ...(changed.includes("model") ? { prev_model: prev?.model } : {}),
         duration_bucket: durationBucketValue,
         turn_index_bucket: turnIndexBucket(n),
@@ -482,7 +487,7 @@ export function trackTurnCompleted(
       // turn's billing. It used to read a global "last turn", which two turns
       // running at once mixed up.
       const funnel = {
-        ...(r.mode ? { mode: r.mode } : {}),
+        ...(r.mode ? { mode: modeName(r.mode) } : {}),
         ...(billing ? { billing, provider } : {}),
         ...(stats.loop ? { iterations: stats.loop.iterations, toolExecutions: stats.loop.tool_count } : {}),
         duration_bucket: durationBucketValue,

@@ -215,4 +215,11 @@ describe("turn_completed", () => {
       delete process.env.ATLARIX_HOST_TELEMETRY;
     }
   });
+
+  it("names Explore as people see it, not the code's \"ask\"", async () => {
+    trackTurnCompleted(base({ mode: "build" }));
+    trackTurnCompleted(base({ mode: "ask" }));
+    await flush();
+    expect(turns()[1]).toMatchObject({ mode: "explore", changed: ["mode"], prev_mode: "build" });
+  });
 });
