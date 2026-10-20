@@ -4,7 +4,6 @@ import type { UserSettings } from "../../lib/schemas";
 import { writeSettings } from "../../main/settings";
 import { readSettings, isSecretEncryptionAvailable } from "../../main/settings";
 import {
-  capture as analyticsCapture,
   trackAcquisitionSource,
   trackPeerPushPrompt,
   trackActiveDay,
