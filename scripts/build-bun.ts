@@ -160,12 +160,21 @@ const result = await Bun.build({
   },
   external: ["fsevents", "@vscode/sudo-prompt", "node-pty", "keytar"],
   minify: false,
-  sourcemap: "none",
+  // A compiled binary keeps a positions-only map inside it, so a crash report's
+  // frames read src/…/file.ts:line instead of the bundle's. No source text goes
+  // in; the full map Bun writes beside the binary (with sources) is deleted below.
+  sourcemap: outdir ? "none" : "external",
 });
 
 if (!result.success) {
   for (const log of result.logs) console.error(log);
   process.exit(1);
+}
+// The binary carries its own map; the ones written beside it (the binary's and
+// the tree-sitter worker's) hold the full source and must never ship.
+if (!outdir) {
+  const dir = path.dirname(outfile);
+  for (const f of fs.readdirSync(dir)) if (f.endsWith(".map")) fs.rmSync(path.join(dir, f), { force: true });
 }
 console.log(`[build-bun] wrote ${outdir ?? path.relative(root, outfile)} (${version})`);
 
