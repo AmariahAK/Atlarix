@@ -141,11 +141,13 @@ export async function openUndo(ctx: ScreenContext, messageId?: number): Promise<
   const target = messageId != null ? mine.find((m) => m.id === messageId) : mine[0];
   if (!target) return ctx.flash("Nothing to undo yet.");
   const preview = await ctx.session.undoPreview(target.id);
-  const touched = preview.filesChanged.length + preview.createdFiles.length;
+  // A file the turn created is in both lists: named once (QA saw "f.txt, f.txt").
+  const files = [...new Set([...preview.filesChanged, ...preview.createdFiles])];
+  const touched = files.length;
   // Restoring leaves a file changed since alone: count what will go back.
   const keptList = preview.kept ?? [];
   const kept = new Set(keptList);
-  const goingBack = [...new Set([...preview.filesChanged, ...preview.createdFiles])].filter((f) => !kept.has(f)).length;
+  const goingBack = files.filter((f) => !kept.has(f)).length;
   const begin = (restore: boolean) => {
     ctx.host.closeAll();
     ctx.beginEdit?.(
@@ -154,7 +156,7 @@ export async function openUndo(ctx: ScreenContext, messageId?: number): Promise<
     );
   };
   if (touched === 0) return begin(false);
-  const names = [...preview.filesChanged, ...preview.createdFiles].slice(0, 5);
+  const names = files.slice(0, 5);
   ctx.host.push(
     new ListDialog({
       title: "Go back to this message?",

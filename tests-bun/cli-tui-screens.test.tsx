@@ -1058,6 +1058,23 @@ describe("command screens", () => {
     expect(await until(() => !setup.captureCharFrame().includes("runs after this turn"))).toBe(true);
   });
 
+  // A file the turn created is in both lists; it was counted and named twice
+  // ("changed 2 files after it: f-P1.txt, f-P1.txt", QA).
+  it("/undo names a file the turn created once", async () => {
+    const { setup, session } = await mount();
+    (session as unknown as { undoPreview: () => Promise<unknown> }).undoPreview = async () => ({
+      turnIds: ["t30"],
+      filesChanged: ["/w/f-P1.txt"],
+      createdFiles: ["/w/f-P1.txt"],
+    });
+    await command(setup, "/undo");
+    await frameContaining(setup, "Go back to a message");
+    setup.mockInput.pressEnter();
+    const frame = await frameContaining(setup, "Go back to this message?");
+    expect(frame).toContain("changed 1 file after it");
+    expect(frame.split("f-P1.txt").length - 1).toBe(1);
+  });
+
   it("/undo: restore the files, edit the message in the box, and send replaces it", async () => {
     const { setup, session } = await mount();
     await command(setup, "/undo");
