@@ -42,6 +42,10 @@ bottom) and `~/.atlarix-e2e/team/MORNING.md` (the owner's list).
 - **`atlarix --version` unpacks the skills cache.** It shouldn't need to.
 - **Vercel's git auto-deploy for atlarix-launchpad didn't fire** on 2026-10-21 (two main pushes, no deployment);
   `vercel deploy --prod --yes --scope amariah-kamaus-projects` from a clean tree worked. Check the Git integration.
+- **Seen while filming the release video (ai-fc, on the released 15.10.0, not yet verified):** (a) each "New chat"
+  click in the VS Code panel adds a "New editor session (<project>)" row to `__atlarix_live_sessions` (~30 rows
+  after ~30 clicks), so empty sessions pile up; (b) the panel's Past chats doesn't refresh while open, so a chat
+  the CLI starts only appears after it's reopened. Reproduce on a scratch profile first.
 - **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix, then the
   Microsoft Store resubmission (`unvirtualizedResources` justification in the MSIX manifest comment). winget is
   still blocked on microsoft/winget-pkgs#446527.
