@@ -479,8 +479,8 @@ export interface TurnReport {
 export function trackTurnCompleted(
   r: TurnReport,
   providerTypeOf?: (providerId: string) => Promise<string | { type?: string; apiFormat?: string } | undefined>,
-): TurnEnd {
-  let resolved: TurnEnd = r.end;
+): TurnEnd & { autoBilling?: AutoBilling } {
+  let resolved: TurnEnd & { autoBilling?: AutoBilling } = r.end;
   try {
     const stats = drainTurnStats(r.chatId);
     const prev = lastChoice.get(r.chatId);
@@ -500,7 +500,12 @@ export function trackTurnCompleted(
       errorKind = se.kind as TurnErrorKind;
       httpStatus = se.httpStatus;
     }
-    resolved = { outcome, ...(errorKind ? { errorKind } : {}), ...(httpStatus ? { httpStatus } : {}) };
+    resolved = {
+      outcome,
+      ...(errorKind ? { errorKind } : {}),
+      ...(httpStatus ? { httpStatus } : {}),
+      ...(stats.autoBilling ? { autoBilling: stats.autoBilling } : {}),
+    };
     if (!isOptedIn()) return resolved;
 
     const changed = prev ? (["mode", "model", "effort"] as const).filter((k) => prev[k] !== choice[k]) : [];

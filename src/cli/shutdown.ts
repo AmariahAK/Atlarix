@@ -55,9 +55,11 @@ export async function shutdownCli(code = 0): Promise<never> {
     // Hand the browser over: an Atlarix sharing it through us takes it over.
     const { stopBridge } = await import("@/main/bridge-lifecycle");
     await withTimeout(stopBridge(), 300);
-    // Analytics (only queued when the user opted in): sent before the exit.
+    // Analytics (only queued when the user opted in) and the account's usage
+    // counts (usage-rollup): sent before the exit, together.
     const { flushAndClose } = await import("@/main/lib/analytics");
-    await withTimeout(flushAndClose(), 800);
+    const { flushClientUsage } = await import("@/lib/analytics/usage-rollup");
+    await withTimeout(Promise.all([flushAndClose(), flushClientUsage().catch(() => {})]), 800);
     const Sentry = await import("@sentry/electron/main");
     await withTimeout(Sentry.flush(800), 900);
     const { drainPendingWork } = await import("@/lib/pending-work");

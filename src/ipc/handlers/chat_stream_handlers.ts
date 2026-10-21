@@ -194,6 +194,7 @@ import { registerSessionHandlers } from "./chat_stream/session-handlers";
 import { createStreamTurnContext } from "./chat_stream/turn-context";
 import { trackTurnCompleted } from "@/main/lib/analytics";
 import { reportTurnFailure } from "@/lib/analytics/turn-failure-report";
+import { recordTurnUsage } from "@/lib/analytics/usage-rollup";
 import { sentryCaptureExceptionSafe } from "./chat_stream/sentry-safe";
 import { classifyTurnEnd, classifyTurnError, type TurnEnd } from "@/lib/analytics/turn-end";
 import { noteTurn } from "@/lib/analytics/turn-stats";
@@ -2488,6 +2489,17 @@ export function registerChatStreamHandlers() {
               fellBackToCore: ctx.analyticsTurn.fellBackToCore,
             },
             sentryCaptureExceptionSafe,
+            providerOf,
+          );
+          recordTurnUsage(
+            {
+              end: ended,
+              provider: ctx.analyticsTurn.provider,
+              model: ctx.analyticsTurn.model,
+              fellBackToCore: ctx.analyticsTurn.fellBackToCore,
+              tokensIn: ctx.turnInputTokens,
+              tokensOut: ctx.turnOutputTokens,
+            },
             providerOf,
           );
         }

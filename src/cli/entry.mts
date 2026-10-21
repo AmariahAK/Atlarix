@@ -389,9 +389,15 @@ async function main(): Promise<void> {
     // before: QA X1), bounded together well inside VS Code's 5 s kill backstop.
     const { sweepTempOnQuit } = await import("../main/temp-hygiene");
     const { flushAndClose } = await import("../main/lib/analytics");
+    const { flushClientUsage } = await import("../lib/analytics/usage-rollup");
     const Sentry = await import("@sentry/electron/main");
     await Promise.race([
-      Promise.all([sweepTempOnQuit().catch(() => {}), flushAndClose().catch(() => {}), Sentry.flush(1000)]),
+      Promise.all([
+        sweepTempOnQuit().catch(() => {}),
+        flushAndClose().catch(() => {}),
+        flushClientUsage().catch(() => {}),
+        Sentry.flush(1000),
+      ]),
       new Promise((r) => setTimeout(r, 1500)),
     ]);
     process.exit(0);
