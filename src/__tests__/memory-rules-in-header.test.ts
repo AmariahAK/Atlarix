@@ -53,6 +53,8 @@ describe("Project memory rules in the stable header", () => {
     expect(h).toMatch(/check it still exists/);
     expect(h).toMatch(/update that instead/);
     expect(h).not.toContain("guides/memory");
+    // Weaker models invent a write tool for notes (QA: GLM-4.7-Flash 2/2).
+    expect(h).toContain("created with `edit_file`");
   });
 
   it("comes after the runtime identity that names the directory", () => {
@@ -67,6 +69,9 @@ describe("Project memory rules in the stable header", () => {
     process.env.ATLARIX_MEMORY = "off";
     try {
       expect(header(memoryDirFor(workspace))).not.toContain("# Project memory");
+      // Nor is the store named in the runtime identity, nor pointed at by AGENTS.md.
+      expect(header(memoryDirFor(workspace))).not.toContain(memoryDirFor(workspace));
+      expect(header(memoryDirFor(workspace))).not.toContain("Agent memory:");
     } finally {
       delete process.env.ATLARIX_MEMORY;
     }

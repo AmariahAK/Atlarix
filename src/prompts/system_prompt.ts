@@ -291,16 +291,20 @@ export const constructSystemPromptParts = ({
   labelWithProvider,
   registeredToolNames,
   hasWorkspace,
-  memoryDir,
+  memoryDir: memoryDirParam,
   workspaceRoot,
 }: ConstructSystemPromptParams): SystemPromptParts => {
   const headless = process.env.ATLARIX_HEADLESS === "1";
+  // Off (benchmarks): no store is named anywhere, not only the rules.
+  const memoryDir = isAgentMemoryDisabled() ? undefined : memoryDirParam;
   const baseRaw =
     optionalProjectInstructions ??
     (effectiveWorkMode
       ? getAgentsMdForWorkMode(effectiveWorkMode)
       : getAgentsMdForContextSize(contextSize));
-  const base = baseRaw;
+  // With memory off there is no store and no memory section, so AGENTS.md's
+  // pointer to them would name things that aren't there.
+  const base = memoryDir ? baseRaw : baseRaw.replace(/^- \*\*Agent memory:\*\*.*\n/m, "");
 
   // PASS8 A3: <tool_contract> slimmed to the contract itself; verbose prose dropped.
   // Headless drops the every-mode tools not bound autonomously (resolve-toolset.ts).
@@ -424,10 +428,10 @@ Your context window this session is **${contextSize.toLocaleString("en-US")} tok
   // notice) rides the user rows instead; see `lib/memory/session-context.ts`. Only
   // with a store to write to, and never under ATLARIX_MEMORY=off (benchmarks).
   const memoryRules =
-    memoryDir && !isAgentMemoryDisabled()
+    memoryDir
       ? `# Project memory
 You keep notes about this project in the project-memory directory named above, so a later session starts from what you learned. \`MEMORY.md\` there is the index, one pointer per note: \`- [Title](file.md) — one-line hook\`. It is shown to you at the start of a session; notes relevant to a message are attached to it as recalled memory.
-Each note is one fact in its own file:
+Each note is one fact in its own file, created with \`edit_file\`:
 \`\`\`
 ---
 name: <file name without .md>
