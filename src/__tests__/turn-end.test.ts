@@ -61,6 +61,19 @@ describe("classifyTurnError", () => {
     expect(classifyTurnError(wrapped)).toEqual({ kind: "rate_limit", httpStatus: 429 });
   });
 
+  it("a provider that kept failing is that failure once the retries run out, not 'network'", () => {
+    // Live check 2026-10-21: twelve 500s from the provider ended the turn as `network`, which
+    // the crash report drops as expected, so a provider outage was never reported.
+    expect(classifyTurnError(new NetworkStreamDisconnectedError("", api(500)))).toEqual({ kind: "provider_5xx", httpStatus: 500 });
+    expect(classifyTurnError(new NetworkStreamDisconnectedError("", { error: api(503) }))).toEqual({
+      kind: "provider_5xx",
+      httpStatus: 503,
+    });
+    expect(classifyTurnError(new NetworkStreamDisconnectedError("", api(429)))).toEqual({ kind: "rate_limit", httpStatus: 429 });
+    // A real transport fault keeps its word.
+    expect(classifyTurnError(new NetworkStreamDisconnectedError("", new TypeError("fetch failed"))).kind).toBe("network");
+  });
+
   it("classes without a status", () => {
     expect(classifyTurnError(new NetworkStreamDisconnectedError("x" as never)).kind).toBe("network");
     expect(classifyTurnError(new ProviderRefusedRequestError({})).kind).toBe("provider_refused");
