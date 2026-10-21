@@ -150,6 +150,15 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
   repo; it is now on AmariahAK/Atlarix. Check one new app crash links to the right file.
 - **ATLARIX-3Z** ("Maximum update depth exceeded"): see Open queue item 8. Map it the next time it fires (now
   that source maps upload).
+- **Rotate `ATLARIX_TEST_ANTHROPIC_KEY`.** On 2026-10-21 a session's shell line printed its environment, this
+  key included, into that session's own tool output (nothing was sent anywhere). Make a new key in the Anthropic
+  Console and replace it wherever the test env reads it.
+- **Analytics on Windows: not run.** Every analytics change in 15.10.0 passed on the Mac (CLI, app, VS Code panel,
+  raw ACP). The Windows pass on the VM is still to do: turn_completed fields, session_opened, VS Code's telemetry
+  switch, crash-report scrubbing (Windows paths: home folder and user name).
+- **Refused turns:** a signed-out turn reporting `error_kind: auth` is tested and checked in the app. The other
+  early refusals (`content_rejected`, a too-long prompt, `no_workspace`, a legacy chat id → `other`) were changed
+  the same way but only checked by reading the code. Look at "Why turns fail" after the release.
 
 **Verified live 2026-10-19 (15.9.1, unchanged in 15.9.2), on the real Anthropic API:** Sonnet 5.5,
 Opus 5.5, Haiku 5.5 and Fable 5.1 get `thinking: adaptive` + `output_config.effort` as chosen
