@@ -40,8 +40,6 @@ bottom) and `~/.atlarix-e2e/team/MORNING.md` (the owner's list).
   cert in Security follow-ups) or a smaller binary.
 - **Windows ACP folder option reads `src/`** with a forward slash. Cosmetic.
 - **`atlarix --version` unpacks the skills cache.** It shouldn't need to.
-- **npm `atlarix@15.10.0` is STAGED, not live:** approve it on npmjs.com (maintainer 2FA). The platform packages
-  are live. A re-run of headless.yml gets "Cannot publish over previously staged version" until then.
 - **Vercel's git auto-deploy for atlarix-launchpad didn't fire** on 2026-10-21 (two main pushes, no deployment);
   `vercel deploy --prod --yes --scope amariah-kamaus-projects` from a clean tree worked. Check the Git integration.
 - **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix, then the
