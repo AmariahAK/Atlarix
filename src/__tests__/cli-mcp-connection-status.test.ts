@@ -49,6 +49,15 @@ describe("/mcp row", () => {
     expect(mcpServerDetail(s)).toBe("this computer · stdio · Connection closed");
   });
 
+  it("leads with what the server said, so a one-line row shows it (QA B1b)", () => {
+    // The row is one line, cut to the dialog's width: "this computer · stdio · Connection closed: Error"
+    // was all that fitted, 3/3, while the telling part came after it.
+    const s = { ...base, connection: { ok: false as const, error: "Connection closed: Error: Cannot find module '~/no-such-server.mjs'" } };
+    expect(mcpServerDetail(s)).toBe("this computer · stdio · Cannot find module '~/no-such-server.mjs'");
+    const sdk = { ...base, connection: { ok: false as const, error: "MCP error -32000: Connection closed" } };
+    expect(mcpServerDetail(sdk)).toBe("this computer · stdio · Connection closed");
+  });
+
   it("connected, not yet tried, off, and sign-in", () => {
     expect(mcpServerRight({ ...base, connection: { ok: true } }).text).toBe("✓ connected");
     expect(mcpServerRight(base).text).toBe("connecting…");
