@@ -169,11 +169,6 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
 - **Analytics on Windows: not run.** Every analytics change in 15.10.0 passed on the Mac (CLI, app, VS Code panel,
   raw ACP). The Windows pass on the VM is still to do: turn_completed fields, session_opened, VS Code's telemetry
   switch, crash-report scrubbing (Windows paths: home folder and user name).
-- **Refused turns:** a signed-out turn reporting `error_kind: auth` is tested and checked in the app. The other
-  early refusals (`content_rejected`, a too-long prompt, `no_workspace`, a legacy chat id → `other`) were changed
-  the same way but only checked by reading the code. Look at "Why turns fail" after the release.
-- **Agent evals:** the full run on 2026-10-21 (52 files, 86 s, no hang) had 2 failures, both evals left behind
-  by A7 and 1a, fixed in 7e5684f4 and passing file by file. One full re-run under the heavy lock confirms it.
 - **Account usage counts (`client_usage_daily`) are LIVE in Supabase** (applied 2026-10-21, grants read back)
   and empty until a release carries the client (team/ai2a-telemetry). Who is active, by surface and model:
   `select * from v_latest_model_by_surface` (service role). The consent text on all four surfaces and the
@@ -218,7 +213,6 @@ hint at add time could catch typos.
   paths.
 - **Cloud agent on paid Core `core-2`:** never run (it was blocked by the Actions billing hold of
   2026-10-04, since cleared).
-- **PostHog:** a "Weekly active users by billing" insight from `model_turn`.
 
 ## 🔭 Open — the queue
 
@@ -284,6 +278,39 @@ cloud agent's pull requests reviewed the same way. Still missing:
 literal word "atlarix" and /pricing had never been crawled: the bottleneck is AUTHORITY, not
 markup. The movement comes from third-party pages (the CWS listing, the GitHub Marketplace
 listing, launches).
+
+### 4. History is never read from the prompt cache across turns (Build and Ask, every Claude route)
+
+Found by ai-bc's memory QA, measured 2026-10-21 by ai-2a. Bedrock Claude Haiku 4.5 on the Anthropic
+format, three one-word turns in one chat:
+
+| Turn | read | write | input |
+|---|---|---|---|
+| 1 | 0 | 13,515 | 13,525 |
+| 2 | 12,932 | 597 | 13,539 |
+| 3 | 12,932 | 611 | 13,553 |
+
+Only the stable header (tools + system) is ever read. The per-turn dynamic tail is a second system
+message BEFORE the history (`buildStreamMessagesWithCacheBreakpoints`,
+`src/lib/ai/anthropic-cache-breakpoints.ts`), and it changes every turn because it carries this
+turn's own request as `<user_context>` (`userPrompt` = `req.prompt`, `system_prompt.ts` tail).
+Anthropic orders the cache prefix tools → system → messages, so every history message after the
+tail is rewritten each turn. Here that is ~600 tokens; in a real chat it is the whole history.
+
+Not fixed on 2026-10-21 (too risky for that release). Options, by risk:
+- **Drop `<user_context>` from the tail when it is the turn's own message** (it is the same text the
+  user message already carries). The tail is then day-stable and the history caches. Smallest and
+  provider-neutral, and it shortens the prompt, but it changes prompt text: the owner's call.
+- **Send the tail after the history.** The words stay the same. `@ai-sdk/anthropic` 4.0.39 sends a
+  later system message as `role: system` with the `mid-conversation-system-2026-04-07` beta. Before
+  relying on it, check that beta on direct Anthropic, Bedrock, Vertex, gateways on the Anthropic
+  format and OpenRouter, and that the OpenAI-compatible and Google routes accept a system message
+  there.
+- Moving the tail into the last user message as a text part changes its role. Not recommended.
+
+Measure before and after with an ACP run (dev mode, `--provider-format anthropic`
+at Bedrock's `/anthropic/v1`, Haiku) and the `[prompt-cache] read=` lines in the profile's
+`logs/atlarix-cli.log`: after the fix, turn 3's `read` should cover turn 2's history.
 
 ### 8. "Maximum update depth exceeded" in the window, once (Sentry ATLARIX-3Z)
 
