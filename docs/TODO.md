@@ -180,10 +180,6 @@ Opus 5.5, Haiku 5.5 and Fable 5.1 get `thinking: adaptive` + `output_config.effo
 pointed at api.anthropic.com reads 24.4k of the Build prompt from cache on the second message.
 Bedrock's newest-model access (AWS Sales request 2026-10-18) is no longer needed for this check.
 
-**Known limit from 15.9.0:** Bedrock reads the request body before the key, so a bad Bedrock
-token is only caught by the first message (it fails cleanly; nothing is billed). A key-prefix
-hint at add time could catch typos.
-
 ## After every release — the owner, by hand
 
 - **VS Code Marketplace: upload each `.vsix`** from the folder left on the Desktop

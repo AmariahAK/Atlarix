@@ -17,6 +17,8 @@ export interface KeyCheck {
 export interface KeyProbe {
   url: string;
   headers: Record<string, string>;
+  /** Nothing to ask the provider; say this instead (still "unchecked": the key is saved). */
+  unchecked?: string;
 }
 
 /**
@@ -31,6 +33,15 @@ const NATIVE_MODELS_URL: Record<string, string> = {
 
 /** Signed in through a cloud account rather than one key: nothing to probe. */
 const ACCOUNT_AUTH = new Set(["vertex", "bedrock", "azure", "amazon-bedrock", "google-vertex"]);
+
+/**
+ * Amazon Bedrock API keys, as AWS documents them: short-term `bedrock-api-key-…`,
+ * long-term `ABSK…`. Bedrock reads the request before the key, so a typo only
+ * showed on the first message. A key of neither form is still saved, with a
+ * warning: a form AWS adds later must not be locked out.
+ */
+const BEDROCK_KEY = /^(bedrock-api-key-|ABSK)/;
+const NOT_A_BEDROCK_KEY = "That isn't an Amazon Bedrock API key: they start with ABSK or bedrock-api-key-.";
 
 /** How a provider the user added speaks: its wire format and how it takes the key. */
 export interface CustomWire {
@@ -71,6 +82,9 @@ export function keyProbe(
       ? { url, headers: anthropicHeaders(apiKey, wire.authHeader) }
       : { url, headers: { Authorization: `Bearer ${apiKey}` } };
   }
+  if ((providerId === "bedrock" || providerId === "amazon-bedrock") && !BEDROCK_KEY.test(apiKey.trim())) {
+    return { url: "", headers: {}, unchecked: NOT_A_BEDROCK_KEY };
+  }
   if (ACCOUNT_AUTH.has(providerId)) return null;
   if (providerId === "anthropic") {
     return { url: "https://api.anthropic.com/v1/models", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" } };
@@ -103,6 +117,7 @@ export async function checkProviderKey(
   fetchImpl: typeof fetch = fetch,
 ): Promise<KeyCheck> {
   if (!probe) return { status: "unchecked", detail: "This provider can't be checked from here. Saved keys still work in chats." };
+  if (probe.unchecked) return { status: "unchecked", detail: probe.unchecked };
   let res: Response;
   try {
     res = await fetchImpl(probe.url, { headers: probe.headers, signal: AbortSignal.timeout(15_000) });
