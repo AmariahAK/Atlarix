@@ -367,13 +367,15 @@ describe("reuse SURVIVES being reused — the Untitled-litter regression", () =>
       createdAt: sec(now - 10 * 60_000),
       updatedAt: sec(now - 9 * 60_000),
     });
-    // Newest and untouched → wins the reuse slot.
+    // Newest and untouched → wins the reuse slot. Still older than the 2 min an
+    // empty another process just created counts as its own (A7), or it is no
+    // candidate at all and the drifted row takes the reuse slot.
     await ctx.testDb.db.insert(chatSessions).values({
       id: "prune-clean",
       workspaceId: appId,
       title: "Untitled",
-      createdAt: sec(now - 60_000),
-      updatedAt: sec(now - 60_000),
+      createdAt: sec(now - 5 * 60_000),
+      updatedAt: sec(now - 5 * 60_000),
     });
 
     const { startWorkspaceSession } = await import(

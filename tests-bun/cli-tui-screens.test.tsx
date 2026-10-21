@@ -155,8 +155,14 @@ function fakeServices(calls: Call[]): CliServices {
     },
     mcp: (() => {
       const servers = [{ id: 1, name: "github", transport: "stdio", enabled: true }];
+      // How each server connected, once /mcp has probed it (McpManager's record).
+      const connected = new Set<number>();
       return {
-        list: async () => servers.map((x) => ({ ...x })),
+        list: async () => servers.map((x) => ({ ...x, ...(connected.has(x.id) ? { connection: { ok: true as const } } : {}) })),
+        probe: async (ids: number[]) => {
+          calls.push(["mcp.probe", ids]);
+          for (const id of ids) connected.add(id);
+        },
         test: async () => ({ ok: true }),
         tools: async () => [],
         add: async (appId: number, server: { name: string; command?: string; url?: string }) => {
@@ -795,8 +801,10 @@ describe("command screens", () => {
     await command(setup, "/mcp");
     let frame = await frameContaining(setup, "MCP servers");
     expect(frame).toContain("github");
-    expect(frame).toContain("✓ on");
     expect(frame).toContain("On/off space");
+    // Whether it connects, not just its switch: probed once, then shown.
+    frame = await frameContaining(setup, "✓ connected");
+    expect(serviceCalls).toContainEqual(["mcp.probe", [1]]);
     setup.mockInput.pressKey(" ");
     frame = await frameContaining(setup, "○ off");
     expect(serviceCalls).toContainEqual(["mcp.setEnabled", 1, false]);
