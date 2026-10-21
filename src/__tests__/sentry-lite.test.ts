@@ -59,7 +59,8 @@ describe("the CLI's crash reporter", () => {
     expect(body).not.toContain(process.cwd());
     expect(body).not.toContain("jane.doe@example.com");
     expect(body).not.toContain("x".repeat(40));
-    expect(body).toContain("~/secret-project");
+    // JSON-escaped on Windows: `~\\secret-project`.
+    expect(body).toMatch(/~(\/|\\\\)secret-project/);
     expect(body).toContain("<email>");
   });
 
