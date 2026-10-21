@@ -1425,6 +1425,7 @@ export class AgentSession extends EventEmitter {
       attachmentType: "chat-context" as const,
     }));
     this.turnSeq++;
+    this.lastTurnStopped = false;
     // The last turn's error stays under that turn, not gone with the banner
     // (QA: "Couldn't reach…" vanished on the next send).
     if (this.state.lastError && this.lastTurnOwner) this.addTurnNotice(this.lastTurnOwner, "error", this.state.lastError);
@@ -2125,6 +2126,16 @@ export class AgentSession extends EventEmitter {
   private endedStreamId: number | null = null;
   /** Bumped by every turn that starts: an older turn's ending must not touch a newer turn. */
   private turnSeq = 0;
+  private lastTurnStopped = false;
+
+  /**
+   * The turn that just ended was stopped (here, or from another surface, which
+   * lands as Esc). A stop before any output leaves no footer to say so, and an
+   * editor ended that turn as a normal finish.
+   */
+  get turnWasStopped(): boolean {
+    return this.lastTurnStopped;
+  }
   /** A reply's file snapshot (its turn id), for /undo: assistant transport id → turn id. */
   private readonly turnSnapshots = new Map<string, string>();
   /** Assistant messages already in the session store (by transport id). */
@@ -2174,6 +2185,7 @@ export class AgentSession extends EventEmitter {
     this.steers = [];
     const wasInterrupted = this.interruptRequested;
     this.interruptRequested = false;
+    this.lastTurnStopped = wasInterrupted;
     // THIS turn's reply: after its message. The last assistant message in the
     // chat could be an earlier turn's, and a stop before any reply then marked
     // that one, or nothing at all (QA: no "Interrupted" line after a stop).

@@ -153,8 +153,6 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
   following goes idle in about 1.5–3 s. E16: a missing `atlarix.cliPath` says so and starts nothing. If E11 still
   leaves the lease on Windows, have `atlarix acp` release its lease and sweep before it closes sessions
   (`src/cli/entry.mts`, acp branch). If E15 comes back, it isn't root-caused: note the exact clicks.
-- **Editors, a known limit:** a turn stopped from another surface before it showed any output still ends as
-  `end_turn` in that editor. There is no footer cell to read; `stopped()` in `src/cli/acp/agent.ts`.
 - **Your own profile:** a QA slip on 2026-10-21 00:41 created one empty session
   (`3d6af3f8-1349-4503-b90a-1e613485eed5`, workspace 58) in your real Atlarix data. It's harmless; delete it from
   the session list if you like.
