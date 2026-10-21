@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { IpcClient } from "@/ipc/ipc_client";
+import type { McpListToolsResult } from "@/ipc/ipc_types";
 import {
   clockFromCron,
   cronWithClock,
@@ -160,6 +161,35 @@ export function AutomationForm({
   const [mcpTool, setMcpTool] = useState(
     existingTrigger?.kind === "mcp" ? existingTrigger.tool : "",
   );
+  /**
+   * The chosen server's tools, so the tool is picked rather than typed (QA
+   * 15.7.0). Null while unknown or when listing failed: then it is typed.
+   */
+  const [toolChoices, setToolChoices] = useState<string[] | null>(null);
+  useEffect(() => {
+    setToolChoices(null);
+    if (!open || kind !== "mcp" || !mcpServerRef) return;
+    let live = true;
+    const ipc = IpcClient.getInstance();
+    const ref = mcpTriggerServerFromRef(mcpServerRef);
+    const load = async (): Promise<string[]> => {
+      if (ref.accountServer) {
+        const rows = await ipc.listAccountMcpServers();
+        return rows?.find((r) => r.name === ref.accountServer)?.tools ?? [];
+      }
+      if (ref.serverId == null) return [];
+      const res: McpListToolsResult = await ipc.listMcpTools(ref.serverId);
+      return res.tools.map((tool) => tool.name);
+    };
+    load()
+      .then((names) => {
+        if (live) setToolChoices(names.length ? [...new Set(names)].sort() : null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [open, kind, mcpServerRef]);
   const [mcpArgs, setMcpArgs] = useState(
     existingTrigger?.kind === "mcp" && existingTrigger.args != null
       ? JSON.stringify(existingTrigger.args, null, 2)
@@ -395,13 +425,33 @@ export function AutomationForm({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="automation-mcp-tool">Tool name</Label>
-                <Input
-                  id="automation-mcp-tool"
-                  value={mcpTool}
-                  onChange={(e) => setMcpTool(e.target.value)}
-                  placeholder="e.g. search_messages"
-                  className="font-mono"
-                />
+                {toolChoices ? (
+                  <select
+                    id="automation-mcp-tool"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                    value={mcpTool}
+                    onChange={(e) => setMcpTool(e.target.value)}
+                  >
+                    <option value="" disabled>
+                      {t("automations.chooseTool")}
+                    </option>
+                    {/* A saved tool the server no longer lists stays visible. */}
+                    {mcpTool && !toolChoices.includes(mcpTool) && <option value={mcpTool}>{mcpTool}</option>}
+                    {toolChoices.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    id="automation-mcp-tool"
+                    value={mcpTool}
+                    onChange={(e) => setMcpTool(e.target.value)}
+                    placeholder="e.g. search_messages"
+                    className="font-mono"
+                  />
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="automation-mcp-args">Arguments (JSON)</Label>

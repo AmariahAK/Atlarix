@@ -247,6 +247,7 @@ export function registerMcpHandlers() {
         return { ok: true };
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
+        mcpManager.noteFailed(serverId, e);
         logMcpError("MCP test connection failed", e);
         return {
           ok: false,
@@ -254,6 +255,25 @@ export function registerMcpHandlers() {
           needsOAuth: e instanceof McpNeedsOAuthError,
         };
       }
+    },
+  );
+
+  // How each server's last connection went in this process (the CLI's /mcp),
+  // probing the ones not yet tried when asked. Read-only for a working client.
+  handle(
+    "mcp:connection-status",
+    async (
+      _event: IpcMainInvokeEvent,
+      params: { serverIds: number[]; probe?: boolean },
+    ): Promise<Record<number, { ok: true } | { ok: false; error: string }>> => {
+      const ids = (params?.serverIds ?? []).filter((id) => Number.isInteger(id));
+      if (params?.probe) await Promise.all(ids.map((id) => mcpManager.probe(id)));
+      const out: Record<number, { ok: true } | { ok: false; error: string }> = {};
+      for (const id of ids) {
+        const st = mcpManager.connectionStatus(id);
+        if (st) out[id] = st;
+      }
+      return out;
     },
   );
 

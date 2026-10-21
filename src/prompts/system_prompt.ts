@@ -389,13 +389,6 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
           }
 - If asked who built Atlarix, say **NorahLabs** ([norahlabs.com](https://norahlabs.com/)). State the app version exactly as **${appVersion}**. Do not say you have no version or that you were created by an unnamed "development team."`;
 
-  // Device capability — CORES + TOTAL RAM only (fixed per machine, so this
-  // stays in the cache-stable header; freemem() is deliberately omitted, it
-  // would churn the prompt-cache prefix every turn like clock time would).
-  // Lets the model size parallel/resource-heavy work to the actual hardware
-  // instead of a hardcoded cap.
-  const cpuCount = Math.max(1, os.cpus().length);
-  const totalMemGb = Math.max(1, Math.round(os.totalmem() / 1024 ** 3));
   // Platform + shell were absent from the prompt entirely, on a product that
   // ships a Windows build and whose agent runs shell commands — so the model
   // guessed, which means bash idioms on PowerShell and POSIX paths on Windows.
@@ -407,8 +400,7 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
   // the SAME resolver `runShellCommand` uses to spawn, so the prompt states the
   // shell commands genuinely run in, including a user's own $SHELL.
   const deviceInfo = `# Device
-Operating system: **${os.type()} ${os.release()}** (${os.arch()}). Shell commands run through **\`${resolvePromptShell()}\`** — use that shell's syntax and this OS's path conventions.
-This machine has **${cpuCount} CPU cores** and **${totalMemGb} GB RAM**; scale what you run at once to that.`;
+Operating system: **${os.type()} ${os.release()}** (${os.arch()}). Shell commands run through **\`${resolvePromptShell()}\`** — use that shell's syntax and this OS's path conventions.`;
 
   // The model was never told its own window, so `compress_context` — whose
   // description says "when context is filling up" — got called on intuition. A

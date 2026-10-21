@@ -54,6 +54,8 @@ export interface McpServerSummary {
   enabled: boolean;
   /** A browser sign-in it still needs before it works. */
   needsSignIn?: boolean;
+  /** How its last connection in this process went; absent until it has been tried. */
+  connection?: { ok: true } | { ok: false; error: string };
 }
 
 export interface SavedPermission {
@@ -115,6 +117,8 @@ export interface CliServices {
   mcp: {
     list(appId: number): Promise<McpServerSummary[]>;
     test(id: number): Promise<{ ok: boolean; error?: string; needsOAuth?: boolean }>;
+    /** Connect the servers not yet tried in this process (never tears down a working one). */
+    probe(ids: number[]): Promise<void>;
     tools(id: number): Promise<Array<{ name: string; description?: string }>>;
     /** A command (`npx -y @x/mcp`) starts a local server; a URL connects to a remote one. */
     add(appId: number, server: { name: string; command?: string; url?: string }): Promise<void>;
@@ -316,15 +320,22 @@ export const realServices: CliServices = {
   mcp: {
     async list(appId) {
       const rows = await call<Array<Record<string, unknown>>>("mcp:list-servers", { appId });
+      const status = await call<Record<number, McpServerSummary["connection"]>>("mcp:connection-status", {
+        serverIds: rows.map((r) => Number(r.id)),
+      }).catch(() => ({}) as Record<number, McpServerSummary["connection"]>);
       return rows.map((r) => ({
         id: Number(r.id),
         name: String(r.name ?? `Server ${r.id}`),
         transport: String(r.transport ?? ""),
         enabled: r.enabled !== false,
         needsSignIn: r.authType === "oauth" && r.oauthConnected !== true,
+        ...(status[Number(r.id)] ? { connection: status[Number(r.id)] } : {}),
       }));
     },
     test: (id) => call("mcp:test-connection", id),
+    async probe(ids) {
+      if (ids.length) await call("mcp:connection-status", { serverIds: ids, probe: true });
+    },
     found: (appId) => call("mcp:discover-external", { appId }),
     async importFound(appId, key) {
       await call("mcp:import-external", { appId, key });

@@ -101,7 +101,8 @@ Checked against the code on 2026-09-23. Anything the listing claims should be on
 > • Pick a conversation back up on another device, because what was said follows your account
 >
 > WHAT SYNCS, AND WHAT DOES NOT
-> Page text goes to the model to answer what you asked. It is never synced to your account:
+> Page text, and screenshots of the tabs Atlarix opened, go to the model to answer what you
+> asked. They are never synced to your account:
 > what syncs is what was said — your messages and its replies — so a conversation can be
 > continued elsewhere. The files you attach stay on your device; only what the model reads
 > from them is sent to it.

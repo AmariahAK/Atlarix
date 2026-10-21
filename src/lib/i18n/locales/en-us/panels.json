@@ -6,6 +6,7 @@
   },
   "automations": {
     "empty": "Runs on a schedule or a trigger.",
-    "chooseNotify": "Choose whether to tell the AI."
+    "chooseNotify": "Choose whether to tell the AI.",
+    "chooseTool": "Choose a tool"
   }
 }

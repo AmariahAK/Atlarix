@@ -16,6 +16,7 @@ import { clockFromCron, formatClock } from "@/lib/automations/cron-time";
 import { formatTokens } from "./format";
 import { glyph } from "./glyphs";
 import { InputDialog, ListDialog, TextDialog, type Dialog, type DialogHost, type Line, type ListItem, type Tone } from "./dialogs";
+import { mcpServerDetail, mcpServerRight } from "./mcp-row";
 import {
   exportFileName,
   fromAtlarixMessages,
@@ -1299,6 +1300,8 @@ export function openMcpBrowse(ctx: ScreenContext, done: () => void, firstQuery =
  */
 export function openMcp(ctx: ScreenContext): void {
   let armed: string | null = null;
+  // Each server is probed at most once per open dialog (a failing probe call can't loop).
+  const probed = new Set<number>();
   let account: Awaited<ReturnType<typeof ctx.services.mcp.account>> = null;
   const dialog: ListDialog = new ListDialog({
     title: "MCP servers",
@@ -1340,15 +1343,22 @@ export function openMcp(ctx: ScreenContext): void {
           keywords: needs ? "needs" : c.enabled ? "on" : "off",
         };
       });
-      const mine = (await ctx.services.mcp.list(ctx.session.appId)).map((s) => ({
+      const servers = await ctx.services.mcp.list(ctx.session.appId);
+      // Servers not yet tried in this process connect once in the background,
+      // then the list shows how it went.
+      const untried = servers.filter((s) => s.enabled && !s.needsSignIn && !s.connection && !probed.has(s.id)).map((s) => s.id);
+      if (untried.length) {
+        for (const id of untried) probed.add(id);
+        void ctx.services.mcp
+          .probe(untried)
+          .catch(() => {})
+          .then(() => dialog.reload());
+      }
+      const mine = servers.map((s) => ({
         id: String(s.id),
         label: s.name,
-        detail: `this computer · ${s.transport}`,
-        right: s.needsSignIn
-          ? { text: "sign in", tone: "muted" as const }
-          : s.enabled
-            ? { text: "✓ on", tone: "accent" as const }
-            : { text: "○ off", tone: "muted" as const },
+        detail: mcpServerDetail(s),
+        right: mcpServerRight(s),
         keywords: s.needsSignIn ? "signin" : s.enabled ? "on" : "off",
       }));
       // The user's defaults not added here: enter opens the marketplace on one.
@@ -1454,6 +1464,7 @@ export function openMcp(ctx: ScreenContext): void {
         if (item.id.startsWith("acct:")) return `${item.label} runs through your account; it's tested when it's used.`;
         dialog.say(`Testing ${item.label}…`);
         const r = await ctx.services.mcp.test(Number(item.id));
+        await dialog.reload();
         if (r.ok) return `${item.label} is working.`;
         if (r.needsOAuth) {
           const s = await ctx.services.mcp.signIn(Number(item.id));
