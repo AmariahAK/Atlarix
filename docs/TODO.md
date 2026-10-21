@@ -1,10 +1,8 @@
 # Atlarix TODO
 
-**Current version:** 15.9.2 (2026-10-18): a leaner prompt, and browser and DeepSeek fixes. 15.9.1
-brought adaptive thinking on the newest Claude models (Sonnet 5 / 5.5, Opus 4.7+, Haiku 5.5, Fable)
-with `/effort`; 15.9.0 brought providers you add on the Anthropic API format (Bedrock, gateways),
-Build mode's lasting prompt cache and a faster CLI start. Narrative in
-[`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.10.0 (2026-10-21): project memory that recalls the right notes, live sessions and
+`/fork` across app, CLI and editors, approvals that remember folder rules, compaction that works, a chat history
+that stays in the prompt cache, and per-surface usage data. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -22,67 +20,33 @@ not trust it.
 
 ---
 
-## 🔨 Handover 2026-10-21 — for the owner's fresh session (15.10.0 is ready on dev, NOT released)
+## 🔨 Handover 2026-10-21 (night) — 15.10.0 released by ai-d1; what is left
 
-The owner said on 2026-10-21: "no release, do everything but that". Everything below is what is left. Each item
-says where it stands, exactly what to do, and how to check it worked. The team's live notes are in
-`~/.atlarix-e2e/team/STATUS.md` (newest lines at the bottom) and `~/.atlarix-e2e/team/MORNING.md`.
+The owner approved the full release on 2026-10-21. Team notes: `~/.atlarix-e2e/team/STATUS.md` (newest at the
+bottom) and `~/.atlarix-e2e/team/MORNING.md` (the owner's list).
 
-### A. Release 15.10.0 (when you have ~1 hour)
+### A. After 15.10.0
 
-**State.** `dev` holds all of 15.10.0. The version (package.json + lock), README "Current release: v15.10.0", the
-CHANGELOG `## [15.10.0] (2026-10-21)`, the models snapshot and the extension versions are already done.
-Mac QA is complete (CLI, ACP, VS Code panel, Chrome panel, analytics, multi-process stress); the full vitest (6,162)
-and bun (267) suites pass, plus check:ts / check:lint / check:sandbox / check:i18n. Windows QA and app QA were still
-running when this was written; their results are the last lines of STATUS.md. **Don't tag until both say PASS, or
-until each FAIL in them is fixed on dev and re-checked.**
-- **App QA 2026-10-21 (ai-2f): PASS** on dev d7957a29 + A10. The scratch dev app ran signed out, driving its own
-  main-process handlers; app turns need a sign-in, so turn items are headless (see B). One FAIL found and fixed: A10,
-  a turn refused before it starts (signed out / expired, safety filter, no workspace) was reported as
-  `turn_completed{outcome:ok}` with a second end event. Fixed in 37ad4292 and re-checked in the app (4/4).
-  **Windows CLI queue: NOT RUN** (the VM pass ran out of time before the Mac shutdown). The queue is in STATUS.md.
-- **Windows VS Code panel + ACP queue (ai-48): NOT RUN, all 9 items.** Everything below PASSES on the Mac. The
-  Windows exe + win32-arm64 VSIX from dev d7957a29 (15.10.0) were built and installed in the VM (C:\axq). Pass 4 was
-  stopped by the swap rule. In pass 5 the Atlarix panel never loaded in ~35 min: Defender (MsMpEng) and Windows Update
-  (TiWorker) were scanning the new files, so the webview stayed empty and no agent started. Then the wrap-up came.
-  Next time: start the VM ~30 min early, or add a Defender exclusion for C:\axq (the owner's call). Scripts are in
-  `~/.atlarix-e2e/team/evidence/ai48-scripts/`; the recipe is the "ai-48 WINDOWS QUEUE" block in STATUS.md.
-  1. E11 take 2, panel close ends its agent by EOF and cleans temp (21252282): NOT RUN on Windows (FAILED there before the fix).
-  2. E15, opening a past chat always shows it (9796cb36): NOT RUN.
-  3. stop→idle in ~1.5 s while following (dd805f00, 8e408831): NOT RUN (was ~9 s on Windows before).
-  4. E16, a bad cliPath is reported, no other agent started (c1368594): NOT RUN.
-  5. E4 alone + named-pipe holder (71d35e44, 73540c9c): NOT RUN from the panel side (ai-2f's CLI run passed it on Windows earlier).
-  6. E13 junction = one workspace from the panel (6b317bde): NOT RUN from the panel side (CLI side passed on Windows earlier).
-  7. %USERPROFILE%\.atlarix untouched with no vars (fac76c9b): NOT RUN (only allowed if the VM profile is a test profile).
-  8. Analytics X1–X3 + active_day (f8879884, ddef442c, dc4f32b5, 693b2e6a): NOT RUN.
-  9. Re-confirm earlier Windows passes on the merged build (E10, /fork, following, approval lines + E9, E3/E8 links,
-     E2, E5/E6, /compact + E7): NOT RUN (most passed on Windows on branch builds before the merge; see STATUS.md).
-
-**Steps** (the full runbook is in memory `atlarix-release-distribution`):
-1. If anything was merged after the CHANGELOG entry, add it to `docs/CHANGELOG.md` under 15.10.0, then run
-   `./scripts/ci/extract-changelog.sh 15.10.0 400` and check the notes aren't empty.
-2. Run locally: `npm run check:ts && npm run check:lint && npm run check:sandbox && npm run check:i18n && npm test`.
-3. `git checkout main && git merge --ff-only origin/dev` (or a merge commit if main moved), then
-   `git push origin main`.
-4. Make the repo public (`gh repo edit AmariahAK/Atlarix --visibility public --accept-visibility-change-consequences`).
-   Wait for the `release.yml` quality job on main to go green.
-5. `git tag -a v15.10.0 -m "Atlarix 15.10.0" && git push origin v15.10.0`. Watch each job's steps (`gh run watch`);
-   a hung step shows no log until it ends.
-6. Check what users get: `gh release list --repo AmariahAK/atlarix-releases --limit 2` (not Draft, marked Latest);
-   `curl -sSL https://github.com/AmariahAK/atlarix-releases/releases/latest/download/latest-mac.yml | head -1`
-   shows 15.10.0; the release body is the real notes, not the ~560-char placeholder.
-7. Make the repo private again (`--visibility private`) as soon as publish is green.
-8. Launchpad (`atlarix-launchpad`): bump `package.json` to 15.10.0; in `public/CHANGELOG.md` bump the
-   "product summary (as of …)" header and prepend a plain-language `## Atlarix 15.10.0 — …` (live sessions across
-   app/CLI/editors, `/fork` everywhere, approvals that remember folder grants, compaction that works). Run
-   `npm run build`, push, then curl the live site.
-9. **Store uploads (by hand):** the 8 `.vsix` files at marketplace.visualstudio.com/manage/publishers/atlarix,
-   then the Microsoft Store resubmission (the `unvirtualizedResources` justification is in the MSIX manifest
-   comment). winget stays blocked on microsoft/winget-pkgs#446527.
-10. **Note:** the release now uploads Sentry source maps. The `SENTRY_AUTH_TOKEN` repo secret is set (Sentry org
-    token "atlarix-release-ci", org:ci, created 2026-10-21). If the "Upload source maps" step fails, the token or
-    `SENTRY_ORG=norah-labs` / `SENTRY_PROJECT=atlarix` in release.yml is the place to look. The step skips without
-    failing when there's no token.
+- **QA gate that passed:** every Mac batch (CLI, raw ACP, TUI; ai-bc) and Windows phase 1 on RC 181aadd4 (CLI
+  queue, approvals, E4 leases, A8 init lock, E13 junction, memory on a C:\ workspace, HOME leak, /mcp stderr, T1,
+  cancelled stop). 78c44b20 (Bedrock key hint) is Mac-only.
+- **Not re-run on the merged build (owner: skip for this tag), passed on branch builds:** the Windows VS Code panel
+  GUI items — E15, stop→idle while following, E16, analytics X1–X3, and the re-confirms. **E11 (closing VS Code
+  ends the agent and frees its lease) has NEVER passed on Windows**; it needs the panel's CDP driver, which is
+  gone from disk (`~/.atlarix-e2e/team/evidence/ai48-scripts/` keeps only the VM-side helpers). Rebuild the driver,
+  then run E11 first.
+- **Windows CLI start takes ~64 s** in the VM: Defender re-scans the 133 MB x64 exe on every start (MsMpEng
+  1,300+ CPU-s). Check on a real Windows machine; if it holds, look at signing the exe (the Windows code-signing
+  cert in Security follow-ups) or a smaller binary.
+- **Windows ACP folder option reads `src/`** with a forward slash. Cosmetic.
+- **`atlarix --version` unpacks the skills cache.** It shouldn't need to.
+- **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix, then the
+  Microsoft Store resubmission (`unvirtualizedResources` justification in the MSIX manifest comment). winget is
+  still blocked on microsoft/winget-pkgs#446527.
+- **Owner decision:** should a scratch-profile CLI ever install Atlarix's Chrome native host into the real
+  Chrome folders? It can today (pre-existing).
+- **Memory, seen in QA:** weaker models (GLM-4.7-Flash) ignore a "save a note" ask sometimes; qwen3-coder
+  ignored it once. Haiku is fine.
 
 ### B. App checks that only a signed-in app window can do
 
@@ -123,14 +87,18 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
   path doesn't call `recordFreeUsage`. Each free call reads ~16 keys (≈8 RCU), so about 2 free calls/s fills the
   20 RCU. Past that, throttled reads fall back to per-process counts (safe, just less exact). Raise RCU only
   while it stays ≤25 total across tables (free tier).
-- **Fair daily share (atlarix-proxy branch `bedrock-fair-share`, e24097c), built and tested, NOT deployed yet.**
+- **Fair daily share + paid-Auto Bedrock tail: on proxy main (57c91fb), NOT deployed** — Railway's platform outage
+  ("builds paused", from 2026-10-21 11:33 UTC) blocked every deploy. When it recovers, if `/health` doesn't show
+  `"commit":"57c91fb"` within ~10 min, run `railway up --service Atlarix --detach` in atlarix-proxy. The fair share
+  was built as branch `bedrock-fair-share` (e24097c):
   Each user's daily Bedrock cap is today's money (this month's paced allowance less what was spent before today)
   divided by free Auto's own active-user count (the larger of today's and this weekday last week's, from
   `loadFreeUsageState`), times free Auto's new-account multiplier, kept between $0.05 and $0.30. Before this it was
-  a flat $0.30, so on a $1 day the first ~3 heavy users could use up the day. All 701 proxy tests pass. **To ship:**
-  `cd ~/Documents/Github/AI/atlarix-proxy && git checkout main && git merge --ff-only bedrock-fair-share && git push origin main`.
-  Railway deploys main on push. Check it's live by the commit (`railway status --json` → `meta.commitHash` =
-  e24097c), not by /health.
+  a flat $0.30, so on a $1 day the first ~3 heavy users could use up the day. The paid-Auto tail
+  (`auto.paid.tail` in core-models.json, live since atlarix-releases fd126ce) adds MiniMax M2.5 → Kimi K2.5 after
+  low's own models and Kimi K3 (`us.` profile) after medium's; kept out of `levels` so shipped apps keep their 1M
+  Auto window. 708 proxy tests pass. Until the deploy, old proxies ignore the tail, and the app's memory recall
+  (`purpose: memory`) bills on the build lane for paid Auto.
 - **Second replica: not done.** The sessions' permission check blocks production Railway changes. Per the
   proxy code, a second replica is safe from the first full UTC day after the flag went on, i.e. from
   **2026-10-21 00:00 UTC**. Before turning it on, check the Railway plan's usage page: a second replica roughly
