@@ -1078,6 +1078,7 @@ export function registerChatStreamHandlers() {
               selectedChatMode: settings.selectedChatMode ?? "ask",
             }),
             escalate: req.escalate === true,
+            chatId: req.chatId,
           };
           let effectiveModel = getEffectiveModel(settings);
           if (req.modelOverride) {
@@ -2472,7 +2473,8 @@ export function registerChatStreamHandlers() {
             },
             async (id) => {
               const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
-              return (await getLanguageModelProviders()).find((p) => p.id === id)?.type;
+              const p = (await getLanguageModelProviders()).find((x) => x.id === id);
+              return p ? { type: p.type, apiFormat: p.apiFormat } : undefined;
             },
           );
         }

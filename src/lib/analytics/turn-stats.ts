@@ -30,9 +30,13 @@ export interface TurnStreamError {
   httpStatus?: number;
 }
 
+/** Who paid for an Atlarix Auto reply, as the proxy said (`x-atlarix-billing`). */
+export type AutoBilling = "free" | "paid";
+
 const counts = new Map<number, TurnCounts>();
 const loopTotals = new Map<number, TurnLoopTotals>();
 const streamErrors = new Map<number, TurnStreamError>();
+const autoBilling = new Map<number, AutoBilling>();
 
 function empty(): TurnCounts {
   return {
@@ -72,6 +76,15 @@ export function noteTurnStreamError(chatId: number | undefined, err: TurnStreamE
 }
 
 /**
+ * Free or paid, from this chat's own Auto reply. The process-wide latest Auto
+ * status is shared by every chat, so two turns at once would mix it up.
+ */
+export function noteTurnAutoBilling(chatId: number | undefined, billing: AutoBilling | null | undefined): void {
+  if (typeof chatId !== "number" || !billing) return;
+  autoBilling.set(chatId, billing);
+}
+
+/**
  * The counts since the chat's last turn ended, and forget them. A manual
  * /compact between turns therefore lands on the next turn.
  */
@@ -79,12 +92,20 @@ export function drainTurnStats(chatId: number): {
   counts: TurnCounts;
   loop?: TurnLoopTotals;
   streamError?: TurnStreamError;
+  autoBilling?: AutoBilling;
 } {
   const c = counts.get(chatId) ?? empty();
   const loop = loopTotals.get(chatId);
   const streamError = streamErrors.get(chatId);
+  const auto = autoBilling.get(chatId);
   counts.delete(chatId);
   loopTotals.delete(chatId);
   streamErrors.delete(chatId);
-  return { counts: c, ...(loop ? { loop } : {}), ...(streamError ? { streamError } : {}) };
+  autoBilling.delete(chatId);
+  return {
+    counts: c,
+    ...(loop ? { loop } : {}),
+    ...(streamError ? { streamError } : {}),
+    ...(auto ? { autoBilling: auto } : {}),
+  };
 }
