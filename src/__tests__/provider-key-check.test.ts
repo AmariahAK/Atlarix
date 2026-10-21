@@ -16,7 +16,8 @@ describe("checking a saved key", () => {
     expect(keyProbe("openai", "k")).toMatchObject({ url: "https://api.openai.com/v1/models", headers: { Authorization: "Bearer k" } });
     expect(keyProbe("deepseek", "k", "https://api.deepseek.com/v1/")?.url).toBe("https://api.deepseek.com/v1/models");
     // Signed in through a cloud account, or nowhere to ask: not checkable.
-    expect(keyProbe("bedrock", "k", "https://x")).toBeNull();
+    // A real Bedrock key is never probed (a key of the wrong form gets a warning: below).
+    expect(keyProbe("bedrock", "ABSKQmVkcm9ja0FQSUtleS1abc", "https://x")).toBeNull();
     expect(keyProbe("someprovider", "k")).toBeNull();
   });
 
@@ -51,5 +52,28 @@ describe("checking a saved key", () => {
     expect(keyHint("gsk_abcdefghijklmnopqrstuvwxyz9z8y")).toBe("gsk…9z8y");
     expect(keyHint("short-key")).toBe("••••");
     expect(keyHint("")).toBeUndefined();
+  });
+});
+
+describe("an Amazon Bedrock key that can't be one (TODO, known limit from 15.9.0)", () => {
+  // Bedrock can't be checked from here, so a typo only showed on the first message. Warn, and still
+  // save: a format AWS adds later must not be locked out.
+  const shortTerm = `bedrock-api-key-${"Y".repeat(40)}`;
+  const longTerm = `ABSKQmVkcm9ja0FQSUtleS${"x".repeat(40)}`;
+
+  it("says so, and is still only unchecked (saved)", async () => {
+    const r = await checkProviderKey(keyProbe("bedrock", "sk-ant-api03-oops"), "sk-ant-api03-oops");
+    expect(r).toEqual({
+      status: "unchecked",
+      detail: "That isn't an Amazon Bedrock API key: they start with ABSK or bedrock-api-key-.",
+    });
+  });
+
+  it("both real key forms, pasted with spaces too, get the usual note", async () => {
+    for (const key of [shortTerm, longTerm, `  ${longTerm}\n`]) {
+      const r = await checkProviderKey(keyProbe("bedrock", key), key);
+      expect(r.status).toBe("unchecked");
+      expect(r.detail).not.toContain("isn't an Amazon Bedrock API key");
+    }
   });
 });
