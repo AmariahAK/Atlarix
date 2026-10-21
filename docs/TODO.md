@@ -213,7 +213,6 @@ hint at add time could catch typos.
   paths.
 - **Cloud agent on paid Core `core-2`:** never run (it was blocked by the Actions billing hold of
   2026-10-04, since cleared).
-- **PostHog:** a "Weekly active users by billing" insight from `model_turn`.
 
 ## 🔭 Open — the queue
 
