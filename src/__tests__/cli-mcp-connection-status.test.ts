@@ -72,7 +72,8 @@ describe("a stdio server's stderr (QA B1)", () => {
     const key = `sk-ant-api03-${"x".repeat(40)}`;
     const script = [
       `console.error("node:internal/modules/cjs/loader:1458");`,
-      `console.error("Error: Cannot find module '${home}/no-such-server.mjs' ${key}");`,
+      // JSON.stringify: a Windows home's backslashes would otherwise be read as escapes.
+      `console.error(${JSON.stringify(`Error: Cannot find module '${home}/no-such-server.mjs' ${key}`)});`,
       `console.error("    at Module._resolveFilename (node:internal/modules/cjs/loader:1455:15)");`,
       `process.exit(1);`,
     ].join("");

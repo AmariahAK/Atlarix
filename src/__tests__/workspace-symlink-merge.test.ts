@@ -41,7 +41,11 @@ beforeAll(() => {
 
 afterAll(() => {
   _setShadowSnapshotsRootForTests(null);
-  fs.rmSync(root, { recursive: true, force: true });
+  try {
+    fs.rmSync(root, { recursive: true, force: true });
+  } catch {
+    // Windows can still hold a handle on the temp DB here (EPERM); the OS temp sweep removes it.
+  }
 });
 
 describe("a folder reached through a symlink", () => {

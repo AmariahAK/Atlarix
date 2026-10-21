@@ -39,6 +39,25 @@ const header = (memoryDir?: string) =>
   }).stableHeader;
 
 describe("Project memory rules in the stable header", () => {
+  it("drops AGENTS.md's memory pointer with memory off, also with Windows line endings", () => {
+    process.env.ATLARIX_MEMORY = "off";
+    try {
+      const h = constructSystemPromptParts({
+        chatMode: "build",
+        effectiveWorkMode: "build",
+        workspaceRoot: workspace,
+        memoryDir: memoryDirFor(workspace),
+        modelDisplayName: "Test Model",
+        optionalProjectInstructions: "# Agent\r\n- **Agent memory:** the store.\r\n- **Other:** kept.\r\n",
+      }).stableHeader;
+      expect(h).not.toContain("Agent memory:");
+      expect(h).toContain("**Other:** kept.");
+    } finally {
+      delete process.env.ATLARIX_MEMORY;
+    }
+  });
+
+
   it("states the note format, the four types and the maintenance rules", () => {
     const h = header(memoryDirFor(workspace));
     expect(h).toContain("# Project memory");
