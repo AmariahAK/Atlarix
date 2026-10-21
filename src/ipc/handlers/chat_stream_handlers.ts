@@ -1517,6 +1517,12 @@ export function registerChatStreamHandlers() {
               labelWithProvider: modelIdentity.labelWithProvider,
             };
 
+            // The request reaches the model once, as the user message. Its copy
+            // in the per-turn tail (`<user_context>`) changed the tail every
+            // turn, so the history after it never read from the prompt cache
+            // (owner, 2026-10-21; Ask never sent it). A resumed interrupted
+            // turn has no user message: its directive still goes in the tail.
+            const tailRequest = req.continueInterrupted ? userPrompt : undefined;
             let baseParts: SystemPromptParts;
             if (hasWorkspace && appPath && effectiveAppId != null) {
               baseParts = await preflight.time("system-prompt", () =>
@@ -1526,7 +1532,7 @@ export function registerChatStreamHandlers() {
                   contextSize,
                   chatMode,
                   effectiveWorkMode: modeBlockKey,
-                  userPrompt: userPrompt,
+                  userPrompt: tailRequest,
                   hasAnsweredQuestions:
                     updatedChat?.hasAnsweredQuestions ?? false,
                   hasWorkspace: true,
@@ -1538,7 +1544,7 @@ export function registerChatStreamHandlers() {
                 chatMode,
                 effectiveWorkMode: modeBlockKey,
                 contextSize,
-                userPrompt,
+                userPrompt: tailRequest,
                 hasAnsweredQuestions:
                   updatedChat?.hasAnsweredQuestions ?? false,
                 hasWorkspace,
