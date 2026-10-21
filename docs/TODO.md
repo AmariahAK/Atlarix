@@ -177,8 +177,10 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
   the same way but only checked by reading the code. Look at "Why turns fail" after the release.
 - **7 agent-eval failures** (`npx vitest run --project agent-evals`, seen on dev 6a9c9bd2 once
   `tests/infra` had its Node-ABI sqlite): all are evals left behind by deliberate changes, not regressions.
-  Fixed on `team/app-cli` but NOT RUN there: the worktree has no `tests/infra/node_modules`. Run them in the
-  main checkout, then fast-forward.
+  The fixes are MERGED to dev (431bf0ff, 2026-10-21) but NOT YET RUN: in the main checkout
+  `npx vitest run --project agent-evals` hung with no output before the Mac was shut down. First thing next
+  session: run it. If it still hangs, run one file at a time to find the hanging one. If any fix is wrong, correct
+  the eval (or the code, if it turns out to be a real regression).
   - `session-reuse-guard.eval` ×4 (guard-touched, guard-really-empty, drifted-empty, prune): its seeded
     "leftover" sessions were stamped now. Since A7 a session another process created in the last 2 minutes is
     never reused or pruned. Fix: seed them an hour old.
