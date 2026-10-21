@@ -44,7 +44,7 @@ export function registerProviderApiKeyHandlers() {
       await setProviderApiKey(params.providerId, params.apiKey);
       logger.log(`API key saved successfully for: ${params.providerId}`);
       // Funnel: a BYOK model is now wired up (a provider the user added counts as custom).
-      trackModelConnected(modelConnectedFor(params.providerId));
+      void trackModelConnected(modelConnectedFor(params.providerId));
     },
   );
 

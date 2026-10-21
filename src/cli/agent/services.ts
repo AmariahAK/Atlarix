@@ -522,7 +522,7 @@ export const realServices: CliServices = {
         import("@/main/lib/analytics"),
         import("@/lib/analytics/model-connected"),
       ]);
-      trackModelConnected(modelConnectedFor(providerId));
+      await trackModelConnected(modelConnectedFor(providerId));
       if (p && authHeader && authHeader !== (p.authHeader ?? "x-api-key")) {
         const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
         const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");

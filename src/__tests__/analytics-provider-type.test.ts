@@ -168,3 +168,17 @@ describe("how the turn really ended", () => {
     expect(captured).toEqual([]);
   });
 });
+
+describe("model_connected from a command that exits right after (QA T1)", () => {
+  it("can be waited for: the event is captured when the returned promise settles", async () => {
+    // `atlarix keys add` exited before the capture (a lookup first) and before the batch was sent.
+    const done = trackModelConnected({
+      type: "custom",
+      provider: "custom::t1-ai2a",
+      apiFormat: () => new Promise((r) => setTimeout(() => r("openai"), 20)),
+    });
+    expect(done).toBeInstanceOf(Promise);
+    await done;
+    expect(events("model_connected")).toEqual([expect.objectContaining({ provider_type: "custom:openai" })]);
+  });
+});

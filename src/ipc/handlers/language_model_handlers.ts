@@ -99,7 +99,7 @@ export function registerLanguageModelHandlers() {
         auth_header: authHeader ?? null,
       });
       // Funnel: a provider of their own is wired up (its id and address are never sent).
-      trackModelConnected({ type: "custom", provider: CUSTOM_PROVIDER_PREFIX + id, apiFormat: apiFormat ?? undefined });
+      void trackModelConnected({ type: "custom", provider: CUSTOM_PROVIDER_PREFIX + id, apiFormat: apiFormat ?? undefined });
 
       // Return the newly created provider
       return {

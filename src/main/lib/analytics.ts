@@ -151,7 +151,7 @@ export function identifyUser(
       posthog.alias({ distinctId: userId, alias: anonymousId });
       writeSettings({ analyticsAliasedUserIds: [...aliased, userId] });
       // This account's first sign-in on this install: Core is now usable here.
-      trackModelConnected({ type: "core", provider: "compass" });
+      void trackModelConnected({ type: "core", provider: "compass" });
     }
     posthog.identify({ distinctId: userId, properties: withInternalFlag(properties) });
   } catch {
@@ -267,19 +267,21 @@ export function trackModelConnected(c: {
   provider: string;
   /** A provider the user added: the API it speaks, or how to look it up (only for people who opted in). */
   apiFormat?: string | (() => Promise<string | undefined>);
-}): void {
+}): Promise<void> {
   try {
-    if (!isOptedIn()) return;
+    if (!isOptedIn()) return Promise.resolve();
     // Adding a provider and then its key is one connection, not two.
-    if (connectedThisProcess.has(c.provider)) return;
+    if (connectedThisProcess.has(c.provider)) return Promise.resolve();
     connectedThisProcess.add(c.provider);
-    void (async () => {
+    // Returned so a command that exits right after (`atlarix keys add`) can wait for the capture.
+    return (async () => {
       const format = typeof c.apiFormat === "function" ? await c.apiFormat().catch(() => undefined) : c.apiFormat;
       const p = providerFields(c.provider, c.type === "custom" ? "custom" : undefined, format);
       captureSafe("model_connected", { type: c.type, ...p });
     })().catch(() => {});
   } catch {
     /* analytics must never break connecting a model */
+    return Promise.resolve();
   }
 }
 
@@ -325,7 +327,7 @@ export function trackLocalModelConnected(providerId: string): void {
     const seen = settings.analyticsLocalProvidersSeen ?? [];
     if (seen.includes(providerId)) return;
     writeSettings({ analyticsLocalProvidersSeen: [...seen, providerId] });
-    trackModelConnected({ type: "local", provider: providerId });
+    void trackModelConnected({ type: "local", provider: providerId });
   } catch {
     /* analytics must never break model resolution */
   }

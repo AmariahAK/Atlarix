@@ -417,7 +417,8 @@ async function main(): Promise<void> {
       process.stderr.write(`${e.message}\n`);
       return 1;
     });
-    process.exit(code);
+    const { exitAfterFlush } = await import("./exit-after-flush");
+    await exitAfterFlush(code);
   }
   if (argv[0] === "login" || argv[0] === "logout") {
     const { enterDesktopDataMode } = await import("./desktop-data");
@@ -438,7 +439,8 @@ async function main(): Promise<void> {
       if (who) process.stdout.write(`Signed in as ${who}. To switch accounts: atlarix logout, then atlarix login.\n`);
       else await loginInTerminal();
     }
-    process.exit(0);
+    const { exitAfterFlush } = await import("./exit-after-flush");
+    await exitAfterFlush(0);
   }
   if (isBatch()) {
     // The headless entry drops a leading `run` itself.
