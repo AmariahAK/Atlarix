@@ -36,6 +36,11 @@ Mac QA is complete (CLI, ACP, VS Code panel, Chrome panel, analytics, multi-proc
 and bun (267) suites pass, plus check:ts / check:lint / check:sandbox / check:i18n. Windows QA and app QA were still
 running when this was written; their results are the last lines of STATUS.md. **Don't tag until both say PASS, or
 until each FAIL in them is fixed on dev and re-checked.**
+- **App QA 2026-10-21 (ai-2f): PASS** on dev d7957a29 + A10. The scratch dev app ran signed out, driving its own
+  main-process handlers; app turns need a sign-in, so turn items are headless (see B). One FAIL found and fixed: A10,
+  a turn refused before it starts (signed out / expired, safety filter, no workspace) was reported as
+  `turn_completed{outcome:ok}` with a second end event. Fixed in 37ad4292 and re-checked in the app (4/4).
+  **Windows CLI queue: NOT RUN** (the VM pass ran out of time before the Mac shutdown). The queue is in STATUS.md.
 
 **Steps** (the full runbook is in memory `atlarix-release-distribution`):
 1. If anything was merged after the CHANGELOG entry, add it to `docs/CHANGELOG.md` under 15.10.0, then run
@@ -76,15 +81,20 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
   that session in the app. It should show "Running in the CLI" and follow the reply as it grows. Type in the app:
   the text lands in the CLI turn as a mid-turn message. Stop in the app stops the CLI turn within ~1.5 s. Then
   the reverse (CLI follows an app turn).
+  *2026-10-21: the app's handlers are verified (running-elsewhere, growing revision, steer lands mid-turn, stop in
+  0.57 s, 2/2); the window itself was not run. The reverse is headless only (CLI↔CLI).*
 - **`/fork` in the app** (composer slash command and the session-menu "Fork"): a new tab "<title> (fork)" with
-  the same messages; the original is unchanged.
+  the same messages; the original is unchanged. *2026-10-21: the app's `sessions:fork` is verified (full copy,
+  source untouched, independent after). The slash command and menu were not run.*
 - **Approvals (951722b7):** two edits in `src/`, approve the first with "allow edits in src/". The second card
-  should clear on its own, and each operation should run once.
-- **E13:** open a symlinked folder in the app and its real folder in the CLI. There should be ONE workspace, and
-  `/undo` should work across both.
-- **L4 (46310069):** delete a custom provider from its settings page. No "Provider with ID … not found" error.
+  should clear on its own, and each operation should run once. *Headless only (CLI 2/2 + guard test).*
+- **E13:** ~~open a symlinked folder in the app and its real folder in the CLI. There should be ONE workspace~~
+  (verified in the app 2026-10-21), and `/undo` should work across both (*headless only*).
+- ~~**L4 (46310069):** delete a custom provider from its settings page. No "Provider with ID … not found" error.~~
+  Verified in the app 2026-10-21 (the delete, then the page's model list answers `[]`).
 - **Polling (16a12f54):** 30 min idle shows almost no Supabase reads. The `users` row is read again after
-  Upgrade/Manage billing.
+  Upgrade/Manage billing. *2026-10-21: signed out, 16 min idle + 10 focuses = 0 requests from the app. The
+  signed-in reads are headless only (CLI + guard tests that fail without the fix).*
 - After the run, launch the installed /Applications/Atlarix once, so the `atlarix://` link handler points back to it.
 
 ### C. AWS / proxy
