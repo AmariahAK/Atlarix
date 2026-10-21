@@ -193,6 +193,8 @@ import { registerRevertHandlers } from "./chat_stream/revert-handlers";
 import { registerSessionHandlers } from "./chat_stream/session-handlers";
 import { createStreamTurnContext } from "./chat_stream/turn-context";
 import { trackTurnCompleted } from "@/main/lib/analytics";
+import { reportTurnFailure } from "@/lib/analytics/turn-failure-report";
+import { sentryCaptureExceptionSafe } from "./chat_stream/sentry-safe";
 import { classifyTurnEnd, classifyTurnError, type TurnEnd } from "@/lib/analytics/turn-end";
 import { noteTurn } from "@/lib/analytics/turn-stats";
 import { buildPromptBundle } from "./chat_stream/turn-runner/prompt-bundle";
@@ -2457,7 +2459,12 @@ export function registerChatStreamHandlers() {
         }
       } finally {
         if (!turnRerun) {
-          trackTurnCompleted(
+          const providerOf = async (id: string) => {
+            const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+            const p = (await getLanguageModelProviders()).find((x) => x.id === id);
+            return p ? { type: p.type, apiFormat: p.apiFormat } : undefined;
+          };
+          const ended = trackTurnCompleted(
             {
               chatId: req.chatId,
               end:
@@ -2471,11 +2478,17 @@ export function registerChatStreamHandlers() {
               durationMs: Date.now() - turnStartedAt,
               outputTokens: ctx.turnOutputTokens,
             },
-            async (id) => {
-              const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
-              const p = (await getLanguageModelProviders()).find((x) => x.id === id);
-              return p ? { type: p.type, apiFormat: p.apiFormat } : undefined;
+            providerOf,
+          );
+          reportTurnFailure(
+            {
+              end: ended,
+              provider: ctx.analyticsTurn.provider,
+              model: ctx.analyticsTurn.model,
+              fellBackToCore: ctx.analyticsTurn.fellBackToCore,
             },
+            sentryCaptureExceptionSafe,
+            providerOf,
           );
         }
         // Finalize any browser/preview session recordings captured this turn and

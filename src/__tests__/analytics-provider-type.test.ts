@@ -156,3 +156,15 @@ describe("model_connected", () => {
     ]);
   });
 });
+
+describe("how the turn really ended", () => {
+  it("is returned whatever the consent, for the crash report", async () => {
+    consent = "opted_out";
+    const { noteTurnStreamError } = await import("@/lib/analytics/turn-stats");
+    noteTurnStreamError(nextChat, { kind: "bad_request", httpStatus: 400 });
+    const end = trackTurnCompleted(base({ end: { outcome: "error", errorKind: "no_output" }, outputTokens: 0 }));
+    expect(end).toEqual({ outcome: "error", errorKind: "bad_request", httpStatus: 400 });
+    await flush();
+    expect(captured).toEqual([]);
+  });
+});

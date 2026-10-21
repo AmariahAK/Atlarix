@@ -472,12 +472,15 @@ export interface TurnReport {
  *
  * Called after the turn has ended. The counters are drained whatever the
  * consent (they must not pile up); everything else, the provider lookup
- * included, happens only for people who opted in.
+ * included, happens only for people who opted in. Returns how the turn
+ * really ended (the stream's own error over the SDK's stand-in), which the
+ * crash report and the usage rollup read whatever the consent.
  */
 export function trackTurnCompleted(
   r: TurnReport,
   providerTypeOf?: (providerId: string) => Promise<string | { type?: string; apiFormat?: string } | undefined>,
-): void {
+): TurnEnd {
+  let resolved: TurnEnd = r.end;
   try {
     const stats = drainTurnStats(r.chatId);
     const prev = lastChoice.get(r.chatId);
@@ -485,7 +488,6 @@ export function trackTurnCompleted(
     lastChoice.set(r.chatId, choice);
     const n = (turnsInProcess.get(r.chatId) ?? 0) + 1;
     turnsInProcess.set(r.chatId, n);
-    if (!isOptedIn()) return;
 
     let { outcome, errorKind, httpStatus } = r.end;
     const se = stats.streamError;
@@ -498,6 +500,9 @@ export function trackTurnCompleted(
       errorKind = se.kind as TurnErrorKind;
       httpStatus = se.httpStatus;
     }
+    resolved = { outcome, ...(errorKind ? { errorKind } : {}), ...(httpStatus ? { httpStatus } : {}) };
+    if (!isOptedIn()) return resolved;
+
     const changed = prev ? (["mode", "model", "effort"] as const).filter((k) => prev[k] !== choice[k]) : [];
 
     void (async () => {
@@ -582,6 +587,7 @@ export function trackTurnCompleted(
   } catch {
     /* analytics must never break the turn */
   }
+  return resolved;
 }
 
 let lastTierSent: string | null = null;
