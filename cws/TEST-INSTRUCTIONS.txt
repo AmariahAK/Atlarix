@@ -1,5 +1,6 @@
-Atlarix requires an account with Atlarix Pro or credit — a brand-new account
-with no credit is refused with "Not enough credit" and an upgrade prompt.
+Atlarix requires an account with credit or Atlarix Pro. A brand-new account
+with no credit gets "Not enough credit to start a turn" and the line "Add
+credit from $10 … or get Atlarix Pro" on its first message, and nothing runs.
 Please use the account below, which is funded for review.
 
 SIGNING IN
@@ -47,5 +48,10 @@ NOTES FOR REVIEW
   takes screenshots of it. Chrome's "started debugging" banner shows on those
   tabs while they are open. It never inspects memory, sets breakpoints or
   evaluates script.
-- Atlarix fills forms but never submits them. Anything that sends, buys, posts
-  or deletes stops and asks the user first.
+- Atlarix fills a form and stops; it submits only when the user asked it to.
+  Passwords, payments, downloads and anything destructive always stop and ask,
+  whatever the site grant.
+- Host access is requested at install (http and https). It is required for
+  the paired Atlarix desktop app, whose requests run without a per-site prompt
+  in the browser; in the side panel each new site is still asked first. Users
+  can narrow it per site from chrome://extensions.

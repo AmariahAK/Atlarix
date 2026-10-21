@@ -1,27 +1,26 @@
 Atlarix is an AI agent that works inside the browser you already use, with the sessions you are already signed into. Open the side panel, ask for something, and it reads the page, follows links, fills forms and pulls the answer together — without asking you to copy anything into a chat window.
 
 YOU DECIDE WHERE IT WORKS
-In the side panel, Atlarix asks the first time it touches a site, and every site it has worked on is listed and revocable from the panel or your account. Atlarix also pairs with its own desktop app, and what you ask for there runs without a second prompt in the browser — you already approved it in the app. You can narrow Atlarix to chosen sites, or switch it off for one, from your browser's extensions page at any time.
+In the side panel, Atlarix asks the first time it touches a site, and every site it has worked on is listed and revocable from the panel or your account. Passwords, payments, downloads and anything destructive always stop and ask, whatever you have allowed. Atlarix also pairs with its own desktop app, and what you ask for there runs without a second prompt in the browser — you already asked for it in the app. You can narrow Atlarix to chosen sites from your browser's extensions page at any time.
 
-IT FILLS FORMS BUT NEVER SUBMITS THEM
-Anything that sends, buys, posts or deletes stops and asks you first.
+IT FILLS FORMS, AND LEAVES SUBMITTING TO YOU
+Unless you ask it to submit, it fills the form and stops.
 
 WHAT YOU CAN DO WITH IT
 • Read and summarise the page you are on, or a tab you have not opened yet
 • Work across several tabs at once — compare, cross-reference, collect
+• Let it click, type, scroll and take a screenshot to check what it sees
 • Attach a document or a spreadsheet and ask about it. Atlarix reads the whole file, not the first page of it
 • Ask for a relic: a self-contained chart, table or calculator it builds for you and you open in its own tab
 • Ask for the answer as a file instead of a message, and it writes one you can download
-• Paste a long block of text and it becomes an attachment instead of filling the box
 • Pick a conversation back up on another device, because what was said follows your account
 
-WHAT HAPPENS TO YOUR DATA
-To answer you, the page text (and screenshots of Atlarix's own tabs) and the parts of your files a question needs are sent to the model, and nowhere else. Attached files are stored on your device, not our servers. What syncs to your account is what was said — your messages and its replies — so a conversation can be continued elsewhere; page content is not stored on our servers.
-Nothing you do in the extension is used to train models.
+WHAT SYNCS, AND WHAT DOES NOT
+Page text, and screenshots of the tabs Atlarix opened, go to the model to answer what you asked. They are never synced to your account: what syncs is what was said — your messages and its replies — so a conversation can be continued elsewhere. The files you attach stay on your device; only what the model reads from them is sent to it.
 
-Every tab Atlarix opens is collected into a labelled group, so you can see at a glance what it has touched. Closing that group stops it.
+Every tab Atlarix opens is collected into a labelled group, so you can see at a glance what it has touched.
 
 WHAT IT COSTS
-Atlarix requires an account with Atlarix Pro or credit. It runs on Atlarix Auto, which picks the right model for each step. Atlarix Pro — $19/month — includes Core usage across the desktop app, this extension and Reviewer; or pay as you go with credit topped up at atlarix.dev. You always see what a conversation is using in the panel, and Atlarix will not start a turn it cannot pay for.
+The side-panel agent runs on your Atlarix balance: add credit from $10 at atlarix.dev and pay only for what you use, with no subscription. Or get Atlarix Pro ($19/month), which includes Core usage across the desktop app, this extension and Reviewer. It runs on Atlarix Auto, which picks the right model for each step. You always see what a conversation is using in the panel, and Atlarix will not start a turn it cannot pay for.
 
 Read how we handle data at https://atlarix.dev/privacy and https://atlarix.dev/data-use
