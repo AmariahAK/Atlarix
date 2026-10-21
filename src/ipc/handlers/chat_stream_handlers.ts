@@ -903,6 +903,7 @@ export function registerChatStreamHandlers() {
         if (
           !req.continueAfterQuestions &&
           !req.continueInterrupted &&
+          !req.prompt.startsWith("Summarize from chat-id=") &&
           chat.app?.path
         ) {
           const { buildMemoryTurnContext, withMemoryContext } = await import(
