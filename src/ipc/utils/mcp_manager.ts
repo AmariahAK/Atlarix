@@ -159,9 +159,58 @@ class McpManager {
     }
   }
 
+  /**
+   * How each server's last connection went in this process: what the CLI's
+   * /mcp shows instead of only the saved switch (a server that is on but can't
+   * connect read "✓ on" there, 15.7.0 QA).
+   */
+  private lastConnect = new Map<number, { ok: true } | { ok: false; error: string }>();
+  private probes = new Map<number, Promise<void>>();
+
+  connectionStatus(serverId: number): { ok: true } | { ok: false; error: string } | undefined {
+    return this.lastConnect.get(serverId);
+  }
+
+  /**
+   * Connect and list tools once, unless this process already knows how the
+   * server connects. Never disposes a working client (a running turn may hold it).
+   */
+  probe(serverId: number): Promise<void> {
+    if (this.lastConnect.has(serverId)) return Promise.resolve();
+    const running = this.probes.get(serverId);
+    if (running) return running;
+    const p = (async () => {
+      try {
+        const client = await this.getClient(serverId);
+        await client.tools();
+      } catch (error) {
+        this.noteFailed(serverId, error);
+      }
+    })().finally(() => this.probes.delete(serverId));
+    this.probes.set(serverId, p);
+    return p;
+  }
+
+  /** A client that connected but then failed (listing its tools): closed, and remembered as failed. */
+  noteFailed(serverId: number, error: unknown): void {
+    this.dispose(serverId);
+    this.lastConnect.set(serverId, { ok: false, error: connectError(error) });
+  }
+
   async getClient(serverId: number): Promise<MCPClient> {
     const existing = this.clients.get(serverId);
     if (existing) return existing;
+    try {
+      const client = await this.connect(serverId);
+      this.lastConnect.set(serverId, { ok: true });
+      return client;
+    } catch (error) {
+      this.lastConnect.set(serverId, { ok: false, error: connectError(error) });
+      throw error;
+    }
+  }
+
+  private async connect(serverId: number): Promise<MCPClient> {
     if (serverId < 0) return this.getSessionClient(serverId);
     const server = await db
       .select()
@@ -319,12 +368,18 @@ class McpManager {
   }
 
   dispose(serverId: number) {
+    // Its config changed or it is being re-tested: the next look connects again.
+    this.lastConnect.delete(serverId);
     const c = this.clients.get(serverId);
     if (c) {
       c.close();
       this.clients.delete(serverId);
     }
   }
+}
+
+function connectError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).split("\n")[0]!.slice(0, 200);
 }
 
 function isUnauthorizedMessage(error: unknown): boolean {
