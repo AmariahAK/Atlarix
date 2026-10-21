@@ -69,8 +69,9 @@ describe("Project memory rules in the stable header", () => {
     process.env.ATLARIX_MEMORY = "off";
     try {
       expect(header(memoryDirFor(workspace))).not.toContain("# Project memory");
-      // Nor is the store named in the runtime identity.
+      // Nor is the store named in the runtime identity, nor pointed at by AGENTS.md.
       expect(header(memoryDirFor(workspace))).not.toContain(memoryDirFor(workspace));
+      expect(header(memoryDirFor(workspace))).not.toContain("Agent memory:");
     } finally {
       delete process.env.ATLARIX_MEMORY;
     }

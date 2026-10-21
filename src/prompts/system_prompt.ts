@@ -302,7 +302,9 @@ export const constructSystemPromptParts = ({
     (effectiveWorkMode
       ? getAgentsMdForWorkMode(effectiveWorkMode)
       : getAgentsMdForContextSize(contextSize));
-  const base = baseRaw;
+  // With memory off there is no store and no memory section, so AGENTS.md's
+  // pointer to them would name things that aren't there.
+  const base = memoryDir ? baseRaw : baseRaw.replace(/^- \*\*Agent memory:\*\*.*\n/m, "");
 
   // PASS8 A3: <tool_contract> slimmed to the contract itself; verbose prose dropped.
   // Headless drops the every-mode tools not bound autonomously (resolve-toolset.ts).
