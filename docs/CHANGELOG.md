@@ -63,6 +63,11 @@ Claude used to run at its default; `atlarix run --provider-id anthropic --provid
 (`--auth-header bearer` for one that takes a Bearer token) instead of Anthropic's; the prompt no longer lists
 your machine's CPU cores and memory.
 
+**A long chat costs less per message.** Each message's own words were sent twice, the second time in the part
+that changes every turn, so everything said before it was sent again uncached on every message. It is now sent
+once, and the conversation so far is read from the provider's prompt cache: on Claude, each new message writes
+only itself, where it used to rewrite the whole chat.
+
 **Less load, better data.** The app reads your account on events, not on timers, and no longer fetches
 account skills. Analytics send one complete event per turn (how it ended and why, mode and model changes,
 approvals, compaction, sub-agents) and fewer, truer events overall; no error text, prompt or path is ever
