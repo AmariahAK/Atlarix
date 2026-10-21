@@ -40,10 +40,11 @@ describe("device block", () => {
     expect(stableHeader).toMatch(/Shell commands run through/);
   });
 
-  it("still states the hardware budget", () => {
-    // Pre-existing guidance that the platform line must not have displaced.
-    expect(build().stableHeader).toMatch(/CPU cores/);
-    expect(build().stableHeader).toMatch(/GB RAM/);
+  it("no longer states the hardware budget", () => {
+    // Removed on purpose (owner, 2026-10-21): the core count and RAM steered
+    // nothing the model does, and cost a line in every prompt.
+    expect(build().stableHeader).not.toMatch(/CPU cores/);
+    expect(build().stableHeader).not.toMatch(/GB RAM/);
   });
 
   it("lives in the cache-stable header, not the per-turn tail", () => {
