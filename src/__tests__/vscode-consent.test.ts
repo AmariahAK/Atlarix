@@ -34,6 +34,7 @@ describe("the editor asks about usage analytics once", () => {
       "Never your code, prompts, file names, or file contents.",
       "Includes your approximate location (country and city), worked out from your connection; the address itself isn't kept.",
       "Crash and error reports are sent separately and are not covered by this choice",
+      "Signed-in accounts also record which Atlarix you use (app, CLI, editor), the provider type and model, and how many turns — never prompts, code or keys — and this is not covered by this choice either.",
     ]) {
       expect(cli).toContain(line);
       expect(CONSENT_DETAIL).toContain(line);

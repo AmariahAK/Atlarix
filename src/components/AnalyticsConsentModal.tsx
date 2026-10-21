@@ -65,7 +65,9 @@ export function AnalyticsConsentModal() {
         <p className="mt-3 text-sm text-muted-foreground">
           Crash and error reports are sent separately and are not covered by
           this choice — they carry stack traces and device info, never your code
-          or prompts.
+          or prompts. Signed-in accounts also record which Atlarix you use (app,
+          CLI, editor), the provider type and model, and how many turns — never
+          prompts, code or keys — and this is not covered by this choice either.
         </p>
         <div className="mt-6 flex gap-3 justify-end">
           <Button variant="secondary" onClick={handleNo}>

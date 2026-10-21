@@ -17,6 +17,7 @@ export const CONSENT_DETAIL = [
   "Share usage data — which features get used, and whether things work — to help us understand what matters most.",
   "Never your code, prompts, file names, or file contents. Anonymous when signed out. When signed in, it's linked to your account and includes your email and name, so your usage counts once across your devices. Includes your approximate location (country and city), worked out from your connection; the address itself isn't kept.",
   "Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.",
+  "Signed-in accounts also record which Atlarix you use (app, CLI, editor), the provider type and model, and how many turns — never prompts, code or keys — and this is not covered by this choice either.",
   "The same setting as the Atlarix app and CLI: one answer covers all of them.",
 ].join("\n\n");
 
