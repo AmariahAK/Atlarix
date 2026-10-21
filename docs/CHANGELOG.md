@@ -3,7 +3,16 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.10.0] (2026-10-21) — live sessions and /fork everywhere, safer approvals, and compaction that works
+## [15.10.0] (2026-10-21) — project memory that recalls, live sessions and /fork everywhere, safer approvals, and compaction that works
+
+**Project memory.** Atlarix keeps what it learns about a project in notes, one fact each, with a `MEMORY.md`
+index. The index is shown once when a session starts (and again after `/compact`) instead of on every turn,
+so adding a note no longer breaks the prompt cache. Each message is matched against the notes, and the few
+that fit are attached as background, with how old they are, once per session. If `MEMORY.md` changes on
+disk while a session is open (another session, the CLI), the next message says so. Notes the agent writes
+are stamped with the date and the session that wrote them, and a large index asks to be tidied. The check
+for matching notes is one small extra request per message, billed like any other; `ATLARIX_MEMORY=off`
+turns all of it off.
 
 **Live sessions.** A session open in two places now stays in step. When the CLI, the app, VS Code or Zed is
 running a turn, every other surface showing that session follows it as it happens: "Running in the CLI"
