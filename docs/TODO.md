@@ -45,7 +45,9 @@ bottom) and `~/.atlarix-e2e/team/MORNING.md` (the owner's list).
 - **Seen while filming the release video (ai-fc, on the released 15.10.0, not yet verified):** (a) each "New chat"
   click in the VS Code panel adds a "New editor session (<project>)" row to `__atlarix_live_sessions` (~30 rows
   after ~30 clicks), so empty sessions pile up; (b) the panel's Past chats doesn't refresh while open, so a chat
-  the CLI starts only appears after it's reopened. Reproduce on a scratch profile first.
+  the CLI starts only appears after it's reopened; (c) `glob` (`Find *`) in the memory folder, under a hidden
+  path (`~/.atlarix-e2e/…`), returned "no files" right after a note was written there — the glob may skip
+  hidden-path dirs (ripgrep's hidden-file default?). Reproduce on a scratch profile first.
 - **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix, then the
   Microsoft Store resubmission (`unvirtualizedResources` justification in the MSIX manifest comment). winget is
   still blocked on microsoft/winget-pkgs#446527.
