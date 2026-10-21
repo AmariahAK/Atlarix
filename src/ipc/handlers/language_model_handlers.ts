@@ -1,3 +1,4 @@
+import { trackModelConnected } from "@/main/lib/analytics";
 import type {
   LanguageModelProvider,
   LanguageModel,
@@ -97,6 +98,8 @@ export function registerLanguageModelHandlers() {
         api_format: apiFormat ?? null,
         auth_header: authHeader ?? null,
       });
+      // Funnel: a provider of their own is wired up (its id and address are never sent).
+      void trackModelConnected({ type: "custom", provider: CUSTOM_PROVIDER_PREFIX + id, apiFormat: apiFormat ?? undefined });
 
       // Return the newly created provider
       return {

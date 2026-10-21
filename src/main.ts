@@ -2153,6 +2153,13 @@ app.on("before-quit", (e) => {
       } catch (drainErr) {
         logger.warn("drainPendingWork on quit:", drainErr);
       }
+      // The account's usage counts not yet sent (usage-rollup), bounded.
+      try {
+        const { flushClientUsage } = await import("./lib/analytics/usage-rollup");
+        await Promise.race([flushClientUsage(), new Promise((r) => setTimeout(r, 1500))]);
+      } catch (usageErr) {
+        logger.warn("flushClientUsage on quit:", usageErr);
+      }
       // v14 pt3: kill detached background commands (dev servers, watchers) so they
       // don't orphan after the app exits.
       try {

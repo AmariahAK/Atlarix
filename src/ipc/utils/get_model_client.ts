@@ -54,7 +54,8 @@ import {
   getCoreProxyBaseUrl,
   getPinnedCoreToken,
 } from "../shared/core_proxy";
-import { broadcastAutoStatus } from "@/main/auto-status";
+import { autoStatusFromHeaders, broadcastAutoStatus } from "@/main/auto-status";
+import { noteTurnAutoBilling } from "@/lib/analytics/turn-stats";
 import { getSession } from "../../lib/auth/supabase-client";
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
@@ -94,6 +95,8 @@ export interface GetModelClientOptions {
   workMode?: string;
   /** "Try with a stronger model": one level up for this turn (`X-Atlarix-Escalate`). */
   escalate?: boolean;
+  /** The chat whose turn this is: an Auto reply's free/paid is noted against it (turn_completed). */
+  chatId?: number;
 }
 
 const logger = log.scope("getModelClient");
@@ -481,7 +484,10 @@ async function getRegularModelClient(
             const res = await fetch(input as RequestInfo, { ...init, headers });
             // Atlarix Auto says which model answered and how much free share is
             // left; hand that to the composer.
-            if (isAutoTier && res.ok) broadcastAutoStatus(res.headers);
+            if (isAutoTier && res.ok) {
+              broadcastAutoStatus(res.headers);
+              noteTurnAutoBilling(options?.chatId, autoStatusFromHeaders(res.headers)?.billing);
+            }
             return res;
           },
         });

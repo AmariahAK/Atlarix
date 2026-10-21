@@ -389,9 +389,15 @@ async function main(): Promise<void> {
     // before: QA X1), bounded together well inside VS Code's 5 s kill backstop.
     const { sweepTempOnQuit } = await import("../main/temp-hygiene");
     const { flushAndClose } = await import("../main/lib/analytics");
+    const { flushClientUsage } = await import("../lib/analytics/usage-rollup");
     const Sentry = await import("@sentry/electron/main");
     await Promise.race([
-      Promise.all([sweepTempOnQuit().catch(() => {}), flushAndClose().catch(() => {}), Sentry.flush(1000)]),
+      Promise.all([
+        sweepTempOnQuit().catch(() => {}),
+        flushAndClose().catch(() => {}),
+        flushClientUsage().catch(() => {}),
+        Sentry.flush(1000),
+      ]),
       new Promise((r) => setTimeout(r, 1500)),
     ]);
     process.exit(0);
@@ -411,7 +417,8 @@ async function main(): Promise<void> {
       process.stderr.write(`${e.message}\n`);
       return 1;
     });
-    process.exit(code);
+    const { exitAfterFlush } = await import("./exit-after-flush");
+    await exitAfterFlush(code);
   }
   if (argv[0] === "login" || argv[0] === "logout") {
     const { enterDesktopDataMode } = await import("./desktop-data");
@@ -432,7 +439,8 @@ async function main(): Promise<void> {
       if (who) process.stdout.write(`Signed in as ${who}. To switch accounts: atlarix logout, then atlarix login.\n`);
       else await loginInTerminal();
     }
-    process.exit(0);
+    const { exitAfterFlush } = await import("./exit-after-flush");
+    await exitAfterFlush(0);
   }
   if (isBatch()) {
     // The headless entry drops a leading `run` itself.

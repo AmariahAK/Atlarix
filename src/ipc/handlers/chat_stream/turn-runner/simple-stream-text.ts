@@ -63,6 +63,7 @@ import {
   pdfUnsupportedUserMessage,
 } from "@/lib/chat/image-embed-gate";
 import { sentryCaptureExceptionSafe } from "@/ipc/handlers/chat_stream/sentry-safe";
+import { coreTurnTags } from "@/lib/analytics/turn-failure-report";
 import {
   activeStreams,
   activeStreamId,
@@ -1166,7 +1167,11 @@ export async function simpleStreamText(
       );
       if (modelClient.builtinProviderId === "compass" && isCompassInfraError) {
         sentryCaptureExceptionSafe(new Error(message.slice(0, 500)), {
-          tags: { feature: "compass", source: "main_stream" },
+          tags: {
+            feature: "compass",
+            source: "main_stream",
+            ...coreTurnTags(effectiveModel.name),
+          },
           extra: { chatId: req.chatId },
         });
       }

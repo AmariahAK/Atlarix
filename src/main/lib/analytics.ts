@@ -20,7 +20,8 @@ import { PostHog } from "posthog-node";
 import { readSettings, writeSettings } from "../settings";
 import { v4 as uuidv4 } from "uuid";
 import { atlarixEditor, atlarixSurface } from "@/ipc/shared/core_proxy";
-import { drainTurnStats } from "@/lib/analytics/turn-stats";
+import { drainTurnStats, type AutoBilling } from "@/lib/analytics/turn-stats";
+import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import type { TurnEnd, TurnErrorKind } from "@/lib/analytics/turn-end";
 
 const ANALYTICS_ID_FILE = "analytics-id.json";
@@ -149,6 +150,8 @@ export function identifyUser(
     if (anonymousId !== userId && !aliased.includes(userId)) {
       posthog.alias({ distinctId: userId, alias: anonymousId });
       writeSettings({ analyticsAliasedUserIds: [...aliased, userId] });
+      // This account's first sign-in on this install: Core is now usable here.
+      void trackModelConnected({ type: "core", provider: "compass" });
     }
     posthog.identify({ distinctId: userId, properties: withInternalFlag(properties) });
   } catch {
@@ -249,11 +252,66 @@ export function captureSafe(
 // the funnel starts cleanly if consent is granted later.
 // ────────────────────────────────────────────────────────────────────────────
 
-/** A user wired up a usable model (Core sign-in, a BYOK key, or a local runtime). */
-export function trackModelConnected(
-  properties?: Record<string, unknown>,
-): void {
-  captureSafe("model_connected", properties);
+const connectedThisProcess = new Set<string>();
+
+/** A user wired up a usable model: a key, a provider of their own, a local runtime, or Core. */
+export type ModelConnectedType = "byok" | "custom" | "local" | "core";
+
+/**
+ * `model_connected`, one shape from every place a model is connected:
+ * `{type, provider, provider_type}`, the provider normalised as on
+ * turn_completed (a provider the user added is `custom`, never its own name).
+ */
+export function trackModelConnected(c: {
+  type: ModelConnectedType;
+  provider: string;
+  /** A provider the user added: the API it speaks, or how to look it up (only for people who opted in). */
+  apiFormat?: string | (() => Promise<string | undefined>);
+}): Promise<void> {
+  try {
+    if (!isOptedIn()) return Promise.resolve();
+    // Adding a provider and then its key is one connection, not two.
+    if (connectedThisProcess.has(c.provider)) return Promise.resolve();
+    connectedThisProcess.add(c.provider);
+    // Returned so a command that exits right after (`atlarix keys add`) can wait for the capture.
+    return (async () => {
+      const format = typeof c.apiFormat === "function" ? await c.apiFormat().catch(() => undefined) : c.apiFormat;
+      const p = providerFields(c.provider, c.type === "custom" ? "custom" : undefined, format);
+      captureSafe("model_connected", { type: c.type, ...p });
+    })().catch(() => {});
+  } catch {
+    /* analytics must never break connecting a model */
+    return Promise.resolve();
+  }
+}
+
+/** A provider the user added is stored as `custom::<their id>` (language_model_helpers). */
+const CUSTOM_PREFIX = "custom::";
+
+/**
+ * The provider as reported: a built-in id as is; one the user added is
+ * `custom`, with `provider_type` `custom:<api format>`. Its id is free text
+ * the user typed and its address is theirs, so neither is ever sent.
+ */
+export function providerFields(
+  providerId: string,
+  providerType?: string,
+  apiFormat?: string,
+): { provider: string; provider_type: string } {
+  if (providerType === "custom" || providerId.startsWith(CUSTOM_PREFIX)) {
+    return { provider: "custom", provider_type: `custom:${apiFormat === "anthropic" ? "anthropic" : "openai"}` };
+  }
+  return { provider: providerId, provider_type: providerId };
+}
+
+/**
+ * Which Core a Core turn ran on, in the proxy's own words (`usage_daily`):
+ * Atlarix Auto free or paid (the proxy's reply says which), or a Core model.
+ * Absent for an Auto turn that got no reply to read it from.
+ */
+export function corePlanOf(model: string | undefined, autoBilling: AutoBilling | undefined): string | undefined {
+  if (!isCoreAutoTier(model)) return "core";
+  return autoBilling ? `auto_${autoBilling}` : undefined;
 }
 
 /**
@@ -269,7 +327,7 @@ export function trackLocalModelConnected(providerId: string): void {
     const seen = settings.analyticsLocalProvidersSeen ?? [];
     if (seen.includes(providerId)) return;
     writeSettings({ analyticsLocalProvidersSeen: [...seen, providerId] });
-    captureSafe("model_connected", { type: "local", provider: providerId });
+    void trackModelConnected({ type: "local", provider: providerId });
   } catch {
     /* analytics must never break model resolution */
   }
@@ -416,12 +474,15 @@ export interface TurnReport {
  *
  * Called after the turn has ended. The counters are drained whatever the
  * consent (they must not pile up); everything else, the provider lookup
- * included, happens only for people who opted in.
+ * included, happens only for people who opted in. Returns how the turn
+ * really ended (the stream's own error over the SDK's stand-in), which the
+ * crash report and the usage rollup read whatever the consent.
  */
 export function trackTurnCompleted(
   r: TurnReport,
-  providerTypeOf?: (providerId: string) => Promise<string | undefined>,
-): void {
+  providerTypeOf?: (providerId: string) => Promise<string | { type?: string; apiFormat?: string } | undefined>,
+): TurnEnd & { autoBilling?: AutoBilling } {
+  let resolved: TurnEnd & { autoBilling?: AutoBilling } = r.end;
   try {
     const stats = drainTurnStats(r.chatId);
     const prev = lastChoice.get(r.chatId);
@@ -429,7 +490,6 @@ export function trackTurnCompleted(
     lastChoice.set(r.chatId, choice);
     const n = (turnsInProcess.get(r.chatId) ?? 0) + 1;
     turnsInProcess.set(r.chatId, n);
-    if (!isOptedIn()) return;
 
     let { outcome, errorKind, httpStatus } = r.end;
     const se = stats.streamError;
@@ -442,17 +502,37 @@ export function trackTurnCompleted(
       errorKind = se.kind as TurnErrorKind;
       httpStatus = se.httpStatus;
     }
+    resolved = {
+      outcome,
+      ...(errorKind ? { errorKind } : {}),
+      ...(httpStatus ? { httpStatus } : {}),
+      ...(stats.autoBilling ? { autoBilling: stats.autoBilling } : {}),
+    };
+    if (!isOptedIn()) return resolved;
+
     const changed = prev ? (["mode", "model", "effort"] as const).filter((k) => prev[k] !== choice[k]) : [];
 
     void (async () => {
-      const providerType =
+      const looked =
         r.provider && !r.fellBackToCore ? await providerTypeOf?.(r.provider).catch(() => undefined) : undefined;
-      const provider = r.fellBackToCore ? "compass" : r.provider;
+      const providerType = typeof looked === "string" ? looked : looked?.type;
+      const apiFormat = typeof looked === "string" ? undefined : looked?.apiFormat;
+      const reported = r.fellBackToCore
+        ? providerFields("compass")
+        : r.provider
+          ? providerFields(r.provider, providerType, apiFormat)
+          : undefined;
+      const provider = reported?.provider;
       const billing: TurnBilling | undefined = r.fellBackToCore
         ? "core"
         : r.provider
           ? billingOf(r.provider, providerType)
           : undefined;
+      const corePlan = billing === "core" ? corePlanOf(r.model, stats.autoBilling) : undefined;
+      const which = {
+        ...(reported ? { provider_type: reported.provider_type } : {}),
+        ...(corePlan ? { core_plan: corePlan } : {}),
+      };
       const durationBucketValue = durationBucket(r.durationMs);
       captureSafe("turn_completed", {
         outcome,
@@ -461,6 +541,7 @@ export function trackTurnCompleted(
         ...(se && outcome === "ok" ? { recovered_error_kind: se.kind } : {}),
         ...(r.mode ? { mode: modeName(r.mode) } : {}),
         ...(provider ? { provider } : {}),
+        ...which,
         ...(r.model ? { model: r.model } : {}),
         ...(billing ? { billing } : {}),
         effort: r.effort ?? "none",
@@ -491,6 +572,8 @@ export function trackTurnCompleted(
       const funnel = {
         ...(r.mode ? { mode: modeName(r.mode) } : {}),
         ...(billing ? { billing, provider } : {}),
+        ...which,
+        ...(r.model ? { model: r.model } : {}),
         ...(stats.loop ? { iterations: stats.loop.iterations, toolExecutions: stats.loop.tool_count } : {}),
         duration_bucket: durationBucketValue,
       };
@@ -511,6 +594,7 @@ export function trackTurnCompleted(
   } catch {
     /* analytics must never break the turn */
   }
+  return resolved;
 }
 
 let lastTierSent: string | null = null;

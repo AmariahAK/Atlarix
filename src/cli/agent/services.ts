@@ -517,6 +517,12 @@ export const realServices: CliServices = {
       // Encrypted with the desktop's OS key (entry.mts installs that key), so
       // the desktop app reads the same key. Only this provider's key changes.
       writeProviderKey(providerId, k);
+      // The desktop's key handler counts this; the CLI writes the key directly.
+      const [{ trackModelConnected }, { modelConnectedFor }] = await Promise.all([
+        import("@/main/lib/analytics"),
+        import("@/lib/analytics/model-connected"),
+      ]);
+      await trackModelConnected(modelConnectedFor(providerId));
       if (p && authHeader && authHeader !== (p.authHeader ?? "x-api-key")) {
         const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
         const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");

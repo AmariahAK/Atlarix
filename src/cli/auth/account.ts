@@ -21,6 +21,9 @@ export async function acceptSession(t: Tokens): Promise<string> {
     await supabase.auth.signOut({ scope: "local" }).catch(() => {});
     throw new Error("This account has no email address. Sign in with a provider that shares your email.");
   }
+  // Funnel: Core is usable from this terminal or editor now (the desktop counts its own sign-in).
+  const { trackModelConnected } = await import("@/main/lib/analytics");
+  await trackModelConnected({ type: "core", provider: "compass" });
   return data.user.email;
 }
 
