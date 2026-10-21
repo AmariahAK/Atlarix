@@ -162,11 +162,8 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
   it or make it relative once traffic grows.
 - **CLI binary is +10 MB** (97 → 108 MB) because it now carries a positions-only source map for crash reports.
   It's a one-line revert if you'd rather keep it small.
-- **Sentry code mapping:** fixed 2026-10-21. `app:///.vite/build/` → `src/` had been saved on the Book-Library
-  repo; it is now on AmariahAK/Atlarix. Check one new app crash links to the right file.
-- **Done 2026-10-21 (for the record):** `ATLARIX_TEST_ANTHROPIC_KEY` rotated (new "atlarix-testing" key in
-  ~/.zshrc, old one deleted). The Supabase server key can no longer TRUNCATE or MAINTAIN any public table
-  (migration 20261021090000).
+- **Sentry:** check one new app crash links to the right file (the code mapping moved to AmariahAK/Atlarix
+  2026-10-21).
 - **ATLARIX-3Z** ("Maximum update depth exceeded"): see Open queue item 8. Map it the next time it fires (now
   that source maps upload).
 - **Analytics on Windows: not run.** Every analytics change in 15.10.0 passed on the Mac (CLI, app, VS Code panel,
@@ -175,22 +172,14 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
 - **Refused turns:** a signed-out turn reporting `error_kind: auth` is tested and checked in the app. The other
   early refusals (`content_rejected`, a too-long prompt, `no_workspace`, a legacy chat id → `other`) were changed
   the same way but only checked by reading the code. Look at "Why turns fail" after the release.
-- **7 agent-eval failures** (`npx vitest run --project agent-evals`, seen on dev 6a9c9bd2 once
-  `tests/infra` had its Node-ABI sqlite): all are evals left behind by deliberate changes, not regressions.
-  The fixes are MERGED to dev (431bf0ff, 2026-10-21) but NOT YET RUN: in the main checkout
-  `npx vitest run --project agent-evals` hung with no output before the Mac was shut down. First thing next
-  session: run it. If it still hangs, run one file at a time to find the hanging one. If any fix is wrong, correct
-  the eval (or the code, if it turns out to be a real regression).
-  - `session-reuse-guard.eval` ×4 (guard-touched, guard-really-empty, drifted-empty, prune): its seeded
-    "leftover" sessions were stamped now. Since A7 a session another process created in the last 2 minutes is
-    never reused or pruned. Fix: seed them an hour old.
-  - `revert-turn.eval` ×1: asserted a numeric turn id. Since 1f it is `<message id>-<pid>`. Fix: assert that
-    shape (the revert after it is unchanged).
-  - `session-search.eval` ×1 (falls back to `_chatSessionId`): it found the session through the shared
-    `stream_chat_id` column, which 1a stopped trusting. Fix: bind the transport in-process, as a real parent
-    turn does.
-  - `user-agent.eval` ×1: tests a turn driven by `settings.selectedAgent`, removed on purpose (cf704456,
-    7f5c62ff). Fix: delete the file. Named agents still run as sub-agents.
+- **Agent evals:** the full run on 2026-10-21 (52 files, 86 s, no hang) had 2 failures, both evals left behind
+  by A7 and 1a, fixed in 7e5684f4 and passing file by file. One full re-run under the heavy lock confirms it.
+- **Account usage counts (`client_usage_daily`) are LIVE in Supabase** (applied 2026-10-21, grants read back)
+  and empty until a release carries the client (team/ai2a-telemetry). Who is active, by surface and model:
+  `select * from v_latest_model_by_surface` (service role). The consent text on all four surfaces and the
+  privacy page (launchpad branch `ai2a/privacy-better-together`) say it is kept with the account.
+- **Telemetry on Windows: not run** for provider_type / core_plan, the BYOK turn-failure report and the usage
+  flush at quit (Mac checks are in STATUS.md).
 
 **Verified live 2026-10-19 (15.9.1, unchanged in 15.9.2), on the real Anthropic API:** Sonnet 5.5,
 Opus 5.5, Haiku 5.5 and Fable 5.1 get `thinking: adaptive` + `output_config.effort` as chosen
@@ -239,23 +228,14 @@ CI uploads and submits the PACKAGE (14.48.1 on 2026-09-17, 14.50.1 on 2026-09-23
 below is dashboard-only, so no green run covers it. Proposed listing text is in
 [`docs/CWS_LISTING.md`](./CWS_LISTING.md); run `node scripts/cws-copy-check.mjs` before pasting.
 
-- [ ] **Paste the `debugger` and `scripting` justifications into the dashboard.**
+- [ ] **Paste into the dashboard:** `cws/DESCRIPTION.txt` and `cws/TEST-INSTRUCTIONS.txt` (rewritten
+      2026-10-21 to match the listing and the paid-only extension; `cws-copy-check` passes), and the
+      `debugger` and `scripting` justifications below.
+- [ ] **The `debugger` and `scripting` justifications.**
       `cws/PRIVACY-FORM.md` is current as of v14.52.0 (stays attached to agent tabs for console,
       network, on-demand response bodies and screenshots; injects the packaged axe-core for the
       visual report). The dashboard still carries the older text — an inaccurate disclosure is
       what pulls a live item.
-- [ ] **Rewrite `cws/DESCRIPTION.txt`** to match `docs/CWS_LISTING.md`. "What it costs" still
-      says Core is pay-as-you-go only, with no word of free Atlarix Auto, and "the contents of
-      pages Atlarix reads never leave your machine" contradicts the data disclosure (page text
-      goes to the model; it is only kept out of sync).
-- [ ] **Rewrite `cws/TEST-INSTRUCTIONS.txt`.** It says "the extension holds no host access at
-      install" (false since 2026-09-17) and that a new account "will refuse to start a turn"
-      (false since free Auto: a new account gets the one-time consent card instead). The
-      reviewer flow should cover that consent.
-- [ ] **Revisit `cws/PRIVACY-FORM.md` → Distribution → Payments.** Its reasoning ("a new
-      account's balance is ZERO and its first message returns a 402") predates free Auto.
-      "Contains in-app purchases" is probably still right (Pro and credit), but the stated
-      reason is not.
 - [ ] Keep the review account funded and its credentials in the dashboard, not the file. **A
       reviewer who hits a zero balance sees an extension that does not work, and the rejection
       will not mention money.**
@@ -275,21 +255,13 @@ Linux is proven: the `quality` job runs `npm run check:ts` on `ubuntu-latest`. O
 `npm ci` installs cleanly on `windows-latest`, but no Windows job runs `tsc`, so the win32
 binary has never actually been executed there.
 
-### 4. CLI `/mcp` shows the switch, not whether the server connects
-
-QA (15.7.0): a server that is on but fails to connect reads "✓ on" in the CLI, while the editor's
-page says "Couldn't connect: Connection closed". Test on open (one connect per server), or mark a
-server whose last call failed. Low.
-
 ### 5. MCP polish from the 15.7.0 app QA
 
-- The app's MCP list doesn't update live when the CLI changes the same profile (a tab switch
-  refetches). Refetch on window focus, or broadcast from the shared DB.
-- The composer menu's switch takes 3–5 s with no pending state; a second click is lost.
-- Automations: "Create" stays disabled until "tell the AI?" is answered, with no hint or default;
-  a manual Run now logs "fired on schedule"; the tool name is free text (offer the server's tools).
-- A local server with no registry icon shows a letter (Brave Search): try the npm scope's
-  GitHub avatar.
+The rest of this item shipped on dev 2026-10-21 (focus refetch, composer switch, tool picker, npm-scope
+icon). Left as they are on purpose: "tell the AI?" keeps no default (it decides whether an automation
+spends tokens, 774fdfd0; Create already says why it is off), and "Run now" already says it was started
+by hand (2026-10-14).
+
 - A peer message into a chat whose last turn was stopped mid-wait re-runs the stopped request
   (ai-e9's area).
 
@@ -300,23 +272,18 @@ Chrome extension, PR reviewer — because LLMs and listicles answer by CATEGORY.
 and `/extension` exist with their JSON-LD (`reviewerApplication()`, `faqPage()` on /reviewer and
 /pricing, and on blog posts that set `faq`).
 
-Still missing:
+`/better-together` is written (launchpad branch `ai2a/privacy-better-together`) on what is true
+today: one account and balance, a reviewer that never runs code and sees only the diff, and the
+cloud agent's pull requests reviewed the same way. Still missing:
 
-- **A "better together" page**: the workstation hands context to the Reviewer, which judges it
-  independently. A new route takes `{ path, element, entry }`; add it to the sitemap's `PAGES`
-  map for `lastmod` and to `RULES` for priority.
+- **A real app→Reviewer context handoff** (e.g. Reviewer also reads `.atlarix/atlarix.md`): a
+  product change in atlarix-reviewer, the owner's call. Nothing passes app context to a review
+  today, so no page may claim it.
 
 **Do not expect this to move the numbers.** Per the 2026-09-18 baseline, 89% of clicks are the
 literal word "atlarix" and /pricing had never been crawled: the bottleneck is AUTHORITY, not
 markup. The movement comes from third-party pages (the CWS listing, the GitHub Marketplace
 listing, launches).
-
-### 7. Headless `--deep-thinking` sends no level on adaptive Claude
-
-`atlarix run --deep-thinking` ("the model's highest reasoning level") sends adaptive thinking with
-no `effort` on Sonnet 5 / 5.5, Opus 4.7+, Haiku 5.5 and Fable, so the API's default applies, not
-`max`. Seen on the wire 2026-10-19. Only benchmark runs use the flag (the app, CLI and editors
-use `/effort`, which arrives as chosen); `--effort max` works today.
 
 ### 8. "Maximum update depth exceeded" in the window, once (Sentry ATLARIX-3Z)
 
@@ -362,14 +329,6 @@ to map the old one, build tag v15.1.0 with `build.sourcemap: "hidden"` and resol
 
 ## 🔐 Security follow-ups — owner-triaged, deferred
 
-- **Project-wide `TRUNCATE` revoke on the older tables — OWNER'S CALL, still open.** Supabase grants
-  all of `arwdDxtm` on every new `public` table to `anon`, `authenticated` and `service_role`, and
-  **TRUNCATE IS NOT FILTERED BY ROW SECURITY**. Proved on the live database 2026-09-14 inside a
-  rollback. Every table created since carries the revoke; `users`, `credit_wallet`,
-  `credit_grants` and `conversations` do not. Not currently reachable (PostgREST has no TRUNCATE
-  verb) but one bug away from total data loss.
-- **`MAINTAIN` is also still granted** on those tables. Milder — it reads and writes no data —
-  but the house rule is "no privilege we did not intend". Fold it into the same migration.
 - **Native sandbox validation in CI.** `npm run check:sandbox` cross-target type-checks all four
   (helper, target) pairs, but that does not substitute for running them on the real OS.
 - **Windows code-signing cert.** The sign steps are wired for the sandbox helper and the bridge
@@ -397,14 +356,6 @@ to map the old one, build tag v15.1.0 with `build.sourcemap: "hidden"` and resol
 - **One account holds Pro it never paid for** — `d22ee539…`, `plan = pro` with no subscription and
   no `credit_grants` row, from the users-INSERT escalation closed on 2026-08-28. It draws no
   credit and has never used Reviewer. Reset to `free` when convenient.
-- **Sentry stack traces point at the bundle, not the source.** Every frame reads
-  `app:///.vite/build/main.js:LINE:COL` (minified), so issues cannot be read or linked to code.
-  The Sentry project `atlarix` has no code mapping, and none would help without source maps. The
-  release now uploads them (`build-macos`, arm64: "Upload source maps to Sentry") once the repo has
-  a `SENTRY_AUTH_TOKEN` secret (scope `org:ci`); without it the step is skipped. Then add the code
-  mapping under Settings
-  → Integrations → GitHub → Configurations → AmariahAK → Code Mappings: project `atlarix` →
-  `AmariahAK/Atlarix`, branch `main`, stack root `app:///.vite/build/`, source root `src/`.
 
 ---
 
