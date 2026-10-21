@@ -1349,10 +1349,12 @@ export function openMcp(ctx: ScreenContext): void {
       const untried = servers.filter((s) => s.enabled && !s.needsSignIn && !s.connection && !probed.has(s.id)).map((s) => s.id);
       if (untried.length) {
         for (const id of untried) probed.add(id);
-        void ctx.services.mcp
-          .probe(untried)
-          .catch(() => {})
-          .then(() => dialog.reload());
+        // Never in the way of the list: a probe that throws (even before it
+        // returns a promise) leaves the rows as they are.
+        void Promise.resolve()
+          .then(() => ctx.services.mcp.probe(untried))
+          .then(() => dialog.reload())
+          .catch(() => {});
       }
       const mine = servers.map((s) => ({
         id: String(s.id),
