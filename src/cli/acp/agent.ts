@@ -280,10 +280,15 @@ class Thread {
   /**
    * The turn was stopped: here (session/cancel), or from another surface,
    * whose Stop lands as Esc in the session and not through this editor; then
-   * this turn's footer says so. It ended as a normal finish (QA E12).
+   * this turn's footer says so, or, stopped before any output (no footer),
+   * the session does. It ended as a normal finish (QA E12).
    */
   private stopped(turn: { cancelled: boolean }, cellsBefore: ReadonlySet<string>): boolean {
-    return turn.cancelled || this.session.state.cells.some((c) => c.kind === "footer" && !!c.interrupted && !cellsBefore.has(c.id));
+    return (
+      turn.cancelled ||
+      this.session.turnWasStopped ||
+      this.session.state.cells.some((c) => c.kind === "footer" && !!c.interrupted && !cellsBefore.has(c.id))
+    );
   }
 
   /** Updates go out in order: each waits for the one before it. */

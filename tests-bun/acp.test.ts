@@ -345,6 +345,21 @@ describe("atlarix acp", () => {
     expect((await turn).stopReason).toBe("cancelled");
   }, 60_000);
 
+  it("a turn stopped from another surface before any output also ends as stopped (TODO D)", async () => {
+    // Nothing reached the editor yet, so there is no footer to read: it ended as end_turn.
+    const e = await editor([{ text: "too late", waitMs: 20_000 }]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const turn = e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "wait" }] });
+    const session = e.sessions.at(-1) as unknown as { state: { busy: boolean }; onSend(channel: string, payload: unknown): void };
+    for (const t0 = Date.now(); !(session.state.busy && e.llm.requests.some((q) => q.tools?.length)); ) {
+      if (Date.now() - t0 > 20_000) throw new Error("the turn never reached the model");
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    session.onSend("chat:remote-stop", {});
+    expect((await turn).stopReason).toBe("cancelled");
+    expect(e.updates.some((u) => u.update.sessionUpdate === "agent_message_chunk")).toBe(false);
+  }, 60_000);
+
   it("switches mode through the config option and the legacy set_mode", async () => {
     const e = await editor([]);
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
