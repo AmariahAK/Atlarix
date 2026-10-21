@@ -8,12 +8,37 @@
  * routine, the canonical resolver, and any path comparison — is the only thing
  * that keeps the write and read sides agreeing. Keep this the ONLY implementation.
  */
+import fs from "node:fs";
 import path from "node:path";
 
-/** Absolute, separator-normalized, trailing-slash-stripped; case-folded on macOS/Windows. */
+/**
+ * The path with its symlinks resolved: `/tmp/x` is `/private/tmp/x` on macOS, a
+ * symlinked `~/code` is where it points. Without this one folder opened through
+ * two spellings was two workspaces (E13: VS Code's `/tmp/x` and the CLI's
+ * `process.cwd()`, which the OS resolves, split the sessions in two). A part
+ * that does not exist yet (a file about to be written) keeps its own name under
+ * its nearest existing parent, resolved, so both sides of a comparison agree.
+ */
+export function realAppPath(p: string): string {
+  const abs = path.resolve(p);
+  let head = abs;
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(head), ...rest.reverse());
+    } catch {
+      const parent = path.dirname(head);
+      if (parent === head) return abs;
+      rest.push(path.basename(head));
+      head = parent;
+    }
+  }
+}
+
+/** Absolute, symlinks resolved, separator-normalized, trailing-slash-stripped; case-folded on macOS/Windows. */
 export function normalizeAppPath(p: string | null | undefined): string {
   if (!p || !p.trim()) return "";
-  let out = path.resolve(p.trim()).replace(/[\\/]+$/, "");
+  let out = realAppPath(p.trim()).replace(/[\\/]+$/, "");
   if (process.platform === "darwin" || process.platform === "win32") {
     out = out.toLowerCase();
   }

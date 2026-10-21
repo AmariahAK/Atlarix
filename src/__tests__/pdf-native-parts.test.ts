@@ -35,6 +35,7 @@ import {
 import {
   isPdfContentRejectionError,
   isImageContentRejectionError,
+  requestHasDocumentPart,
 } from "@/lib/chat/image-embed-gate";
 
 const pdf = (filename: string, data = "JVBERi0xLjQK") => ({
@@ -217,22 +218,58 @@ describe("PDF rejection detection", () => {
         responseBody: "unknown variant `input_file`, expected `text` at line 1",
       },
     };
-    expect(isPdfContentRejectionError(err)).toBe(true);
+    expect(isPdfContentRejectionError(err, true)).toBe(true);
   });
 
   it("recognises a provider naming pdf support directly", () => {
     expect(
-      isPdfContentRejectionError({
-        message: "This model does not support pdf input",
-      }),
+      isPdfContentRejectionError(
+        { message: "This model does not support pdf input" },
+        true,
+      ),
     ).toBe(true);
   });
 
   it("ignores unrelated failures", () => {
-    expect(isPdfContentRejectionError({ message: "rate limit exceeded" })).toBe(
+    expect(isPdfContentRejectionError({ message: "rate limit exceeded" }, true)).toBe(
       false,
     );
-    expect(isPdfContentRejectionError(undefined)).toBe(false);
+    expect(isPdfContentRejectionError(undefined, true)).toBe(false);
+  });
+
+  /**
+   * E1 (2026-10-20): Anthropic ends every error with "Please consult our
+   * documentation at …", so any 400 (here max_tokens vs budget_tokens, seen live
+   * on Bedrock Haiku 4.5) read as "The PDF you attached couldn't be sent".
+   */
+  it("an Anthropic 400 is not a PDF rejection, with or without a PDF on the turn", () => {
+    const anthropic400 = {
+      error: {
+        responseBody: JSON.stringify({
+          type: "error",
+          error: {
+            type: "invalid_request_error",
+            message:
+              "`max_tokens` must be greater than `thinking.budget_tokens`. Please consult our documentation at https://platform.claude.com/docs/en/build-with-claude/extended-thinking",
+          },
+        }),
+      },
+    };
+    expect(isPdfContentRejectionError(anthropic400, false)).toBe(false);
+    expect(isPdfContentRejectionError(anthropic400, true)).toBe(false);
+  });
+
+  it("nothing is a PDF rejection when the request carried no document", () => {
+    const err = { error: { responseBody: "unknown variant `input_file`, expected `text`" } };
+    expect(isPdfContentRejectionError(err, false)).toBe(false);
+  });
+
+  it("knows a request with a PDF from one with only text and images", () => {
+    const text = { role: "user", content: "hi" };
+    const image = { role: "user", content: [{ type: "file", mediaType: "image/png", data: "x" }] };
+    const pdf = { role: "user", content: [{ type: "text", text: "read" }, { type: "file", mediaType: "application/pdf", data: "x" }] };
+    expect(requestHasDocumentPart([text, image])).toBe(false);
+    expect(requestHasDocumentPart([text, pdf])).toBe(true);
   });
 
   /**
@@ -245,6 +282,6 @@ describe("PDF rejection detection", () => {
       error: { responseBody: "unknown variant `image_url`, expected `text`" },
     };
     expect(isImageContentRejectionError(err)).toBe(true);
-    expect(isPdfContentRejectionError(err)).toBe(false);
+    expect(isPdfContentRejectionError(err, true)).toBe(false);
   });
 });

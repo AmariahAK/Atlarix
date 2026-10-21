@@ -4,6 +4,7 @@
  * IPC handlers for executing/rejecting buffered permission requests.
  */
 
+import { noteTurn } from "@/lib/analytics/turn-stats";
 import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from "electron";
 import { z } from "zod";
 import log from "electron-log";
@@ -312,6 +313,7 @@ const executePermissionHandler = async (
   if (approvalMode === "deny") {
     // v14.7: rejectOperation resolves the (now blocking) waitForApproval
     // directly — the turn continues in-loop; no parked-turn wake needed.
+    noteTurn(chatId, "approvals_denied");
     return interceptor.rejectOperation(operationId);
   }
 
@@ -460,6 +462,7 @@ async function applyNewRuleToPendingOperations(
       runFilePermissionPreflight(operation, rel, appId).type,
   );
   if (covered.length === 0) return;
+  noteTurn(chatId, "approvals_auto", covered.length);
 
   logger.log(
     `[permissions] new rule covers ${covered.length} queued operation(s) for chat ${chatId}`,
@@ -525,6 +528,7 @@ ipcMain.handle(
     }
 
     // v14.7: rejectOperation resolves the (now blocking) waitForApproval directly.
+    noteTurn(chatId, "approvals_denied");
     return interceptor.rejectOperation(operationId);
   },
 );

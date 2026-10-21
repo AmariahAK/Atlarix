@@ -77,8 +77,6 @@ export interface ChatStreamParams {
   workModeOverride?: WorkMode;
   /** "Try with a stronger model": paid Atlarix Auto answers this turn one level up. */
   escalate?: boolean;
-  /** v12 7A: run this turn as a user-defined agent (.atlarix/agents/<name>.md). */
-  agentOverride?: string;
   /**
    * Set when this turn IS an automation run (unattended, no human responder).
    * `unattended` drops the human-handoff tools.

@@ -12,6 +12,7 @@ import { diffRows } from "../logic";
 import { post, rpc } from "../rpc";
 import { state } from "../state";
 import { button, el, icon, rixGlyph } from "../ui";
+import { addCodeCopyButtons } from "./code-copy";
 import { drawFence } from "./diagrams";
 import { resetSubagents, upsertSubagent, type SubagentMeta } from "./subagents";
 
@@ -243,11 +244,17 @@ export function tagLastUser(messageId: number): void {
 
 // --- Replies and thinking --------------------------------------------------------
 
+/** Markdown, with a copy button on each code block. */
+function renderReply(body: HTMLElement, markdown: string): void {
+  renderMarkdown(body, markdown, { fence: drawFence });
+  addCodeCopyButtons(body, (text) => post({ type: "copy", text }));
+}
+
 function flushRender(): void {
   renderQueued = false;
   if (!current) return;
   const body = current.el.querySelector<HTMLElement>(".body")!;
-  if (current.kind === "reply") renderMarkdown(body, current.text, { fence: drawFence });
+  if (current.kind === "reply") renderReply(body, current.text);
   else {
     body.textContent = current.text.trim();
     current.el.dataset.text = current.text;
@@ -484,7 +491,7 @@ function stepsGroup(): HTMLElement {
 function planStep(step: HTMLElement, markdown: string): HTMLElement {
   const box = el("div", "plan-step");
   const body = el("div", "plan-step__body body md");
-  renderMarkdown(body, markdown, { fence: drawFence });
+  renderReply(body, markdown);
   step.classList.add("plan-step__head");
   step.addEventListener("click", () => box.classList.toggle("folded"));
   box.append(step, body);
@@ -549,8 +556,13 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     node = commandCard(title || "Command", text ?? existing?.dataset.output ?? "", status);
     node.dataset.output = text ?? existing?.dataset.output ?? "";
   } else {
-    node = el("div", `step ${status}`);
-    node.append(el("span", "step__mark", status === "completed" ? MARK.done : status === "failed" ? MARK.failed : MARK.running), el("span", "step__title", title));
+    const approved = t.toolCallId.startsWith("approved:");
+    // What you approved wraps: cut short, the file or rule at its end was lost (QA).
+    node = el("div", `step ${status}${approved ? " step--approved" : ""}`);
+    const head = el("span", "step__title", approved ? "" : title);
+    // What you approved names the command or file in backticks: drawn as code, not as "`npm`".
+    if (approved) title.split("`").forEach((s, i) => s && head.append(i % 2 ? el("code", "", s) : s));
+    node.append(el("span", "step__mark", status === "completed" ? MARK.done : status === "failed" ? MARK.failed : MARK.running), head);
     if (status === "failed" && text) {
       // Why it failed, on a line of its own (the CLI's "╰ reason"); all of it on hover.
       node.title = text;

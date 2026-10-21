@@ -21,13 +21,45 @@
  */
 
 import { commandSegments } from "./command-segments";
+import { GIT_INLINE_ALIAS, programWords } from "./command-words";
 
 export interface DangerMatch {
   /** Stable, kebab-case id — used as the always-allow permission key. */
   id: string;
   pattern: RegExp;
+  /** Also matches when this says so: a form the regex alone cannot see (see gitInvocations). */
+  also?: (command: string) => boolean;
   explanation: string;
 }
+
+/** Does this danger match the command (its regex, or its `also`)? */
+function dangerMatches(d: DangerMatch, command: string): boolean {
+  return d.pattern.test(command) || (d.also?.(command) ?? false);
+}
+
+/**
+ * Each git invocation in a command: its subcommand and that subcommand's
+ * arguments, wherever git's own options and the flags fall (programWords). The
+ * regexes still run beside this; it only adds matches.
+ */
+function gitInvocations(command: string): Array<{ sub: string; args: string[] }> {
+  const out: Array<{ sub: string; args: string[] }> = [];
+  for (const seg of commandSegments(command)) {
+    const [program, sub, ...rest] = programWords(seg);
+    if (program !== "git" || !sub) continue;
+    const end = rest.indexOf("--");
+    out.push({ sub: sub.toLowerCase(), args: end === -1 ? rest : rest.slice(0, end) });
+  }
+  return out;
+}
+
+/** A `git <sub>` in the command whose arguments satisfy `test`. */
+const gitSub = (sub: string, test: (args: string[]) => boolean) => (command: string) =>
+  gitInvocations(command).some((g) => g.sub === sub && test(g.args));
+
+/** `--force`, `-f` alone or in a cluster (`-uf`), or a `+refspec`: a push that overwrites. */
+const pushForces = (args: string[]) =>
+  args.some((a) => a === "--force" || /^-[a-z0-9]*f[a-z0-9]*$/i.test(a) || (a.startsWith("+") && a.length > 1));
 
 export const DANGEROUS_PATTERNS: DangerMatch[] = [
   {
@@ -93,20 +125,29 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
   {
     id: "git-push-force",
     pattern: /git\s+push\b.*--force(?!-with-lease)\b/,
+    also: gitSub("push", pushForces),
     explanation:
       "This force-pushes and can OVERWRITE remote history for everyone — commits others rely on may be lost. Prefer --force-with-lease.",
   },
   {
     id: "git-push-force-with-lease",
     pattern: /git\s+push\b.*--force-with-lease\b/,
+    also: gitSub("push", (args) => args.some((a) => a.startsWith("--force-with-lease"))),
     explanation:
       "This force-pushes (with a safety lease). It rewrites remote history — confirm no one else has pushed since you last fetched.",
   },
   {
     id: "git-reset-hard",
     pattern: /git\s+reset\s+--hard\b/,
+    also: gitSub("reset", (args) => args.includes("--hard")),
     explanation:
       "This discards ALL uncommitted changes and moves the branch pointer — local work not committed will be permanently lost.",
+  },
+  {
+    id: "git-inline-alias",
+    pattern: GIT_INLINE_ALIAS,
+    explanation:
+      "This defines a git alias on the command line, so what it actually runs can't be checked.",
   },
   // ── Exfiltration / arbitrary-execution primitives (v14.8.12 security review) ──
   // Flagged "dangerous" so they DENY in unattended automation runs and PROMPT
@@ -221,8 +262,8 @@ export function getDangerMatchIds(command: string): string[] {
   const trimmed = (command || "").trim();
   if (!trimmed) return [];
   const ids = new Set<string>();
-  for (const { id, pattern } of DANGEROUS_PATTERNS) {
-    if (pattern.test(trimmed)) ids.add(id);
+  for (const d of DANGEROUS_PATTERNS) {
+    if (dangerMatches(d, trimmed)) ids.add(d.id);
   }
   for (const seg of commandSegments(trimmed)) {
     const tok = firstToken(seg);
@@ -252,9 +293,7 @@ export function getDangerExplanation(command: string): string {
   const trimmed = (command || "").trim();
   if (!trimmed) return "";
   // Prefer a specific pattern explanation; fall back to the first-token one.
-  const patternMatch = DANGEROUS_PATTERNS.find(({ pattern }) =>
-    pattern.test(trimmed),
-  );
+  const patternMatch = DANGEROUS_PATTERNS.find((d) => dangerMatches(d, trimmed));
   if (patternMatch) return patternMatch.explanation;
   // Per-segment first token (mirrors getDangerMatchIds) so the badge text is
   // right for a risky command hidden behind a benign prefix.

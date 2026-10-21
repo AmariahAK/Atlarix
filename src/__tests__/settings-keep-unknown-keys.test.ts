@@ -4,7 +4,7 @@
  * separately). Writing must keep it: 15.7.0 dropped 15.7.1's consent version
  * and MCP defaults on its first save (QA 15.7.1 #8).
  */
-import { describe, it, expect, vi } from "vitest";
+import { afterAll, describe, it, expect, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -13,6 +13,7 @@ const userDataDir = fs.mkdtempSync(
   path.join(os.tmpdir(), "atlarix-settings-keep-"),
 );
 vi.mock("@/paths/paths", () => ({ getUserDataPath: () => userDataDir }));
+afterAll(() => fs.rmSync(userDataDir, { recursive: true, force: true }));
 
 describe("writing settings", () => {
   it("keeps keys from a newer version, and still writes its own", async () => {

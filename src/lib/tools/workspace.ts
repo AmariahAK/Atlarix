@@ -8,6 +8,7 @@
  * and ask_user from execution-tools.
  */
 
+import { noteTurn } from "@/lib/analytics/turn-stats";
 import { ToolRegistry, createParameters, stringParam } from "./registry";
 
 import path from "path";
@@ -22,7 +23,9 @@ import {
 import { extractTextFromRtfBuffer } from "@/lib/attachment-rtf-extract";
 import { classifyContent, SNIFF_SAMPLE_BYTES } from "@/lib/file-content-type";
 
-import { estimateTokens } from "@/ipc/utils/token_utils";
+import { flattenNativeForCompaction, parseNativeHistory } from "@/lib/ai/native-history";
+import type { ForcedCompaction } from "@/lib/context/compact-result-message";
+import { removeAtlarixTags, removeNonEssentialTags } from "@/ipc/handlers/chat_stream/message-postprocess";
 import {
   runSteppedCompaction,
   getUsableBudget,
@@ -100,17 +103,81 @@ ToolRegistry.register({
 // COMPRESS CONTEXT
 // ═══════════════════════════════════════════════════════════
 
+/** A transcript message: `modelContent` is an assistant turn's native tool history. */
+type TranscriptMessage = { id: number; role: string; content: string; modelContent?: string | null };
+
+/**
+ * A message as the forced compactions see it: an assistant turn's tool calls and
+ * results, not only its text.
+ *
+ * The text alone sized a tool-heavy session as short: five turns with thirty-odd
+ * tool calls each sent ~30k tokens a request, and `/compact` answered "the
+ * conversation is still short" (2 of 2 runs, 2026-10-20), because those calls and
+ * their results live in `modelContent`. The overflow retry, which compacts the
+ * same way, then found nothing to do and the turn failed. In full, not clipped:
+ * this text is what the history is MEASURED by, and the summariser bounds its own
+ * input.
+ *
+ * THE TURN'S ANSWER FIRST. Pruning keeps the head of a message that holds tool
+ * output, so with the answer last the summariser never saw the older turns'
+ * answers, and after /compact the agent misremembered what it had found (E7,
+ * 3 of 3: "dune" for a file whose codeword it had answered as "ember"). The
+ * answer is the turn's prose: its display content also carries the calls inline
+ * (`<atlarix-tool-call>`…), so it is stripped the way dispatch strips it.
+ */
+function compactionText(m: { role: string; content?: string | null; modelContent?: string | null }): string {
+  if (m.role !== "assistant") return m.content ?? "";
+  // Without an envelope, the prose is all the model is sent of the turn (dispatch
+  // strips the inline blocks too), so it is all there is to measure.
+  const answer = removeAtlarixTags(removeNonEssentialTags(m.content ?? ""));
+  const envelope = parseNativeHistory(m.modelContent);
+  if (!envelope) return answer;
+  const tools = flattenNativeForCompaction(envelope.messages, Infinity)
+    .map((x) => (typeof x.content === "string" ? x.content : ""))
+    .filter(Boolean)
+    .join("\n\n");
+  return answer ? `${answer}\n\n${tools}` : tools;
+}
+
+function forCompaction(
+  messages: ReadonlyArray<{ id: number; role: string; content?: string | null; modelContent?: string | null }>,
+): Array<{ id: number; role: string; content: string }> {
+  return messages.map((m) => ({ id: m.id, role: m.role, content: compactionText(m) }));
+}
+
+/**
+ * Back to the transcript. A message compaction left as it was is the ORIGINAL,
+ * native tool history and all, so the turns kept after a summary still replay as
+ * real tool calls. A turn whose tool output was pruned keeps its own text without
+ * the tool history: the pruner replaces whole messages, and this one message is
+ * the whole turn, answer included. Anything else it changed (the summary) is its.
+ */
+function fromCompaction<T extends TranscriptMessage, A extends { id: number; content: string }>(
+  after: readonly A[],
+  before: readonly T[],
+): Array<T | A> {
+  const byId = new Map(before.map((m) => [m.id, m]));
+  return after.map((m) => {
+    const was = byId.get(m.id);
+    if (!was) return m;
+    if (compactionText(was) === m.content) return was;
+    if (was.role === "assistant" && parseNativeHistory(was.modelContent)) {
+      const { modelContent: _dropped, ...rest } = was;
+      return { ...rest, content: was.content ?? "" } as T;
+    }
+    return m;
+  });
+}
+
 export type ExecuteCompressContextContext = {
   chatId: number;
-  messages: Array<{ id: number; role: string; content: string }>;
+  messages: TranscriptMessage[];
   systemPromptTokens: number;
   inputTokens?: number;
   providerId?: string;
   sessionStats?: { toolCallCount?: number; delegationCount?: number };
   /** Replaces the caller's live transcript (in-memory transport) after compaction. */
-  setMessages: (
-    next: Array<{ id: number; role: string; content: string }>,
-  ) => void;
+  setMessages: (next: TranscriptMessage[]) => void;
   /**
    * The stream's already-resolved workspace session id (req.workspaceSessionId).
    * Preferred over re-resolving from `chatId` (which can be negative/unbound for
@@ -131,8 +198,8 @@ export type ExecuteCompressContextContext = {
  * v11.1 overflow recovery: aggressively compact an ephemeral chat's message
  * list after a provider context-overflow error. Bypasses the usage-ratio
  * gates by feeding an artificially low budget (the provider just told us the
- * real window is smaller than our estimate). Returns true when anything
- * was compacted (the retry dispatch then sees the smaller history).
+ * real window is smaller than our estimate). `ok` when anything was
+ * compacted (the retry dispatch then sees the smaller history).
  */
 export async function forceCompactEphemeralChat(
   chatId: number,
@@ -142,24 +209,20 @@ export async function forceCompactEphemeralChat(
     workspaceSessionId?: string | null;
     /** The user asked (/compact): end in a summary. */
     summarize?: boolean;
+    /** The model the conversation runs on; else found from the chat's last request. */
+    model?: { provider: string; name: string };
   },
-): Promise<false | { strategy: string; tokensBefore: number; tokensAfter: number }> {
+): Promise<ForcedCompaction> {
   const { getStreamTransport } = await import("@/lib/chat/stream-transport");
   const chat = getStreamTransport(chatId);
   // Size decides, not count: one long explore turn is two messages and 100k
   // tokens (QA: a resumed session said "still short"). The compactor's own
   // token floor turns a genuinely small one down.
-  if (!chat || chat.messages.length < 2) return false;
+  if (!chat || chat.messages.length < 2) return { ok: false, reason: "short" };
 
-  const msgList = chat.messages.map((m) => ({
-    id: m.id,
-    role: m.role,
-    content: m.content ?? "",
-  }));
-  const currentTokens = msgList.reduce(
-    (acc, m) => acc + estimateTokens(m.content || ""),
-    0,
-  );
+  const before = chat.messages as Array<(typeof chat.messages)[number] & { modelContent?: string | null }>;
+  const msgList = forCompaction(before);
+  const currentTokens = countMessagesTokens(msgList);
   // Half the current size as the target forces prune + summarize.
   const forcedLimit = Math.max(8_000, Math.floor(currentTokens / 2));
   // The compactor persists its own marker (chatId supplied) — the explicit
@@ -168,23 +231,33 @@ export async function forceCompactEphemeralChat(
     chatId,
     workspaceSessionId: opts?.workspaceSessionId,
     ...(opts?.summarize ? { summarize: true } : {}),
+    ...(opts?.model ? { model: opts.model } : {}),
   });
-  if (!stepped.compactionApplied) return false;
+  if (!stepped.compactionApplied) return { ok: false, reason: stepped.summaryFailed ? "failed" : "short" };
+  // A manual /compact between turns lands on the next turn's count.
+  noteTurn(chatId, "compactions");
 
-  chat.messages = stepped.modelContext.map((m) => ({
-    id: m.id,
-    chatId,
-    role: m.role as "user" | "assistant",
-    content: m.content || "",
-    createdAt: new Date(),
-  }));
+  // Transcript messages carry `createdAt`; the compactor's own (the summary) do not.
+  chat.messages = fromCompaction(stepped.modelContext, before).map((m) =>
+    "createdAt" in m
+      ? m
+      : {
+          id: m.id,
+          chatId,
+          role: m.role as "user" | "assistant",
+          content: m.content || "",
+          createdAt: new Date(),
+          ...("kind" in m && m.kind ? { kind: m.kind as never } : {}),
+        },
+  );
   logger.info(
     `[compaction] Forced compaction (${stepped.strategy}) freed ~${stepped.tokensFreed} tokens (chat ${chatId}, marker saved: ${stepped.summaryPersisted})`,
   );
   return {
+    ok: true,
     strategy: stepped.strategy,
     tokensBefore: currentTokens,
-    tokensAfter: stepped.modelContext.reduce((acc, m) => acc + estimateTokens(m.content || ""), 0),
+    tokensAfter: countMessagesTokens(forCompaction(chat.messages)),
   };
 }
 
@@ -209,11 +282,7 @@ export async function executeCompressContext(
       ? params.reason.trim()
       : "model-initiated";
 
-  const msgList = (ctx.messages ?? []).map((m) => ({
-    id: m.id,
-    role: m.role,
-    content: m.content ?? "",
-  }));
+  const msgList = forCompaction(ctx.messages ?? []);
   const tokensBefore = countMessagesTokens(msgList);
 
   const tierLimit = await getUsableBudget(ctx.providerId);
@@ -236,15 +305,9 @@ export async function executeCompressContext(
       workspaceSessionId: ctx.workspaceSessionId,
     },
   );
-  const afterList = stepped.modelContext ?? msgList;
-  const tokensAfter = countMessagesTokens(afterList);
-  ctx.setMessages(
-    afterList.map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.content || "",
-    })),
-  );
+  const next = fromCompaction(stepped.modelContext ?? msgList, ctx.messages ?? []);
+  const tokensAfter = countMessagesTokens(forCompaction(next));
+  ctx.setMessages(next);
   const summaryPersisted = stepped.summaryPersisted;
   const applied = stepped.compactionApplied === true;
   return {

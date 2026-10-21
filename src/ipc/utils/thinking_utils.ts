@@ -68,6 +68,11 @@ export function openAiReasoningEffort(
  * The level chosen with /effort for this dispatch, when this model lists it.
  * Null means nothing was chosen (or the choice was another model's): every route
  * then behaves exactly as it did before /effort.
+ *
+ * The deep-thinking switch with no level (`atlarix run --deep-thinking`, or
+ * settings from before /effort) is the top of a NAMED list: adaptive Claude
+ * otherwise got no effort at all and ran at the API's default. Budget and toggle
+ * models keep their own deep-thinking path.
  */
 export function chosenEffortFor(
   settings: UserSettings | undefined,
@@ -75,9 +80,11 @@ export function chosenEffortFor(
   modelId: string | undefined,
 ): { level: string; choices: EffortChoices } | null {
   const want = settings?.effort?.trim();
-  if (!want || !modelId) return null;
+  if (!modelId || (!want && !settings?.deepThinking)) return null;
   const choices = effortChoicesFor(providerId, modelId);
-  if (!choices?.levels.some((l) => l.toLowerCase() === want.toLowerCase())) return null;
+  if (!choices) return null;
+  if (!want) return choices.kind === "effort" ? { level: chosenLevel(choices, undefined, true), choices } : null;
+  if (!choices.levels.some((l) => l.toLowerCase() === want.toLowerCase())) return null;
   return { level: chosenLevel(choices, want), choices };
 }
 

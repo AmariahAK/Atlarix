@@ -145,6 +145,8 @@ export interface AppProps {
   signIn?: (show: (lines: Line[]) => void) => Promise<string>;
   /** A command to run as the screen opens (`atlarix --resume`). */
   startWith?: string;
+  /** How this terminal session began, for `session_started`. */
+  launch?: "new" | "resume" | "continue";
   /** Starts the background self-update (src/cli/update.ts). */
   autoUpdate?: (notify: (e: UpdateEvent) => void) => void;
   /** Opens a link in the browser. Tests pass a recorder: a test must never open the user's browser. */
@@ -320,7 +322,7 @@ function TipLine({ tip }: { tip: Tip }) {
 }
 
 /** Commands that change the conversation: typed mid-turn, they wait for it to end. */
-const AFTER_TURN = new Set(["/compact", "/new", "/resume", "/undo", "/import"]);
+const AFTER_TURN = new Set(["/compact", "/new", "/resume", "/undo", "/import", "/fork"]);
 
 /** "context 23% · 47k/205k", or null before the first step reports. */
 export function contextLabel(s: Pick<SessionState, "contextPercent" | "contextUsed" | "contextLimit">): string | null {
@@ -418,6 +420,7 @@ export function App({
   chromeStatus,
   signIn,
   startWith,
+  launch,
   autoUpdate,
   openUrl,
   ratingChance = RATING_CHANCE,
@@ -659,7 +662,8 @@ export function App({
     void services.analytics
       .consent()
       .then((c) => {
-        services.analytics.track("cli_opened", { version, os: process.platform });
+        // The version and OS ride on every event already (cli_opened said them again).
+        services.analytics.track("session_started", { how: launch ?? "new" });
         if (c === "unset" && !host.open) openAnalytics(screen(), true);
       })
       .catch(() => {});
@@ -1144,6 +1148,14 @@ export function App({
 
   runCommandRef.current = (name, rest) => runCommand(name, rest, true);
   const runCommand = (name: string, rest = "", afterTurn = false) => {
+    // Another surface runs this session's turn: these wait for IT, and say so.
+    // Queued, they fired on their own when that turn ended (A6).
+    const elsewhere = name === "/undo" || name === "/compact" ? session.followingNote?.() : null;
+    if (elsewhere) {
+      composer.current?.clear();
+      flash(elsewhere);
+      return;
+    }
     if (!afterTurn && state.busy && AFTER_TURN.has(name)) {
       composer.current?.clear();
       setDeferred((d) => [...d, { id: Date.now(), name, rest }]);
@@ -1207,6 +1219,11 @@ export function App({
       }
       case "/rename":
         return openRename(ctx, rest);
+      case "/fork":
+        return void session.fork(rest.trim() || undefined).then(
+          (made) => flash(`Forked as “${made.title}”. The original is in /resume.`, 6000),
+          (e: Error) => flash(e.message, 6000, "error"),
+        );
       case "/handoff":
         flash("Handing this session to the Atlarix app…", 4000);
         return void session
@@ -1262,7 +1279,8 @@ export function App({
             })),
             onChoose: (item) => {
               host.closeAll();
-              session.setMode(item.id as WorkMode);
+              const waits = session.setMode(item.id as WorkMode);
+              if (waits) flash(waits);
             },
           }),
         );
@@ -1518,7 +1536,7 @@ export function App({
     if (key.name === "escape") {
       key.preventDefault();
       if (session.stopShell) return session.stopShell();
-      if (state.busy) return void session.interrupt();
+      if (state.busy || state.following) return void session.interrupt();
       // esc esc on an empty box: go back to an earlier message (Claude Code, Codex).
       if (!composer.current?.text()) {
         const now = Date.now();
@@ -1532,7 +1550,8 @@ export function App({
     // ctrl+y does the same: VS Code's "Tab Moves Focus" mode (ctrl+shift+m)
     // takes shift+tab before the terminal ever sees it.
     if ((key.name === "tab" && key.shift) || (key.name === "y" && key.ctrl)) {
-      session.setMode(MODES[(MODES.indexOf(state.mode) + 1) % MODES.length]!);
+      const waits = session.setMode(MODES[(MODES.indexOf(state.mode) + 1) % MODES.length]!);
+      if (waits) flash(waits);
       key.preventDefault();
       return;
     }

@@ -35,7 +35,8 @@ export default defineConfig({
   /** Keep UI deps bundled into renderer chunks — do not externalize (would leave loose node_modules in ASAR). */
   build: {
     target: "es2022",
-    sourcemap: false,
+    // As main: hidden maps for the Sentry upload only, never shipped (forge.config.ts).
+    sourcemap: process.env.ATLARIX_SOURCEMAPS === "1" ? "hidden" : false,
     reportCompressedSize: false,
     /** Keep `?url` SVG imports as files — inline data URLs break in packaged Electron. */
     assetsInlineLimit: 0,

@@ -3,7 +3,7 @@
  * model (extractImageMedia), and read_file points images at it instead of
  * returning them as mojibake.
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { afterAll, describe, it, expect, beforeAll } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,6 +29,7 @@ beforeAll(() => {
   fs.writeFileSync(path.join(ws, "frames", "f_001.png"), PNG);
   fs.writeFileSync(path.join(ws, "notes.txt"), "BMI table, not an image\n");
 });
+afterAll(() => fs.rmSync(ws, { recursive: true, force: true }));
 
 const run = (name: string, args: Record<string, unknown>) =>
   ToolRegistry.get(name)!.handler({

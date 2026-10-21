@@ -245,3 +245,29 @@ describe("keys and prose", () => {
     expect(getMutationExplanation("rm src/a.ts")).toMatch(/deletes|writes/i);
   });
 });
+
+// Found beside E5/E6 (2026-10-20): these patterns anchor on the start of the
+// segment, so anything in front of the program hid a change from a read-only
+// mode, and Explore ran `git -C . commit` with no card.
+describe("a change is a change whatever stands in front of the program", () => {
+  it("git's own options and env assignments do not hide a write", () => {
+    for (const [cmd, id] of [
+      ["git -C . commit -m x", "git-write"],
+      ["git -c user.name=a commit -m x", "git-write"],
+      ["git --no-pager -C repo push", "git-write"],
+      ["CI=1 git commit -m x", "git-write"],
+      ["env git add .", "git-write"],
+      ["/usr/bin/git reset HEAD~1", "git-write"],
+      ["FOO=1 npm pkg set version=2.0.0", "package-manifest-write"],
+      ["git -C . checkout .", "git-discard-all"],
+    ] as const) {
+      expect(getMutationMatchIds(cmd), cmd).toContain(id);
+    }
+  });
+
+  it("reads stay reads", () => {
+    for (const cmd of ["git -C . status", "git -c color.ui=never log -5", "CI=1 git diff", "env npm test"]) {
+      expect(getMutationMatchIds(cmd), cmd).toEqual([]);
+    }
+  });
+});

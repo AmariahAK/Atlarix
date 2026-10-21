@@ -39,11 +39,12 @@ export function serializeNativeHistory(
   messages: ModelMessage[],
   producedBy?: { builtinProviderId?: string },
 ): string {
-  if (!messages.length) return "";
+  const kept = withoutUnpairedServerToolParts(messages);
+  if (!kept.length) return "";
   const envelope: NativeHistoryEnvelope = {
     v: 1,
     kind: "native-history",
-    messages,
+    messages: kept,
     ...(producedBy ? { producedBy } : {}),
   };
   try {
@@ -68,13 +69,54 @@ export function parseNativeHistory(
   try {
     const parsed = JSON.parse(modelContent!) as NativeHistoryEnvelope;
     if (parsed.v !== 1 || parsed.kind !== "native-history") return null;
-    if (!Array.isArray(parsed.messages) || parsed.messages.length === 0) {
-      return null;
-    }
-    return parsed;
+    if (!Array.isArray(parsed.messages)) return null;
+    // Rows saved before the repair below existed still carry the orphan; one
+    // replayed as-is fails every later message in that chat.
+    const messages = withoutUnpairedServerToolParts(parsed.messages);
+    if (messages.length === 0) return null;
+    return { ...parsed, messages };
   } catch {
     return null;
   }
+}
+
+/**
+ * Drop a provider-run tool call (Anthropic's web search) whose result is not
+ * in these messages, and a result whose call is not. Providers refuse either.
+ *
+ * WHY THE RESULT GOES MISSING. When the model calls a server tool and one of
+ * ours in the same step, Anthropic answers the server tool in the NEXT step: ai@7
+ * puts the result at the head of that step's assistant message (measured against
+ * the live API). A turn that ends on that step without keeping it (an ask_user,
+ * a stop) saved the call alone, and every later message in the chat failed
+ * (owner, 2026-10-19).
+ *
+ * Our own tools are left alone: their pairing is kept by the loop itself.
+ * Deterministic, so a row repaired on save and again on read is byte-stable and
+ * the prompt cache holds.
+ */
+function withoutUnpairedServerToolParts(messages: ModelMessage[]): ModelMessage[] {
+  const server = (p: AnyPart) =>
+    (p?.type === "tool-call" || p?.type === "tool-result") && p.providerExecuted === true;
+  const calls = new Set<unknown>();
+  const results = new Set<unknown>();
+  for (const m of messages) {
+    for (const p of contentParts(m)) {
+      if (!server(p)) continue;
+      if (p.type === "tool-call") calls.add(p.toolCallId);
+      else results.add(p.toolCallId);
+    }
+  }
+  const unpaired = (p: AnyPart) =>
+    server(p) && !(calls.has(p.toolCallId) && results.has(p.toolCallId));
+  if (!messages.some((m) => contentParts(m).some(unpaired))) return messages;
+  return messages
+    .map((m) =>
+      contentParts(m).some(unpaired)
+        ? ({ ...m, content: contentParts(m).filter((p) => !unpaired(p)) } as unknown as ModelMessage)
+        : m,
+    )
+    .filter((m) => !Array.isArray(m.content) || m.content.length > 0);
 }
 
 // ─── Native-part detection ──────────────────────────────────────────────────
@@ -321,9 +363,14 @@ const FLATTEN_TOOL_RESULT_MAX_CHARS = 2_000;
  * compaction/summarization pipeline. Mirrors the legacy synthetic shapes so
  * summaries read the same as the old flattened history. Pure string messages
  * pass through by reference.
+ *
+ * `maxResultChars` bounds each tool result. The forced compactions pass
+ * Infinity: they SIZE the history from this text, and a clipped result made a
+ * tool-heavy session measure as short (lib/tools/workspace.ts).
  */
 export function flattenNativeForCompaction(
   messages: ModelMessage[],
+  maxResultChars = FLATTEN_TOOL_RESULT_MAX_CHARS,
 ): ModelMessage[] {
   return messages.map((m) => {
     if (typeof m.content === "string") return m;
@@ -333,7 +380,7 @@ export function flattenNativeForCompaction(
         .map((p) => {
           const name = String((p as { toolName?: string }).toolName ?? "tool");
           const output = (p as { output?: unknown }).output;
-          return `<tool_result tool="${name}">\n${flattenOutputText(output)}\n</tool_result>`;
+          return `<tool_result tool="${name}">\n${flattenOutputText(output, maxResultChars)}\n</tool_result>`;
         })
         .join("\n\n");
       // Tool results historically traveled as user-role synthetic messages.
@@ -360,16 +407,15 @@ export function flattenNativeForCompaction(
   });
 }
 
-function flattenOutputText(output: unknown): string {
+function flattenOutputText(output: unknown, max: number): string {
   if (output == null) return "";
-  if (typeof output === "string")
-    return output.slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+  if (typeof output === "string") return output.slice(0, max);
   const o = output as { type?: string; value?: unknown };
   if (o.type === "text" || o.type === "error-text") {
-    return String(o.value ?? "").slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+    return String(o.value ?? "").slice(0, max);
   }
   if (o.type === "json" || o.type === "error-json") {
-    return safeJson(o.value).slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+    return safeJson(o.value).slice(0, max);
   }
   if (o.type === "content" && Array.isArray(o.value)) {
     return (o.value as AnyPart[])
@@ -379,9 +425,9 @@ function flattenOutputText(output: unknown): string {
           : String((p as { text?: string }).text ?? ""),
       )
       .join("\n")
-      .slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+      .slice(0, max);
   }
-  return safeJson(output).slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+  return safeJson(output).slice(0, max);
 }
 
 // ─── Persist-time bounding (what the NEXT turn rehydrates) ──────────────────

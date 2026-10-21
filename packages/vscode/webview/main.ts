@@ -88,7 +88,9 @@ function go(v: View): void {
     C.focusInput();
     return;
   }
-  stack.push(v);
+  // The page already on top is drawn again, not stacked twice: Back would show it again.
+  if (stack.at(-1)?.name === v.name) stack[stack.length - 1] = v;
+  else stack.push(v);
   page.classList.remove("hidden");
   page.scrollTop = 0;
   if (v.name === "history") void renderHistory(page, navApi);
@@ -273,7 +275,8 @@ onHost((m: HostMessage) => {
         emit("usage");
       }
       // A replay just finished: fold its finished turns as a live turn folds.
-      if (replaying && !m.replay && m.sessionId === state.sessionId) T.foldReplayedTurns();
+      const replayed = replaying && !m.replay && m.sessionId === state.sessionId;
+      if (replayed) T.foldReplayedTurns();
       replaying = m.replay;
       if (m.configOptions.length) applyOptions(m.configOptions);
       else if (m.modes) {
@@ -282,7 +285,9 @@ onHost((m: HostMessage) => {
         emit("options");
       }
       if (!m.replay) {
-        T.endTurn();
+        // After a replay its last reply stays open: a turn still running in
+        // the CLI carries on in it, not in a second reply (QA E14).
+        if (!replayed) T.endTurn();
         void showHome();
         void C.refreshApproveLine();
         C.sessionArrived();
@@ -309,6 +314,7 @@ onHost((m: HostMessage) => {
       if (m.card.resolved) return S.removeSuggestion(String(m.card.id));
       return S.showSuggestion(m.card as unknown as S.SuggestionCard);
     case "working":
+      if (typeof m.following === "boolean") return C.setFollowing(m.following, m.title ?? null);
       return C.setWorkingNote(m.title ?? null);
     case "unsent":
       return C.restoreUnsent(m.text);

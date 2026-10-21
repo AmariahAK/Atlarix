@@ -34,9 +34,17 @@ import {
 } from "@/lib/diag/session-load-diag";
 import { requireAuthSession } from "@/lib/auth/require_auth_session";
 import { noteSessionOpen } from "@/lib/peers/main-host";
-import { forgetLiveSession, sessionsHeldElsewhere } from "@/lib/peers/peers";
+import {
+  forgetLiveSession,
+  runningElsewhere,
+  sessionsHeldElsewhere,
+  steerElsewhere,
+  stopElsewhere,
+} from "@/lib/peers/peers";
+import { isChatStreamLive, lastStreamRequest } from "./chat_stream/stream-state";
 import { WorkModeSchema, type WorkMode } from "@/lib/schemas";
 import {
+  bindTransportToSession,
   createStreamTransport,
   deleteStreamTransport,
   getStreamTransport,
@@ -44,6 +52,8 @@ import {
   hydrateStreamTransport,
   isStreamTransportId,
   seedEphemeralChatCounterBelow,
+  sessionForTransport,
+  transportForSession,
 } from "@/lib/chat/stream-transport";
 
 const DEFAULT_SESSION_TITLES = new Set(["Untitled", "New session", "New chat"]);
@@ -404,16 +414,26 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
   const provided = input.workspaceSessionId?.trim();
   if (provided) return provided;
 
+  // The session this process's transport last ran a turn of, before the shared
+  // column. A transport id is this PROCESS's (every process counts from -1), and
+  // `stream_chat_id` is overwritten by whichever process opened the session
+  // last: once another surface opened it to follow a turn running here, the
+  // lookup below found nothing for this process's id, and a message typed
+  // mid-turn (or a plan, or a compaction marker) went to no session (live
+  // sessions, 2026-10-20).
+  const running = lastStreamRequest.get(input.chatId)?.workspaceSessionId?.trim();
+  if (running) return running;
+
   if (!isStreamTransportId(input.chatId)) {
     throw new Error(
       "workspaceSessionId is required for workspace chat streams",
     );
   }
 
-  const byTransport = await db.query.chatSessions.findFirst({
-    where: eq(chatSessions.streamChatId, input.chatId),
-  });
-  if (byTransport) return byTransport.id;
+  // The session THIS process bound the transport to; the shared column cannot
+  // say (another process's transport may carry the same number).
+  const bound = sessionForTransport(input.chatId);
+  if (bound) return bound;
 
   const appId = input.workspaceAppId ?? getStreamTransportAppId(input.chatId);
   if (appId == null || !getStreamTransport(input.chatId)) {
@@ -427,18 +447,17 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
     orderBy: [desc(chatSessions.updatedAt)],
   });
 
-  if (latest) {
-    const stored = latest.streamChatId;
-    if (
-      stored == null ||
-      (isStreamTransportId(stored) && !getStreamTransport(stored))
-    ) {
-      await persistSessionStreamChatId(latest.id, input.chatId);
-      logger.warn(
-        `Bound transport chat ${input.chatId} to session ${latest.id} (workspace ${appId})`,
-      );
-      return latest.id;
-    }
+  // Not one this process has a transport for, nor one another process holds,
+  // nor one another process was just working in: it may hold it before the
+  // live registry says so (A7: a CLI's turn landed in an editor's new session).
+  const quiet = (r: { id: string; updatedAt: Date }) =>
+    createdHere.has(r.id) || r.updatedAt.getTime() < Date.now() - FRESH_EMPTY_MS;
+  if (latest && transportForSession(latest.id) == null && !sessionsHeldElsewhere().has(latest.id) && quiet(latest)) {
+    await persistSessionStreamChatId(latest.id, input.chatId);
+    logger.warn(
+      `Bound transport chat ${input.chatId} to session ${latest.id} (workspace ${appId})`,
+    );
+    return latest.id;
   }
 
   const session = await insertWorkspaceSession(appId);
@@ -560,11 +579,12 @@ export function pickSessionReuse(
  */
 async function listSessionsWithMessageCounts(
   workspaceId: number,
-): Promise<{ id: string; title: string; messageCount: number }[]> {
+): Promise<{ id: string; title: string; createdAt: Date; messageCount: number }[]> {
   return db
     .select({
       id: chatSessions.id,
       title: chatSessions.title,
+      createdAt: chatSessions.createdAt,
       messageCount: sql<number>`count(${sessionMessages.id})`,
     })
     .from(chatSessions)
@@ -672,6 +692,19 @@ async function verifyTrulyEmptySession(
 /** Sessions this process's editor threads (ACP) hold; never reused or pruned. */
 const claimedSessions = new Set<string>();
 
+/** Sessions this process created: its own fresh empties are its to reuse. */
+const createdHere = new Set<string>();
+
+/**
+ * How long an empty session another process just created counts as its, even
+ * before the live registry says so. That process records the session there
+ * moments after creating it (once its inbox is up; a row goes stale after 45 s),
+ * and in that gap a CLI and an editor starting together both took the editor's
+ * new session as a leftover: one reused it, so both wrote into ONE session, or
+ * pruned it under its owner (A7, QA 4 of 5). A real leftover is older.
+ */
+const FRESH_EMPTY_MS = 2 * 60_000;
+
 export async function startWorkspaceSession(
   workspaceId: number,
   opts: { claim?: boolean } = {},
@@ -703,8 +736,12 @@ export async function startWorkspaceSession(
     // its session before the first message, and reusing it would put two
     // threads on one session, pruning it would delete it under them.
     const held = sessionsHeldElsewhere();
+    const freshSince = Date.now() - FRESH_EMPTY_MS;
     const rows = (await listSessionsWithMessageCounts(workspaceId)).filter(
-      (r) => !held.has(r.id) && !claimedSessions.has(r.id),
+      (r) =>
+        !held.has(r.id) &&
+        !claimedSessions.has(r.id) &&
+        (createdHere.has(r.id) || r.createdAt.getTime() < freshSince),
     );
     const { reuseId, pruneIds } = pickSessionReuse(rows);
     if (rows.length > 0) {
@@ -786,6 +823,7 @@ async function insertWorkspaceSession(
       updatedAt: now,
     })
     .returning();
+  createdHere.add(id);
   return mapSession(row);
 }
 
@@ -807,6 +845,7 @@ async function persistSessionStreamChatId(
   sessionId: string,
   chatId: number,
 ): Promise<void> {
+  bindTransportToSession(chatId, sessionId);
   await db
     .update(chatSessions)
     .set({ streamChatId: chatId })
@@ -818,10 +857,10 @@ async function persistSessionStreamChatId(
  * bound to it. v12 (TODO 2.4): the DB delete alone leaked the ephemeral chat,
  * partial responses, last stream request and ask_user state.
  */
-async function deleteSessionAndTransport(
-  sessionId: string,
-  streamChatId: number | null,
-): Promise<number | null> {
+async function deleteSessionAndTransport(sessionId: string): Promise<number | null> {
+  // This process's transport for it, never the stored id: that may be another
+  // process's number, and the same number here is some other session's chat.
+  const streamChatId = transportForSession(sessionId) ?? null;
   await db.delete(chatSessions).where(eq(chatSessions.id, sessionId));
   forgetLiveSession(sessionId);
   if (streamChatId != null && isStreamTransportId(streamChatId)) {
@@ -842,10 +881,7 @@ export async function pruneSessionIfEmpty(
   if (!check.empty || !check.row) {
     return { pruned: false, streamChatId: null };
   }
-  const streamChatId = await deleteSessionAndTransport(
-    sessionId,
-    check.row.streamChatId ?? null,
-  );
+  const streamChatId = await deleteSessionAndTransport(sessionId);
   logger.info(
     `[session-prune] left empty session ${sessionId.slice(0, 8)} removed`,
   );
@@ -992,9 +1028,10 @@ export function registerWorkspaceSessionHandlers(): void {
       // persisted per-assistant snapshot_turn_id rows so the renderer can rebuild
       // turnSnapshotTurnIdByMessageId via buildRevertSnapshotMap. Cheap targeted
       // query — not a full session message load.
-      const session = await db.query.chatSessions.findFirst({
-        where: eq(chatSessions.streamChatId, payload.chatId),
-      });
+      const sessionId = sessionForTransport(payload.chatId);
+      const session = sessionId
+        ? await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, sessionId) })
+        : undefined;
       if (!session) return [];
       const rows = await db
         .select({
@@ -1042,12 +1079,10 @@ export function registerWorkspaceSessionHandlers(): void {
     });
     if (!session) throw new Error("Session not found");
 
-    const stored = session.streamChatId;
-    if (
-      stored != null &&
-      isStreamTransportId(stored) &&
-      getStreamTransport(stored)?.appId === session.workspaceId
-    ) {
+    // Reused only if THIS process bound it to this session: the stored id may
+    // be another process's, and the same number here another session's chat.
+    const stored = transportForSession(sessionId);
+    if (stored != null && getStreamTransport(stored)?.appId === session.workspaceId) {
       void noteSessionOpen(sessionId, stored);
       return { chatId: stored };
     }
@@ -1057,6 +1092,106 @@ export function registerWorkspaceSessionHandlers(): void {
     void noteSessionOpen(sessionId, chatId);
     return { chatId };
   });
+
+  // ─── Live sessions across surfaces ─────────────────────────────────────────
+  //
+  // A session is LIVE WHERE ITS TURN RUNS. While another process runs a turn of
+  // it, every other surface showing it follows: re-reads it as the turn's draft
+  // grows (`revision`), sends what the user types to that turn (`steer-remote`)
+  // and stops it (`stop-remote`). No owner and no locks: when that turn ends,
+  // either surface may start the next.
+
+  /** The surface running a turn of this session right now, or null. */
+  handle("sessions:running-elsewhere", async (_event, sessionId: string) => {
+    const row = runningElsewhere(sessionId);
+    return row ? { surface: row.surface, name: row.name } : null;
+  });
+
+  /**
+   * A cheap token that changes whenever the session's messages do: rows added,
+   * a draft growing, a draft finishing. A follower polls it and re-reads the
+   * session only when it moves.
+   */
+  handle("sessions:revision", async (_event, sessionId: string) => {
+    const [r] = await db
+      .select({
+        n: sql<number>`count(*)`,
+        chars: sql<number>`coalesce(sum(length(${sessionMessages.content})), 0) + coalesce(sum(length(${sessionMessages.modelContent})), 0)`,
+        open: sql<number>`coalesce(sum(${sessionMessages.status} != 'complete'), 0)`,
+      })
+      .from(sessionMessages)
+      .where(eq(sessionMessages.sessionId, sessionId));
+    return `${r?.n ?? 0}.${r?.chars ?? 0}.${r?.open ?? 0}`;
+  });
+
+  /** The user's words for the turn running elsewhere; `{ok:false, error:"not running"}` once it has ended. */
+  handle("sessions:steer-remote", async (_event, sessionId: string, text: string) =>
+    steerElsewhere(sessionId, String(text ?? "")),
+  );
+
+  /** Stop the turn running elsewhere. */
+  handle("sessions:stop-remote", async (_event, sessionId: string) => stopElsewhere(sessionId));
+
+  /**
+   * `/fork`: the conversation as saved now, as a new session in the same folder,
+   * named "<title> (fork)" (or what the user named it). The original is untouched.
+   *
+   * Every column but the ids is copied, so a turn's native tool history
+   * (`modelContent`), its attachments, its frozen tool UI and its plan rows come
+   * along, and `snapshotTurnId` with them: `/undo` in the fork restores files,
+   * since snapshots are found by workspace and turn (performFullRevert). A turn
+   * still being written (the last row, interrupted, while the source runs) is
+   * left out: it is not finished, and the fork must not carry half of it.
+   */
+  handle(
+    "sessions:fork",
+    async (_event, sessionId: string, opts?: { title?: string }) => {
+      const source = await db.query.chatSessions.findFirst({
+        where: eq(chatSessions.id, sessionId),
+      });
+      if (!source) throw new Error("Session not found");
+      const rows = await db
+        .select()
+        .from(sessionMessages)
+        .where(eq(sessionMessages.sessionId, sessionId))
+        .orderBy(asc(sessionMessages.createdAt), sql`rowid asc`);
+      const last = rows.at(-1);
+      const running =
+        runningElsewhere(sessionId) != null ||
+        isChatStreamLive(transportForSession(sessionId) ?? 0);
+      const copied = last && running && last.status === "interrupted" ? rows.slice(0, -1) : rows;
+
+      const fork = await insertWorkspaceSession(source.workspaceId);
+      const named = opts?.title?.trim();
+      const [row] = await db
+        .update(chatSessions)
+        .set({
+          title: named || `${source.title?.trim() || "Untitled"} (fork)`,
+          titleSource: named ? "user" : "auto",
+          workMode: source.workMode,
+        })
+        .where(eq(chatSessions.id, fork.id))
+        .returning();
+      try {
+        // In chunks: one statement binds every column of every row, and a long
+        // session passes SQLite's limit on bound values.
+        for (let i = 0; i < copied.length; i += 200) {
+          await db.insert(sessionMessages).values(
+            copied.slice(i, i + 200).map(({ id: _id, sessionId: _from, ...rest }) => ({
+              ...rest,
+              id: randomUUID(),
+              sessionId: fork.id,
+            })),
+          );
+        }
+      } catch (e) {
+        // Never leave half a fork behind.
+        await db.delete(chatSessions).where(eq(chatSessions.id, fork.id));
+        throw e;
+      }
+      return mapSession(row ?? fork);
+    },
+  );
 
   /** App → CLI handoff: open the user's terminal on this session (lib/peers). */
   handle("sessions:continue-in-terminal", async (_event, sessionId: string) => {
@@ -1104,8 +1239,8 @@ export function registerWorkspaceSessionHandlers(): void {
         .returning();
       if (!row) throw new Error("Session not found");
       // Other sessions address this one by name: keep the registry's current.
-      if (row.streamChatId != null)
-        void noteSessionOpen(sessionId, row.streamChatId);
+      const local = transportForSession(sessionId);
+      if (local != null) void noteSessionOpen(sessionId, local);
       return mapSession(row);
     },
   );
@@ -1137,13 +1272,7 @@ export function registerWorkspaceSessionHandlers(): void {
   );
 
   handle("sessions:delete", async (_event, sessionId: string) => {
-    const session = await db.query.chatSessions.findFirst({
-      where: eq(chatSessions.id, sessionId),
-    });
-    const streamChatId = await deleteSessionAndTransport(
-      sessionId,
-      session?.streamChatId ?? null,
-    );
+    const streamChatId = await deleteSessionAndTransport(sessionId);
     // Returned so the renderer can clear its per-chat atoms for this transport.
     return { ok: true, streamChatId };
   });
@@ -1212,9 +1341,7 @@ export function registerWorkspaceSessionHandlers(): void {
       );
       hydrateAttachmentStoreFromMessages(
         messages,
-        typeof session.streamChatId === "number"
-          ? session.streamChatId
-          : undefined,
+        transportForSession(session.id),
         session.id,
       );
       if (sessionLoadDiagEnabled()) {
@@ -1341,7 +1468,7 @@ export function registerWorkspaceSessionHandlers(): void {
 
     const next =
       (await generateSessionTitle(text, {
-        chatId: session.streamChatId ?? null,
+        chatId: transportForSession(session.id) ?? null,
       })) ?? deterministicTitle(text);
     if (
       next &&

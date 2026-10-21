@@ -41,6 +41,22 @@ export const pendingAskUserArtifactByChatId = new Map<
 // place — no matter which of the ~14 delete sites fires. The blocker keeps the
 // CPU alive while a stream is in flight so tasks keep progressing when the
 // display sleeps (see power-blocker.ts).
+/** Told when a chat's stream starts or ends (peers publish `busy` then: main-host.ts). */
+const liveChangeListeners = new Set<(chatId: number) => void>();
+export function onStreamLiveChange(fn: (chatId: number) => void): () => void {
+  liveChangeListeners.add(fn);
+  return () => liveChangeListeners.delete(fn);
+}
+function liveChanged(chatId: number): void {
+  for (const fn of liveChangeListeners) {
+    try {
+      fn(chatId);
+    } catch {
+      /* a listener's failure is not the stream's */
+    }
+  }
+}
+
 export class ActiveStreamRegistry extends Map<number, AbortController> {
   /** chatIds that actually took a blocker ref — so release can't drift if the
    * keepAwakeDuringRuns setting is toggled mid-session. */
@@ -53,12 +69,14 @@ export class ActiveStreamRegistry extends Map<number, AbortController> {
       this.acquired.add(chatId);
       acquirePowerSaveBlocker();
     }
+    if (isNew) liveChanged(chatId);
     return this;
   }
 
   override delete(chatId: number): boolean {
     const existed = super.delete(chatId);
     if (existed && this.acquired.delete(chatId)) releasePowerSaveBlocker();
+    if (existed) liveChanged(chatId);
     return existed;
   }
 
@@ -78,7 +96,20 @@ export const activeStreams = new ActiveStreamRegistry();
 // live runStream() PROMISE per chat so a new dispatch can await the prior
 // leg's real termination (not just abort it) before starting, plus a monotonic
 // id stamped on terminal events so the renderer drops a stale leg's late end.
-export const activeStreamRuns = new Map<number, Promise<unknown>>();
+//
+// Its removal is a turn ending too: a stop deletes `activeStreams` first, while
+// the run promise is still here, so that change published `busy` = still
+// running, and nothing published again until the 15 s heartbeat. A surface
+// following the session went on showing "Running in the CLI" 5–11 s after Stop
+// (measured by ai-8e, 2026-10-20).
+class ActiveRunRegistry extends Map<number, Promise<unknown>> {
+  override delete(chatId: number): boolean {
+    const existed = super.delete(chatId);
+    if (existed) liveChanged(chatId);
+    return existed;
+  }
+}
+export const activeStreamRuns = new ActiveRunRegistry();
 export const activeStreamId = new Map<number, number>();
 let __streamIdCounter = 0;
 /** Next monotonic stream id (imports can't mutate a `let`, so wrap the counter). */

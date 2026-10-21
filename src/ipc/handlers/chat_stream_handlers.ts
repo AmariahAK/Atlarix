@@ -46,6 +46,7 @@ import {
 } from "../../lib/stream/stream-stop-sentinels";
 import { saveStoppedTurn } from "./chat_stream/turn-runner/stopped-turn";
 import log from "electron-log";
+import { turnIdForMessage } from "@/shared/turn-id";
 import fs from "node:fs";
 import * as path from "path";
 import * as os from "os";
@@ -191,6 +192,12 @@ import { registerLifecycleHandlers } from "./chat_stream/lifecycle-handlers";
 import { registerRevertHandlers } from "./chat_stream/revert-handlers";
 import { registerSessionHandlers } from "./chat_stream/session-handlers";
 import { createStreamTurnContext } from "./chat_stream/turn-context";
+import { trackTurnCompleted } from "@/main/lib/analytics";
+import { reportTurnFailure } from "@/lib/analytics/turn-failure-report";
+import { recordTurnUsage } from "@/lib/analytics/usage-rollup";
+import { sentryCaptureExceptionSafe } from "./chat_stream/sentry-safe";
+import { classifyTurnEnd, classifyTurnError, type TurnEnd } from "@/lib/analytics/turn-end";
+import { noteTurn } from "@/lib/analytics/turn-stats";
 import { buildPromptBundle } from "./chat_stream/turn-runner/prompt-bundle";
 import { type SimpleStreamTextDeps } from "./chat_stream/turn-runner/simple-stream-text";
 import { processResponseChunkUpdate as runProcessResponseChunkUpdate } from "./chat_stream/turn-runner/response-chunk-update";
@@ -214,7 +221,6 @@ import {
   loadWorkspaceRootSection,
   loadActivePlanSection,
   loadAtlarixMdSection,
-  loadMemoryMdSection,
 } from "./chat_stream/context-sections";
 export {
   resolveModeChange,
@@ -343,6 +349,13 @@ export function registerChatStreamHandlers() {
 
     const runStream = async () => {
       const ctx = createStreamTurnContext();
+      const turnStartedAt = Date.now();
+      // How the turn ended, for `turn_completed` (sent in `finally`).
+      let turnError: unknown = undefined;
+      let turnRerun = false;
+      // A turn refused before it starts (signed out, blocked prompt, no
+      // workspace) returns from inside the try with no error to classify.
+      let turnRefused: TurnEnd | undefined;
       // A2: set when runAgentTurn ends the turn with background work still
       // outstanding (the turn is OVER, not held open). Surfaced on
       // chat:response:end (rich build emit AND the ensureTerminal fallback) so
@@ -465,6 +478,7 @@ export function registerChatStreamHandlers() {
           await preflight.time("auth", () => requireAuthSession());
         } catch (e) {
           if (e instanceof AuthRequiredError) {
+            turnRefused = { outcome: "error", errorKind: "auth" };
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
               streamId,
@@ -476,6 +490,8 @@ export function registerChatStreamHandlers() {
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
+            // Ended here: the `finally`'s ensureTerminal must not send a second end.
+            ctx.streamTerminated = true;
             if (activeStreamId.get(req.chatId) === streamId)
               activeStreams.delete(req.chatId);
             return;
@@ -489,6 +505,7 @@ export function registerChatStreamHandlers() {
           }
         } catch (e) {
           if (e instanceof ChatPromptSafetyError) {
+            turnRefused = { outcome: "error", errorKind: "content_rejected" };
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
               streamId,
@@ -500,6 +517,7 @@ export function registerChatStreamHandlers() {
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
+            ctx.streamTerminated = true;
             if (activeStreamId.get(req.chatId) === streamId)
               activeStreams.delete(req.chatId);
             return;
@@ -508,6 +526,8 @@ export function registerChatStreamHandlers() {
             e instanceof Error &&
             /maximum length|Invalid prompt/i.test(e.message)
           ) {
+            const refused = classifyTurnError(e);
+            turnRefused = { outcome: "error", errorKind: refused.kind };
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
               streamId,
@@ -519,6 +539,7 @@ export function registerChatStreamHandlers() {
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
+            ctx.streamTerminated = true;
             if (activeStreamId.get(req.chatId) === streamId)
               activeStreams.delete(req.chatId);
             return;
@@ -542,6 +563,7 @@ export function registerChatStreamHandlers() {
           const legacyMsg =
             "Legacy database chats were removed. Open a workspace session from the sidebar.";
           logger.warn(`Chat ${req.chatId} rejected: legacy positive chat id`);
+          turnRefused = { outcome: "error", errorKind: "other" };
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
             streamId,
@@ -571,6 +593,7 @@ export function registerChatStreamHandlers() {
             logger.warn(
               `Chat ${req.chatId} rejected: ephemeral chat without workspace`,
             );
+            turnRefused = { outcome: "error", errorKind: "no_workspace" };
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
               streamId,
@@ -875,6 +898,39 @@ export function registerChatStreamHandlers() {
         // so a later resume replays an EMPTY <atlarix-*-attachment/> to the
         // model ("attachment is truncated"). One retry covers transient sqlite
         // contention; a double failure is loudly logged.
+        // Project memory for this message (the index once per session, a change
+        // notice, recalled notes), folded into the row's model content BEFORE it
+        // is saved, so it replays byte for byte, and caches, on later requests.
+        let userModelContent: string | null =
+          userPrompt !== userDisplayContent ? userPrompt : null;
+        if (
+          !req.continueAfterQuestions &&
+          !req.continueInterrupted &&
+          !req.prompt.startsWith("Summarize from chat-id=") &&
+          chat.app?.path
+        ) {
+          const { buildMemoryTurnContext, withMemoryContext } = await import(
+            "@/lib/memory/session-context"
+          );
+          const { resolveReadScope } = await import("@/lib/tools/file-read-log");
+          const memoryReminders = await preflight.time("memory-context", () =>
+            buildMemoryTurnContext({
+              workspacePath: resolveAppPath(chat.app.path),
+              scope: resolveReadScope({
+                _scopeSessionId: req.workspaceSessionId ?? undefined,
+                _scopeChatId: req.chatId,
+              }),
+              history: getStreamTransport(req.chatId)?.messages ?? [],
+              userText: userPrompt,
+              chatId: req.chatId,
+              turnModel: req.modelOverride,
+            }),
+          );
+          if (memoryReminders) {
+            userModelContent = withMemoryContext(userPrompt, memoryReminders);
+          }
+        }
+
         let persistedUserRowId: string | undefined;
         if (
           req.workspaceSessionId &&
@@ -891,8 +947,7 @@ export function registerChatStreamHandlers() {
               req.workspaceSessionId!,
               userDisplayContent,
               {
-                modelContent:
-                  userPrompt !== userDisplayContent ? userPrompt : null,
+                modelContent: userModelContent,
                 pasteAttachments: pasteAttachmentsForMessage,
                 fileAttachments:
                   storedFileAttachments.length > 0
@@ -941,53 +996,6 @@ export function registerChatStreamHandlers() {
           };
         }
 
-        // v12 7A: user-defined agent (.atlarix/agents/<name>.md). Resolved
-        // BEFORE the model + work-mode resolve below so its base mode, model
-        // override, and (later) custom system block + tool allowlist all take
-        // effect. Composes with everything downstream (capability trim, hooks).
-        let activeUserAgent:
-          | import("@/lib/agents/user-agents").UserAgent
-          | null = null;
-        // Per-turn req override wins; else the persisted picker selection.
-        const agentName =
-          req.agentOverride ?? settings.selectedAgent ?? undefined;
-        if (agentName && chat?.app?.path) {
-          const { loadUserAgent } = await import("@/lib/agents/user-agents");
-          activeUserAgent = loadUserAgent(
-            resolveAppPath(chat.app.path),
-            agentName,
-          );
-          if (activeUserAgent) {
-            const { settingsPatchForWorkMode } = await import(
-              "@/lib/work-mode"
-            );
-            settings = {
-              ...settings,
-              ...settingsPatchForWorkMode(activeUserAgent.mode),
-            };
-            if (activeUserAgent.model && !req.modelOverride) {
-              const slash = activeUserAgent.model.indexOf("/");
-              req.modelOverride =
-                slash > 0
-                  ? {
-                      provider: activeUserAgent.model.slice(0, slash),
-                      name: activeUserAgent.model.slice(slash + 1),
-                    }
-                  : {
-                      provider: settings.selectedModel.provider,
-                      name: activeUserAgent.model,
-                    };
-            }
-            logger.log(
-              `[user-agent] active: ${activeUserAgent.name} (mode=${activeUserAgent.mode}${activeUserAgent.model ? `, model=${activeUserAgent.model}` : ""})`,
-            );
-          } else {
-            logger.warn(
-              `[user-agent] "${req.agentOverride}" not found — ignored`,
-            );
-          }
-        }
-
         // Add a placeholder assistant message immediately
         // For ephemeral chats, we'll use a placeholder ID
         // (v12 3.1: monotonic counter — Date.now() collided in-millisecond.
@@ -1021,7 +1029,7 @@ export function registerChatStreamHandlers() {
             content: userDisplayContent,
             // v12 0.4-C2: direct DB-row identity for edits (no ordinal mapping).
             ...(persistedUserRowId ? { sessionRowId: persistedUserRowId } : {}),
-            modelContent: userPrompt !== userDisplayContent ? userPrompt : null,
+            modelContent: userModelContent,
             pasteAttachments:
               pasteAttachmentsForMessage &&
               pasteAttachmentsForMessage.length > 0
@@ -1048,7 +1056,7 @@ export function registerChatStreamHandlers() {
           ephemeralChat.messages = updatedChat.messages;
         }
 
-        let streamTurnId = String(placeholderAssistantMessage.id);
+        let streamTurnId = turnIdForMessage(placeholderAssistantMessage.id, process.pid);
         snapshotTurnIdForTerminal = streamTurnId; // v12 2.3
         // Publish it so `chat:cancel` — which cannot see this scope — can report the
         // same id on a user-stopped end. Without it the Revert affordance never appears
@@ -1104,6 +1112,7 @@ export function registerChatStreamHandlers() {
               selectedChatMode: settings.selectedChatMode ?? "ask",
             }),
             escalate: req.escalate === true,
+            chatId: req.chatId,
           };
           let effectiveModel = getEffectiveModel(settings);
           if (req.modelOverride) {
@@ -1129,22 +1138,15 @@ export function registerChatStreamHandlers() {
             () => getModelClient(effectiveModel, settings, mainOptions),
           );
           let modelClient = initialModelClientBundle.modelClient;
-          // Usage by who pays for it (Core, own key, local), for people who
-          // opted in to analytics: own-key turns never reach Core's numbers.
-          {
-            const { trackModelTurn } = await import("@/main/lib/analytics");
-            const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
-            const providerType = (await getLanguageModelProviders().catch(() => [])).find(
-              (p) => p.id === effectiveModel.provider,
-            )?.type;
-            trackModelTurn({
-              provider: initialModelClientBundle.fellBackToCore ? "compass" : effectiveModel.provider,
-              providerType,
-              model: effectiveModel.name,
-              mode: mainOptions.workMode,
-              fellBackToCore: initialModelClientBundle.fellBackToCore,
-            });
-          }
+          // For this turn's `turn_completed`, sent once it has ended. No lookup
+          // here: who pays is worked out then, and only for people who opted in.
+          Object.assign(ctx.analyticsTurn, {
+            mode: mainOptions.workMode,
+            provider: effectiveModel.provider,
+            model: effectiveModel.name,
+            effort: settings.effort || undefined,
+            fellBackToCore: initialModelClientBundle.fellBackToCore,
+          });
           // Surface the no-key → Atlarix Core fallback so the user knows their
           // selected model isn't what answered (and how to switch back).
           if (initialModelClientBundle.fellBackToCore) {
@@ -1306,6 +1308,8 @@ export function registerChatStreamHandlers() {
               sourceCommitHash?: string;
               commitHash?: string;
             };
+            // This turn's own user message and reply are already in it.
+            ctx.analyticsTurn.hadHistory = updatedChat.messages.length > 2;
             let messageHistory = updatedChat.messages.map(
               (
                 message: Msg & { modelContent?: string | null; kind?: string },
@@ -1513,6 +1517,12 @@ export function registerChatStreamHandlers() {
               labelWithProvider: modelIdentity.labelWithProvider,
             };
 
+            // The request reaches the model once, as the user message. Its copy
+            // in the per-turn tail (`<user_context>`) changed the tail every
+            // turn, so the history after it never read from the prompt cache
+            // (owner, 2026-10-21; Ask never sent it). A resumed interrupted
+            // turn has no user message: its directive still goes in the tail.
+            const tailRequest = req.continueInterrupted ? userPrompt : undefined;
             let baseParts: SystemPromptParts;
             if (hasWorkspace && appPath && effectiveAppId != null) {
               baseParts = await preflight.time("system-prompt", () =>
@@ -1522,7 +1532,7 @@ export function registerChatStreamHandlers() {
                   contextSize,
                   chatMode,
                   effectiveWorkMode: modeBlockKey,
-                  userPrompt: userPrompt,
+                  userPrompt: tailRequest,
                   hasAnsweredQuestions:
                     updatedChat?.hasAnsweredQuestions ?? false,
                   hasWorkspace: true,
@@ -1534,7 +1544,7 @@ export function registerChatStreamHandlers() {
                 chatMode,
                 effectiveWorkMode: modeBlockKey,
                 contextSize,
-                userPrompt,
+                userPrompt: tailRequest,
                 hasAnsweredQuestions:
                   updatedChat?.hasAnsweredQuestions ?? false,
                 hasWorkspace,
@@ -1545,15 +1555,6 @@ export function registerChatStreamHandlers() {
             // round takes the per-turn tail back out (splitDynamicTail).
             let baseSystemPrompt = joinSystemPromptParts(baseParts);
             const baseDynamicTail = baseParts.dynamicTail;
-            // v12 7A: prepend the user agent's system block (build path +
-            // every non-ask consumer of `systemPrompt`; the ask branch injects
-            // it into its own rebuilt header below).
-            if (activeUserAgent) {
-              const { renderUserAgentSystemBlock } = await import(
-                "@/lib/agents/user-agents"
-              );
-              baseSystemPrompt = `${renderUserAgentSystemBlock(activeUserAgent)}\n\n${baseSystemPrompt}`;
-            }
             let contextSections: ContextSection[] = [];
 
             // v12 S18: the six pre-flight context loads (mode skill, repo
@@ -1696,14 +1697,12 @@ export function registerChatStreamHandlers() {
               workspaceCapsSection,
               activePlanResult,
               atlarixMdSection,
-              memoryMdSection,
             ] = await Promise.all([
               loadModeSkillSection(contextSectionParams),
               loadSkillsIndexSection(contextSectionParams),
               loadWorkspaceCapsSection(contextSectionParams),
               loadActivePlanSection(contextSectionParams),
               loadAtlarixMdSection(contextSectionParams),
-              loadMemoryMdSection(contextSectionParams),
             ]);
             // loadActivePlanSection is the sole writer of taskLedgerBlock.
             //
@@ -1724,7 +1723,6 @@ export function registerChatStreamHandlers() {
               workspaceCapsSection,
               activePlanResult.section,
               atlarixMdSection,
-              memoryMdSection,
               loadBackgroundResultsSection(),
               loadSubagentResultsSection(),
               loadAutomationResultsSection(),
@@ -2341,7 +2339,6 @@ export function registerChatStreamHandlers() {
                 streamTurnId,
                 STREAM_CONTINUATION_MAX,
                 chatMessages,
-                activeUserAgent,
                 hasWorkspace,
                 promptIdentityOpts,
                 logTtftOnce,
@@ -2397,7 +2394,6 @@ export function registerChatStreamHandlers() {
                 streamTurnId,
                 STREAM_CONTINUATION_MAX,
                 chatMessages,
-                activeUserAgent,
                 hasWorkspace,
                 logTtftOnce,
                 handleStreamStall,
@@ -2476,6 +2472,7 @@ export function registerChatStreamHandlers() {
 
         // Stream completed successfully; cleanup is done by chat:cancel/chat:abort or response:end
       } catch (error) {
+        turnError = error;
         // Outer-catch body extracted to ./chat_stream/turn-runner/finalize.
         const outcome = await handleTurnError(error, ctx, {
           overflowRetried,
@@ -2484,9 +2481,62 @@ export function registerChatStreamHandlers() {
           abortController,
           streamId,
         });
-        // Preserve the inline original's context-overflow retry (return runStream()).
-        if (outcome?.rerun) return runStream();
+        // The context-overflow retry. Awaited: returned unawaited, the `finally`
+        // below ran as the retry STARTED, and its ensureTerminal sent this
+        // stream's end then — the client ended the turn with nothing to save and
+        // dropped the retry's real end as a repeat, so the answer showed but was
+        // never stored (A5). The retry reports the turn, with this retry counted
+        // (the forced compaction counted itself).
+        if (outcome?.rerun) {
+          turnRerun = true;
+          noteTurn(req.chatId, "retries");
+          return await runStream();
+        }
       } finally {
+        if (!turnRerun) {
+          const providerOf = async (id: string) => {
+            const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+            const p = (await getLanguageModelProviders()).find((x) => x.id === id);
+            return p ? { type: p.type, apiFormat: p.apiFormat } : undefined;
+          };
+          const ended = trackTurnCompleted(
+            {
+              chatId: req.chatId,
+              end:
+                turnRefused ??
+                (ctx.askUserEndedTurn
+                  ? { outcome: "ask_user" }
+                  : classifyTurnEnd(turnError, abortController.signal)),
+              ...ctx.analyticsTurn,
+              hadHistory: ctx.analyticsTurn.hadHistory === true,
+              automation: !!req.automation,
+              durationMs: Date.now() - turnStartedAt,
+              outputTokens: ctx.turnOutputTokens,
+            },
+            providerOf,
+          );
+          reportTurnFailure(
+            {
+              end: ended,
+              provider: ctx.analyticsTurn.provider,
+              model: ctx.analyticsTurn.model,
+              fellBackToCore: ctx.analyticsTurn.fellBackToCore,
+            },
+            sentryCaptureExceptionSafe,
+            providerOf,
+          );
+          recordTurnUsage(
+            {
+              end: ended,
+              provider: ctx.analyticsTurn.provider,
+              model: ctx.analyticsTurn.model,
+              fellBackToCore: ctx.analyticsTurn.fellBackToCore,
+              tokensIn: ctx.turnInputTokens,
+              tokensOut: ctx.turnOutputTokens,
+            },
+            providerOf,
+          );
+        }
         // Finalize any browser/preview session recordings captured this turn and
         // hand the renderer a reference to play them back (proof of work).
         ctx.stopAgentOrchestrator?.();

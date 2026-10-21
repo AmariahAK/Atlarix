@@ -52,7 +52,8 @@ export function buildNotesSection(notes: NoteMeta[]): NotesSection | null {
  * dependencies and has no YAML parser, and asking a model to emit parseable
  * YAML is a failure mode with no upside — so `remember` takes title,
  * description and type as typed parameters and they are re-assembled here. The
- * shape matches `src/skills/guides/memory.md` exactly, so the desktop's written
+ * shape matches the desktop's note format (the "Project memory" rules in
+ * `src/prompts/system_prompt.ts`) exactly, so the desktop's written
  * convention transfers without a second document.
  */
 export function renderNoteFile(note: Note): string {

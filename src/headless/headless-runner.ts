@@ -27,6 +27,35 @@ export interface HeadlessProvider {
   apiKey?: string;
   /** OpenRouter provider-routing pin (JSON) — only honored when id === "openrouter". */
   openrouterProviderJson?: string;
+  /** With id "anthropic" and a baseUrl: how that endpoint takes the key (Bedrock and gateways take a Bearer token). */
+  authHeader?: "x-api-key" | "bearer";
+}
+
+/**
+ * What the run talks to, as provider and model rows to seed.
+ *
+ * `--provider-url` used to be ignored whenever `--provider-id` was given, so
+ * `--provider-id anthropic --provider-url X` called api.anthropic.com, not X.
+ * Anthropic at another address is now an Anthropic-format provider there (the
+ * same path a provider the user adds takes); any other built-in id with an
+ * address is refused rather than silently sent elsewhere.
+ */
+export function headlessProviderSeed(p: HeadlessProvider): {
+  providerId: string;
+  row?: { id: string; name: string; api_base_url: string; api_format?: "anthropic"; auth_header?: "x-api-key" | "bearer" };
+} {
+  if (p.id && !p.baseUrl) return { providerId: p.id };
+  if (!p.baseUrl) throw new Error("headless: custom provider requires provider.baseUrl");
+  if (p.id && p.id !== "anthropic") {
+    throw new Error(
+      `headless: --provider-url works alone (an OpenAI-compatible endpoint) or with --provider-id anthropic, not with --provider-id ${p.id}.`,
+    );
+  }
+  const row = { id: PROVIDER_ID, name: "Atlarix Headless", api_base_url: p.baseUrl };
+  return {
+    providerId: PROVIDER_ID,
+    row: p.id === "anthropic" ? { ...row, api_format: "anthropic", auth_header: p.authHeader ?? "x-api-key" } : row,
+  };
 }
 
 export interface RunHeadlessOptions {
@@ -115,6 +144,8 @@ export async function runHeadlessAgent(
     process.env.ATLARIX_USER_DATA_DIR = fs.mkdtempSync(
       path.join(os.tmpdir(), "atlarix-headless-ud-"),
     );
+    // Only the database is throwaway: the person's rules and memory still apply.
+    process.env.ATLARIX_HOME_DIR ??= path.join(os.homedir(), ".atlarix");
   }
   process.env.ATLARIX_HEADLESS = "1";
   // Benchmark integrity: force native function-calling (no text/XML tool shim)
@@ -137,19 +168,14 @@ export async function runHeadlessAgent(
   const settingsDir = getUserDataPath();
 
   // Builtin provider (e.g. "openrouter") → native path, no DB rows (BYOK key
-  // lives in settings). Custom provider → seed an OpenAI-compatible row.
-  const providerId = opts.provider.id ?? PROVIDER_ID;
-  if (!opts.provider.id) {
-    if (!opts.provider.baseUrl) {
-      throw new Error("headless: custom provider requires provider.baseUrl");
-    }
+  // lives in settings). An address → seed a provider row there (OpenAI-compatible,
+  // or Anthropic's format for --provider-id anthropic).
+  const seed = headlessProviderSeed(opts.provider);
+  const providerId = seed.providerId;
+  if (seed.row) {
     await db
       .insert(schema.language_model_providers)
-      .values({
-        id: PROVIDER_ID,
-        name: "Atlarix Headless",
-        api_base_url: opts.provider.baseUrl,
-      })
+      .values(seed.row)
       .onConflictDoNothing();
     await db
       .insert(schema.language_models)

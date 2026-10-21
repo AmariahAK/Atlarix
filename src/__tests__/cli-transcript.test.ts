@@ -422,3 +422,57 @@ describe("CLI errors read as sentences (QA)", () => {
     expect(plainError(new Error("Error: It is already added.")).message).toBe("It is already added.");
   });
 });
+
+describe("web sources", () => {
+  // The shape stream_chunk_tags appends after a provider's own web search
+  // (owner's screenshot, CLI, 2026-10-19): drawn as raw JSON under the reply.
+  const tag = `<atlarix-sources>${JSON.stringify([
+    { url: "https://lichess.org/faq", title: "Frequently Asked Questions • lichess.org" },
+    { url: "https://github.com/deepakvettickal/caturankam/pull/2", title: "Play on Lichess · Pull Request #2" },
+  ])}</atlarix-sources>`;
+  const reply = `The PR title and description will follow once you've tried these changes.\n${tag}\n`;
+
+  it("never shows the tag; lists the sources as links after the reply", () => {
+    const cells = toCells([{ id: 7, role: "assistant", content: reply }]);
+    const text = cells.map((c) => (c.kind === "markdown" ? c.text : "")).join("\n");
+    expect(text).not.toContain("atlarix-sources");
+    expect(text).not.toContain('"url"');
+    expect(cells[0]).toMatchObject({ kind: "markdown", text: "The PR title and description will follow once you've tried these changes." });
+    const sources = cells.at(-1)!;
+    expect(sources.kind).toBe("markdown");
+    expect(sources.kind === "markdown" && sources.text).toContain("[Frequently Asked Questions • lichess.org](https://lichess.org/faq)");
+    expect(sources.kind === "markdown" && sources.text).toContain("Sources");
+  });
+
+  it("hides a tag still arriving while the reply streams", () => {
+    const partial = `Done.\n<atlarix-sources>[{"url":"https://lichess.org/faq","ti`;
+    const cells = toCells([{ id: 8, role: "assistant", content: partial }], { streaming: true });
+    expect(cells.map((c) => (c.kind === "markdown" ? c.text : "")).join("")).toBe("Done.");
+  });
+});
+
+/**
+ * A4: compress_context with nothing to compact answers success:false,
+ * status:"noop". It did what it should; the CLI drew it ✕ (the app's cards
+ * already settle it as done).
+ */
+describe("a no-op tool result", () => {
+  const noop = JSON.stringify({ success: false, status: "noop", summary: "Already compact: nothing worth compacting." });
+
+  it("is done, live and when read back", async () => {
+    const { activityToolLine, toolLine } = await import("@/cli/agent/transcript");
+    expect(activityToolLine({ id: "a", toolName: "compress_context", status: "error", resultText: noop }).status).toBe("success");
+    expect(
+      toolLine({ type: "tool", id: "b", callId: "c", toolName: "compress_context", status: "error", args: {}, resultText: noop } as never).status,
+    ).toBe("success");
+  });
+
+  it("a real failure still fails", async () => {
+    const { activityToolLine, toolLine } = await import("@/cli/agent/transcript");
+    const failed = JSON.stringify({ success: false, error: "boom" });
+    expect(activityToolLine({ id: "a", toolName: "compress_context", status: "error", resultText: failed }).status).toBe("error");
+    expect(
+      toolLine({ type: "tool", id: "b", callId: "c", toolName: "read_file", status: "error", args: {}, resultText: noop } as never).status,
+    ).toBe("error");
+  });
+});

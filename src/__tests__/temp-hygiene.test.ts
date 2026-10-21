@@ -14,7 +14,9 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 // The real temp root, captured BEFORE the `node:os` mock below rewrites
 // `tmpdir()` — otherwise this file would try to create its scratch dirs inside
@@ -41,16 +43,26 @@ vi.mock("node:os", async () => {
 });
 
 import { __testing } from "@/main/temp-hygiene";
+import { peerSocketPath } from "@/lib/peers/peers";
 
 const sweep = __testing.sweepTempDirs;
 
+let peerDir = "";
 beforeEach(() => {
   fakeTmp = fs.realpathSync(
     fs.mkdtempSync(path.join(REAL_TMP, "hygiene-test-")),
   );
+  // Peer inboxes are looked for here, not in the machine's real /tmp, where any
+  // Atlarix running on this computer would change the answer.
+  // Short: a Unix socket path is capped at 104 bytes on macOS, and the real
+  // temp folder's path is most of that.
+  peerDir = fs.mkdtempSync(process.platform === "win32" ? path.join(REAL_TMP, "hygiene-peers-") : "/tmp/hyp-");
+  __testing.setPeerSocketDir?.(peerDir);
 });
 
 afterEach(() => {
+  __testing.setPeerSocketDir?.(null);
+  fs.rmSync(peerDir, { recursive: true, force: true });
   try {
     fs.rmSync(fakeTmp, { recursive: true, force: true });
   } catch {
@@ -167,5 +179,169 @@ describe("app open takes the remainder, but never what this run is using", () =>
     const old = Date.now() - 3 * 24 * 60 * 60 * 1000;
     fs.utimesSync(live, new Date(old), new Date(old));
     expect(await sweep({ includeLive: true })).toBe(1);
+  });
+});
+
+describe("several Atlarix processes at once (app, CLI, editors, headless)", () => {
+  // A process that is certainly running (the one that started this test), and
+  // one that certainly is not (it ran and exited).
+  const livePid = process.ppid;
+  const deadPid = (() => {
+    const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+    return spawnSync(process.execPath, ["-e", ""]).pid!;
+  })();
+  const lease = (pid: number) => {
+    const dir = mkdir(__testing.LEASES_DIR_NAME);
+    const p = path.join(dir, `${pid}.json`);
+    fs.writeFileSync(p, JSON.stringify({ pid, surface: "cli" }));
+    return p;
+  };
+  const age = (p: string, ms: number) => {
+    const t = new Date(Date.now() - ms);
+    fs.utimesSync(p, t, t);
+  };
+
+  it("quitting keeps the shared dirs while another Atlarix is still running", async () => {
+    // The app quitting used to delete atlarix-scratch under a CLI session.
+    lease(livePid);
+    const scratch = mkdir("atlarix-scratch");
+    const attachments = mkdir("atlarix-attachments");
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(scratch)).toBe(true);
+    expect(fs.existsSync(attachments)).toBe(true);
+  });
+
+  it("keeps a fresh leftover another process may have just made; takes an old one", async () => {
+    lease(livePid);
+    const fresh = mkdir("atlarix-view-image-fresh");
+    const old = mkdir("atlarix-view-image-old");
+    age(old, 2 * 60 * 60 * 1000);
+    await sweep({ includeLive: false });
+    expect(fs.existsSync(fresh)).toBe(true);
+    expect(fs.existsSync(old)).toBe(false);
+  });
+
+  it("ignores, and removes, the lease of a process that has ended", async () => {
+    const stale = lease(deadPid);
+    const scratch = mkdir("atlarix-scratch");
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(scratch)).toBe(false);
+    expect(fs.existsSync(stale)).toBe(false);
+  });
+
+  it("never sweeps the leases themselves", async () => {
+    const own = lease(livePid);
+    age(path.dirname(own), 30 * 24 * 60 * 60 * 1000);
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(own)).toBe(true);
+  });
+
+  /**
+   * E4 (QA, 2 of 2): a 15.9.2 Atlarix (no leases yet) running, a newer one
+   * quits: it counted only leases, took the shared dirs as the last Atlarix,
+   * and deleted the running one's scratch file. Builds before leases still hold
+   * a peer inbox named by their pid.
+   */
+  const inboxFile = (pid: number) => path.join(peerDir, path.basename(peerSocketPath(process.platform, pid)));
+  const servers: net.Server[] = [];
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((srv) => new Promise((r) => srv.close(r))));
+    __testing.setConnect?.(null);
+  });
+  /** An inbox its owner is listening on. */
+  const inbox = async (pid: number) => {
+    const p = inboxFile(pid);
+    const srv = net.createServer((c) => c.destroy());
+    await new Promise<void>((r) => srv.listen(p, r));
+    servers.push(srv);
+    return p;
+  };
+  /** The socket file a killed or crashed owner left: nothing listens on it. */
+  const leftInbox = (pid: number) => {
+    const p = inboxFile(pid);
+    const child = spawnSync(process.execPath, [
+      "-e",
+      `require("node:net").createServer().listen(${JSON.stringify(p)}, () => process.kill(process.pid, "SIGKILL"))`,
+    ]);
+    expect(child.signal).toBe("SIGKILL");
+    expect(fs.existsSync(p)).toBe(true);
+    return p;
+  };
+
+  // Inboxes are named pipes on Windows (QA checks those live).
+  it.skipIf(process.platform === "win32")("an older Atlarix with no lease, but its peer inbox, keeps the shared dirs", async () => {
+    await inbox(livePid);
+    const scratch = mkdir("atlarix-scratch");
+    fs.writeFileSync(path.join(scratch, "its-file.txt"), "in use");
+    const attachments = mkdir("atlarix-attachments");
+    const fresh = mkdir("atlarix-view-image-fresh");
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(path.join(scratch, "its-file.txt"))).toBe(true);
+    expect(fs.existsSync(attachments)).toBe(true);
+    expect(fs.existsSync(fresh)).toBe(true);
+  });
+
+  // Inboxes are named pipes on Windows (QA checks those live).
+  it.skipIf(process.platform === "win32")("the inbox of an Atlarix that has ended, or another user's, protects nothing", async () => {
+    const ended = leftInbox(deadPid);
+    const theirs = path.join(peerDir, "atlarix-peer-somebody-else-" + livePid + ".sock");
+    fs.writeFileSync(theirs, "");
+    const scratch = mkdir("atlarix-scratch");
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(scratch)).toBe(false);
+    // Nothing owns a refusing inbox now: it goes. Another user's is left alone.
+    await vi.waitFor(() => expect(fs.existsSync(ended)).toBe(false));
+    expect(fs.existsSync(theirs)).toBe(true);
+  });
+
+  /**
+   * E4 alone (QA, 2 of 2): left inboxes named by pids since reused (a zsh, an
+   * unrelated test run) counted as running Atlarixes, so the shared dirs were
+   * never cleaned. Alive is not enough: the inbox must answer.
+   */
+  // Inboxes are named pipes on Windows (QA checks those live).
+  it.skipIf(process.platform === "win32")("a left inbox whose pid is alive again (reused) protects nothing, and is removed", async () => {
+    const left = leftInbox(livePid);
+    const scratch = mkdir("atlarix-scratch");
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(scratch)).toBe(false);
+    await vi.waitFor(() => expect(fs.existsSync(left)).toBe(false));
+  });
+
+  it("an inbox that does not answer in time is kept and counted, and many do not hold the sweep up", async () => {
+    // Connections that never complete: "don't know", which keeps the dirs.
+    __testing.setConnect?.(() => new net.Socket());
+    const files = Array.from({ length: 120 }, (_, i) => {
+      const p = inboxFile(livePid + 100_000 + i);
+      fs.writeFileSync(p, "");
+      return p;
+    });
+    fs.writeFileSync(inboxFile(livePid), "");
+    const scratch = mkdir("atlarix-scratch");
+    const t0 = Date.now();
+    await sweep({ includeLive: true });
+    expect(Date.now() - t0).toBeLessThan(2_000);
+    expect(fs.existsSync(scratch)).toBe(true);
+    expect(fs.existsSync(inboxFile(livePid))).toBe(true);
+    for (const f of files) expect(fs.existsSync(f)).toBe(true);
+  });
+
+  it("with nothing else running, quitting still cleans up", async () => {
+    const scratch = mkdir("atlarix-scratch");
+    const attachments = mkdir("atlarix-attachments");
+    await sweep({ includeLive: true });
+    expect(fs.existsSync(scratch)).toBe(false);
+    expect(fs.existsSync(attachments)).toBe(false);
+  });
+
+  it("a process's own lease does not protect its dirs from its own exit sweep", async () => {
+    const { registerTempLease, sweepTempOnQuit } = await import("@/main/temp-hygiene");
+    registerTempLease("cli");
+    const mine = path.join(fakeTmp, __testing.LEASES_DIR_NAME, `${process.pid}.json`);
+    expect(fs.existsSync(mine)).toBe(true);
+    const scratch = mkdir("atlarix-scratch");
+    await sweepTempOnQuit();
+    expect(fs.existsSync(mine)).toBe(false);
+    expect(fs.existsSync(scratch)).toBe(false);
   });
 });

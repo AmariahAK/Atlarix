@@ -210,3 +210,52 @@ describe("preflight carries the reason through", () => {
     ).toMatchObject({ type: "auto_allow" });
   });
 });
+
+// Coordinator's review of 08458785 (2026-10-20): a wrapper with options in
+// front (`nice -n 10`, `timeout 5`, `env -i`) or an alias defined inline
+// (`git -c alias.x='reset --hard' x`) still hid what runs. Asserted at the
+// GATE, so a case another rule already covers is not counted as a gap.
+describe("what runs behind a wrapper, or behind an inline git alias, still asks", () => {
+  const wrapped = [
+    "nice -n 10 git reset -q --hard",
+    "timeout 5 git reset -q --hard",
+    "timeout -s KILL 5 git reset -q --hard",
+    "env -i git reset -q --hard",
+    "env -u HOME git reset -q --hard",
+    "time -p git reset -q --hard",
+    "exec git reset -q --hard",
+    "xargs git reset -q --hard",
+    "stdbuf -oL git reset -q --hard",
+    "env -S 'git reset -q --hard'",
+  ];
+  it("Build: the danger behind a wrapper asks", () => {
+    for (const cmd of wrapped) expect(writeMode(cmd).action, cmd).toBe("prompt");
+  });
+  it("Explore: a change behind a wrapper asks", () => {
+    for (const cmd of [
+      "nice -n 10 git commit -m x",
+      "timeout 5 git commit -m x",
+      "env -i git commit -m x",
+      "time -p git commit -m x",
+      "xargs -0 git add",
+      "stdbuf -oL npm pkg set version=2.0.0",
+    ]) {
+      expect(readOnly(cmd).action, cmd).toBe("prompt");
+    }
+  });
+  it("an alias defined inline asks in both, whatever it names", () => {
+    for (const cmd of [
+      "git -c alias.nuke='reset --hard' nuke",
+      "git -c 'alias.st=status' st",
+      "git --config-env=alias.x=MY_ALIAS x",
+    ]) {
+      expect(writeMode(cmd).action, cmd).toBe("prompt");
+      expect(readOnly(cmd).action, cmd).toBe("prompt");
+    }
+  });
+  it("a wrapper around a read is still a read", () => {
+    for (const cmd of ["nice -n 10 git status", "timeout 5 git log -3", "env -i git diff", "time -p npm test"]) {
+      expect(readOnly(cmd).action, cmd).toBe("auto_allow");
+    }
+  });
+});

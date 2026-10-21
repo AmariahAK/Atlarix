@@ -4,9 +4,9 @@ import type { UserSettings } from "../../lib/schemas";
 import { writeSettings } from "../../main/settings";
 import { readSettings, isSecretEncryptionAvailable } from "../../main/settings";
 import {
-  capture as analyticsCapture,
   trackAcquisitionSource,
   trackPeerPushPrompt,
+  trackAnalyticsTurnedOn,
   getSignedInUserId,
 } from "../../main/lib/analytics";
 import { ACQUISITION_DETAIL_MAX } from "../../lib/community/acquisition";
@@ -44,23 +44,11 @@ export function registerSettingsHandlers() {
           ? { ...settings, ...effortAfterModelChange(effortChoicesForModel(settings.selectedModel), prev) }
           : settings,
       );
+      // Mode and model choices reach analytics on the next turn
+      // (`turn_completed.changed`), from every surface, not from here.
       const next = readSettings();
-      if (next.selectedChatMode !== prev.selectedChatMode) {
-        if (next.selectedChatMode === "build") {
-          analyticsCapture("build_mode_activated", {});
-        } else if (next.selectedChatMode === "ask") {
-          analyticsCapture("ask_mode_activated", {});
-        }
-      }
-      if (
-        next.selectedModel?.provider !== prev.selectedModel?.provider ||
-        next.selectedModel?.name !== prev.selectedModel?.name
-      ) {
-        analyticsCapture("ai_model_selected", {
-          provider: next.selectedModel?.provider ?? "",
-          model_name: next.selectedModel?.name ?? "",
-        });
-      }
+      // Analytics just turned on: this process's start and today's active day.
+      if (next.telemetryConsent === "opted_in" && prev.telemetryConsent !== "opted_in") trackAnalyticsTurnedOn();
       // EVERY WINDOW, not just the one that asked. `useSettings` loads once per
       // window into a jotai atom and nothing invalidated the others, so a second
       // window kept showing stale settings until it was reloaded — which is why

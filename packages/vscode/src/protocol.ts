@@ -130,7 +130,7 @@ export type HostMessage =
   | { type: "pending"; items: Array<{ id: string; text: string; kind: string }> }
   /** Atlarix suggests an MCP server for this chat; `resolved` takes the card away. */
   | { type: "mcp-suggestion"; card: Record<string, unknown> }
-  | { type: "working"; title: string | null }
+  | { type: "working"; title: string | null; following?: boolean }
   | { type: "unsent"; text: string }
   /** An automation finished a run (in this editor, the CLI or the app). */
   | { type: "automation-run"; name: string; status: string; summary: string | null };

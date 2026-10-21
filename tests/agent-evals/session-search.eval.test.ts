@@ -318,13 +318,21 @@ describe("the CURRENT conversation — the default the tool advertises", () => {
       path: "/tmp/current-by-chatid",
       name: "current-by-chatid",
     });
-    const transportChatId = -4242; // stream transport ids are negative
+    // A live transport in THIS process, bound to the session, as the parent
+    // turn's is: the shared column alone is not trusted, another process's
+    // transport may carry the number (1a), and a bare bound number with no
+    // transport behind it isn't one either.
+    const { bindTransportToSession, createStreamTransport, deleteStreamTransport } = await import(
+      "@/lib/chat/stream-transport"
+    );
+    const transportChatId = createStreamTransport(appId);
     await db.insert(chatSessions).values({
       id: "current-chatid-session",
       workspaceId: appId,
       title: "Sub-agent parent",
       streamChatId: transportChatId,
     });
+    bindTransportToSession(transportChatId, "current-chatid-session");
     await db.insert(sessionMessages).values({
       id: "current-chatid-msg",
       sessionId: "current-chatid-session",
@@ -337,6 +345,7 @@ describe("the CURRENT conversation — the default the tool advertises", () => {
       workspaceId: appId,
       _chatSessionId: transportChatId,
     });
+    deleteStreamTransport(transportChatId);
     expect(hit.success).toBe(true);
     expect(hit.result).toContain("MOMBASA-77");
   });

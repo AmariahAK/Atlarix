@@ -184,6 +184,27 @@ describe("AgentSession", () => {
     expect(cells.map((c: any) => c.kind)).toEqual(["tool", "user", "markdown", "footer"]);
   }, 60_000);
 
+  it("a card a saved rule already answered leaves the screen (allow edits in src/)", async () => {
+    // Two edits in src/ asked together; "allow edits in src/" on the first
+    // approved the second at once, but its card stayed and was answered again
+    // (owner, 2026-10-19). The interceptor says so on `operation-status`.
+    const { AgentSession } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws }) as any;
+    s.onSend("permission-request", { operationId: "op_a", request: { operation: "edit_file", preview: { path: "src/app.tsx" } } });
+    s.onSend("permission-request", { operationId: "op_b", request: { operation: "edit_file", preview: { path: "src/index.tsx" } } });
+    expect(s.state.approvals.map((a: any) => a.operationId)).toEqual(["op_a", "op_b"]);
+    s.onSend("operation-status", { operationId: "op_b", status: "running" });
+    expect(s.state.approvals.map((a: any) => a.operationId)).toEqual(["op_a"]);
+    // Still waiting is still a question.
+    s.onSend("operation-status", { operationId: "op_a", status: "pending" });
+    s.onSend("operation-status", { operationId: "op_a", status: "queued" });
+    expect(s.state.approvals.map((a: any) => a.operationId)).toEqual(["op_a"]);
+    s.onSend("operation-status", { operationId: "op_a", status: "completed" });
+    expect(s.state.approvals).toEqual([]);
+    // Nobody answered these here: no "You approved" line for either.
+    expect(s.state.cells.some((c: any) => c.id.startsWith("approved:"))).toBe(false);
+  }, 60_000);
+
   it("thinking and the answer reach the screen as they stream, though main keeps writing the row it sent", async () => {
     // Main runs in this process: the row in its first full list is the object it
     // goes on writing. Shared, each patch found its text already there and was
@@ -223,6 +244,11 @@ describe("AgentSession", () => {
     await waitFor(s, (st) => !st.busy);
     expect(fs.existsSync(path.join(ws, "doomed.txt"))).toBe(false);
     expect(s.state.cells.filter((c: any) => c.kind !== "footer").at(-1)).toMatchObject({ kind: "markdown", text: "Removed." });
+    // What you approved, under the command that asked (as Codex CLI and Claude Code do).
+    const cells = s.state.cells as any[];
+    const at = cells.findIndex((c) => c.id === `approved:${req.operationId}`);
+    expect(cells[at]).toMatchObject({ kind: "notice", level: "info", text: "✓ You approved Atlarix to run `rm doomed.txt` this time" });
+    expect(cells[at - 1]).toMatchObject({ kind: "tool" });
   }, 60_000);
 
   it("Esc stops a long command: the turn ends, the tool reads interrupted, the process is gone, the session lives on", async () => {
@@ -266,6 +292,29 @@ describe("AgentSession", () => {
     ]);
   }, 90_000);
 
+  it("with several calls at once, the receipt sits under the call whose card was answered", async () => {
+    // A2 (QA 2/2): three edits in one step; the line went under the third.
+    llm.stop();
+    const w = fs.mkdtempSync(path.join(os.tmpdir(), "cli-a2-ws-"));
+    fs.mkdirSync(path.join(w, "src"));
+    llm = startFakeLlm([
+      { tools: ["q1", "q2", "q3"].map((n) => ({ tool: "edit_file", args: { path: `src/${n}.ts`, operation: "write", content: `export const ${n} = 1;\n` } })) },
+      { text: "Wrote them." },
+    ]);
+    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: w, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+    await s.start();
+    await s.submit("write three files");
+    await waitFor(s, (st) => st.approvals.length > 0 && st.cells.filter((c: any) => c.kind === "tool").length >= 3, 30_000);
+    const card = s.state.approvals.find((a) => JSON.stringify(a.request).includes("q1.ts"))!;
+    await s.answerApproval(card.operationId, "once");
+    const cells = s.state.cells as any[];
+    const at = cells.findIndex((c) => c.id === `approved:${card.operationId}`);
+    expect(cells[at - 1]).toMatchObject({ kind: "tool", tool: { target: "src/q1.ts" } });
+    for (const a of s.state.approvals) await s.answerApproval(a.operationId, "once");
+    await waitFor(s, (st) => !st.busy, 30_000);
+  }, 90_000);
+
   it("'always allow' is remembered: the next such command does not ask", async () => {
     llm.stop();
     fs.writeFileSync(path.join(ws, "a1.txt"), "1");
@@ -294,6 +343,43 @@ describe("AgentSession", () => {
     expect(fs.existsSync(path.join(ws, "a2.txt"))).toBe(false);
   }, 90_000);
 
+  it("in Explore, 'always' on a change saves the rule the gate checks: the next one does not ask", async () => {
+    // E6 (QA, 3 of 3): the card carried the gate's `mutate:package-manifest-write`,
+    // but "always" saved from the interceptor's copy, which had no key, so it fell
+    // back to `npm`, a rule the read-only gate never consults.
+    llm.stop();
+    const w = fs.mkdtempSync(path.join(os.tmpdir(), "cli-e6-ws-"));
+    fs.writeFileSync(path.join(w, "package.json"), JSON.stringify({ name: "qa", version: "1.0.0" }));
+    llm = startFakeLlm([
+      { tool: "run_command", args: { command: "npm pkg set version=1.0.1", description: "bump" } },
+      { text: "Bumped." },
+      { tool: "run_command", args: { command: "npm pkg set description=qa", description: "describe" } },
+      { text: "Described." },
+    ]);
+    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: w, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+    await s.start();
+    s.setMode("ask");
+    await s.submit("bump the version");
+    await waitFor(s, (st) => st.approvals.length > 0, 30_000);
+    const card = s.state.approvals[0]!;
+    expect(JSON.stringify(card.request)).toContain("mutate:package-manifest-write");
+    await s.answerApproval(card.operationId, "always_allow");
+    await waitFor(s, (st) => !st.busy);
+    // The line says the rule that was saved: a class of change, not "`npm` commands".
+    expect((s.state.cells as any[]).find((c) => c.id === `approved:${card.operationId}`)?.text).toBe(
+      "✓ You approved Atlarix to always make changes like `npm pkg set version=1.0.1` in this folder",
+    );
+    let asked = false;
+    const on = (st: { approvals: unknown[] }) => void (asked ||= st.approvals.length > 0);
+    s.on("change", on);
+    await s.submit("now describe it");
+    await waitFor(s, (st) => !st.busy && st.cells.some((c: any) => c.kind === "markdown" && c.text === "Described."), 30_000);
+    s.off("change", on);
+    expect(asked).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(w, "package.json"), "utf8")).description).toBe("qa");
+  }, 90_000);
+
   it("!command runs in the folder, streams into a cell, and the agent sees it with the next message only", async () => {
     llm.stop();
     llm = startFakeLlm([{ text: "That file says hello." }, { text: "Second." }, { text: "Third." }]);
@@ -308,7 +394,8 @@ describe("AgentSession", () => {
     expect(s.sessionId).toBe(""); // a shell run alone starts no session
     await s.submit("what does it say?");
     await waitFor(s, (st) => !st.busy);
-    const first = JSON.stringify(llm.requests[0]?.messages ?? []);
+    // The turn's request (the session's title is asked of the same model, beside it).
+    const first = JSON.stringify(llm.requests.find((r) => r.tools?.length)?.messages ?? []);
     expect(first).toContain("hello from the file");
     expect(first).toContain("exit code 3");
     // The transcript shows what the user typed, not the context block.
@@ -336,4 +423,43 @@ describe("AgentSession", () => {
     expect(cell).toMatchObject({ tool: { status: "interrupted" } });
     expect(s.shellRunning).toBe(false);
   }, 30_000);
+
+  // A1 (QA, 2/2): a `selectedAgent` left in settings (the picker that wrote it was
+  // removed in v14.8.9) applied by halves to every CLI turn: its prompt, with the
+  // CLI's own Build tools, so a read-only agent could edit and run commands. A
+  // turn never runs as a user agent now; agents are `task` targets only.
+  describe("a turn is never a user agent", () => {
+    const toolNames = (r: { tools?: unknown[] } | undefined) =>
+      (r?.tools ?? []).map((t: any) => t.function?.name ?? t.name);
+    const askAgentFolder = () => {
+      const w = fs.mkdtempSync(path.join(os.tmpdir(), "cli-agent-ws-"));
+      fs.mkdirSync(path.join(w, ".atlarix", "agents"), { recursive: true });
+      fs.writeFileSync(
+        path.join(w, ".atlarix", "agents", "askagent.md"),
+        "---\ndescription: QA ask agent\nmode: ask\n---\nYou are the QA ask agent.\n",
+      );
+      return w;
+    };
+
+    it("a stale agent pick in settings is not applied at all", async () => {
+      llm.stop();
+      llm = startFakeLlm([{ text: "Hi." }]);
+      const { writeSettings } = await import("../src/main/settings");
+      writeSettings({ selectedAgent: "askagent" } as never);
+      try {
+        const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+        const s = new AgentSession({ workspaceDir: askAgentFolder(), model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+        await s.start();
+        await s.submit("hello");
+        await waitFor(s, (st) => !st.busy);
+        const turn = llm.requests.find((r) => r.tools?.length);
+        expect(JSON.stringify(turn?.messages)).not.toContain("QA ask agent");
+        // The CLI's own mode (Build) decides the tools.
+        expect(toolNames(turn)).toContain("edit_file");
+      } finally {
+        writeSettings({ selectedAgent: "" } as never);
+      }
+    }, 60_000);
+
+  });
 });

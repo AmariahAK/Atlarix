@@ -1,9 +1,8 @@
 # Atlarix TODO
 
-**Current version:** 15.9.1 (2026-10-18): the newest Claude models (Sonnet 5 / 5.5, Opus 4.7+, Haiku
-5.5, Fable) think adaptively with `/effort` instead of refusing a token budget. 15.9.0 brought providers you
-add on the Anthropic API format (Bedrock, gateways), Build mode's lasting prompt cache and a faster CLI
-start. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.10.0 (2026-10-21): project memory that recalls the right notes, live sessions and
+`/fork` across app, CLI and editors, approvals that remember folder rules, compaction that works, a chat history
+that stays in the prompt cache, and per-surface usage data. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -17,20 +16,137 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-17
+**Last updated:** 2026-10-21
 
 ---
 
-## 🔨 In flight — landed on dev, not yet released
+## 🔨 Handover 2026-10-21 (night) — 15.10.0 released by ai-d1; what is left
 
-Nothing.
+The owner approved the full release on 2026-10-21. Team notes: `~/.atlarix-e2e/team/STATUS.md` (newest at the
+bottom) and `~/.atlarix-e2e/team/MORNING.md` (the owner's list).
 
-**Not verified live (15.9.1):** this AWS account is refused the newest Claude models ("not available
-for this account"; AWS Sales request sent 2026-10-18). Run one Sonnet 5.5 turn with thinking on once access opens.
+### A. After 15.10.0
 
-**Known limit from 15.9.0:** Bedrock reads the request body before the key, so a bad Bedrock
-token is only caught by the first message (it fails cleanly; nothing is billed). A key-prefix
-hint at add time could catch typos.
+- **QA gate that passed:** every Mac batch (CLI, raw ACP, TUI; ai-bc) and Windows phase 1 on RC 181aadd4 (CLI
+  queue, approvals, E4 leases, A8 init lock, E13 junction, memory on a C:\ workspace, HOME leak, /mcp stderr, T1,
+  cancelled stop). 78c44b20 (Bedrock key hint) is Mac-only.
+- **Not re-run on the merged build (owner: skip for this tag), passed on branch builds:** the Windows VS Code panel
+  GUI items — E15, stop→idle while following, E16, analytics X1–X3, and the re-confirms. **E11 (closing VS Code
+  ends the agent and frees its lease) has NEVER passed on Windows**; it needs the panel's CDP driver, which is
+  gone from disk (`~/.atlarix-e2e/team/evidence/ai48-scripts/` keeps only the VM-side helpers). Rebuild the driver,
+  then run E11 first.
+- **Windows CLI start takes ~64 s** in the VM: Defender re-scans the 133 MB x64 exe on every start (MsMpEng
+  1,300+ CPU-s). Check on a real Windows machine; if it holds, look at signing the exe (the Windows code-signing
+  cert in Security follow-ups) or a smaller binary.
+- **Windows ACP folder option reads `src/`** with a forward slash. Cosmetic.
+- **`atlarix --version` unpacks the skills cache.** It shouldn't need to.
+- **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix, then the
+  Microsoft Store resubmission (`unvirtualizedResources` justification in the MSIX manifest comment). winget is
+  still blocked on microsoft/winget-pkgs#446527.
+- **Owner decision:** should a scratch-profile CLI ever install Atlarix's Chrome native host into the real
+  Chrome folders? It can today (pre-existing).
+- **Memory, seen in QA:** weaker models (GLM-4.7-Flash) ignore a "save a note" ask sometimes; qwen3-coder
+  ignored it once. Haiku is fine.
+
+### B. App checks that only a signed-in app window can do
+
+The app QA on 2026-10-21 ran on the headless agent@ session (CLI/ACP), because nobody could sign the app in: the
+atlarix.dev sign-in is a password plus a Turnstile captcha, which the sessions may not do. ai-2f marked those items
+"headless-verified, app UI not run" in STATUS.md. To finish them yourself, launch a dev app on a scratch profile
+(never your own):
+`ATLARIX_USER_DATA_DIR=$HOME/.atlarix-e2e/free-agent npx electron-forge start -- --user-data-dir=$HOME/.atlarix-e2e/free-agent/electron`
+from a worktree with its own `node_modules` (not a symlink). Sign in as agent@atlarix.dev (password in the
+Keychain, service `atlarix-sandbox-agent`). Then check:
+- **Live sessions:** start a turn in the CLI on the same scratch profile (`ATLARIX_USER_DATA_DIR=… atlarix`), open
+  that session in the app. It should show "Running in the CLI" and follow the reply as it grows. Type in the app:
+  the text lands in the CLI turn as a mid-turn message. Stop in the app stops the CLI turn within ~1.5 s. Then
+  the reverse (CLI follows an app turn).
+  *2026-10-21: the app's handlers are verified (running-elsewhere, growing revision, steer lands mid-turn, stop in
+  0.57 s, 2/2); the window itself was not run. The reverse is headless only (CLI↔CLI).*
+- **`/fork` in the app** (composer slash command and the session-menu "Fork"): a new tab "<title> (fork)" with
+  the same messages; the original is unchanged. *2026-10-21: the app's `sessions:fork` is verified (full copy,
+  source untouched, independent after). The slash command and menu were not run.*
+- **Approvals (951722b7):** two edits in `src/`, approve the first with "allow edits in src/". The second card
+  should clear on its own, and each operation should run once. *Headless only (CLI 2/2 + guard test).*
+- **E13:** ~~open a symlinked folder in the app and its real folder in the CLI. There should be ONE workspace~~
+  (verified in the app 2026-10-21), and `/undo` should work across both (*headless only*).
+- ~~**L4 (46310069):** delete a custom provider from its settings page. No "Provider with ID … not found" error.~~
+  Verified in the app 2026-10-21 (the delete, then the page's model list answers `[]`).
+- **Polling (16a12f54):** 30 min idle shows almost no Supabase reads. The `users` row is read again after
+  Upgrade/Manage billing. *2026-10-21: signed out, 16 min idle + 10 focuses = 0 requests from the app. The
+  signed-in reads are headless only (CLI + guard tests that fail without the fix).*
+- After the run, launch the installed /Applications/Atlarix once, so the `atlarix://` link handler points back to it.
+
+### C. AWS / proxy
+
+- **Shared free-tier state is ON** (`ATLARIX_SHARED_FREE_STATE=on` on Railway project Atlarix-Proxy, service
+  `Atlarix`, set by the owner 2026-10-20 ~23:25 UTC). Counters live in DynamoDB `atlarix-proxy-counters`
+  (eu-west-1, provisioned 20/20 = inside the always-free 25/25). **Live test passed 2026-10-20 23:34 UTC** (agent@
+  zeroed, one free turn, restored to 945¢): served by MiniMax, and the bedrock day/month/user rows counted it.
+  `free#pool`/`free#user` rows only appear once a turn goes past Bedrock (a cap or an outage), because the Bedrock
+  path doesn't call `recordFreeUsage`. Each free call reads ~16 keys (≈8 RCU), so about 2 free calls/s fills the
+  20 RCU. Past that, throttled reads fall back to per-process counts (safe, just less exact). Raise RCU only
+  while it stays ≤25 total across tables (free tier).
+- **Fair daily share + paid-Auto Bedrock tail: on proxy main (57c91fb), NOT deployed** — Railway's platform outage
+  ("builds paused", from 2026-10-21 11:33 UTC) blocked every deploy. When it recovers, if `/health` doesn't show
+  `"commit":"57c91fb"` within ~10 min, run `railway up --service Atlarix --detach` in atlarix-proxy. The fair share
+  was built as branch `bedrock-fair-share` (e24097c):
+  Each user's daily Bedrock cap is today's money (this month's paced allowance less what was spent before today)
+  divided by free Auto's own active-user count (the larger of today's and this weekday last week's, from
+  `loadFreeUsageState`), times free Auto's new-account multiplier, kept between $0.05 and $0.30. Before this it was
+  a flat $0.30, so on a $1 day the first ~3 heavy users could use up the day. The paid-Auto tail
+  (`auto.paid.tail` in core-models.json, live since atlarix-releases fd126ce) adds MiniMax M2.5 → Kimi K2.5 after
+  low's own models and Kimi K3 (`us.` profile) after medium's; kept out of `levels` so shipped apps keep their 1M
+  Auto window. 708 proxy tests pass. Until the deploy, old proxies ignore the tail, and the app's memory recall
+  (`purpose: memory`) bills on the build lane for paid Auto.
+- **Second replica: not done.** The sessions' permission check blocks production Railway changes. Per the
+  proxy code, a second replica is safe from the first full UTC day after the flag went on, i.e. from
+  **2026-10-21 00:00 UTC**. Before turning it on, check the Railway plan's usage page: a second replica roughly
+  doubles the proxy's RAM/CPU bill. Only do it if that stays inside the plan's included usage (the rule is
+  nothing that bills). How: Railway dashboard → Atlarix-Proxy → Atlarix → Settings → Replicas = 2. Check: both
+  replicas serve `/health`, and a free Auto request from agent@ still answers. The CloudWatch alarm
+  "atlarix-*" emails stay quiet.
+- **To let a session do Railway changes without you next time,** add a Bash allow rule for
+  `railway variable set` / `railway up` in Claude Code settings. The auto-mode check calls them production deploys.
+- **Read the daily cost emails** (08:00 MYT, from the `atlarix-daily-digest` Lambda) for the first real free-Auto
+  cost per user. The caps are $30/month, $1/day, $0.30 per user per day (proxy `bedrock-pool.ts` `BEDROCK_BUDGET`).
+- **1 Nov:** the `atlarix-comp-pro` Lambda runs 00:15 UTC. It should report every user as `duplicate`, because
+  pg_cron `comp-pro-allowance-monthly` grants first. Check `credit_grants` for Nov, then decide whether to
+  unschedule the pg_cron job, so only one of them grants.
+
+### D. Small leftovers
+
+- **Editors: Windows re-checks still owed** (all PASS on the Mac). E11: closing VS Code waits for the agent, so its
+  temp lease is gone and the stale dir is swept. E15: Past chats closes over a chat the CLI is running. Stop while
+  following goes idle in about 1.5–3 s. E16: a missing `atlarix.cliPath` says so and starts nothing. If E11 still
+  leaves the lease on Windows, have `atlarix acp` release its lease and sweep before it closes sessions
+  (`src/cli/entry.mts`, acp branch). If E15 comes back, it isn't root-caused: note the exact clicks.
+- **Your own profile:** a QA slip on 2026-10-21 00:41 created one empty session
+  (`3d6af3f8-1349-4503-b90a-1e613485eed5`, workspace 58) in your real Atlarix data. It's harmless; delete it from
+  the session list if you like.
+- **PostHog alert** "Turn error rate above 15%" (dashboard 1040467) can fire on a quiet day from one failure. Raise
+  it or make it relative once traffic grows.
+- **CLI binary is +10 MB** (97 → 108 MB) because it now carries a positions-only source map for crash reports.
+  It's a one-line revert if you'd rather keep it small.
+- **Sentry:** check one new app crash links to the right file (the code mapping moved to AmariahAK/Atlarix
+  2026-10-21).
+- **ATLARIX-3Z** ("Maximum update depth exceeded"): see Open queue item 8. Map it the next time it fires (now
+  that source maps upload).
+- **Analytics on Windows: not run.** Every analytics change in 15.10.0 passed on the Mac (CLI, app, VS Code panel,
+  raw ACP). The Windows pass on the VM is still to do: turn_completed fields, session_opened, VS Code's telemetry
+  switch, crash-report scrubbing (Windows paths: home folder and user name).
+- **Account usage counts (`client_usage_daily`) are LIVE in Supabase** (applied 2026-10-21, grants read back)
+  and empty until a release carries the client (team/ai2a-telemetry). Who is active, by surface and model:
+  `select * from v_latest_model_by_surface` (service role). The consent text on all four surfaces and the
+  privacy page (launchpad branch `ai2a/privacy-better-together`) say it is kept with the account.
+- **Telemetry on Windows: not run** for provider_type / core_plan, the BYOK turn-failure report and the usage
+  flush at quit (Mac checks are in STATUS.md).
+
+**Verified live 2026-10-19 (15.9.1, unchanged in 15.9.2), on the real Anthropic API:** Sonnet 5.5,
+Opus 5.5, Haiku 5.5 and Fable 5.1 get `thinking: adaptive` + `output_config.effort` as chosen
+(`low` and `max` checked); Haiku 4.5 still gets a budget; a provider on the Anthropic format
+pointed at api.anthropic.com reads 24.4k of the Build prompt from cache on the second message.
+Bedrock's newest-model access (AWS Sales request 2026-10-18) is no longer needed for this check.
 
 ## After every release — the owner, by hand
 
@@ -59,7 +175,6 @@ hint at add time could catch typos.
   paths.
 - **Cloud agent on paid Core `core-2`:** never run (it was blocked by the Actions billing hold of
   2026-10-04, since cleared).
-- **PostHog:** a "Weekly active users by billing" insight from `model_turn`.
 
 ## 🔭 Open — the queue
 
@@ -69,23 +184,14 @@ CI uploads and submits the PACKAGE (14.48.1 on 2026-09-17, 14.50.1 on 2026-09-23
 below is dashboard-only, so no green run covers it. Proposed listing text is in
 [`docs/CWS_LISTING.md`](./CWS_LISTING.md); run `node scripts/cws-copy-check.mjs` before pasting.
 
-- [ ] **Paste the `debugger` and `scripting` justifications into the dashboard.**
+- [ ] **Paste into the dashboard:** `cws/DESCRIPTION.txt` and `cws/TEST-INSTRUCTIONS.txt` (rewritten
+      2026-10-21 to match the listing and the paid-only extension; `cws-copy-check` passes), and the
+      `debugger` and `scripting` justifications below.
+- [ ] **The `debugger` and `scripting` justifications.**
       `cws/PRIVACY-FORM.md` is current as of v14.52.0 (stays attached to agent tabs for console,
       network, on-demand response bodies and screenshots; injects the packaged axe-core for the
       visual report). The dashboard still carries the older text — an inaccurate disclosure is
       what pulls a live item.
-- [ ] **Rewrite `cws/DESCRIPTION.txt`** to match `docs/CWS_LISTING.md`. "What it costs" still
-      says Core is pay-as-you-go only, with no word of free Atlarix Auto, and "the contents of
-      pages Atlarix reads never leave your machine" contradicts the data disclosure (page text
-      goes to the model; it is only kept out of sync).
-- [ ] **Rewrite `cws/TEST-INSTRUCTIONS.txt`.** It says "the extension holds no host access at
-      install" (false since 2026-09-17) and that a new account "will refuse to start a turn"
-      (false since free Auto: a new account gets the one-time consent card instead). The
-      reviewer flow should cover that consent.
-- [ ] **Revisit `cws/PRIVACY-FORM.md` → Distribution → Payments.** Its reasoning ("a new
-      account's balance is ZERO and its first message returns a 402") predates free Auto.
-      "Contains in-app purchases" is probably still right (Pro and credit), but the stated
-      reason is not.
 - [ ] Keep the review account funded and its credentials in the dashboard, not the file. **A
       reviewer who hits a zero balance sees an extension that does not work, and the rejection
       will not mention money.**
@@ -105,21 +211,13 @@ Linux is proven: the `quality` job runs `npm run check:ts` on `ubuntu-latest`. O
 `npm ci` installs cleanly on `windows-latest`, but no Windows job runs `tsc`, so the win32
 binary has never actually been executed there.
 
-### 4. CLI `/mcp` shows the switch, not whether the server connects
-
-QA (15.7.0): a server that is on but fails to connect reads "✓ on" in the CLI, while the editor's
-page says "Couldn't connect: Connection closed". Test on open (one connect per server), or mark a
-server whose last call failed. Low.
-
 ### 5. MCP polish from the 15.7.0 app QA
 
-- The app's MCP list doesn't update live when the CLI changes the same profile (a tab switch
-  refetches). Refetch on window focus, or broadcast from the shared DB.
-- The composer menu's switch takes 3–5 s with no pending state; a second click is lost.
-- Automations: "Create" stays disabled until "tell the AI?" is answered, with no hint or default;
-  a manual Run now logs "fired on schedule"; the tool name is free text (offer the server's tools).
-- A local server with no registry icon shows a letter (Brave Search): try the npm scope's
-  GitHub avatar.
+The rest of this item shipped on dev 2026-10-21 (focus refetch, composer switch, tool picker, npm-scope
+icon). Left as they are on purpose: "tell the AI?" keeps no default (it decides whether an automation
+spends tokens, 774fdfd0; Create already says why it is off), and "Run now" already says it was started
+by hand (2026-10-14).
+
 - A peer message into a chat whose last turn was stopped mid-wait re-runs the stopped request
   (ai-e9's area).
 
@@ -130,16 +228,29 @@ Chrome extension, PR reviewer — because LLMs and listicles answer by CATEGORY.
 and `/extension` exist with their JSON-LD (`reviewerApplication()`, `faqPage()` on /reviewer and
 /pricing, and on blog posts that set `faq`).
 
-Still missing:
+`/better-together` is written (launchpad branch `ai2a/privacy-better-together`) on what is true
+today: one account and balance, a reviewer that never runs code and sees only the diff, and the
+cloud agent's pull requests reviewed the same way. Still missing:
 
-- **A "better together" page**: the workstation hands context to the Reviewer, which judges it
-  independently. A new route takes `{ path, element, entry }`; add it to the sitemap's `PAGES`
-  map for `lastmod` and to `RULES` for priority.
+- **A real app→Reviewer context handoff** (e.g. Reviewer also reads `.atlarix/atlarix.md`): a
+  product change in atlarix-reviewer, the owner's call. Nothing passes app context to a review
+  today, so no page may claim it.
 
 **Do not expect this to move the numbers.** Per the 2026-09-18 baseline, 89% of clicks are the
 literal word "atlarix" and /pricing had never been crawled: the bottleneck is AUTHORITY, not
 markup. The movement comes from third-party pages (the CWS listing, the GitHub Marketplace
 listing, launches).
+
+### 8. "Maximum update depth exceeded" in the window, once (Sentry ATLARIX-3Z)
+
+Six events on 2026-10-08, all from 15.1.0 on one Mac (the owner's, by the device); none since,
+on any release. No component stack or breadcrumbs (the window's Sentry sends neither), and no
+source maps then. The minified chain: React's root event listener → an `onChange` → a jotai
+atom write in `chatAtoms` → the loop. So an input's change handler writes a chat atom whose
+subscribers write back. Not mapped on purpose: builds now carry hidden source maps (1ef9c8dd),
+so a recurrence resolves straight from Sentry. If it recurs, resolve its frames and fix there;
+to map the old one, build tag v15.1.0 with `build.sourcemap: "hidden"` and resolve
+`index-DiRzEsx2.js` 751:43960 and 792:92224.
 
 ---
 
@@ -174,14 +285,6 @@ listing, launches).
 
 ## 🔐 Security follow-ups — owner-triaged, deferred
 
-- **Project-wide `TRUNCATE` revoke on the older tables — OWNER'S CALL, still open.** Supabase grants
-  all of `arwdDxtm` on every new `public` table to `anon`, `authenticated` and `service_role`, and
-  **TRUNCATE IS NOT FILTERED BY ROW SECURITY**. Proved on the live database 2026-09-14 inside a
-  rollback. Every table created since carries the revoke; `users`, `credit_wallet`,
-  `credit_grants` and `conversations` do not. Not currently reachable (PostgREST has no TRUNCATE
-  verb) but one bug away from total data loss.
-- **`MAINTAIN` is also still granted** on those tables. Milder — it reads and writes no data —
-  but the house rule is "no privilege we did not intend". Fold it into the same migration.
 - **Native sandbox validation in CI.** `npm run check:sandbox` cross-target type-checks all four
   (helper, target) pairs, but that does not substitute for running them on the real OS.
 - **Windows code-signing cert.** The sign steps are wired for the sandbox helper and the bridge

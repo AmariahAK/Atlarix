@@ -291,7 +291,7 @@ export async function statMemoryMd(
  *
  * The `.atlarix/memory.md` paragraph is GONE (v14.23.0). That file is superseded by the
  * per-note store in `lib/agent-memory.ts`, whose index is surfaced by
- * `loadMemoryMdSection` — describing a knowledge file that no longer exists would send
+ * `lib/memory/session-context.ts` — describing a knowledge file that no longer exists would send
  * the model reading (or worse, WRITING) the wrong path.
  *
  * This stays deliberately short and stays here rather than moving into the context

@@ -54,6 +54,8 @@ export interface McpServerSummary {
   enabled: boolean;
   /** A browser sign-in it still needs before it works. */
   needsSignIn?: boolean;
+  /** How its last connection in this process went; absent until it has been tried. */
+  connection?: { ok: true } | { ok: false; error: string };
 }
 
 export interface SavedPermission {
@@ -115,6 +117,8 @@ export interface CliServices {
   mcp: {
     list(appId: number): Promise<McpServerSummary[]>;
     test(id: number): Promise<{ ok: boolean; error?: string; needsOAuth?: boolean }>;
+    /** Connect the servers not yet tried in this process (never tears down a working one). */
+    probe(ids: number[]): Promise<void>;
     tools(id: number): Promise<Array<{ name: string; description?: string }>>;
     /** A command (`npx -y @x/mcp`) starts a local server; a URL connects to a remote one. */
     add(appId: number, server: { name: string; command?: string; url?: string }): Promise<void>;
@@ -316,15 +320,22 @@ export const realServices: CliServices = {
   mcp: {
     async list(appId) {
       const rows = await call<Array<Record<string, unknown>>>("mcp:list-servers", { appId });
+      const status = await call<Record<number, McpServerSummary["connection"]>>("mcp:connection-status", {
+        serverIds: rows.map((r) => Number(r.id)),
+      }).catch(() => ({}) as Record<number, McpServerSummary["connection"]>);
       return rows.map((r) => ({
         id: Number(r.id),
         name: String(r.name ?? `Server ${r.id}`),
         transport: String(r.transport ?? ""),
         enabled: r.enabled !== false,
         needsSignIn: r.authType === "oauth" && r.oauthConnected !== true,
+        ...(status[Number(r.id)] ? { connection: status[Number(r.id)] } : {}),
       }));
     },
     test: (id) => call("mcp:test-connection", id),
+    async probe(ids) {
+      if (ids.length) await call("mcp:connection-status", { serverIds: ids, probe: true });
+    },
     found: (appId) => call("mcp:discover-external", { appId }),
     async importFound(appId, key) {
       await call("mcp:import-external", { appId, key });
@@ -506,6 +517,12 @@ export const realServices: CliServices = {
       // Encrypted with the desktop's OS key (entry.mts installs that key), so
       // the desktop app reads the same key. Only this provider's key changes.
       writeProviderKey(providerId, k);
+      // The desktop's key handler counts this; the CLI writes the key directly.
+      const [{ trackModelConnected }, { modelConnectedFor }] = await Promise.all([
+        import("@/main/lib/analytics"),
+        import("@/lib/analytics/model-connected"),
+      ]);
+      await trackModelConnected(modelConnectedFor(providerId));
       if (p && authHeader && authHeader !== (p.authHeader ?? "x-api-key")) {
         const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
         const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
@@ -699,9 +716,16 @@ export const realServices: CliServices = {
     async setConsent(v) {
       const { writeSettings } = await import("@/main/settings");
       writeSettings({ telemetryConsent: v });
+      // Analytics just turned on (the CLI's /analytics, an editor's question):
+      // this process's start and today's active day.
+      if (v === "opted_in") await import("@/main/lib/analytics").then((m) => m.trackAnalyticsTurnedOn()).catch(() => {});
     },
     track(event, properties) {
-      void import("@/main/lib/analytics").then((m) => m.captureSafe(event, properties)).catch(() => {});
+      // The start goes through its own path: once per process, and kept until
+      // analytics come on if they are off now.
+      void import("@/main/lib/analytics")
+        .then((m) => (event === "session_started" ? m.trackSessionStarted(properties) : m.captureSafe(event, properties)))
+        .catch(() => {});
     },
   },
   account: {

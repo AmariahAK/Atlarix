@@ -15,13 +15,14 @@
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { atlarixHomeDir } from "@/paths/atlarix-home";
 
 const unpacked = new Map<string, string>();
 
+/** `<atlarix home>/bin`: a scratch profile's own folder, never the person's ~/.atlarix. */
 export function binDir(): string {
-  return path.join(os.homedir(), ".atlarix", "bin");
+  return path.join(atlarixHomeDir(), "bin");
 }
 
 /**

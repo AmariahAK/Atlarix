@@ -182,6 +182,9 @@ describe("the session's commands", () => {
     const preview = await s.undoPreview(mine!.id);
     expect(preview.turnIds.length).toBe(1);
     expect(preview.filesChanged.some((f) => f.endsWith("undo.ts"))).toBe(true);
+    // The turn is this process's: two processes numbering messages from the same
+    // clock tick no longer share a turn, or its snapshot (audit 1f).
+    expect(preview.turnIds[0]).toMatch(new RegExp(`^\\d+-${process.pid}$`));
 
     const done = waitFor(s, (st) => st.cells.some((c: any) => c.kind === "markdown" && c.text === "Left v alone."));
     const { restoredFiles } = await s.resendEdited(mine!.id, "just look at v", preview.turnIds);
@@ -301,6 +304,10 @@ describe("the session's commands", () => {
     const last = JSON.stringify(llm.requests.filter((r: any) => r.tools?.length).at(-1)?.messages ?? []);
     expect(last).toContain("leave n alone");
     expect(last).not.toContain("now 2");
+    // A new first message is a new title (owner, 2026-10-19), as in the app.
+    // (No title model here: the title is made from the words.)
+    await waitFor(s, (st) => /leave n alone/i.test(st.title ?? ""), 10_000);
+    expect(s.state.title).not.toMatch(/set n to 1/i);
   }, 90_000);
 
   it("a sub-agent's tool calls nest under the task call that started it", async () => {
@@ -350,7 +357,7 @@ describe("the session's commands", () => {
     expect(JSON.stringify(task.tool)).not.toContain("fromWebContents");
     expect(JSON.stringify(task.tool)).not.toContain("ENOENT");
     // The turn carried its mode prompt, which was silently dropped outside this repo.
-    expect(JSON.stringify(llm.requests[0])).toContain("[Active Skill: modes/");
+    expect(JSON.stringify(llm.requests.find((r) => r.tools?.length))).toContain("[Active Skill: modes/");
     // It ran on THIS session's model (the CLI's own choice), not the app's
     // saved one: its request reached the same fake model.
     expect(JSON.stringify(task.tool)).not.toContain("isn't offered");
@@ -371,7 +378,8 @@ describe("the session's commands", () => {
     s.on("change", approve);
     await idleAfter(s, () => s.submit("sketch the login flow"));
     s.off("change", approve);
-    const file = path.join(ws, ".atlarix", "relics", "login-flow", "index.html");
+    // The workspace as the OS names it (/var is /private/var on macOS): one folder, one spelling.
+    const file = path.join(fs.realpathSync(ws), ".atlarix", "relics", "login-flow", "index.html");
     expect(fs.readFileSync(file, "utf8")).toContain("<h1>Login</h1>");
     const line = s.state.cells.find((c: any) => c.kind === "tool" && c.tool.verb === "Relic") as any;
     expect(line.tool.output).toBe(`Saved ${file}`);

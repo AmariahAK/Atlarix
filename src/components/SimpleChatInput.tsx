@@ -20,8 +20,11 @@ import { IpcClient } from "@/ipc/ipc_client";
 import {
   isStreamingByIdAtom,
   chatInputValueAtom,
+  followingByChatIdAtom,
   pendingInterjectionsByChatIdAtom,
 } from "@/atoms/chatAtoms";
+import { chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
+import { SURFACE_NAMES } from "@/lib/peers/peer-message";
 import { ChatInputControls } from "@/components/ChatInputControls";
 import { Button } from "@/components/ui/button";
 import {
@@ -89,6 +92,11 @@ export function SimpleChatInput({
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const isStreaming = isStreamingById.get(chatId) ?? false;
   const setIsStreamingById = useSetAtom(isStreamingByIdAtom);
+  // Another Atlarix runs this session's turn (useFollowRunningSession): what you
+  // type goes to that turn, and Stop stops it there.
+  const following = useAtomValue(followingByChatIdAtom).get(chatId);
+  const sessionId = useAtomValue(chatIdToSessionIdAtom).get(chatId);
+  const turnRunning = isStreaming || following != null;
   // Instant Stop: flip the UI out of the streaming state synchronously on
   // click and suppress further chunks (IpcClient.cancelChatStream) so the
   // composer swaps Stop→Send immediately — no waiting on the backend teardown
@@ -203,6 +211,26 @@ export function SimpleChatInput({
     if ((!inputValue.trim() && attachments.length === 0) || isSubmitting)
       return;
 
+    if (following && !isStreaming && sessionId) {
+      if (!inputValue.trim()) return;
+      const text = inputValue;
+      const files = attachments;
+      setInputValue("");
+      inputRef.current?.focus();
+      void (async () => {
+        const ipc = IpcClient.getInstance();
+        const sent = await ipc.steerRemoteSession(sessionId, text).catch(() => ({ ok: false }));
+        if (sent.ok) return;
+        // That turn has ended: read the session once more (it rebuilds the
+        // transport), then send it here as the next turn.
+        const { hydrateSessionIntoChat } = await import("@/lib/chat/hydrate-session-into-chat");
+        await hydrateSessionIntoChat({ sessionId, chatId }).catch(() => {});
+        onSubmit(text, files);
+        clearAttachments();
+      })();
+      return;
+    }
+
     // Streaming: hand the text to main for mid-turn delivery. Attachments
     // stay disabled mid-stream (`attachDisabled`), so this is text-only —
     // worth noting because the queue is a bare-text list and would drop
@@ -277,7 +305,7 @@ export function SimpleChatInput({
   // placeholder carries the queue affordance instead of a second button.
   const effectivePlaceholder = mustSignIn
     ? "Sign in to continue…"
-    : isStreaming
+    : turnRunning
       ? "Type a message — Enter sends it to the running turn…"
       : placeholder;
 
@@ -300,6 +328,12 @@ export function SimpleChatInput({
       {/* A3: calm "parked — will resume automatically" chip (turn ended,
                 background work outstanding). Self-hides when not parked. */}
       <ParkedWaitingChip chatId={chatId} />
+
+      {following ? (
+        <div className="mb-2 text-xs text-muted-foreground">
+          Running in {SURFACE_NAMES[following.surface]} · following
+        </div>
+      ) : null}
 
       {/* Approvals are ACTIONABLE, so they belong where you are looking. The
                 cards stay inline in the transcript as the record, but on a long
@@ -408,13 +442,17 @@ export function SimpleChatInput({
                         streaming (and vice versa). Enter mid-stream sends the
                         typed text INTO the running turn (handleSubmit); the chip
                         below shows what has not been picked up yet. */}
-          {isStreaming ? (
+          {turnRunning ? (
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="mx-1 hover:bg-destructive/10 hover:text-destructive"
-              onClick={stopStreamNow}
+              onClick={() =>
+                following && !isStreaming && sessionId
+                  ? void IpcClient.getInstance().stopRemoteSession(sessionId)
+                  : stopStreamNow()
+              }
               title="Stop generation (Enter sends your message to the running turn)"
             >
               <StopCircle className="h-4 w-4" />

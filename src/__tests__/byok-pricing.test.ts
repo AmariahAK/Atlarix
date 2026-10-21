@@ -2,11 +2,16 @@
  * v12 7D — BYOK per-turn cost estimation.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   estimateTurnCostUsd,
   inputOutputTokensFromUsage,
+  registerModelsDevPrices,
 } from "@/lib/routing/byok-pricing";
+import {
+  __resetCustomProviderFormatsForTests,
+  rememberCustomProviderFormats,
+} from "@/lib/routing/custom-provider-format";
 
 describe("inputOutputTokensFromUsage", () => {
   it("reads the AI-SDK v5 shape", () => {
@@ -100,10 +105,10 @@ describe("estimateTurnCostUsd — cache-aware (v13.2, ai@6 semantics)", () => {
   // ai@6: flat inputTokens is the cache-INCLUSIVE total for EVERY provider
   // (Anthropic's total = input + cacheCreation + cacheRead). One formula:
   // fullRate = input − cacheRead − cacheWrite.
-  it("anthropic: reads 0.1x, writes 1.25x, remainder at full rate", () => {
+  it("anthropic: reads 0.1x, writes 2x (the 1h header), remainder at full rate", () => {
     // Sonnet: total 1.3M = 100k uncached + 1M cached read + 200k write; 10k out
-    // = 100k*3/1M + 1M*0.3/1M + 200k*3.75/1M + 10k*15/1M
-    // = 0.3 + 0.3 + 0.75 + 0.15 = 1.5
+    // = 100k*3/1M + 1M*0.3/1M + 200k*6/1M + 10k*15/1M
+    // = 0.3 + 0.3 + 1.2 + 0.15 = 1.95
     expect(
       estimateTurnCostUsd(
         { name: "claude-sonnet-4-6", builtinProviderId: "anthropic" },
@@ -114,7 +119,7 @@ describe("estimateTurnCostUsd — cache-aware (v13.2, ai@6 semantics)", () => {
           cacheCreationInputTokens: 200_000,
         },
       ),
-    ).toBeCloseTo(1.5, 5);
+    ).toBeCloseTo(1.95, 5);
   });
 
   it("openai: cached reads re-billed at the cached rate, no write surcharge", () => {
@@ -151,7 +156,7 @@ describe("estimateTurnCostUsd — cache-aware (v13.2, ai@6 semantics)", () => {
     // billed at the $2/M input rate.
     expect(
       estimateTurnCostUsd(
-        { name: "gpt-4.1", builtinProviderId: "anthropic" },
+        { name: "gpt-4.1", builtinProviderId: "my-proxy" },
         {
           inputTokens: 1_000_000,
           outputTokens: 0,
@@ -205,5 +210,105 @@ describe("estimateTurnCostUsd — cache-aware (v13.2, ai@6 semantics)", () => {
       cachedInputTokens: 400,
       cacheCreationInputTokens: 100,
     });
+  });
+});
+
+describe("estimateTurnCostUsd — the models.dev catalog's prices", () => {
+  // Rows as the bundled snapshot has them (2026-10-19). The static table had no
+  // Fable at all (no cost shown) and priced Haiku 5.5 at Haiku 4.5's $1/$5.
+  const ROWS = [
+    { providerId: "anthropic", modelId: "claude-fable-5-1", cost: { input: 10, output: 50, cache_read: 0.25, cache_write: 12.5 } },
+    { providerId: "anthropic", modelId: "claude-sonnet-5-5", cost: { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5 } },
+    {
+      providerId: "anthropic",
+      modelId: "claude-haiku-5-5",
+      cost: {
+        input: 0.1,
+        output: 0.5,
+        cache_read: 0.01,
+        cache_write: 0.125,
+        tiers: [{ input: 0.5, output: 2.5, cache_read: 0.05, cache_write: 0.625, tier: { type: "context", size: 100_000 } }],
+      },
+    },
+    { providerId: "bedrock", modelId: "anthropic.claude-sonnet-5-5-v1:0", cost: { input: 2.2, output: 11, cache_read: 0.22, cache_write: 2.75 } },
+    { providerId: "ollama-cloud", modelId: "gpt-oss:20b", cost: { input: 0, output: 0 } },
+  ];
+  const mtok = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+
+  afterEach(() => {
+    registerModelsDevPrices([]);
+    __resetCustomProviderFormatsForTests();
+  });
+
+  it("prices Fable, which the static table never had", () => {
+    expect(estimateTurnCostUsd({ name: "claude-fable-5-1", builtinProviderId: "anthropic" }, mtok)).toBeNull();
+    registerModelsDevPrices(ROWS);
+    // $10 in + $50 out.
+    expect(estimateTurnCostUsd({ name: "claude-fable-5-1", builtinProviderId: "anthropic" }, mtok)).toBeCloseTo(60, 5);
+  });
+
+  it("the catalog wins over the static table", () => {
+    registerModelsDevPrices(ROWS);
+    // Haiku 5.5: $0.10 + $0.50, not the table's Haiku $1 + $5.
+    expect(estimateTurnCostUsd({ name: "claude-haiku-5-5", builtinProviderId: "anthropic" }, mtok)).toBeCloseTo(0.6, 5);
+    // Sonnet 5.5: $2 + $10, not $3 + $15.
+    expect(estimateTurnCostUsd({ name: "claude-sonnet-5-5", builtinProviderId: "anthropic" }, mtok)).toBeCloseTo(12, 5);
+  });
+
+  it("a request past a context tier's size is priced at that tier", () => {
+    registerModelsDevPrices(ROWS);
+    const at = (contextTokens: number) =>
+      estimateTurnCostUsd({ name: "claude-haiku-5-5", builtinProviderId: "anthropic" }, { ...mtok, contextTokens });
+    expect(at(100_000)).toBeCloseTo(0.6, 5);
+    // Over 100k: $0.50 + $2.50.
+    expect(at(150_000)).toBeCloseTo(3, 5);
+  });
+
+  it("Anthropic cache writes at the 1h rate (2x input), reads at the catalog's", () => {
+    registerModelsDevPrices(ROWS);
+    // Sonnet 5.5: 1M written ($4, not the catalog's 5-minute $2.50) + 1M read ($0.10).
+    expect(
+      estimateTurnCostUsd(
+        { name: "claude-sonnet-5-5", builtinProviderId: "anthropic" },
+        { inputTokens: 2_000_000, outputTokens: 0, cacheCreationInputTokens: 1_000_000, cachedInputTokens: 1_000_000 },
+      ),
+    ).toBeCloseTo(4.1, 5);
+  });
+
+  it("a provider added on the Anthropic format is priced as Claude, under Bedrock's longer id too", () => {
+    registerModelsDevPrices(ROWS);
+    rememberCustomProviderFormats([{ id: "custom::gateway", apiFormat: "anthropic" }]);
+    expect(
+      estimateTurnCostUsd({ name: "us.anthropic.claude-fable-5-1-v1:0", builtinProviderId: "custom::gateway" }, mtok),
+    ).toBeCloseTo(60, 5);
+    // It writes the 1h header too: 1M written on Fable = $20.
+    expect(
+      estimateTurnCostUsd(
+        { name: "claude-fable-5-1", builtinProviderId: "custom::gateway" },
+        { inputTokens: 1_000_000, outputTokens: 0, cacheCreationInputTokens: 1_000_000 },
+      ),
+    ).toBeCloseTo(20, 5);
+  });
+
+  it("Bedrock's own row, with its 5-minute cache write", () => {
+    registerModelsDevPrices(ROWS);
+    expect(
+      estimateTurnCostUsd(
+        { name: "anthropic.claude-sonnet-5-5-v1:0", builtinProviderId: "bedrock" },
+        { inputTokens: 1_000_000, outputTokens: 0, cacheCreationInputTokens: 1_000_000 },
+      ),
+    ).toBeCloseTo(2.75, 5);
+  });
+
+  it("a row priced at zero is no price, not a free turn", () => {
+    registerModelsDevPrices(ROWS);
+    expect(estimateTurnCostUsd({ name: "gpt-oss:20b", builtinProviderId: "ollama-cloud" }, mtok)).toBeNull();
+  });
+
+  it("a refreshed catalog replaces the prices before it", () => {
+    registerModelsDevPrices(ROWS);
+    registerModelsDevPrices([{ providerId: "anthropic", modelId: "claude-fable-5-1", cost: { input: 5, output: 25 } }]);
+    expect(estimateTurnCostUsd({ name: "claude-fable-5-1", builtinProviderId: "anthropic" }, mtok)).toBeCloseTo(30, 5);
+    expect(estimateTurnCostUsd({ name: "claude-haiku-5-5", builtinProviderId: "anthropic" }, mtok)).toBeCloseTo(6, 5);
   });
 });

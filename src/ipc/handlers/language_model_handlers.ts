@@ -1,3 +1,4 @@
+import { trackModelConnected } from "@/main/lib/analytics";
 import type {
   LanguageModelProvider,
   LanguageModel,
@@ -97,6 +98,8 @@ export function registerLanguageModelHandlers() {
         api_format: apiFormat ?? null,
         auth_header: authHeader ?? null,
       });
+      // Funnel: a provider of their own is wired up (its id and address are never sent).
+      void trackModelConnected({ type: "custom", provider: CUSTOM_PROVIDER_PREFIX + id, apiFormat: apiFormat ?? undefined });
 
       // Return the newly created provider
       return {
@@ -403,9 +406,10 @@ export function registerLanguageModelHandlers() {
       }
       const providers = await getLanguageModelProviders();
       const provider = providers.find((p) => p.id === params.providerId);
-      if (!provider) {
-        throw new Error(`Provider with ID "${params.providerId}" not found`);
-      }
+      // Gone (deleted, or a stale selection names it): it has no models. Its own
+      // settings page asks again right after the delete, and this threw
+      // (Sentry ATLARIX-2Z, "custom::oai-list").
+      if (!provider) return [];
       if (provider.type === "local") {
         throw new Error("Local models cannot be fetched");
       }

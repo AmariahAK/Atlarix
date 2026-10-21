@@ -52,16 +52,34 @@ const SEGMENT_SPLIT_RE = /&&|\|\||[|&;\n]/;
  * without asking. `X=1 curl …` and `FOO=bar ssh host` went through the same way.
  */
 const ASSIGNMENT = String.raw`[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s;&|'"]*)\s+`;
-const LEADING_PREFIX_RE = new RegExp(
-  String.raw`^(?:cd\s+[^\s;&|]+\s*|time\s+(?:-p\s+)?|nice\s+(?:-n\s*-?\d+\s+|-\d+\s+)?|nohup\s+|command\s+(?:-p\s+)?|builtin\s+|exec\s+|env\s+(?:-i\s+|-u\s+\S+\s+)*|` +
-    ASSIGNMENT +
-    ")+",
-  "i",
-);
+// `timeout`, `stdbuf` and `xargs`, and options of the others, were missing:
+// `timeout 5 git reset -q --hard` auto-ran in Build, and `timeout 5 git commit`
+// ran as a read in Explore (coordinator's review, 2026-10-20).
+const WRAPPER_PREFIX = [
+  String.raw`cd\s+[^\s;&|]+\s*`,
+  String.raw`time\s+(?:-p\s+|-[of]\s*\S+\s+|--(?:output|format)=\S+\s+)*`,
+  String.raw`nice\s+(?:-n\s*-?\d+\s+|--adjustment=-?\d+\s+|-\d+\s+)?`,
+  String.raw`nohup\s+`,
+  String.raw`command\s+(?:-p\s+)?`,
+  String.raw`builtin\s+`,
+  String.raw`exec\s+(?:-a\s*\S+\s+|-[cl]+\s+)*`,
+  // Not when its options lead to -S: that one is ENV_SPLIT_RE's.
+  String.raw`env\s+(?!(?:-\S+\s+)*(?:-S|--split-string)[=\s])(?:-i\s+|-0\s+|--ignore-environment\s+|-[uC]\s*\S+\s+|--(?:unset|chdir)=\S+\s+)*`,
+  String.raw`timeout\s+(?:-[sk]\s*\S+\s+|--(?:signal|kill-after)=\S+\s+|--?[a-z-]+\s+)*\S+\s+`,
+  String.raw`stdbuf\s+(?:-[ioe]\s*\S+\s+|--(?:input|output|error)=\S+\s+)*`,
+  String.raw`xargs\s+(?:-[ILnPsdEa]\s*\S+\s+|--[a-z-]+(?:=\S+)?\s+|-[0-9a-z]+\s+)*`,
+].join("|");
+const LEADING_PREFIX_RE = new RegExp(String.raw`^(?:` + WRAPPER_PREFIX + "|" + ASSIGNMENT + ")+", "i");
+/** `env -S 'cmd args'`: the string IS the command. */
+const ENV_SPLIT_RE = /^env\s+(?:-\S+\s+)*?(?:-S|--split-string)[=\s]\s*(?:'([^']*)'|"([^"]*)"|(\S+))/i;
 
 /** A segment without its leading wrappers and assignments (see LEADING_PREFIX_RE). */
 export function stripLeadingWrappers(segment: string): string {
-  return segment.trim().replace(LEADING_PREFIX_RE, "").trim();
+  let s = segment.trim().replace(LEADING_PREFIX_RE, "").trim();
+  for (let m = ENV_SPLIT_RE.exec(s); m; m = ENV_SPLIT_RE.exec(s)) {
+    s = `${m[1] ?? m[2] ?? m[3] ?? ""} ${s.slice(m[0].length)}`.replace(LEADING_PREFIX_RE, "").trim();
+  }
+  return s;
 }
 
 /**

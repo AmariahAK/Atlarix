@@ -2129,6 +2129,32 @@ export class IpcClient {
     return this.ipcRenderer.invoke("sessions:rename", sessionId, title);
   }
 
+  /** The surface running a turn of this session right now (then this window follows it), or null. */
+  public async sessionRunningElsewhere(
+    sessionId: string,
+  ): Promise<{ surface: "cli" | "app" | "chrome" | "editor"; name: string } | null> {
+    return this.ipcRenderer.invoke("sessions:running-elsewhere", sessionId);
+  }
+
+  /** Changes whenever the session's saved messages do. */
+  public async sessionRevision(sessionId: string): Promise<string> {
+    return this.ipcRenderer.invoke("sessions:revision", sessionId);
+  }
+
+  /** What the user typed, for the turn running elsewhere. `error: "not running"` once it has ended. */
+  public async steerRemoteSession(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("sessions:steer-remote", sessionId, text);
+  }
+
+  public async stopRemoteSession(sessionId: string): Promise<{ ok: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("sessions:stop-remote", sessionId);
+  }
+
+  /** A copy of the conversation as saved now, as a new session in the same folder. */
+  public async forkWorkspaceSession(sessionId: string, title?: string) {
+    return this.ipcRenderer.invoke("sessions:fork", sessionId, title ? { title } : undefined);
+  }
+
   /**
    * Stamp the session's work mode. Call this only on a DELIBERATE pick while the
    * session is active — never on open, or a session written before the column
@@ -4218,6 +4244,12 @@ export class IpcClient {
     chatId: number,
   ): Promise<{ text: string | null }> {
     return this.ipcRenderer.invoke("chat:interject-flush", chatId);
+  }
+
+  /** Another surface following a chat this window runs pressed Stop. */
+  public onRemoteStop(listener: (payload: { chatId: number }) => void): () => void {
+    const off = this.ipcRenderer.on("chat:remote-stop", (payload) => listener(payload as { chatId: number }));
+    return typeof off === "function" ? off : () => {};
   }
 
   public onUserInterjections(

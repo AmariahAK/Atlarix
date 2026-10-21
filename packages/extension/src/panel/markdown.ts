@@ -295,13 +295,21 @@ function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
  * right, so `**x**` must be offered the bold branch before the italic one or it
  * matches `*` + `*x*` and renders a stray asterisk around italic text.
  *
+ * A `[text](url)` LINK comes right after code (a link inside a code span is
+ * text) and before the bare URL, so the URL inside it is not linked twice. Its
+ * address may hold one level of parentheses (`…/wiki/Foo_(bar)`), as source
+ * links do. Only http(s) and mailto become links; anything else stays text.
+ *
  * ITALIC IS `*x*` ONLY, never `_x_`. Underscores appear inside ordinary tokens
  * the model writes constantly — `read_attachment`, `file_data`, snake_case
  * anything — and a pair of them in one line would swallow the middle into
  * emphasis. Asterisks do not occur that way.
  */
 const INLINE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?])/g;
+  /(`[^`]+`)|(\[[^\]\n]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?])/g;
+
+/** Where a `[text](url)` may point: never `javascript:`, `data:`, `vbscript:` or a relative path. */
+const SAFE_HREF = /^(?:https?:\/\/|mailto:)/i;
 
 function appendInline(parent: HTMLElement, text: string): void {
   let last = 0;
@@ -309,11 +317,16 @@ function appendInline(parent: HTMLElement, text: string): void {
     const at = match.index;
     if (at > last) parent.append(text.slice(last, at));
 
-    const [whole, code, bold, italic, url] = match;
+    const [whole, code, link, bold, italic, url] = match;
     if (code) {
       const el = document.createElement("code");
       el.textContent = code.slice(1, -1);
       parent.append(el);
+    } else if (link) {
+      const close = link.indexOf("](");
+      const href = link.slice(close + 2, -1);
+      if (SAFE_HREF.test(href)) parent.append(anchor(href, link.slice(1, close)));
+      else parent.append(whole);
     } else if (bold) {
       // Its inside is inline markdown too: "**Read `a.ts` — failed**" showed
       // the backticks (QA).
@@ -325,17 +338,22 @@ function appendInline(parent: HTMLElement, text: string): void {
       appendInline(el, italic.slice(1, -1));
       parent.append(el);
     } else if (url) {
-      const el = document.createElement("a");
-      el.href = url;
-      el.textContent = url;
-      el.target = "_blank";
-      // `noopener` is the load-bearing half: without it the opened page gets a
-      // `window.opener` handle back to an EXTENSION page. `noreferrer` is
-      // ordinary hygiene.
-      el.rel = "noopener noreferrer";
-      parent.append(el);
+      parent.append(anchor(url, url));
     }
     last = at + whole.length;
   }
   if (last < text.length) parent.append(text.slice(last));
+}
+
+/** A link that opens outside: its text is text, never markup. */
+function anchor(href: string, text: string): HTMLAnchorElement {
+  const el = document.createElement("a");
+  el.href = href;
+  el.textContent = text;
+  el.target = "_blank";
+  // `noopener` is the load-bearing half: without it the opened page gets a
+  // `window.opener` handle back to an EXTENSION page. `noreferrer` is
+  // ordinary hygiene.
+  el.rel = "noopener noreferrer";
+  return el;
 }

@@ -71,6 +71,7 @@ export async function openUpgradeCheckout(): Promise<{
   logger.info("Opening Pro checkout");
   const { shell } = await import("electron");
   await shell.openExternal(checkoutUrl);
+  SubscriptionManager.notePlanPageOpened();
   return { success: true };
 }
 
@@ -101,5 +102,6 @@ export async function openCreditCheckout(amountCents: number): Promise<{
   logger.info(`Opening credit checkout ($${(amountCents / 100).toFixed(2)})`);
   const { shell } = await import("electron");
   await shell.openExternal(checkoutUrl);
+  SubscriptionManager.notePlanPageOpened();
   return { success: true };
 }

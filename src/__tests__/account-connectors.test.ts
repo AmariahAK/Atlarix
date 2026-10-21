@@ -24,20 +24,56 @@ vi.mock("electron-log", () => ({
 }));
 
 let token: string | null = "user-jwt";
+let userId = "u-1";
+/** `account_mcp_servers` as PostgREST serves it; every read is counted. */
+let rows: Array<Record<string, unknown>> = [];
+let rowsError: { message: string } | null = null;
+let reads = 0;
+let gate: Promise<void> | null = null;
 vi.mock("@/lib/auth/supabase-client", () => ({
-  getSession: async () => (token ? { access_token: token } : null),
+  getSession: async () => (token ? { access_token: token, user: { id: userId } } : null),
+  getSupabaseClient: () => ({
+    from: (table: string) => {
+      if (table === "account_mcp_servers") reads++;
+      return {
+        select: () => ({
+          order: async () => {
+            if (gate) await gate;
+            return rowsError ? { data: null, error: rowsError } : { data: rows, error: null };
+          },
+        }),
+      };
+    },
+  }),
 }));
+
+const LINEAR_ROW = {
+  id: "c-1",
+  name: "Linear",
+  slug: "linear",
+  description: null,
+  url: "https://mcp.linear.app/mcp",
+  auth_type: "oauth",
+  auth_header: null,
+  registry_name: null,
+  enabled: true,
+  credential_set_at: "2026-10-01T00:00:00Z",
+  last_error: null,
+  tools_cache: [],
+};
 
 let proxyBase: string | undefined = "https://proxy.test/v1";
 vi.mock("@/ipc/shared/core_proxy", () => ({
-  ATLARIX_SURFACE: "app",
+  surfaceHeaders: () => ({ "X-Atlarix-Surface": "app" }),
   getCoreProxyBaseUrl: () => proxyBase,
 }));
 
 import {
   callAccountConnector,
   clearAccountConnectorsCache,
+  enabledConnectorCount,
   listAccountConnectors,
+  listConnectorRows,
 } from "@/lib/mcp/account-connectors";
 
 interface Sent {
@@ -65,6 +101,11 @@ function respond(status: number, body: unknown) {
 beforeEach(() => {
   sent = [];
   token = "user-jwt";
+  userId = "u-1";
+  rows = [LINEAR_ROW];
+  rowsError = null;
+  reads = 0;
+  gate = null;
   proxyBase = "https://proxy.test/v1";
   clearAccountConnectorsCache();
 });
@@ -136,6 +177,72 @@ describe("the quiet paths are quiet", () => {
       }),
     );
     await expect(listAccountConnectors()).resolves.toEqual([]);
+  });
+});
+
+describe("read once, again only when something says it changed (owner, 2026-10-20)", () => {
+  // A new user's app read `account_mcp_servers` 48 times in 70 minutes, every
+  // answer empty: the composer's MCP menu asked once per default server per
+  // render, and every other caller asked again.
+
+  it("a session's worth of callers is one read of the table and one proxy list", async () => {
+    respond(200, { ok: true, servers: [{ name: "Linear", tools: [] }] });
+    for (let turn = 0; turn < 20; turn++) {
+      // The MCP menu (5 defaults), the on-count, the model's listing.
+      await Promise.all([1, 2, 3, 4, 5].map(() => listConnectorRows()));
+      await enabledConnectorCount();
+      await listAccountConnectors();
+    }
+    expect(reads).toBe(1);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("an empty account stays empty: read once, the proxy never asked", async () => {
+    rows = [];
+    respond(200, { ok: true, servers: [] });
+    for (let turn = 0; turn < 20; turn++) {
+      await listConnectorRows();
+      await expect(listAccountConnectors()).resolves.toEqual([]);
+    }
+    expect(reads).toBe(1);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("a clear (focus, sign-in, session start, a write) is one more read, not a timer", async () => {
+    rows = [];
+    await listConnectorRows();
+    clearAccountConnectorsCache();
+    await Promise.all([listConnectorRows(), listConnectorRows(), enabledConnectorCount()]);
+    expect(reads).toBe(2);
+  });
+
+  it("another account never sees the last one's rows", async () => {
+    await listConnectorRows();
+    userId = "u-2";
+    rows = [];
+    await expect(listConnectorRows()).resolves.toEqual([]);
+    expect(reads).toBe(2);
+  });
+
+  it("a failed read is not kept: offline is not 'none'", async () => {
+    rowsError = { message: "fetch failed" };
+    await expect(listConnectorRows()).resolves.toBeNull();
+    rowsError = null;
+    await expect(listConnectorRows()).resolves.toHaveLength(1);
+    expect(reads).toBe(2);
+  });
+
+  it("a read that began before a clear is not kept after it", async () => {
+    let open!: () => void;
+    gate = new Promise((r) => (open = r));
+    const early = listConnectorRows();
+    await vi.waitFor(() => expect(reads).toBe(1));
+    clearAccountConnectorsCache();
+    open();
+    await early;
+    gate = null;
+    await listConnectorRows();
+    expect(reads).toBe(2);
   });
 });
 

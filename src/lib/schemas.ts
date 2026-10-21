@@ -353,6 +353,10 @@ export const UserSettingsSchema = z.object({
   /** How many distinct calendar days this install has been active. `lastActiveDay`
    * alone can't answer "is this their Nth day", which the PeerPush prompt needs. */
   activeDayCount: z.number().optional(),
+  /** Local YYYY-MM-DD of the last `active_day` actually SENT. Apart from
+   * `lastActiveDay` (counted): a day that began with analytics off is still sent
+   * once they are turned on. */
+  lastActiveDaySent: z.string().optional(),
   /** Local providers already counted into the activation funnel. They need no
    * API key, so they never hit the key handler that fires `model_connected`. */
   analyticsLocalProvidersSeen: z.array(z.string()).optional(),

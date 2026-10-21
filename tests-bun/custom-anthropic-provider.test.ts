@@ -156,8 +156,9 @@ describe("a provider you added that speaks the Anthropic format", () => {
       expect(turn.every((q) => q.headers.authorization === "Bearer dev-k")).toBe(true);
 
       // A second turn: the cached system block is byte-for-byte the first
-      // turn's, and this turn's request rides in its own block after it (QA:
-      // it sat inside the cached block, so every turn missed the cache).
+      // turn's (QA: the request sat inside it, so every turn missed the cache),
+      // and so is the per-turn tail after it: the request is the user message
+      // only, so the history after the tail caches too (owner, 2026-10-21).
       const before = fake.requests.length;
       const again = idle(s as never);
       await s.submit("Now read notes.txt.");
@@ -170,7 +171,10 @@ describe("a provider you added that speaks the Anthropic format", () => {
       expect(first[0]!.cache_control).toBeTruthy();
       expect(second[0]!.text).toBe(first[0]!.text);
       expect(first[0]!.text).not.toContain("<user_context>");
-      expect(second.slice(1).map((b) => b.text).join("\n")).toContain("Now read notes.txt.");
+      expect(second.slice(1).map((b) => b.text)).toEqual(first.slice(1).map((b) => b.text));
+      expect(JSON.stringify(second)).not.toContain("Now read notes.txt.");
+      const msgs = JSON.stringify(mainOf(fake.requests.slice(before)).body!.messages);
+      expect(msgs.split("Now read notes.txt.").length - 1).toBe(1);
     } finally {
       fake.stop();
     }

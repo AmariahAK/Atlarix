@@ -267,6 +267,10 @@ jobs:
     env:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      # Whether the Sentry upload runs: "true"/"false" only, never the token, which
+      # stays in the upload step (the build's own environment is readable by every
+      # dependency script that runs during make).
+      HAS_SENTRY_UPLOAD: ${{ secrets.SENTRY_AUTH_TOKEN != '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -420,6 +424,32 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          # Hidden source maps beside the bundle, for the Sentry upload below.
+          ATLARIX_SOURCEMAPS: ${{ env.HAS_SENTRY_UPLOAD == 'true' && '1' || '' }}
+
+      # Sentry reads stack traces against these maps; without them every frame is
+      # `app:///.vite/build/main.js:<line>:<col>` of the minified bundle. The JS
+      # bundle is the same on every platform, so one upload (arm64) serves all.
+      # Skipped, without failing, when the repo has no SENTRY_AUTH_TOKEN.
+      - name: Upload source maps to Sentry (main + window)
+        if: matrix.arch == 'arm64' && env.HAS_SENTRY_UPLOAD == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: norah-labs
+          SENTRY_PROJECT: atlarix
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          # The maps must not have shipped: packageAfterPrune deletes them.
+          ASAR="out/Atlarix-darwin-arm64/Atlarix.app/Contents/Resources/app.asar"
+          if npx --no-install @electron/asar list "$ASAR" | grep -E '\.map$'; then
+            echo "::error::source maps are inside the packaged app"; exit 1
+          fi
+          # The release is the app version, which both Sentry.init calls report.
+          npx --yes @sentry/cli@2.58.4 sourcemaps upload --release "$VERSION" \
+            --url-prefix "app:///.vite/build" .vite/build
+          npx --yes @sentry/cli@2.58.4 sourcemaps upload --release "$VERSION" \
+            --url-prefix "app:///.vite/renderer/main_window" .vite/renderer/main_window
 
       - name: Notarize macOS app (DMG), staple .app, re-zip stapled bundle, staple DMG
         run: |

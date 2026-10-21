@@ -193,13 +193,8 @@ function App() {
   useEffect(() => {
     // Subscribe to navigation state changes
     const unsubscribe = router.subscribe("onResolved", (navigation) => {
-      // Capture the navigation event in PostHog
-      posthog.capture("navigation", {
-        toPath: navigation.toLocation.pathname,
-        fromPath: navigation.fromLocation?.pathname,
-      });
-
-      // Optionally capture as a standard pageview as well
+      // One event per screen change: a "navigation" event beside this one
+      // counted every move twice.
       posthog.capture("$pageview", {
         path: navigation.toLocation.pathname,
       });
@@ -275,7 +270,9 @@ async function bootstrap() {
       dsn: sentryConfig.dsn,
       release: sentryConfig.version,
       integrations: [Sentry.browserTracingIntegration()],
-      tracesSampleRate: 1.0,
+      // As in main: full tracing only in dev. 1.0 in packaged builds sent ~19k
+      // spans a month that nobody reads, and 3k more were dropped as too large.
+      tracesSampleRate: sentryIsPackaged ? 0.1 : 1.0,
       ignoreErrors: SENTRY_IGNORE_ERROR_PATTERNS,
       beforeSend: sentryBeforeSendDropExpected,
     });
@@ -284,7 +281,7 @@ async function bootstrap() {
     // Held, not started. `ensurePostHogInitialized` writes nothing to this
     // device until consent exists — see posthog-client.ts for why that is not
     // the same as `before_send` dropping events.
-    setPostHogConfig(posthogConfig.posthogApiKey, posthogConfig.analyticsId);
+    setPostHogConfig(posthogConfig.posthogApiKey, posthogConfig.analyticsId, sentryConfig.version);
     ensurePostHogInitialized();
   }
   createRoot(document.getElementById("root")!).render(

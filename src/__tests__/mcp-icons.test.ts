@@ -64,3 +64,41 @@ describe("fetching an icon", () => {
     expect(await fetchIconAsDataUrl("https://cdn.example/ok.svg")).toMatch(/^data:image\/svg\+xml;base64,/);
   });
 });
+
+describe("a local server with no registry icon", () => {
+  it("reads its npm scope from the command it runs", async () => {
+    const { npmScopeOf } = await import("@/lib/mcp/mcp-icons");
+    expect(npmScopeOf({ command: "npx", args: ["-y", "@brave/brave-search-mcp-server"] })).toBe("brave");
+    expect(npmScopeOf({ command: "bunx", args: ["@modelcontextprotocol/server-filesystem@1.2.0", "/tmp"] })).toBe(
+      "modelcontextprotocol",
+    );
+    expect(npmScopeOf({ command: "uvx", args: ["mcp-server-git"] })).toBeNull();
+    expect(npmScopeOf({ command: "node", args: ["/home/me/@work/server.js"] })).toBeNull();
+  });
+
+  it("gets that scope's GitHub picture instead of a letter", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/mcp/registry-catalog", () => ({
+      findCatalogNameFor: async () => null,
+      getMcpCatalogEntry: async () => null,
+    }));
+    vi.doMock("@/paths/paths", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/paths/paths")>()),
+      getUserDataPath: () => `/tmp/atlarix-mcp-icons-ai2a-${process.pid}`,
+    }));
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (u: URL | string) => {
+        fetched.push(String(u));
+        return new Response(new Uint8Array(PNG), { status: 200, headers: { "content-type": "image/png" } });
+      }),
+    );
+    const { getMcpIconFor } = await import("@/lib/mcp/mcp-icons");
+    const icon = await getMcpIconFor({ command: "npx", args: ["-y", "@brave/brave-search-mcp-server"] });
+    expect(icon).toBe(`data:image/png;base64,${PNG.toString("base64")}`);
+    expect(fetched).toEqual(["https://github.com/brave.png?size=64"]);
+    vi.doUnmock("@/lib/mcp/registry-catalog");
+    (await import("node:fs")).rmSync(`/tmp/atlarix-mcp-icons-ai2a-${process.pid}`, { recursive: true, force: true });
+  });
+});

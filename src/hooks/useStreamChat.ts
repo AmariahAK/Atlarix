@@ -149,6 +149,7 @@ function isErrorLikeLine(line: string): boolean {
 }
 
 import { playNotify, playRemaining } from "@/lib/sounds";
+import { messageIdOfTurn } from "@/shared/turn-id";
 
 /** PASS6: cap renderer-held chat history to limit heap growth (SQLite still has full history). */
 const MAX_RENDERER_MESSAGES = 100;
@@ -1960,10 +1961,6 @@ export function useStreamChat({
 
             if (response.usedCompass) {
               getDefaultStore().set(compassUsageBumpAtom, (n) => n + 1);
-              posthog?.capture("core_turn_completed", {
-                chat_id: response.chatId,
-                surface: hasChatId ? "workspace_chat" : "floating_chat",
-              });
             }
 
             if (
@@ -2240,8 +2237,7 @@ export function useStreamChat({
               if (
                 lastAssistantForSnapshot &&
                 snapshotTurnId &&
-                Number.isFinite(Number(snapshotTurnId)) &&
-                Number(snapshotTurnId) === lastAssistantForSnapshot.id
+                messageIdOfTurn(snapshotTurnId) === lastAssistantForSnapshot.id
               ) {
                 getDefaultStore().set(
                   turnSnapshotTurnIdByMessageIdAtom,
@@ -2585,13 +2581,12 @@ export function useStreamChat({
               thErr.pending.clear();
             }
             console.error(`[CHAT] Stream error for ${chatId}:`, errorMessage);
-            if (errorMessage.includes(ATLARIX_AUTH_REQUIRED_PREFIX)) {
-              posthog?.capture("auth_chat_stream_blocked", { chat_id: chatId });
-            } else if (/compass/i.test(errorMessage)) {
-              posthog?.capture("core_turn_failed", {
-                chat_id: chatId,
-                error_snippet: errorMessage.slice(0, 240),
-              });
+            // The turn's `turn_completed` (main process) says how it failed, as a
+            // word. Error TEXT never goes to analytics: it can quote the prompt.
+            if (
+              !errorMessage.includes(ATLARIX_AUTH_REQUIRED_PREFIX) &&
+              /compass/i.test(errorMessage)
+            ) {
               Sentry.captureException(new Error(errorMessage.slice(0, 500)), {
                 tags: { feature: "compass", source: "renderer_stream" },
                 extra: { chatId },

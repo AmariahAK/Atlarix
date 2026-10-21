@@ -301,92 +301,10 @@ export async function loadAtlarixMdSection(
   }
 }
 
-/**
- * Agent memory — the INDEX only.
- *
- * v13 auto-injected the whole of `.atlarix/memory.md` on every request, so the cost of
- * memory grew with how much the agent had learned (and was then truncated at 3000
- * chars, losing the tail). The store is now per-note under
- * `~/.atlarix/projects/<slug>/memory/`, and only its one-line-per-note index reaches
- * the prompt: cost scales with the NUMBER of notes, not their size.
- *
- * Framed as optional. A note is background that may save a re-scan — it is not an
- * instruction, and chasing one must never displace the user's actual task. Writing is
- * likewise recommended, never required, and `ATLARIX_MEMORY=off` removes this section
- * entirely so benchmark runs carry no memory surface at all.
- */
-export async function loadMemoryMdSection(
-  p: ContextSectionParams,
-): Promise<ContextSection | null> {
-  const { preflight, hasWorkspace, appPath } = p;
-  if (!(hasWorkspace && appPath)) return null;
-  try {
-    const {
-      isAgentMemoryDisabled,
-      readMemoryIndex,
-      migrateLegacyMemoryMd,
-      adoptMisplacedMemoryDir,
-      listMemoryNoteSizes,
-      planMemoryCompaction,
-    } = await import("@/lib/agent-memory");
-    if (isAgentMemoryDisabled()) return null;
-
-    const memory = await preflight.time("memory-index", async () => {
-      // Carry a pre-v14.23.0 single file into the new store on first sight. Idempotent
-      // and non-destructive (the original stays put), so it can run on every turn.
-      const { readMemoryMd } = await import("@/lib/project-memory");
-      const legacy = await readMemoryMd(appPath);
-      if (legacy) await migrateLegacyMemoryMd(appPath, legacy);
-      // Reclaim notes an earlier agent wrote to a guessed, human-readable path (see
-      // the empty-state note below for how that happened). Also idempotent.
-      await adoptMisplacedMemoryDir(appPath);
-      return readMemoryIndex(appPath);
-    });
-
-    /**
-     * No notes yet → no section at all.
-     *
-     * This used to emit a one-line section whose ONLY job was to name the memory
-     * directory, because (in its own words) this was "the only place the absolute
-     * memory path is published" — and returning null had previously caused agents
-     * to invent a human-readable path and write notes outside the store.
-     *
-     * The path now ships in the runtime identity block at the top of every prompt
-     * (`buildWorkstationIdentityBlock`), workspace or not, populated or not. So the
-     * reason for this branch is gone, and keeping it would pay tokens on every turn
-     * of every empty workspace to repeat something already stated above.
-     */
-    if (!memory) return null;
-
-    // Memory compacts, it is never capped — so the signal has to reach the agent on a
-    // turn where it happens to be writing a note AND on one where it isn't. The
-    // edit_file notice covers the first; this covers the second.
-    //
-    // It rides the HEADER LINE that is already being paid for, as a few words. This
-    // section renders on every turn, so a paragraph here is a paragraph on every request
-    // until the store shrinks — the first version cost 147 tokens per turn, which is the
-    // payload-instead-of-index mistake v14.25.0 existed to undo. The convention is
-    // already one `guides/memory` pointer away; repeating it is not Atlarix's job.
-    const compaction = await preflight.time("memory-compaction", async () =>
-      planMemoryCompaction({ notes: await listMemoryNoteSizes(appPath) }),
-    );
-
-    // No absolute path here any more — the runtime identity block publishes it once,
-    // at the top. This section carries only what CHANGES: the count, the compaction
-    // flag and the index. That split is also what keeps the path in the cache-stable
-    // header while the count stays out of it.
-    const content = [
-      `## Project memory — ${memory.noteCount} note(s)${compaction ? ` [${compaction.flag}]` : ""} (store location is in Runtime identity)`,
-      memory.index || "(index empty — list the directory to see the notes)",
-      `Optional: read a note with read_file when its line looks relevant to this task. When you learn something durable that the code does NOT already record, you may add a note (one fact per file, plus one index line) — never interrupt the user's task to do it. The full convention is the \`guides/memory\` entry under "Skills available"; read that file only when writing a note.`,
-    ].join("\n");
-
-    return { name: "projectKnowledge", priority: 3.9, content };
-  } catch (memErr) {
-    logger.warn("Failed to read agent memory index:", memErr);
-    return null;
-  }
-}
+// Agent memory is not a context section any more. Its rules are in the cached
+// system header and its index / recalled notes ride the user rows, saved with
+// them — see `lib/memory/session-context.ts`. A per-turn section here re-priced
+// the prompt prefix every time a note was written.
 
 // Marketplace skills are indexed by loadSkillsIndexSection above, alongside repo
 // skills and the bundled guides — one section, one line per skill, bodies read

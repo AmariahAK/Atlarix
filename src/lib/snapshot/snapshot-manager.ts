@@ -33,6 +33,8 @@ import { exec } from "@/ipc/utils/system_git_exec";
 import log from "electron-log";
 import { sanitizeLedgerDirSegment } from "@/lib/tasks/task-ledger";
 import { getUserDataPath } from "@/paths/paths";
+import { realAppPath } from "@/lib/canonical-app-path";
+import { turnIdForMessage } from "@/shared/turn-id";
 import {
   ATLARIX_GIT_AUTHOR_NAME,
   ATLARIX_GIT_AUTHOR_EMAIL,
@@ -77,9 +79,14 @@ export interface SnapshotManifest {
   revertedFiles?: string[];
 }
 
-function workspaceKey(workspacePath: string): string {
+/**
+ * Keyed by the folder with its symlinks resolved, so `/tmp/x` and `/private/tmp/x`
+ * (or a symlinked `~/code`) share one store and `/undo` finds a turn whichever
+ * spelling recorded it (E13). `legacy` is the key before that: the path as given.
+ */
+function workspaceKey(workspacePath: string, legacy = false): string {
   return createHash("sha256")
-    .update(path.resolve(workspacePath))
+    .update(legacy ? path.resolve(workspacePath) : realAppPath(workspacePath))
     .digest("hex")
     .slice(0, 16);
 }
@@ -92,14 +99,35 @@ export function _setShadowSnapshotsRootForTests(root: string | null): void {
   byteExactRepos.clear(); // as a fresh run would see them
 }
 
-function shadowGitDir(workspacePath: string): string {
+/**
+ * Where a workspace's snapshots live. With `seg`, the store holding THAT turn:
+ * one recorded before symlinks were resolved is under the spelling's own key.
+ */
+function shadowGitDir(workspacePath: string, seg?: string): string {
   const root =
     shadowRootOverride ?? path.join(getUserDataPath(), SHADOW_ROOT_DIR);
-  return path.join(root, workspaceKey(workspacePath));
+  const dir = path.join(root, workspaceKey(workspacePath));
+  if (!seg || fsSync.existsSync(turnManifestPath(dir, seg))) return dir;
+  const legacy = path.join(root, workspaceKey(workspacePath, true));
+  return legacy !== dir && fsSync.existsSync(turnManifestPath(legacy, seg)) ? legacy : dir;
 }
 
 function turnManifestPath(gitDir: string, seg: string): string {
   return path.join(gitDir, TURNS_DIR, `${seg}.json`);
+}
+
+/**
+ * A turn id as it was recorded. A client holding only the turn's assistant
+ * message id (a stopped turn's client never hears the turn id) means this
+ * process's turn for that message, `<id>-<pid>` (shared/turn-id): the message
+ * ids a client has are this process's transport. One recorded before the pid
+ * was added is the bare id itself.
+ */
+function recordedTurnId(workspacePath: string, turnId: string): string {
+  if (!/^\d+$/.test(turnId)) return turnId;
+  const own = turnIdForMessage(Number(turnId), process.pid);
+  const seg = sanitizeLedgerDirSegment(own);
+  return fsSync.existsSync(turnManifestPath(shadowGitDir(workspacePath, seg), seg)) ? own : turnId;
 }
 
 /**
@@ -637,7 +665,7 @@ export function recordSnapshotTurnEnd(turnId: string): Promise<void> {
       const hashes: Record<string, string | null> = {};
       for (const rel of files) hashes[rel] = fileHashSync(path.join(root, rel));
       return withWorkspaceLock(root, async () => {
-        const gitDir = shadowGitDir(root);
+        const gitDir = shadowGitDir(root, seg);
         const manifest = await readManifest(gitDir, seg);
         if (!manifest) return;
         // Every file the manifest holds needs an end state: one missing (a
@@ -677,8 +705,8 @@ async function shadowRevert(
   turnId: string,
   filterPaths: string[] | null,
 ): Promise<(RevertSnapshotResult & { kept: string[] }) | null> {
-  const gitDir = shadowGitDir(workspacePath);
   const seg = sanitizeLedgerDirSegment(turnId);
+  const gitDir = shadowGitDir(workspacePath, seg);
   const manifest = await readManifest(gitDir, seg);
   if (!manifest) return null; // not a shadow-git turn — caller falls back to legacy
   await ensureByteExact(gitDir, workspacePath);
@@ -781,6 +809,7 @@ export async function previewRevert(
   workspacePath: string,
   turnIdsNewestFirst: string[],
 ): Promise<{ restores: string[]; kept: string[] }> {
+  turnIdsNewestFirst = turnIdsNewestFirst.map((t) => recordedTurnId(workspacePath, t));
   const primary = path.resolve(workspacePath);
   const state = new Map<string, string | null>();
   const restores = new Set<string>();
@@ -788,7 +817,7 @@ export async function previewRevert(
   for (const turnId of turnIdsNewestFirst) {
     const seg = sanitizeLedgerDirSegment(turnId);
     for (const root of await turnRoots(workspacePath, turnId)) {
-      const gitDir = shadowGitDir(root);
+      const gitDir = shadowGitDir(root, seg);
       await workspaceWritesSettled(root);
       const manifest = await readManifest(gitDir, seg);
       if (!manifest) continue;
@@ -837,10 +866,8 @@ async function turnRoots(
   turnId: string,
 ): Promise<string[]> {
   const primary = path.resolve(workspacePath);
-  const extra = await readTurnRoots(
-    shadowGitDir(primary),
-    sanitizeLedgerDirSegment(turnId),
-  );
+  const seg = sanitizeLedgerDirSegment(turnId);
+  const extra = await readTurnRoots(shadowGitDir(primary, seg), seg);
   return [primary, ...extra.filter((r) => path.resolve(r) !== primary)];
 }
 
@@ -849,7 +876,8 @@ export async function revertSnapshot(params: {
   workspacePath: string;
   turnId: string;
 }): Promise<RevertSnapshotResult> {
-  const { workspacePath, turnId } = params;
+  const { workspacePath } = params;
+  const turnId = recordedTurnId(workspacePath, params.turnId);
   const roots = await turnRoots(workspacePath, turnId);
   const primary = path.resolve(workspacePath);
   let restored = 0;
@@ -890,7 +918,8 @@ export async function revertSnapshotFiles(params: {
   turnId: string;
   relativePaths: string[];
 }): Promise<RevertSnapshotResult> {
-  const { workspacePath, turnId, relativePaths } = params;
+  const { workspacePath, relativePaths } = params;
+  const turnId = recordedTurnId(workspacePath, params.turnId);
   if (relativePaths.length === 0) {
     return { success: true, restoredFiles: 0 };
   }
@@ -940,13 +969,14 @@ export async function readSnapshotFile(params: {
   /** Workspace-relative (`../sibling/x` for a granted root), as listSnapshotFiles shows it. */
   relativePath: string;
 }): Promise<{ existed: boolean; content: string } | null> {
-  const { workspacePath, turnId, relativePath } = params;
+  const { workspacePath, relativePath } = params;
+  const turnId = recordedTurnId(workspacePath, params.turnId);
   const seg = sanitizeLedgerDirSegment(turnId);
   const roots = await turnRoots(workspacePath, turnId);
   const [group] = groupPathsByRoot({ workspacePath, paths: [relativePath], grantedRoots: roots });
   const rel = group?.relativePaths[0];
   if (!group || !rel) return null;
-  const gitDir = shadowGitDir(group.root);
+  const gitDir = shadowGitDir(group.root, seg);
   const manifest = await readManifest(gitDir, seg);
   if (!manifest) return null;
   if (manifest.createdFiles.includes(rel)) return { existed: false, content: "" };
@@ -961,12 +991,13 @@ export async function snapshotExists(
   turnId: string,
 ): Promise<boolean> {
   if (!workspacePath || !turnId) return false;
+  turnId = recordedTurnId(workspacePath, turnId);
   const seg = sanitizeLedgerDirSegment(turnId);
   // A turn that ONLY touched a granted sibling still has a revertible snapshot — it just
   // lives in that root's shadow repo. Checking the primary alone would hide the Revert
   // affordance for exactly the cross-repo edits this release made revertible.
   for (const root of await turnRoots(workspacePath, turnId)) {
-    if ((await readManifest(shadowGitDir(root), seg)) != null) return true;
+    if ((await readManifest(shadowGitDir(root, seg), seg)) != null) return true;
   }
   return false;
 }
@@ -989,6 +1020,7 @@ export async function listSnapshotFiles(
   endRecorded: boolean;
 } | null> {
   if (!workspacePath || !turnId) return null;
+  turnId = recordedTurnId(workspacePath, turnId);
   const seg = sanitizeLedgerDirSegment(turnId);
   const primary = path.resolve(workspacePath);
   const filesChanged: string[] = [];
@@ -1000,7 +1032,7 @@ export async function listSnapshotFiles(
 
   for (const root of await turnRoots(workspacePath, turnId)) {
     await workspaceWritesSettled(root);
-    const manifest = await readManifest(shadowGitDir(root), seg);
+    const manifest = await readManifest(shadowGitDir(root, seg), seg);
     if (!manifest) continue;
     found = true;
     revertedAt ??= manifest.revertedAt;
@@ -1042,10 +1074,11 @@ async function updateManifests(
   turnId: string,
   update: (m: SnapshotManifest) => boolean,
 ): Promise<SnapshotManifest[]> {
+  turnId = recordedTurnId(workspacePath, turnId);
   const seg = sanitizeLedgerDirSegment(turnId);
   const changed: SnapshotManifest[] = [];
   for (const root of await turnRoots(workspacePath, turnId)) {
-    const gitDir = shadowGitDir(root);
+    const gitDir = shadowGitDir(root, seg);
     await withWorkspaceLock(root, async () => {
       const manifest = await readManifest(gitDir, seg);
       if (!manifest || !update(manifest)) return;

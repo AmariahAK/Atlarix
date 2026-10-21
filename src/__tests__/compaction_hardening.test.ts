@@ -24,6 +24,8 @@ describe("isContextOverflowError", () => {
     "the maximum length of the conversation was exceeded",
     "Please reduce the length of the messages",
     "input length and `max_tokens` exceed context limit",
+    // Atlarix Core (Sentry ATLARIX-2Y, 84 events).
+    "Prompt exceeds max length",
   ])("classifies %s as overflow", (msg) => {
     expect(isContextOverflowError(new Error(msg))).toBe(true);
   });

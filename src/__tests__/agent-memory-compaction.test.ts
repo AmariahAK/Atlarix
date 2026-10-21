@@ -82,13 +82,12 @@ describe("planMemoryCompaction", () => {
   /**
    * The signal is a FLAG, not a lesson.
    *
-   * It rides `loadMemoryMdSection`, which renders on EVERY turn — so a paragraph here is
-   * a paragraph on every request until the store shrinks. The first version of this cost
-   * a measured 147 tokens/turn (~7,350 over a 50-turn session), which is exactly the
+   * It rides the memory index reminder and every memory write's notice. The first
+   * version of this cost a measured 147 tokens a turn, which is exactly the
    * payload-instead-of-index mistake v14.25.0 existed to undo. The current flag is 24.
    *
-   * This test is the guard against it creeping back: the HOW belongs in
-   * `skills/guides/memory.md`, which the section already points at.
+   * This test is the guard against it creeping back: the HOW belongs in the system
+   * header's "Project memory" rules, which are always there.
    */
   it("stays a flag — short, and no re-teaching of the convention", () => {
     const plan = planMemoryCompaction({
@@ -102,11 +101,12 @@ describe("planMemoryCompaction", () => {
     expect(plan!.flag).not.toMatch(/do not delete/i);
   });
 
-  it("points at the guide instead of restating it", () => {
+  it("points at no guide — the removed guides/memory must not be named", () => {
     const plan = planMemoryCompaction({
       notes: notes(MEMORY_COMPACT_BYTES + MB),
     });
-    expect(plan?.flag).toContain("guides/memory");
+    expect(plan?.flag).not.toContain("guides/memory");
+    expect(plan?.flag).toMatch(/compact .* now$/);
   });
 
   it("never names the index file as a compaction target", () => {

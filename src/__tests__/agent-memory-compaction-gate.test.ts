@@ -10,9 +10,9 @@
  * inert for every non-memory path — a compaction rule for project memory must never
  * touch ordinary editing.
  *
- * (The other half of the forcing function lives in the prompt: `loadMemoryMdSection`
- * carries the same directive every turn, so it also lands on turns where the agent isn't
- * writing a note at all.)
+ * (The other half rides the memory index reminder on a user message — see
+ * memory-compaction-prompt-section.test.ts — so it also lands on turns where the agent
+ * isn't writing a note at all.)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
@@ -97,8 +97,8 @@ describe("edit_file agent-memory compaction directive", () => {
     expect(res.preview?.notice).toMatch(/compact/i);
     // Names the biggest note, which is the filler.
     expect(res.preview?.notice).toContain("filler.md");
-    // A flag, not a lesson — the agent is already in the store; the convention is one
-    // `guides/memory` read away and repeating it here is pure per-call cost.
+    // A flag, not a lesson — the agent is already in the store, and the convention is
+    // in the system header's rules; repeating it here is pure per-call cost.
     expect(res.preview?.notice?.split("\n")).toHaveLength(1);
     expect(res.preview?.notice?.length).toBeLessThan(140);
   });

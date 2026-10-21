@@ -225,8 +225,11 @@ export class NetworkStreamDisconnectedError extends Error {
   /** The last transport error's own words ("Cannot connect to API: …"). */
   detail?: string;
   constructor(partialResponse: string, cause?: unknown) {
+    // The cause is kept, not just its words: a provider that kept answering 5xx
+    // or 429 is that failure (turn-end reads its status), not "network".
     super("Network stream disconnected after retries");
     this.name = "NetworkStreamDisconnectedError";
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
     this.partialResponse = partialResponse;
     const m = cause instanceof Error ? cause.message : (cause as { error?: Error } | undefined)?.error?.message;
     if (m) this.detail = m;

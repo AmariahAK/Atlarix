@@ -73,6 +73,46 @@ export function approvalChoices(a: PendingApproval): ApprovalChoice[] {
   return choices;
 }
 
+/**
+ * The line left in the transcript once a card is answered, as Codex CLI and
+ * Claude Code do: what you approved, and for how long. Shared with the editors
+ * (acp/updates.ts shows the same `approved:` line). Null when there is nothing
+ * to confirm: you said no, or the request names no command or file.
+ */
+export function approvalConfirmation(a: PendingApproval, mode: ApprovalChoice["mode"]): string | null {
+  if (mode === "deny") return null;
+  const p = firstPreview(a);
+  const code = (s: string) => `\`${oneLineOf(s)}\``;
+  let what: string | null = null;
+  if (p.command) {
+    if (mode === "always_allow") {
+      const key = p.commandCategory || getCommandCategory(p.command);
+      what =
+        p.isDangerous || key.startsWith("danger:")
+          ? `always run ${code(p.command)} in this folder`
+          : key.startsWith("mutate:")
+            ? `always make changes like ${code(p.command)} in this folder`
+            : `always run commands that start with ${code(key)} in this folder`;
+    } else {
+      what = `run ${code(p.command)} this time`;
+    }
+  } else if (p.deniedPath) {
+    what = `write to ${code(p.deniedPath)} this time`;
+  } else if (p.path) {
+    const verb = p.type === "delete" ? "delete" : p.type === "create" ? "create" : "edit";
+    if (mode === "always_allow_directory" && p.fileParentDir) what = `edit files in ${code(nativeDir(p.fileParentDir))} from now on`;
+    else if (mode === "always_allow_file") what = `edit ${code(p.path)} from now on`;
+    else what = `${verb} ${code(p.path)} this time`;
+  }
+  return what ? `✓ You approved Atlarix to ${what}` : null;
+}
+
+/** A command on one line, at most 120 characters: the line is a receipt, not the command. */
+function oneLineOf(s: string): string {
+  const flat = s.replace(/\s+/g, " ").trim();
+  return flat.length > 120 ? `${flat.slice(0, 119)}…` : flat;
+}
+
 export function approvalTitle(a: PendingApproval): string {
   const p = firstPreview(a);
   if (p.command) return "Run this command?";

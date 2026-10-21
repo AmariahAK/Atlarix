@@ -10,7 +10,9 @@ export type Reply =
   /** Several calls in one step (parallel tool calls). */
   | { tools: Array<{ tool: string; args: Record<string, unknown> }>; delayMs?: number }
   /** `waitMs`: nothing at all is sent for that long (a stop "before the first token"). */
-  | { text: string; delayMs?: number; waitMs?: number };
+  | { text: string; delayMs?: number; waitMs?: number }
+  /** The provider refuses the request: this HTTP status and message. */
+  | { status: number; error: string };
 
 const enc = new TextEncoder();
 const base = { id: "fake", object: "chat.completion.chunk", created: 0, model: "fake-model" };
@@ -32,6 +34,9 @@ function sse(chunks: object[], delayMs = 0, waitMs = 0): Response {
 }
 
 function reply(r: Reply, n: number): Response {
+  if ("status" in r) {
+    return Response.json({ error: { message: r.error, type: "invalid_request_error" } }, { status: r.status });
+  }
   if ("tools" in r) {
     return sse(
       [
@@ -73,9 +78,13 @@ function reply(r: Reply, n: number): Response {
   );
 }
 
+/** What a title or summary request gets back. */
+export const AUX_TEXT = "A title";
+
 export interface FakeLlm {
   url: string;
-  requests: Array<{ messages: Array<{ role: string; content: unknown }> }>;
+  /** Every request, titles included; a turn's own carry `tools`. */
+  requests: Array<{ messages: Array<{ role: string; content: unknown }>; tools?: unknown[] }>;
   stop(): void;
 }
 
@@ -86,8 +95,12 @@ export function startFakeLlm(script: Reply[], port = 0): FakeLlm {
     port,
     async fetch(req) {
       if (!new URL(req.url).pathname.endsWith("/chat/completions")) return new Response("{}", { status: 404 });
-      const body = (await req.json()) as { messages: FakeLlm["requests"][0]["messages"]; tools?: unknown[] };
+      const body = (await req.json()) as { messages: FakeLlm["requests"][0]["messages"]; tools?: unknown[]; stream?: boolean };
       requests.push(body);
+      // A request that is not streamed (a title, a summary) gets one JSON answer.
+      if (body.stream !== true && !body.tools?.length) {
+        return Response.json({ ...base, object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: AUX_TEXT }, finish_reason: "stop" }], usage });
+      }
       if (!body.tools?.length) return reply({ text: "A title" }, 0);
       // One script step per model request that offers tools (a real turn step);
       // the last step repeats if the agent asks for more.

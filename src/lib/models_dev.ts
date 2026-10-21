@@ -17,6 +17,7 @@ import { resolveProviderBaseUrl } from "@/ipc/shared/language_model_constants";
 import { hasProviderSdkFactory } from "@/ipc/shared/provider-sdk-factories";
 import { registerModelsDevVision } from "@/lib/routing/model-capability-profile";
 import { registerModelsDevReasoning } from "@/lib/routing/model-reasoning-profile";
+import { type CatalogCost, registerModelsDevPrices } from "@/lib/routing/byok-pricing";
 
 const logger = log.scope("models_dev");
 
@@ -68,7 +69,7 @@ interface ModelsDevModel {
   name: string;
   family?: string;
   tool_call?: boolean;
-  cost?: { input: number; output: number };
+  cost?: CatalogCost;
   limit?: { context?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
   status?: string;
@@ -238,6 +239,29 @@ function setCachedData(data: ModelsDevData): void {
   cachedData = data;
   publishVisionModalities(data);
   publishReasoningProfiles(data);
+  publishPrices(data);
+}
+
+/**
+ * The catalog's prices into the BYOK cost estimate (byok-pricing.ts), under
+ * models.dev's provider id and Atlarix's own where they differ.
+ */
+function publishPrices(data: ModelsDevData): void {
+  try {
+    const entries: Array<{ providerId: string; modelId: string; cost: CatalogCost }> = [];
+    for (const [providerId, provider] of Object.entries(data)) {
+      if (!provider?.models) continue;
+      const atlarixId = REVERSE_PROVIDER_ID_MAP[providerId];
+      for (const [modelId, m] of Object.entries(provider.models)) {
+        if (typeof m.cost?.input !== "number" || typeof m.cost.output !== "number") continue;
+        entries.push({ providerId, modelId, cost: m.cost });
+        if (atlarixId) entries.push({ providerId: atlarixId, modelId, cost: m.cost });
+      }
+    }
+    registerModelsDevPrices(entries);
+  } catch (e) {
+    logger.warn("[models.dev] price publish failed", e);
+  }
 }
 
 function getCachePath(): string {

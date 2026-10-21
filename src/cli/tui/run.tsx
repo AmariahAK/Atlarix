@@ -6,8 +6,8 @@
  * behind breaks the user's shell.
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { atlarixHomeDir } from "@/paths/atlarix-home";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import type { AgentSession } from "../agent/session";
@@ -26,6 +26,8 @@ export interface RunTuiOptions {
   models?: ModelSource;
   /** `atlarix --resume`: start on the session picker. */
   openResume?: boolean;
+  /** How this terminal session began, for `session_started`. */
+  launch?: "new" | "resume" | "continue";
   signIn?: (show: (lines: Line[]) => void) => Promise<string>;
   chromeStatus?: () => string;
   /** Starts the background self-update; events become a toast and a notice. */
@@ -51,7 +53,7 @@ let restoreStderr: (() => void) | null = null;
 function quietStderr(): void {
   if (restoreStderr) return;
   const original = process.stderr.write.bind(process.stderr);
-  const dir = path.join(os.homedir(), ".atlarix", "logs");
+  const dir = path.join(atlarixHomeDir(), "logs");
   let log: fs.WriteStream | null = null;
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -209,6 +211,7 @@ export async function runTui(opts: RunTuiOptions): Promise<void> {
         autoUpdate={opts.autoUpdate}
         services={realServices}
         startWith={opts.openResume ? "/resume" : undefined}
+        launch={opts.launch}
       />,
     );
   });

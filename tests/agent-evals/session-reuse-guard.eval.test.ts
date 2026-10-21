@@ -38,7 +38,9 @@ async function seedSession(
 ) {
   const { chatSessions, sessionMessages } = await import("@/db/schema");
   const db = ctx.testDb.db;
-  const created = new Date();
+  // Leftovers from an earlier launch: an hour old. A session another process
+  // created moments ago is its, never reused or pruned (A7, FRESH_EMPTY_MS).
+  const created = new Date(Date.now() - 60 * 60_000);
   await db.insert(chatSessions).values({
     id,
     workspaceId,
@@ -365,13 +367,15 @@ describe("reuse SURVIVES being reused — the Untitled-litter regression", () =>
       createdAt: sec(now - 10 * 60_000),
       updatedAt: sec(now - 9 * 60_000),
     });
-    // Newest and untouched → wins the reuse slot.
+    // Newest and untouched → wins the reuse slot. Still older than the 2 min an
+    // empty another process just created counts as its own (A7), or it is no
+    // candidate at all and the drifted row takes the reuse slot.
     await ctx.testDb.db.insert(chatSessions).values({
       id: "prune-clean",
       workspaceId: appId,
       title: "Untitled",
-      createdAt: sec(now - 60_000),
-      updatedAt: sec(now - 60_000),
+      createdAt: sec(now - 5 * 60_000),
+      updatedAt: sec(now - 5 * 60_000),
     });
 
     const { startWorkspaceSession } = await import(

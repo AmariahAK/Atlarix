@@ -7,6 +7,7 @@
  * v0.9.1 Update: Added async waitForApproval() blocking mechanism
  */
 
+import { noteTurn } from "@/lib/analytics/turn-stats";
 import * as fs from "fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "path";
@@ -652,6 +653,7 @@ export class PermissionInterceptor extends EventEmitter {
     });
 
     const silentOut = silent || this.shouldAlwaysAutoApprove(request);
+    noteTurn(this.activeChatId || undefined, silentOut ? "approvals_auto" : "approvals_asked");
     if (!silentOut) {
       // Emit event for frontend to pick up
       this.emit("permission-request", {
@@ -798,6 +800,17 @@ export class PermissionInterceptor extends EventEmitter {
         operationId,
         approved: false,
         error: `Operation ${operationId} not found`,
+      };
+    }
+    // Decided once. A rule just saved can approve the operations already
+    // waiting (applyNewRuleToPendingOperations), and a second answer to the
+    // same card, still on screen, ran the write again (owner, CLI, 2026-10-19:
+    // src/index.tsx written twice, two seconds apart).
+    if (operation.status !== "pending") {
+      return {
+        operationId,
+        approved: operation.status === "approved" || operation.status === "executed",
+        error: `Operation ${operationId} was already ${operation.status}`,
       };
     }
 

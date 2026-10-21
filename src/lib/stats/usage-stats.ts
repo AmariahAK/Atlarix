@@ -43,9 +43,7 @@ export function currentSurface(): ActivitySurface {
 export function skillFromPath(p: string): string | null {
   const project =
     /(?:^|[\\/])\.atlarix[\\/]skills[\\/](?:.*[\\/])?([^\\/]+?)\.md$/i.exec(p);
-  if (project) return project[1]!;
-  const account = /(?:^|[\\/])account-skills[\\/]([^\\/]+?)\.md$/i.exec(p);
-  return account ? account[1]! : null;
+  return project ? project[1]! : null;
 }
 
 /** Skill reads and MCP calls in a turn's native messages, counted. */

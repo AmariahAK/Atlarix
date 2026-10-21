@@ -84,6 +84,7 @@ import {
   modelFailureUserMessage,
 } from "@/shared/texts";
 import log from "electron-log";
+import { messageIdOfTurn } from "@/shared/turn-id";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -453,6 +454,8 @@ export async function finalizeTurn(
                 ...(ctx.turnCacheCreationTokens > 0
                   ? { cacheCreationInputTokens: ctx.turnCacheCreationTokens }
                   : {}),
+                // The largest request's size picks a context-priced tier.
+                ...(ctx.maxTokensUsed ? { contextTokens: ctx.maxTokensUsed } : {}),
               }
             : null,
           ctx.turnActualCostUsd > 0 ? ctx.turnActualCostUsd : null,
@@ -541,9 +544,9 @@ export async function handleTurnError(
         // publishes for exactly this reason: this catch block sits outside
         // the scope that holds the placeholder (chat:cancel has the same
         // problem, and this is the map that solved it there).
-        const pid = Number(streamTurnIdByChatId.get(req.chatId));
+        const pid = messageIdOfTurn(streamTurnIdByChatId.get(req.chatId));
         const last =
-          (Number.isFinite(pid)
+          (pid != null
             ? chat.messages.find((m) => m.id === pid)
             : undefined) ?? chat.messages[chat.messages.length - 1];
         if (last?.role === "assistant") {
@@ -686,8 +689,11 @@ export async function handleTurnError(
       pdfUnsupportedUserMessage,
     } = await import("@/lib/chat/image-embed-gate");
     // PDF first — same ordering reason as the streaming path: a turn can
-    // carry both, and the image matcher would otherwise claim it.
-    const contentRejectionMessage = isPdfContentRejectionError(error)
+    // carry both, and the image matcher would otherwise claim it. Only when
+    // this turn's message had a PDF: the request itself is out of scope here.
+    const turnMessage = [...(getStreamTransport(req.chatId)?.messages ?? [])].reverse().find((m) => m.role === "user");
+    const sentPdf = !!turnMessage?.fileAttachments?.some((f) => f.mimeType === "application/pdf");
+    const contentRejectionMessage = isPdfContentRejectionError(error, sentPdf)
       ? pdfUnsupportedUserMessage()
       : isImageContentRejectionError(error)
         ? imageUnsupportedUserMessage()
@@ -734,8 +740,8 @@ export async function handleTurnError(
           req.chatId,
           readSettings().selectedModel?.provider,
           { workspaceSessionId: req.workspaceSessionId },
-        ).catch(() => false as const);
-        if (compacted) {
+        ).catch(() => ({ ok: false }) as const);
+        if (compacted.ok) {
           logger.warn(
             `[stream:${req.chatId}] Context overflow — compacted and retrying dispatch once`,
           );

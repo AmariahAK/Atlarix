@@ -1,10 +1,12 @@
 {
   "sessions": {
     "continueInTerminal": "Continue in terminal",
+    "fork": "Fork",
     "openInEditor": "Open in your editor"
   },
   "automations": {
     "empty": "Runs on a schedule or a trigger.",
-    "chooseNotify": "Choose whether to tell the AI."
+    "chooseNotify": "Choose whether to tell the AI.",
+    "chooseTool": "Choose a tool"
   }
 }

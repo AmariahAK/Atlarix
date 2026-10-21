@@ -11,6 +11,9 @@ export interface PeerFrom {
   workspace: string;
 }
 
+/** Where a turn of a session is running, in "Running in …" (live sessions). */
+export const SURFACE_NAMES = { app: "the app", cli: "the CLI", editor: "the editor", chrome: "the browser" } as const;
+
 /** How a surface reads in "Message from X session": CLI, app, browser or editor. */
 export function peerSurfaceLabel(surface: string): string {
   return surface === "cli"

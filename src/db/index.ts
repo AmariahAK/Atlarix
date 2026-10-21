@@ -5,6 +5,7 @@ import {
 } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import * as schema from "./schema";
+import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { getAtlarixAppPath, getUserDataPath } from "../paths/paths";
@@ -30,6 +31,7 @@ import {
   serializeApiKeyForDb,
 } from "@/lib/security/db-secrets";
 import { groupDuplicateAppIds } from "@/lib/canonical-app-path";
+import { LIVE_SESSIONS_TABLE, PEER_STALE_MS } from "@/lib/peers/peers";
 
 const logger = log.scope("db");
 
@@ -166,6 +168,94 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
   fs.mkdirSync(getUserDataPath(), { recursive: true });
   fs.mkdirSync(getAtlarixAppPath("."), { recursive: true });
 
+  const releaseInitLock = takeInitLock(dbPath);
+  try {
+    return openAndMigrate(dbPath);
+  } finally {
+    releaseInitLock();
+  }
+}
+
+/**
+ * How long a process waits for another one's first open to finish. A first
+ * open migrates an empty file; that takes well under a second, so this is
+ * reached only if the holder hung, and then this one goes ahead anyway.
+ */
+const INIT_LOCK_WAIT_MS = 30_000;
+/** Older than the wait: no open holds it that long, so it was left by one that ended. */
+const INIT_LOCK_STALE_MS = INIT_LOCK_WAIT_MS;
+
+/**
+ * One process at a time opens and migrates the database. Two first opens at
+ * once (the app and the CLI on a new profile) migrated the same empty file
+ * together: one met "database is locked" or "table already exists", and its
+ * retry deleted the file the other was still migrating, so both failed with
+ * "disk I/O error" (A8, QA 2 of 3). The lock is a file beside the database
+ * holding its owner's pid; one whose owner has ended is taken over.
+ */
+function takeInitLock(dbPath: string): () => void {
+  const lockPath = `${dbPath}.init-lock`;
+  const deadline = Date.now() + INIT_LOCK_WAIT_MS;
+  const wait = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+      return () => fs.rmSync(lockPath, { force: true });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return () => {};
+    }
+    let said = "";
+    let age = 0;
+    try {
+      said = fs.readFileSync(lockPath, "utf8").trim();
+      age = Date.now() - fs.statSync(lockPath).mtimeMs;
+    } catch {
+      continue; // released between the two calls: try again
+    }
+    // Empty: its owner created it and has not written its pid yet. Older than the
+    // wait (its file time is when it was taken): left by a process that ended
+    // mid-open, whose pid may now be someone else's (A9).
+    const holder = Number(said);
+    const ended =
+      age > INIT_LOCK_STALE_MS ||
+      (said ? !Number.isInteger(holder) || holder <= 0 || !pidAlive(holder) : age > 5_000);
+    if (ended) {
+      fs.rmSync(lockPath, { force: true });
+      continue;
+    }
+    if (Date.now() >= deadline) {
+      // Taken over, so it goes when this open ends: left as it was, every start
+      // after this one waited the full time again (A9).
+      logger.warn(`[DB] Process ${holder} has held the database's first-open lock for ${INIT_LOCK_WAIT_MS / 1000}s; opening anyway.`);
+      fs.writeFileSync(lockPath, String(process.pid));
+      return () => fs.rmSync(lockPath, { force: true });
+    }
+    Atomics.wait(wait, 0, 0, 50);
+  }
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * "Locked", "busy" or an I/O error: another process has the file open. Never a
+ * reason to delete it, whatever else failed.
+ */
+function isFileInUseError(error: unknown): boolean {
+  const code = String((error as { code?: unknown })?.code ?? "");
+  const message = error instanceof Error ? error.message : String(error);
+  return /^SQLITE_(BUSY|LOCKED|IOERR)/.test(code) || /database is locked|database is busy|disk I\/O error/i.test(message);
+}
+
+function openAndMigrate(dbPath: string): BetterSQLite3Database<typeof schema> & {
+  $client: Database.Database;
+} {
   const maxAttempts = 2;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -374,7 +464,7 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       // deletes someone's chat history, whatever went wrong.
       const shared = process.env.ATLARIX_DB_SHARED === "1";
       const canRetry =
-        attempt < maxAttempts - 1 && !unknownHash && !tooNew && !shared;
+        attempt < maxAttempts - 1 && !unknownHash && !tooNew && !shared && !isFileInUseError(error);
 
       if (canRetry) {
         logger.warn(
@@ -830,6 +920,14 @@ function migratePlaintextApiKeysIfNeeded(sqlite: Database.Database): void {
  * ON DELETE CASCADE, so an un-re-pointed child would be silently cascade-deleted.
  * Idempotent: a no-op once no path-duplicates remain.
  */
+function otherAtlarixIsLive(sqlite: Database.Database): boolean {
+  if (!tableExists(sqlite, LIVE_SESSIONS_TABLE)) return false;
+  const row = sqlite
+    .prepare(`SELECT 1 FROM ${LIVE_SESSIONS_TABLE} WHERE last_seen > ? AND host = ? AND pid != ? LIMIT 1`)
+    .get(Date.now() - PEER_STALE_MS, os.hostname(), process.pid);
+  return row != null;
+}
+
 export function mergeDuplicateAppsByPathIfNeeded(
   sqlite: Database.Database,
 ): void {
@@ -840,6 +938,12 @@ export function mergeDuplicateAppsByPathIfNeeded(
   }>;
   const dupGroups = groupDuplicateAppIds(rows);
   if (dupGroups.length === 0) return;
+  // Another Atlarix on this database holds the duplicate's id in memory: deleting
+  // the row under it fails its next session insert. The next open merges.
+  if (otherAtlarixIsLive(sqlite)) {
+    logger.log(`[DB] ${dupGroups.length} duplicate apps group(s) left for the next open: another Atlarix is running`);
+    return;
+  }
 
   // Plain re-points. Tables dropped in earlier migrations (pivot_*/blueprint_*)
   // are skipped via tableExists.
@@ -855,6 +959,16 @@ export function mergeDuplicateAppsByPathIfNeeded(
     ["blueprint_snapshots", "workspace_id"],
     ["project_snapshots", "workspace_id"],
     ["review_patterns", "workspace_id"],
+    // Missing until E13 (2026-10-20): both CASCADE on the duplicate's delete, so
+    // every merge deleted that folder's automations; hooks were left pointing at
+    // an id that no longer exists.
+    ["automations", "workspace_id"],
+    ["atlarix_hooks", "workspace_id"],
+  ];
+  // Counters unique per (workspace, …keys): a row both have is ADDED into the
+  // canonical's, never dropped — these are history, not settings.
+  const SUMMED_FKS: Array<[table: string, col: string, keys: string[], sums: string[]]> = [
+    ["edit_stats", "workspace_id", ["day", "provider", "model_id"], ["lines_added", "lines_removed", "edits"]],
   ];
   // Collision re-points: a UNIQUE/PK on (fk, …keys) means re-pointing a duplicate
   // could collide with a row the canonical app already has — drop the duplicate's
@@ -866,10 +980,30 @@ export function mergeDuplicateAppsByPathIfNeeded(
   ];
 
   let merged = 0;
+  const moved: Record<string, number> = {};
+  const count = (table: string, n: number) => {
+    if (n > 0) moved[table] = (moved[table] ?? 0) + n;
+  };
   const run = sqlite.transaction(() => {
     for (const ids of dupGroups) {
       const canonical = ids[0]!;
       for (const dup of ids.slice(1)) {
+        for (const [table, col, keys, sums] of SUMMED_FKS) {
+          if (!tableExists(sqlite, table)) continue;
+          const match = keys.map((k) => `c.${k} = d.${k}`).join(" AND ");
+          for (const sum of sums) {
+            sqlite
+              .prepare(
+                `UPDATE ${table} AS c SET ${sum} = c.${sum} + (SELECT d.${sum} FROM ${table} d WHERE d.${col} = ? AND ${match}) WHERE c.${col} = ? AND EXISTS (SELECT 1 FROM ${table} d WHERE d.${col} = ? AND ${match})`,
+              )
+              .run(dup, canonical, dup);
+          }
+          const keyCols = keys.join(", ");
+          sqlite
+            .prepare(`DELETE FROM ${table} WHERE ${col} = ? AND (${keyCols}) IN (SELECT ${keyCols} FROM ${table} WHERE ${col} = ?)`)
+            .run(dup, canonical);
+          count(table, Number(sqlite.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(canonical, dup).changes));
+        }
         for (const [table, col, keys] of COLLISION_FKS) {
           if (!tableExists(sqlite, table)) continue;
           const keyCols = keys.join(", ");
@@ -879,15 +1013,11 @@ export function mergeDuplicateAppsByPathIfNeeded(
               `DELETE FROM ${table} WHERE ${col} = ? AND ${lhs} IN (SELECT ${keyCols} FROM ${table} WHERE ${col} = ?)`,
             )
             .run(dup, canonical);
-          sqlite
-            .prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`)
-            .run(canonical, dup);
+          count(table, Number(sqlite.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(canonical, dup).changes));
         }
         for (const [table, col] of PLAIN_FKS) {
           if (!tableExists(sqlite, table)) continue;
-          sqlite
-            .prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`)
-            .run(canonical, dup);
+          count(table, Number(sqlite.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(canonical, dup).changes));
         }
         sqlite.prepare("DELETE FROM apps WHERE id = ?").run(dup);
         merged += 1;
@@ -897,7 +1027,9 @@ export function mergeDuplicateAppsByPathIfNeeded(
   run();
   if (merged > 0) {
     logger.log(
-      `[DB] Bug 5: merged ${merged} duplicate apps row(s) into canonical (oldest) rows by normalized path.`,
+      `[DB] merged ${merged} duplicate apps row(s) into the oldest row for the same folder (symlinks resolved); moved: ${
+        Object.entries(moved).map(([t, n]) => `${t}=${n}`).join(" ") || "nothing"
+      }`,
     );
   }
 }

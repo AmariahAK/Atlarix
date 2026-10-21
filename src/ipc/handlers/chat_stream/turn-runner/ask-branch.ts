@@ -18,7 +18,6 @@ import type { StreamTurnContext } from "@/ipc/handlers/chat_stream/turn-context"
 import type { ModeSystemKey } from "@/prompts/system_prompt";
 import type { ModelClient } from "@/ipc/utils/get_model_client";
 import type { SimpleStreamTextDeps } from "@/ipc/handlers/chat_stream/turn-runner/simple-stream-text";
-import type { UserAgent } from "@/lib/agents/user-agents";
 import { shouldAutoApprovePermissions } from "@/lib/agents/agent-runtime";
 import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import { attachDelegationToolsToSet } from "@/lib/agents/register-delegation-tools";
@@ -37,8 +36,7 @@ import { ToolRegistry } from "@/lib/tools";
 import { getModeToolAllowSets } from "@/lib/tools/mode-tool-registry";
 import { isReadOnlyWorkMode, toolExecutionChatMode } from "@/lib/work-mode";
 import { constructSystemPromptParts } from "@/prompts/system_prompt";
-import { memoryDirFor } from "@/lib/agent-memory";
-import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
+import { isAgentMemoryDisabled, memoryDirFor } from "@/lib/agent-memory";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { estimateTokens, getContextWindow } from "@/ipc/utils/token_utils";
 import {
@@ -64,7 +62,6 @@ import { applyFileScopePreflightInStream } from "@/ipc/handlers/file_permission_
 import { registerInterceptor } from "@/ipc/handlers/permissions/handlers";
 import { PermissionInterceptor } from "@/ipc/handlers/permissions/interceptor";
 import { runAgentTurn } from "@/lib/agent/run-agent-turn";
-import { renderUserAgentSystemBlock } from "@/lib/agents/user-agents";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
 import {
   buildToolModelOutput,
@@ -111,7 +108,6 @@ export interface AskBranchDeps {
   streamTurnId: string;
   STREAM_CONTINUATION_MAX: number;
   chatMessages: ModelMessage[];
-  activeUserAgent: UserAgent | null;
   hasWorkspace: boolean;
   promptIdentityOpts: {
     activeModel: LargeLanguageModel;
@@ -168,7 +164,6 @@ export async function runAskBranch(
     streamTurnId,
     STREAM_CONTINUATION_MAX,
     chatMessages,
-    activeUserAgent,
     hasWorkspace,
     promptIdentityOpts,
     logTtftOnce,
@@ -297,7 +292,6 @@ export async function runAskBranch(
       provider: effectiveModel?.provider,
       builtinProviderId: modelClient.builtinProviderId,
     },
-    userAgentTools: activeUserAgent?.tools ?? null,
     unattended: Boolean(req.automation),
   });
   const askToolsToInclude = askResolved.tools;
@@ -429,7 +423,7 @@ export async function runAskBranch(
             });
             try {
               const providerId =
-                getEffectiveModelForOptions(settings)?.provider ??
+                effectiveModel?.provider ??
                 settings.selectedModel?.provider ??
                 undefined;
               const { executeCompressContext } = await import(
@@ -442,6 +436,7 @@ export async function runAskBranch(
                 id: number;
                 role: string;
                 content: string;
+                modelContent?: string | null;
               }[];
               const outcome = await executeCompressContext(
                 { reason },
@@ -451,6 +446,7 @@ export async function runAskBranch(
                     id: m.id,
                     role: m.role,
                     content: m.content || "",
+                    modelContent: m.modelContent,
                   })),
                   systemPromptTokens: estimateTokens(systemPrompt),
                   inputTokens: 0,
@@ -1001,15 +997,12 @@ export async function runAskBranch(
             // published in Build and Debug but silently missing in exactly
             // the read-only modes where an agent is most likely to go
             // looking for it. That is how it shipped broken the first time.
-            memoryDir: appPath ? memoryDirFor(appPath) : undefined,
+            memoryDir: appPath && !isAgentMemoryDisabled() ? memoryDirFor(appPath) : undefined,
             registeredToolNames: askOfferedNames,
             ...promptIdentityOpts,
           });
-          const askHeader = activeUserAgent
-            ? `${renderUserAgentSystemBlock(activeUserAgent)}\n\n${askParts.stableHeader}`
-            : askParts.stableHeader;
           return {
-            systemPromptOverride: askHeader,
+            systemPromptOverride: askParts.stableHeader,
             dynamicSystemTail: askParts.dynamicTail,
           };
         },

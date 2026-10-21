@@ -76,14 +76,20 @@ export async function pickSmallSibling(
   }
 }
 
+/**
+ * `turnModel` is the session's own model (a CLI, editor or user-agent session):
+ * its title comes from that provider, not from the app's choice, which may be
+ * one it never picked or one that is unavailable (2026-10-20). Else the app's.
+ */
 export async function resolveTitleModel(
   settings: UserSettings,
+  turnModel?: LargeLanguageModel,
 ): Promise<LargeLanguageModel> {
   const cfg = settings.aiConfiguration?.contextSummarization;
   if (cfg?.summarizationModel === "custom" && cfg.customSummarizationModel) {
     return cfg.customSummarizationModel;
   }
-  const selected = settings.selectedModel;
+  const selected = turnModel ?? settings.selectedModel;
   if (selected.provider === "compass") {
     const { isCoreAutoTier, getCoreModelIdForCoreTier, CORE_TIER_1 } =
       await import("@/ipc/shared/compass_constants");
@@ -117,8 +123,9 @@ export async function generateSessionTitle(
       "@/lib/usage/turn-usage-aggregator"
     );
 
+    const { turnModelForChat } = await import("@/lib/summarization_model");
     const settings = readSettings();
-    const model = await resolveTitleModel(settings);
+    const model = await resolveTitleModel(settings, await turnModelForChat(opts.chatId, settings));
     const { modelClient, fellBackToCore } = await getModelClient(
       model,
       settings,

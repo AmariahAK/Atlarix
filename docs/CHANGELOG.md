@@ -3,6 +3,84 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.10.0] (2026-10-21) — project memory that recalls, live sessions and /fork everywhere, safer approvals, and compaction that works
+
+**Project memory.** Atlarix keeps what it learns about a project in notes, one fact each, with a `MEMORY.md`
+index. The index is shown once when a session starts (and again after `/compact`) instead of on every turn,
+so adding a note no longer breaks the prompt cache. Each message is matched against the notes, and the few
+that fit are attached as background, with how old they are, once per session. If `MEMORY.md` changes on
+disk while a session is open (another session, the CLI), the next message says so. Notes the agent writes
+are stamped with the date and the session that wrote them, and a large index asks to be tidied. The check
+for matching notes is one small extra request per message, billed like any other; `ATLARIX_MEMORY=off`
+turns all of it off.
+
+**Live sessions.** A session open in two places now stays in step. When the CLI, the app, VS Code or Zed is
+running a turn, every other surface showing that session follows it as it happens: "Running in the CLI"
+(or the app, or VS Code) with Stop. What you type there goes to the running turn, Stop stops it, and once it
+ends your next message runs where you are, with the full history. `/undo`, `/compact` and a mode change say
+why they wait instead of doing nothing. **`/fork`** copies a conversation into a new session, in the CLI, the
+app (also in the session menu), VS Code and any editor that supports forking over ACP; the original is left
+as it was, and `/undo` still restores files in the copy.
+
+**Approvals.** After you answer a card, one line says what you allowed: "You approved Atlarix to always run
+commands that start with `git` in this folder", in the CLI and in editors. A rule you save ("allow edits in
+src/") now answers the cards it covers straight away, nothing runs twice, and editors take back a card a rule
+already answered. "Always allow" in Explore and Plan saves the rule that is actually checked, so it takes.
+The check for risky commands now reads git the way git does: `git reset -q --hard`, `git -c x=y reset --hard`,
+`git -C dir …`, a command behind `timeout`, `xargs` or `env -S`, and a git alias defined inline all ask
+first; read-only modes also see a commit hidden behind git's options or an environment variable.
+
+**Compaction.** `/compact` counts what your tools returned, so a tool-heavy session is no longer "still
+short"; it summarises with the session's own model, keeps what each turn found, and says so when a summary
+fails. A request too long for the model is now compacted and retried instead of failing, and the answer
+after it is saved.
+
+**Several Atlarix at once.** Two processes on one machine no longer mix up sessions: an approval or a
+background result can't land in another session, `/undo` snapshots never collide, temp files are cleaned
+without touching another running Atlarix (an older version included), and the daily cleanup never removes a
+session something still has open. A folder reached through a symlink is one workspace, and merging
+duplicates keeps their automations, hooks and stats. Two surfaces starting at the same moment get a session each, and two Atlarix opening a new
+profile together both start: before, one could fail and, retrying, delete the database the other was creating.
+A CLI run on a profile of its own keeps its copy of Atlarix's built-in skills and helper programs inside that
+profile, not in your `~/.atlarix`.
+
+**MCP servers.** `/mcp` in the CLI now says whether each server actually connects: "✓ connected", or "✗ couldn't
+connect" with the server's own reason ("Cannot find module …"), trying the ones not tried yet in the background.
+A local server's error output no longer prints over the terminal. In the app, the server list follows a change
+made in the CLI as soon as the window has focus again, the composer's server switches move at once and keep a
+second click, an automation's tool is picked from the server's own tools, and a local server with no icon shows
+its publisher's picture instead of a letter.
+
+**Smaller fixes.** Web sources show as a list of links, never raw JSON, in the CLI and editors; the VS Code
+panel has a copy button on code blocks and renders `[text](url)` links (as does the Chrome extension);
+`/undo` to your first message renames the session; an Anthropic error is no longer reported as a PDF you
+never attached; a turn uses its own model's output limit; the cost line prices Claude from the catalog (Fable
+and the 5.5 models were missing or priced as 4.x); VS Code tells you when its configured CLI path can't run
+instead of quietly using another; closing VS Code lets Atlarix clean up first; a turn stopped from another
+surface before it showed anything ends as stopped in your editor, not as finished; deep thinking with no level
+chosen (settings from before `/effort`, `atlarix run --deep-thinking`) asks for the model's highest level, where
+Claude used to run at its default; `atlarix run --provider-id anthropic --provider-url …` goes to that address
+(`--auth-header bearer` for one that takes a Bearer token) instead of Anthropic's; the prompt no longer lists
+your machine's CPU cores and memory.
+
+**A long chat costs less per message.** Each message's own words were sent twice, the second time in the part
+that changes every turn, so everything said before it was sent again uncached on every message. It is now sent
+once, and the conversation so far is read from the provider's prompt cache: on Claude, each new message writes
+only itself, where it used to rewrite the whole chat.
+
+**Less load, better data.** The app reads your account on events, not on timers, and no longer fetches
+account skills. Analytics send one complete event per turn (how it ended and why, mode and model changes,
+approvals, compaction, sub-agents) and fewer, truer events overall; no error text, prompt or path is ever
+sent, and VS Code's own telemetry switch is honoured. They also say what kind of provider and model a turn ran
+on (a provider you added counts as "custom", never its name or address) and whether Atlarix Auto was free or
+paid, and a key saved or a sign-in in the CLI is counted before the command exits. The CLI and editors now send
+crash reports too, with home paths and emails removed. A turn that fails on your own key, a provider you added
+or a local model is reported with the kind of failure, the provider type and the model, never the error's text;
+a provider that keeps failing is reported as that, not as a dropped connection. **Signed-in accounts keep a daily
+count of their turns**, by surface, provider type and model (never prompts, code or keys), as Atlarix already
+did for Core and Auto: a few numbers sent at most every 15 minutes and when you quit, and off when VS Code's
+telemetry is off. The consent question on every surface and the privacy page say so.
+
 ## [15.9.2] (2026-10-18) — a leaner prompt, and browser and DeepSeek fixes
 
 **A leaner prompt on every turn.** Today's models need to be told what is true and what is

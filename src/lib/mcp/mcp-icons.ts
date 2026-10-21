@@ -150,17 +150,31 @@ export interface McpIconRef {
   args?: string[] | null;
 }
 
+/** The npm scope a local server runs from (`npx -y @brave/brave-search-mcp-server` → `brave`). */
+export function npmScopeOf(ref: Pick<McpIconRef, "command" | "args">): string | null {
+  for (const part of [ref.command ?? "", ...(ref.args ?? [])]) {
+    const scope = /^@([a-z0-9][a-z0-9-]*)\/[a-z0-9._-]+/i.exec(part.trim())?.[1];
+    if (scope) return scope;
+  }
+  return null;
+}
+
 /**
  * The icon for a server that is already added: by its registry name, else the
- * registry entry its URL or package belongs to, else its address's site.
+ * registry entry its URL or package belongs to, else its address's site. A
+ * local server with neither (Brave Search showed a letter) gets its npm scope's
+ * GitHub picture: publishers use the same name for both.
  */
 export async function getMcpIconFor(ref: McpIconRef): Promise<string | null> {
   const name = ref.registryName || (await findCatalogNameFor(ref));
   if (name) {
     const icon = await getMcpIcon(name);
-    if (icon || !ref.url) return icon;
+    if (icon) return icon;
   }
-  if (!ref.url) return null;
+  if (!ref.url) {
+    const scope = npmScopeOf(ref);
+    return scope ? resolveIcon(`npm:@${scope}`, async () => [`https://github.com/${scope}.png?size=64`]) : null;
+  }
   const apex = apexOrigin(ref.url);
   if (!apex) return null;
   return resolveIcon(`site:${apex}`, async () => [

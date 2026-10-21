@@ -96,6 +96,24 @@ describe("the account row, read once", () => {
     expect(queries).toHaveLength(1);
   });
 
+  it("kept for as long as nothing changes it: an hour of readers is one read", async () => {
+    // A 10 s TTL made every later reader a read of its own (owner, 2026-10-20:
+    // 26 reads of this row in one 70-minute session). Sign-in, sign-out, the
+    // focus refresh and writes are what refresh it now.
+    vi.useFakeTimers();
+    try {
+      for (let minute = 0; minute < 60; minute++) {
+        await client.getUserPlan("u-1");
+        await client.isUserBanned("u-1");
+        await client.getOnboardingCompleted("u-1");
+        vi.advanceTimersByTime(60_000);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(queries).toHaveLength(1);
+  });
+
   it("if the combined read fails, each reader falls back to its own query: the plan is never lost", async () => {
     failCombined = true;
     expect(await client.getUserPlan("u-1")).toBe("pro");

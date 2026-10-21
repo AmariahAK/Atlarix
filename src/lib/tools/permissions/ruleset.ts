@@ -31,8 +31,8 @@
  */
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { atlarixHomeDir } from "@/paths/atlarix-home";
 import log from "electron-log";
 
 const logger = log.scope("permission-ruleset");
@@ -139,8 +139,8 @@ export function setGlobalAtlarixDirForTests(dir: string | null): void {
 }
 
 export function globalRulesetPath(): string {
-  const home = globalAtlarixDirOverride ?? os.homedir();
-  return path.join(home, ".atlarix", "permissions.json");
+  const dir = globalAtlarixDirOverride ? path.join(globalAtlarixDirOverride, ".atlarix") : atlarixHomeDir();
+  return path.join(dir, "permissions.json");
 }
 
 function loadRulesetFile(file: string): CompiledRuleset {

@@ -388,6 +388,8 @@ export function registerAuthHandlers() {
         .single();
 
       const { shell } = await import("electron");
+      // The plan may change in the portal: the next focus reads it.
+      SubscriptionManager.notePlanPageOpened();
 
       if (error || !data?.customer_portal_url) {
         // Fallback: Open LemonSqueezy billing page with email hint

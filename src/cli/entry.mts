@@ -35,6 +35,8 @@ import { formatFatal } from "./errors";
 declare const __ATLARIX_HEADLESS_VERSION__: string;
 const VERSION =
   typeof __ATLARIX_HEADLESS_VERSION__ === "undefined" ? "dev" : __ATLARIX_HEADLESS_VERSION__;
+// The electron stub's app.getVersion() reads this (analytics' app_version).
+process.env.ATLARIX_VERSION ??= VERSION;
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -175,11 +177,14 @@ async function interactive(): Promise<void> {
   let devState: import("./agent/models").CliState = { model, recent: [], favorites: [] };
 
   const { runTui } = await import("./tui/run");
+  // Retention's daily signal, from the terminal too (once a day, shared with the app).
+  void import("../main/lib/analytics").then((m) => m.trackActiveDay()).catch(() => {});
   await runTui({
     session,
     version: VERSION,
     modelLabel,
     openResume: argv.includes("--resume") && !resumeById,
+    launch: argv.includes("--resume") ? "resume" : argv.includes("-c") || argv.includes("--continue") ? "continue" : "new",
     signIn: signInInTui,
     chromeStatus,
     autoUpdate: devUrl ? undefined : (notify) => void import("./update").then((m) => m.startAutoUpdate(VERSION, notify)),
@@ -215,7 +220,11 @@ async function interactive(): Promise<void> {
  */
 async function prepareCliData(devUrl: string | undefined): Promise<void> {
   if (devUrl) {
-    process.env.ATLARIX_USER_DATA_DIR ??= path.join(os.homedir(), ".atlarix", "dev-data");
+    if (!process.env.ATLARIX_USER_DATA_DIR) {
+      process.env.ATLARIX_USER_DATA_DIR = path.join(os.homedir(), ".atlarix", "dev-data");
+      // A local model, not a scratch profile: the person's rules and memory apply.
+      process.env.ATLARIX_HOME_DIR ??= path.join(os.homedir(), ".atlarix");
+    }
     process.env.ATLARIX_CLI_DEV_PROVIDER = "1";
     process.env.ATLARIX_CLIENT_PROGRAM = "Atlarix CLI";
     process.env.ATLARIX_SURFACE ??= "cli";
@@ -360,6 +369,9 @@ async function main(): Promise<void> {
   if (argv[0] === "acp") {
     // Before the batch/interactive split: an editor runs this over pipes, and
     // the interactive path refuses anything that isn't a terminal.
+    // Reported as the editor it serves, while ATLARIX_SURFACE stays `cli`
+    // (core_proxy.ts atlarixSurface).
+    process.env.ATLARIX_REPORT_SURFACE = process.env.ATLARIX_ACP_CLIENT === "vscode" ? "vscode" : "acp";
     const devUrl = flag("--provider-url");
     await prepareCliData(devUrl);
     const { runAcp } = await import("./acp/server");
@@ -372,6 +384,22 @@ async function main(): Promise<void> {
       startBridge: () => void startCliBridge(),
       chromeStatus,
     });
+    // The editor closed the connection: the CLI's exit sweep, and what analytics
+    // and crash reports still have queued (a short editor session sent nothing
+    // before: QA X1), bounded together well inside VS Code's 5 s kill backstop.
+    const { sweepTempOnQuit } = await import("../main/temp-hygiene");
+    const { flushAndClose } = await import("../main/lib/analytics");
+    const { flushClientUsage } = await import("../lib/analytics/usage-rollup");
+    const Sentry = await import("@sentry/electron/main");
+    await Promise.race([
+      Promise.all([
+        sweepTempOnQuit().catch(() => {}),
+        flushAndClose().catch(() => {}),
+        flushClientUsage().catch(() => {}),
+        Sentry.flush(1000),
+      ]),
+      new Promise((r) => setTimeout(r, 1500)),
+    ]);
     process.exit(0);
   }
   if (argv[0] === "keys") {
@@ -389,7 +417,8 @@ async function main(): Promise<void> {
       process.stderr.write(`${e.message}\n`);
       return 1;
     });
-    process.exit(code);
+    const { exitAfterFlush } = await import("./exit-after-flush");
+    await exitAfterFlush(code);
   }
   if (argv[0] === "login" || argv[0] === "logout") {
     const { enterDesktopDataMode } = await import("./desktop-data");
@@ -410,7 +439,8 @@ async function main(): Promise<void> {
       if (who) process.stdout.write(`Signed in as ${who}. To switch accounts: atlarix logout, then atlarix login.\n`);
       else await loginInTerminal();
     }
-    process.exit(0);
+    const { exitAfterFlush } = await import("./exit-after-flush");
+    await exitAfterFlush(0);
   }
   if (isBatch()) {
     // The headless entry drops a leading `run` itself.

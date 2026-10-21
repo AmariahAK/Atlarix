@@ -16,7 +16,6 @@ import type { ModelMessage } from "ai";
 import type { ChatContextReport, ChatStreamParams } from "@/ipc/ipc_types";
 import type { UserSettings, LargeLanguageModel } from "@/lib/schemas";
 import type { ContextSection } from "@/lib/context/ContextAssembler";
-import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
 
 import { estimateTokens } from "@/ipc/utils/token_utils";
@@ -133,7 +132,7 @@ export async function runContextAssembly(
     status?: string;
   }> => {
     const providerId =
-      getEffectiveModelForOptions(settings)?.provider ??
+      effectiveModel?.provider ??
       settings.selectedModel?.provider ??
       undefined;
     const { executeCompressContext } = await import("@/lib/tools/workspace");
@@ -142,6 +141,7 @@ export async function runContextAssembly(
       id: number;
       role: string;
       content: string;
+      modelContent?: string | null;
     }[];
     const outcomeR = await executeCompressContext(
       { reason: compressReason },
@@ -151,6 +151,7 @@ export async function runContextAssembly(
           id: m.id,
           role: m.role,
           content: m.content || "",
+          modelContent: m.modelContent,
         })),
         // W6: the stream's REAL system prompt is in scope — no more
         // hardcoded 6000 (the ratio gate now sees the meter's scope).

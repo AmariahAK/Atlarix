@@ -29,23 +29,35 @@ export function DefaultMcpMenuSection({
   const ipc = IpcClient.getInstance();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [busy, setBusy] = useState<string | null>(null);
+  // Per server, so a second switch flipped while the first is still saving keeps both.
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const { finish, dialog } = useMcpAddFlow(appId ?? 0);
+  const defaultsKey = ["mcp", "defaults", appId ?? null];
   const { data } = useQuery({
-    queryKey: ["mcp", "defaults", appId ?? null],
+    queryKey: defaultsKey,
     queryFn: () => ipc.getDefaultMcpServers(appId ?? null),
   });
 
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["mcp"] });
+  // Only the lists this changes. Every ["mcp"] key also re-listed every
+  // server's tools, which reconnects them all.
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["mcp", "defaults"] });
+    void queryClient.invalidateQueries({ queryKey: ["mcp", "servers"] });
+    void queryClient.invalidateQueries({ queryKey: ["mcp", "account"] });
+  };
 
   const act = async (name: string, fn: () => Promise<unknown>) => {
-    setBusy(name);
+    setBusy((b) => new Set(b).add(name));
     try {
       await fn();
     } catch (e) {
       showError(String(e instanceof Error ? e.message : e).replace(/^.*Error:\s*/s, ""));
     } finally {
-      setBusy(null);
+      setBusy((b) => {
+        const next = new Set(b);
+        next.delete(name);
+        return next;
+      });
       refresh();
     }
   };
@@ -76,12 +88,18 @@ export function DefaultMcpMenuSection({
       }
     });
 
-  const toggle = (s: NonNullable<typeof data>[number], on: boolean) =>
-    act(s.name, () =>
+  // The switch moves at once (saving an account server's choice takes seconds);
+  // a failure puts it back when the list is read again.
+  const toggle = (s: NonNullable<typeof data>[number], on: boolean) => {
+    queryClient.setQueryData<NonNullable<typeof data>>(defaultsKey, (rows) =>
+      rows?.map((r) => (r.name === s.name ? { ...r, state: on ? "on" : "off" } : r)),
+    );
+    return act(s.name, () =>
       s.where === "account"
         ? ipc.setAccountMcpEnabled({ id: String(s.id), enabled: on, appId })
         : ipc.updateMcpServer({ id: Number(s.id), enabled: on }),
     );
+  };
 
   if (!data) return null;
   return (
@@ -94,14 +112,15 @@ export function DefaultMcpMenuSection({
         <div key={s.name} className="flex items-center gap-2 px-2 py-1">
           <McpServerIcon name={s.name} title={s.title} size={18} />
           <span className="flex-1 text-sm truncate">{s.title}</span>
-          {busy === s.name ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          ) : s.state === "on" || s.state === "off" ? (
+          {s.state === "on" || s.state === "off" ? (
             <Switch
               checked={s.state === "on"}
+              disabled={busy.has(s.name)}
               onCheckedChange={(on) => void toggle(s, on)}
               aria-label={`${s.title} on`}
             />
+          ) : busy.has(s.name) ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
           ) : (
             <button
               type="button"

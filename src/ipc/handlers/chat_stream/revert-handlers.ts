@@ -10,6 +10,7 @@
 
 import * as path from "path";
 import log from "electron-log";
+import { messageIdOfTurn } from "@/shared/turn-id";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { apps } from "@/db/schema";
@@ -105,8 +106,8 @@ export function registerRevertHandlers(): void {
       }
       const workspacePath = resolveAppPath(app.path);
       const rel = op.path.split(path.sep).join("/");
-      const assistantMessageId = Number(payload.turnId);
-      if (!Number.isFinite(assistantMessageId)) {
+      const assistantMessageId = messageIdOfTurn(payload.turnId);
+      if (assistantMessageId == null) {
         return { success: false, error: "Invalid turnId" };
       }
       const result = await performFullRevert({
@@ -149,8 +150,8 @@ export function registerRevertHandlers(): void {
       payload: { chatId: number; turnId: string; filesOnly?: boolean },
     ) => {
       const { chatId, turnId, filesOnly } = payload;
-      const assistantMessageId = Number(turnId);
-      if (!Number.isFinite(assistantMessageId)) {
+      const assistantMessageId = messageIdOfTurn(turnId);
+      if (assistantMessageId == null) {
         return { success: false, error: "Invalid turnId" };
       }
       const ec = getStreamTransport(chatId);
@@ -279,8 +280,8 @@ export function registerRevertHandlers(): void {
       let unchecked = false;
       let lastError: string | undefined;
       for (const turnId of ordered) {
-        const assistantMessageId = Number(turnId);
-        if (!Number.isFinite(assistantMessageId)) {
+        const assistantMessageId = messageIdOfTurn(turnId);
+        if (assistantMessageId == null) {
           skipped.push(turnId);
           continue;
         }

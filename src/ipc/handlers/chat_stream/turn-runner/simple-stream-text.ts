@@ -8,19 +8,19 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { noteTurnStreamError } from "@/lib/analytics/turn-stats";
+import { classifyTurnError } from "@/lib/analytics/turn-end";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import { streamText, isStepCount } from "ai";
+import { isContextOverflowError } from "@/lib/context/compaction";
 import type { ModelMessage, ToolSet } from "ai";
 import type { UserSettings, LargeLanguageModel } from "@/lib/schemas";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
 import type { AgenticRepetitionState } from "@/lib/streaming/agentic-loop-repetition";
 import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
-import {
-  getEffectiveModelForOptions,
-  type ModelClient,
-} from "@/ipc/utils/get_model_client";
+import type { ModelClient } from "@/ipc/utils/get_model_client";
 import {
   reasoningTokensFromAiUsage,
   totalTokensFromAiUsage,
@@ -59,9 +59,11 @@ import {
   isImageContentRejectionError,
   imageUnsupportedUserMessage,
   isPdfContentRejectionError,
+  requestHasDocumentPart,
   pdfUnsupportedUserMessage,
 } from "@/lib/chat/image-embed-gate";
 import { sentryCaptureExceptionSafe } from "@/ipc/handlers/chat_stream/sentry-safe";
+import { coreTurnTags } from "@/lib/analytics/turn-failure-report";
 import {
   activeStreams,
   activeStreamId,
@@ -205,15 +207,12 @@ export async function simpleStreamText(
   const forceCollectOnWake =
     deps.forceCollectOnWake && !ctx.forcedToolChoiceRejected;
   logger.log("sending AI request");
-  const optionsModel = getEffectiveModelForOptions(settings);
   const thinkingTier = enableNativeReasoning;
   // Resolve the max output tokens ONCE — reused to scale the reasoning
   // budget (below) AND as streamText's maxOutputTokens (~line 3953),
   // avoiding a duplicate catalog lookup.
   const maxOutputTokens = await preflight.time("max-tokens", () =>
-    getMaxTokensWithFloor(optionsModel, {
-      reasoningCapable: enableNativeReasoning,
-    }),
+    maxOutputTokensForTurn(deps),
   );
   // Per-provider buckets only. Two inherited keys used to open this
   // object, addressed to the removed hosted engine and its upstream
@@ -461,7 +460,7 @@ export async function simpleStreamText(
   // and getTemperature defaults to 0 — see shouldOmitTemperature.
   const temperature = shouldOmitTemperature(providerOptions)
     ? undefined
-    : await preflight.time("temperature", () => getTemperature(optionsModel));
+    : await preflight.time("temperature", () => temperatureForTurn(deps));
 
   ttftStartRef.ms = Date.now();
   // v10.1 perf: time from workspace open to the first prompt dispatch.
@@ -541,6 +540,14 @@ export async function simpleStreamText(
    * be refused again nor replaces that reason with "Something went wrong".
    */
   let recordedRefusal: unknown = null;
+  /**
+   * The request was too long for the model. Not a refusal: handleTurnError
+   * compacts and retries once, and says so only if that fails too. Reported
+   * here as a refusal, the turn ended at the refusal branch before the overflow
+   * one, so the retry never ran for a 400 "too long" from any provider
+   * (Sentry ATLARIX-2Y: Core's "Prompt exceeds max length", 84 events).
+   */
+  let recordedOverflow: unknown = null;
   /** Running per-tool token attribution for THIS turn's live meter. */
   const turnBuckets = {
     filesRead: 0,
@@ -1034,6 +1041,9 @@ export async function simpleStreamText(
       // wrapper with only the SDK's synthetic `NoOutputGeneratedError` to inspect
       // (see `recordedNetworkError`), so for a request-phase failure it retried on
       // the empty-output path and never on this one.
+      // For `turn_completed`: the SDK hands the turn a bare "no output" in its
+      // place, so the status and kind are kept here (a word, never the text).
+      noteTurnStreamError(req.chatId, classifyTurnError(error));
       if (isNetworkStreamError(error)) {
         recordedNetworkError = error;
         logger.warn(
@@ -1052,6 +1062,13 @@ export async function simpleStreamText(
         );
         return;
       }
+      // The SDK hands onError its event, `{ error }`; the provider's words are inside.
+      const cause = (error as { error?: unknown } | null)?.error ?? error;
+      if (isContextOverflowError(cause)) {
+        recordedOverflow = cause;
+        logger.warn("[stream] onError: the request is too long for the model (compacting and retrying)", error);
+        return;
+      }
       let errorMessage = (error as any)?.error?.message;
       const responseBody = error?.error?.responseBody;
       if (errorMessage && responseBody) {
@@ -1061,7 +1078,7 @@ export async function simpleStreamText(
       // Only Core INFRA errors (reachability / core_unavailable) warrant a
       // Sentry event; a user running out of credit (402) is expected state.
       let isCompassInfraError = false;
-      if (isPdfContentRejectionError(error)) {
+      if (isPdfContentRejectionError(error, requestHasDocumentPart(chatMessages))) {
         // Checked BEFORE the image matcher: a turn can carry both, and
         // the image matcher's broader "unsupported" clauses would
         // otherwise claim a document rejection and send the user off
@@ -1150,7 +1167,11 @@ export async function simpleStreamText(
       );
       if (modelClient.builtinProviderId === "compass" && isCompassInfraError) {
         sentryCaptureExceptionSafe(new Error(message.slice(0, 500)), {
-          tags: { feature: "compass", source: "main_stream" },
+          tags: {
+            feature: "compass",
+            source: "main_stream",
+            ...coreTurnTags(effectiveModel.name),
+          },
           extra: { chatId: req.chatId },
         });
       }
@@ -1217,6 +1238,8 @@ export async function simpleStreamText(
     getRecordedNetworkError: (): unknown => recordedNetworkError,
     /** A refusal `onError` already reported; see `recordedRefusal`. */
     getRecordedRefusal: (): unknown => recordedRefusal,
+    /** A too-long request `onError` held back for the turn's compact-and-retry; see `recordedOverflow`. */
+    getRecordedOverflow: (): unknown => recordedOverflow,
   };
 }
 
@@ -1230,6 +1253,28 @@ export function isProviderRefusal(error: unknown): boolean {
     | number
     | undefined;
   return status != null && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429;
+}
+
+/**
+ * A turn's max output tokens, for the model the turn runs on. Not
+ * `settings.selectedModel`: that is the desktop app's choice, and a CLI, editor,
+ * user-agent or sub-agent turn runs on its own. With the app on DeepSeek V4
+ * (393,216) a Claude Haiku 5.5 turn (128,000) asked for DeepSeek's limit and
+ * Anthropic refused every request (owner, 2026-10-19).
+ */
+export async function maxOutputTokensForTurn(
+  deps: Pick<SimpleStreamTextDeps, "settings" | "effectiveModel" | "enableNativeReasoning">,
+): Promise<number> {
+  return getMaxTokensWithFloor(deps.effectiveModel, {
+    reasoningCapable: deps.enableNativeReasoning,
+  });
+}
+
+/** The temperature for the turn's own model, for the same reason (Haiku 5.5 takes none). */
+export async function temperatureForTurn(
+  deps: Pick<SimpleStreamTextDeps, "settings" | "effectiveModel">,
+): Promise<number | undefined> {
+  return getTemperature(deps.effectiveModel);
 }
 
 export type SimpleStreamTextBundle = Awaited<

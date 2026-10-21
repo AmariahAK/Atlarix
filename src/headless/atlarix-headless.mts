@@ -77,7 +77,8 @@ Options
   --workspace <dir>         The folder to work in (default: this one)
   --mode build|ask          Build edits and runs commands; ask only reads (default: build)
   --provider-id <id>        Provider, e.g. openrouter
-  --provider-url <url>      Any OpenAI-compatible address
+  --provider-url <url>      Any OpenAI-compatible address, or Anthropic's API there with --provider-id anthropic
+  --auth-header bearer      With --provider-id anthropic at another address: send the key as a Bearer token
   --model <id>              Model id
   --api-key <key> | --api-key-file <path>
   --attach <file>           Attach a file (repeatable)
@@ -122,6 +123,10 @@ async function main() {
     console.log(RUN_HELP);
     process.exit(0);
   }
+  // A lease only, no sweep: an app, CLI or editor quitting meanwhile must not
+  // take the scratch directory this run is working in (temp-hygiene.ts).
+  const { registerTempLease } = await import("../main/temp-hygiene");
+  registerTempLease("headless");
 
   const workspace = arg("workspace") ?? process.cwd();
   const promptFile = arg("prompt-file");
@@ -141,6 +146,13 @@ async function main() {
     process.env.ATLARIX_HEADLESS_MODEL ??
     "deepseek/deepseek-v4-pro";
   const apiKey = arg("api-key") ?? process.env.ATLARIX_HEADLESS_API_KEY;
+  // For --provider-id anthropic at another address: how it takes the key.
+  const authHeaderArg = arg("auth-header") ?? process.env.ATLARIX_HEADLESS_AUTH_HEADER;
+  if (authHeaderArg && authHeaderArg !== "bearer" && authHeaderArg !== "x-api-key") {
+    console.error(`[atlarix-headless] --auth-header is bearer or x-api-key, not ${authHeaderArg}`);
+    process.exit(2);
+  }
+  const authHeader = authHeaderArg as "bearer" | "x-api-key" | undefined;
   const openrouterProviderJson =
     arg("openrouter-provider") ?? process.env.ATLARIX_OPENROUTER_PROVIDER_JSON;
   const mode = (arg("mode") ?? "build") as "build" | "ask";
@@ -236,6 +248,7 @@ async function main() {
       model,
       apiKey,
       openrouterProviderJson,
+      ...(authHeader ? { authHeader } : {}),
     },
     mode,
     timeoutMs,

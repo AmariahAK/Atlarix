@@ -19,9 +19,22 @@ import { app } from "electron";
 import { PostHog } from "posthog-node";
 import { readSettings, writeSettings } from "../settings";
 import { v4 as uuidv4 } from "uuid";
+import { atlarixEditor, atlarixSurface } from "@/ipc/shared/core_proxy";
+import { drainTurnStats, type AutoBilling } from "@/lib/analytics/turn-stats";
+import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
+import type { TurnEnd, TurnErrorKind } from "@/lib/analytics/turn-end";
 
 const ANALYTICS_ID_FILE = "analytics-id.json";
 const POSTHOG_HOST = "https://eu.i.posthog.com";
+
+/**
+ * Where events go: PostHog, or a stub on this machine for a live test
+ * (`ATLARIX_POSTHOG_HOST=http://127.0.0.1:<port>`). Only a loopback address
+ * is honoured, so the variable can never send anyone's usage elsewhere.
+ */
+export function posthogHost(env: string | undefined = process.env.ATLARIX_POSTHOG_HOST): string {
+  return env && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(env) ? env.replace(/\/$/, "") : POSTHOG_HOST;
+}
 
 let client: PostHog | null = null;
 
@@ -53,6 +66,9 @@ export function getOrCreateAnonymousId(): string {
 }
 
 function isOptedIn(): boolean {
+  // The editor running us has its own telemetry switched off (VS Code passes
+  // this): nothing is sent, whatever the Atlarix answer.
+  if (process.env.ATLARIX_HOST_TELEMETRY === "off") return false;
   const settings = readSettings();
   return settings.telemetryConsent === "opted_in";
 }
@@ -68,7 +84,14 @@ export function getPostHog(): PostHog | null {
   // every desktop and CLI event without a country. The request comes from the
   // user's own machine, so the location is theirs; the project discards the IP
   // itself after the lookup (the consent text says both).
-  client = new PostHog(apiKey, { host: POSTHOG_HOST, disableGeoip: false });
+  // Batched: up to 20 events or 30 s per request, not one request per event.
+  // The CLI and ACP still send what is queued on exit (flushAndClose).
+  client = new PostHog(apiKey, {
+    host: posthogHost(),
+    disableGeoip: false,
+    flushAt: 20,
+    flushInterval: 30_000,
+  });
   return client;
 }
 
@@ -127,11 +150,32 @@ export function identifyUser(
     if (anonymousId !== userId && !aliased.includes(userId)) {
       posthog.alias({ distinctId: userId, alias: anonymousId });
       writeSettings({ analyticsAliasedUserIds: [...aliased, userId] });
+      // This account's first sign-in on this install: Core is now usable here.
+      void trackModelConnected({ type: "core", provider: "compass" });
     }
-    posthog.identify({ distinctId: userId, properties });
+    posthog.identify({ distinctId: userId, properties: withInternalFlag(properties) });
   } catch {
     /* analytics must never break sign-in */
   }
+}
+
+/**
+ * Our own and test accounts, marked on the person so PostHog's "filter out
+ * internal and test users" drops them (filter: `internal = true`). Their usage
+ * outnumbered real users' in every chart.
+ */
+const INTERNAL_EMAILS = new Set([
+  "amariah.abish@gmail.com",
+  "amariah@atlarix.dev",
+  "amani.kamau06@gmail.com",
+  "agent@atlarix.dev",
+  "mojo.alexander3@gmail.com",
+]);
+
+function withInternalFlag(properties?: Record<string, unknown>): Record<string, unknown> | undefined {
+  const email = properties?.email;
+  if (typeof email !== "string") return properties;
+  return { ...properties, internal: INTERNAL_EMAILS.has(email.trim().toLowerCase()) };
 }
 
 /**
@@ -162,10 +206,30 @@ export function capture(
   posthog.capture({
     distinctId: resolveDistinctId(),
     event,
-    // Which Atlarix sent it: the desktop app or the terminal app (the CLI runs
-    // this same code in-process, with ATLARIX_SURFACE=cli).
-    properties: { surface: process.env.ATLARIX_SURFACE === "cli" ? "cli" : "app", ...properties },
+    properties: { ...superProperties(), ...properties },
   });
+}
+
+/**
+ * On every event: which Atlarix sent it (app, cli, or an editor: acp for Zed
+ * and JetBrains, vscode for our panel), the editor, the version and platform.
+ * Before this an editor's events all said `cli`.
+ */
+function superProperties(): Record<string, unknown> {
+  const editor = atlarixEditor();
+  let version: string | undefined;
+  try {
+    version = app.getVersion();
+  } catch {
+    /* no app in this process */
+  }
+  return {
+    surface: atlarixSurface(),
+    ...(editor ? { editor } : {}),
+    ...(version ? { app_version: version } : {}),
+    os: process.platform,
+    arch: process.arch,
+  };
 }
 
 /** Fire-and-forget capture; never throws (analytics must not break the app). */
@@ -188,11 +252,66 @@ export function captureSafe(
 // the funnel starts cleanly if consent is granted later.
 // ────────────────────────────────────────────────────────────────────────────
 
-/** A user wired up a usable model (Core sign-in, a BYOK key, or a local runtime). */
-export function trackModelConnected(
-  properties?: Record<string, unknown>,
-): void {
-  captureSafe("model_connected", properties);
+const connectedThisProcess = new Set<string>();
+
+/** A user wired up a usable model: a key, a provider of their own, a local runtime, or Core. */
+export type ModelConnectedType = "byok" | "custom" | "local" | "core";
+
+/**
+ * `model_connected`, one shape from every place a model is connected:
+ * `{type, provider, provider_type}`, the provider normalised as on
+ * turn_completed (a provider the user added is `custom`, never its own name).
+ */
+export function trackModelConnected(c: {
+  type: ModelConnectedType;
+  provider: string;
+  /** A provider the user added: the API it speaks, or how to look it up (only for people who opted in). */
+  apiFormat?: string | (() => Promise<string | undefined>);
+}): Promise<void> {
+  try {
+    if (!isOptedIn()) return Promise.resolve();
+    // Adding a provider and then its key is one connection, not two.
+    if (connectedThisProcess.has(c.provider)) return Promise.resolve();
+    connectedThisProcess.add(c.provider);
+    // Returned so a command that exits right after (`atlarix keys add`) can wait for the capture.
+    return (async () => {
+      const format = typeof c.apiFormat === "function" ? await c.apiFormat().catch(() => undefined) : c.apiFormat;
+      const p = providerFields(c.provider, c.type === "custom" ? "custom" : undefined, format);
+      captureSafe("model_connected", { type: c.type, ...p });
+    })().catch(() => {});
+  } catch {
+    /* analytics must never break connecting a model */
+    return Promise.resolve();
+  }
+}
+
+/** A provider the user added is stored as `custom::<their id>` (language_model_helpers). */
+const CUSTOM_PREFIX = "custom::";
+
+/**
+ * The provider as reported: a built-in id as is; one the user added is
+ * `custom`, with `provider_type` `custom:<api format>`. Its id is free text
+ * the user typed and its address is theirs, so neither is ever sent.
+ */
+export function providerFields(
+  providerId: string,
+  providerType?: string,
+  apiFormat?: string,
+): { provider: string; provider_type: string } {
+  if (providerType === "custom" || providerId.startsWith(CUSTOM_PREFIX)) {
+    return { provider: "custom", provider_type: `custom:${apiFormat === "anthropic" ? "anthropic" : "openai"}` };
+  }
+  return { provider: providerId, provider_type: providerId };
+}
+
+/**
+ * Which Core a Core turn ran on, in the proxy's own words (`usage_daily`):
+ * Atlarix Auto free or paid (the proxy's reply says which), or a Core model.
+ * Absent for an Auto turn that got no reply to read it from.
+ */
+export function corePlanOf(model: string | undefined, autoBilling: AutoBilling | undefined): string | undefined {
+  if (!isCoreAutoTier(model)) return "core";
+  return autoBilling ? `auto_${autoBilling}` : undefined;
 }
 
 /**
@@ -208,7 +327,7 @@ export function trackLocalModelConnected(providerId: string): void {
     const seen = settings.analyticsLocalProvidersSeen ?? [];
     if (seen.includes(providerId)) return;
     writeSettings({ analyticsLocalProvidersSeen: [...seen, providerId] });
-    captureSafe("model_connected", { type: "local", provider: providerId });
+    void trackModelConnected({ type: "local", provider: providerId });
   } catch {
     /* analytics must never break model resolution */
   }
@@ -233,13 +352,15 @@ export function trackActiveDay(): void {
   try {
     const today = localDayKey();
     const settings = readSettings();
-    if (settings.lastActiveDay === today) return;
     // The COUNT is written even when analytics are opted out: it drives the
-    // in-app PeerPush prompt, which is a product decision, not telemetry. Only
-    // the event itself is gated.
-    const count = (settings.activeDayCount ?? 0) + 1;
-    writeSettings({ lastActiveDay: today, activeDayCount: count });
-    if (!isOptedIn()) return;
+    // in-app PeerPush prompt, which is a product decision, not telemetry.
+    if (settings.lastActiveDay !== today) {
+      writeSettings({ lastActiveDay: today, activeDayCount: (settings.activeDayCount ?? 0) + 1 });
+    }
+    // The event has its own marker: one marker for both lost the day whenever it
+    // began with analytics off and they were turned on later that day.
+    if (settings.lastActiveDaySent === today || !isOptedIn()) return;
+    writeSettings({ lastActiveDaySent: today });
     captureSafe("active_day", { date: today });
   } catch {
     /* analytics must never break startup */
@@ -267,6 +388,7 @@ export function trackAcquisitionSource(source: string, detail?: string): void {
       distinctId: resolveDistinctId(),
       event: "acquisition_source_selected",
       properties: {
+        ...superProperties(),
         source,
         ...(detail ? { source_detail: detail } : {}),
         $set_once: {
@@ -300,79 +422,219 @@ export function billingOf(provider: string, providerType?: string): TurnBilling 
   return "byok";
 }
 
-/**
- * The billing of the most recent turn, added to task_* events so the existing
- * funnels break down by it. Two turns running at once can mix this up; the
- * `model_turn` event itself is always exact.
- */
-let lastTurn: { billing: TurnBilling; provider: string } | null = null;
+/** The per-chat choices of the last reported turn, for `changed`. */
+const lastChoice = new Map<number, { mode?: string; model?: string; effort?: string }>();
+/** Turns reported per chat in this process. */
+const turnsInProcess = new Map<number, number>();
 
-/**
- * One `model_turn` per agent turn: who paid for the model, which provider and
- * model, no content. Usage used to be read from paid Core alone, so someone on
- * their own key or a local model looked like they had dropped off. The person
- * properties make the whole person segmentable (`uses_byok`, `last_billing`).
- */
-export function trackModelTurn(t: {
-  provider: string;
-  providerType?: string;
-  model: string;
+/** The mode as people see it: the code's "ask" is Explore everywhere in the UI. */
+function modeName(mode: string | undefined): string | undefined {
+  return mode === "ask" ? "explore" : mode;
+}
+
+function turnIndexBucket(n: number): string {
+  if (n <= 1) return "1";
+  if (n <= 5) return "2-5";
+  if (n <= 20) return "6-20";
+  return "21+";
+}
+
+/** Coarse duration buckets: a raw duration on a low-volume event is closer to a fingerprint than a metric. */
+export function durationBucket(ms: number): string {
+  const s = ms / 1000;
+  if (s < 10) return "<10s";
+  if (s < 30) return "10-30s";
+  if (s < 120) return "30s-2m";
+  if (s < 600) return "2-10m";
+  return ">10m";
+}
+
+/** One finished turn, as the stream saw it. No content. */
+export interface TurnReport {
+  chatId: number;
+  end: TurnEnd;
   mode?: string;
+  provider?: string;
+  model?: string;
+  effort?: string;
   fellBackToCore?: boolean;
-}): void {
-  try {
-    const billing = t.fellBackToCore ? "core" : billingOf(t.provider, t.providerType);
-    lastTurn = { billing, provider: t.provider };
-    captureSafe("model_turn", {
-      billing,
-      provider: t.provider,
-      model: t.model,
-      ...(t.mode ? { mode: t.mode } : {}),
-      ...(t.fellBackToCore ? { fell_back_to_core: true } : {}),
-      $set: {
-        last_billing: billing,
-        last_provider: t.provider,
-        ...(billing === "byok" ? { uses_byok: true } : billing === "local" ? { uses_local: true } : { uses_core: true }),
-      },
-      ...(billing === "byok" ? { $set_once: { first_byok_at: new Date().toISOString() } } : {}),
-    });
-  } catch {
-    /* analytics must never break the turn */
-  }
-}
-
-function withBilling(properties?: Record<string, unknown>): Record<string, unknown> | undefined {
-  return lastTurn ? { ...properties, billing: lastTurn.billing, provider: lastTurn.provider } : properties;
-}
-
-/** The first real agent turn in a workspace started (fires once). */
-export function trackTaskStarted(properties?: Record<string, unknown>): void {
-  try {
-    if (!isOptedIn()) return;
-    if (readSettings().firstTaskStartedAt) return;
-    writeSettings({ firstTaskStartedAt: Date.now() });
-    captureSafe("first_task_started", withBilling(properties));
-  } catch {
-    /* analytics must never break the turn */
-  }
+  automation?: boolean;
+  durationMs: number;
+  /** The chat had messages before this turn (a resumed or continued chat). */
+  hadHistory: boolean;
+  outputTokens: number;
 }
 
 /**
- * An agent turn finished successfully. The first success fires
- * `first_task_completed`; every success after that fires `task_completed`.
+ * `turn_completed`: one per turn, on every surface, with everything about the
+ * turn: how it ended and why, the mode, model, effort and who paid, what
+ * changed since the chat's last turn, and how many approvals, compactions,
+ * sub-agents and retries it took. Switches and approvals are fields here, not
+ * events of their own; `model_turn` and the renderer's `core_turn_*` are gone.
+ *
+ * Called after the turn has ended. The counters are drained whatever the
+ * consent (they must not pile up); everything else, the provider lookup
+ * included, happens only for people who opted in. Returns how the turn
+ * really ended (the stream's own error over the SDK's stand-in), which the
+ * crash report and the usage rollup read whatever the consent.
  */
-export function trackTaskCompleted(properties?: Record<string, unknown>): void {
+export function trackTurnCompleted(
+  r: TurnReport,
+  providerTypeOf?: (providerId: string) => Promise<string | { type?: string; apiFormat?: string } | undefined>,
+): TurnEnd & { autoBilling?: AutoBilling } {
+  let resolved: TurnEnd & { autoBilling?: AutoBilling } = r.end;
   try {
-    if (!isOptedIn()) return;
-    if (!readSettings().firstTaskCompletedAt) {
-      writeSettings({ firstTaskCompletedAt: Date.now() });
-      captureSafe("first_task_completed", withBilling(properties));
-    } else {
-      captureSafe("task_completed", withBilling(properties));
+    const stats = drainTurnStats(r.chatId);
+    const prev = lastChoice.get(r.chatId);
+    const choice = { mode: r.mode, model: r.model, effort: r.effort };
+    lastChoice.set(r.chatId, choice);
+    const n = (turnsInProcess.get(r.chatId) ?? 0) + 1;
+    turnsInProcess.set(r.chatId, n);
+
+    let { outcome, errorKind, httpStatus } = r.end;
+    const se = stats.streamError;
+    // The stream saw the real failure; the turn only saw the SDK's stand-in.
+    if (se && outcome === "error" && (errorKind === "no_output" || errorKind === "other")) {
+      errorKind = se.kind as TurnErrorKind;
+      httpStatus = se.httpStatus;
+    } else if (se && outcome === "ok" && r.outputTokens === 0) {
+      outcome = "error";
+      errorKind = se.kind as TurnErrorKind;
+      httpStatus = se.httpStatus;
     }
+    resolved = {
+      outcome,
+      ...(errorKind ? { errorKind } : {}),
+      ...(httpStatus ? { httpStatus } : {}),
+      ...(stats.autoBilling ? { autoBilling: stats.autoBilling } : {}),
+    };
+    if (!isOptedIn()) return resolved;
+
+    const changed = prev ? (["mode", "model", "effort"] as const).filter((k) => prev[k] !== choice[k]) : [];
+
+    void (async () => {
+      const looked =
+        r.provider && !r.fellBackToCore ? await providerTypeOf?.(r.provider).catch(() => undefined) : undefined;
+      const providerType = typeof looked === "string" ? looked : looked?.type;
+      const apiFormat = typeof looked === "string" ? undefined : looked?.apiFormat;
+      const reported = r.fellBackToCore
+        ? providerFields("compass")
+        : r.provider
+          ? providerFields(r.provider, providerType, apiFormat)
+          : undefined;
+      const provider = reported?.provider;
+      const billing: TurnBilling | undefined = r.fellBackToCore
+        ? "core"
+        : r.provider
+          ? billingOf(r.provider, providerType)
+          : undefined;
+      const corePlan = billing === "core" ? corePlanOf(r.model, stats.autoBilling) : undefined;
+      const which = {
+        ...(reported ? { provider_type: reported.provider_type } : {}),
+        ...(corePlan ? { core_plan: corePlan } : {}),
+      };
+      const durationBucketValue = durationBucket(r.durationMs);
+      captureSafe("turn_completed", {
+        outcome,
+        ...(errorKind ? { error_kind: errorKind } : {}),
+        ...(httpStatus ? { http_status: httpStatus } : {}),
+        ...(se && outcome === "ok" ? { recovered_error_kind: se.kind } : {}),
+        ...(r.mode ? { mode: modeName(r.mode) } : {}),
+        ...(provider ? { provider } : {}),
+        ...which,
+        ...(r.model ? { model: r.model } : {}),
+        ...(billing ? { billing } : {}),
+        effort: r.effort ?? "none",
+        ...(r.fellBackToCore ? { fell_back_to_core: true } : {}),
+        origin: r.automation ? "automation" : "user",
+        changed,
+        ...(changed.includes("mode") ? { prev_mode: modeName(prev?.mode) } : {}),
+        ...(changed.includes("model") ? { prev_model: prev?.model } : {}),
+        duration_bucket: durationBucketValue,
+        turn_index_bucket: turnIndexBucket(n),
+        resumed_session: n === 1 && r.hadHistory,
+        ...stats.counts,
+        ...(stats.loop ?? {}),
+        ...(billing
+          ? {
+              $set: {
+                last_billing: billing,
+                last_provider: provider,
+                ...(billing === "byok" ? { uses_byok: true } : billing === "local" ? { uses_local: true } : { uses_core: true }),
+              },
+              ...(billing === "byok" ? { $set_once: { first_byok_at: new Date().toISOString() } } : {}),
+            }
+          : {}),
+      });
+      // The old activation funnel, one more release (5673ba5a), now with THIS
+      // turn's billing. It used to read a global "last turn", which two turns
+      // running at once mixed up.
+      const funnel = {
+        ...(r.mode ? { mode: modeName(r.mode) } : {}),
+        ...(billing ? { billing, provider } : {}),
+        ...which,
+        ...(r.model ? { model: r.model } : {}),
+        ...(stats.loop ? { iterations: stats.loop.iterations, toolExecutions: stats.loop.tool_count } : {}),
+        duration_bucket: durationBucketValue,
+      };
+      const settings = readSettings();
+      if (!settings.firstTaskStartedAt) {
+        writeSettings({ firstTaskStartedAt: Date.now() });
+        captureSafe("first_task_started", funnel);
+      }
+      if (outcome === "ok") {
+        if (!settings.firstTaskCompletedAt) {
+          writeSettings({ firstTaskCompletedAt: Date.now() });
+          captureSafe("first_task_completed", funnel);
+        } else {
+          captureSafe("task_completed", funnel);
+        }
+      }
+    })().catch(() => {});
   } catch {
     /* analytics must never break the turn */
   }
+  return resolved;
+}
+
+let lastTierSent: string | null = null;
+
+/**
+ * The account's tier, sent when it CHANGES in this process (sign-in, an
+ * upgrade), as an event and a person property. It used to be sent on every
+ * session refresh: 274 events from 21 people in a month.
+ */
+export function trackTier(tier: string): void {
+  if (!tier || tier === lastTierSent) return;
+  if (!isOptedIn()) return;
+  lastTierSent = tier;
+  captureSafe("tier_identified", { tier, $set: { tier } });
+}
+
+let sessionStarted = false;
+/** A start that could not be sent yet (analytics off), sent once they come on. */
+let pendingStart: Record<string, unknown> | null = null;
+
+/** Once per process: the app opened, the CLI started, or an editor's first session. */
+export function trackSessionStarted(properties?: Record<string, unknown>): void {
+  if (sessionStarted) return;
+  if (!isOptedIn()) {
+    pendingStart ??= properties ?? {};
+    return;
+  }
+  sessionStarted = true;
+  pendingStart = null;
+  captureSafe("session_started", properties);
+}
+
+/**
+ * Analytics just came on (the consent answer, the CLI's /analytics, the
+ * editor's own telemetry switch): this process's start and today's active day,
+ * which were not sent while they were off, are sent now, once each.
+ */
+export function trackAnalyticsTurnedOn(): void {
+  if (pendingStart && !sessionStarted) trackSessionStarted(pendingStart);
+  trackActiveDay();
 }
 
 /**

@@ -455,6 +455,15 @@ export const pendingInterjectionsByChatIdAtom = atom<
 >(new Map());
 
 /**
+ * Chats whose session has a turn running in ANOTHER Atlarix (the CLI, an
+ * editor): this window follows it (useFollowRunningSession). The composer then
+ * sends what you type to that turn and Stop stops it.
+ */
+export const followingByChatIdAtom = atom<
+  Map<number, { surface: "cli" | "app" | "chrome" | "editor"; name: string }>
+>(new Map());
+
+/**
  * A2/A3: the turn ENDED cleanly (isStreaming=false, send button shown) with
  * background work still outstanding — a fresh turn auto-resumes when an item
  * reports. Distinct from `waitingOnCommandByChatIdAtom` (which means the turn is

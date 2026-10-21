@@ -17,7 +17,6 @@ import type { ChatStreamParams } from "@/ipc/ipc_types";
 import type { StreamTurnContext } from "@/ipc/handlers/chat_stream/turn-context";
 import type { ModelClient } from "@/ipc/utils/get_model_client";
 import type { SimpleStreamTextDeps } from "@/ipc/handlers/chat_stream/turn-runner/simple-stream-text";
-import type { UserAgent } from "@/lib/agents/user-agents";
 import { shouldAutoApprovePermissions } from "@/lib/agents/agent-runtime";
 import { attachDelegationToolsToSet } from "@/lib/agents/register-delegation-tools";
 import {
@@ -35,9 +34,7 @@ import { feedTerminalOutput } from "@/lib/streams/StreamManager";
 import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import { ToolRegistry } from "@/lib/tools";
 import { isReadOnlyWorkMode, toolExecutionChatMode } from "@/lib/work-mode";
-import { captureSafe } from "@/main/lib/analytics";
 import { type ChatContextReport } from "@/ipc/ipc_types";
-import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { cwdNoteForCommand } from "@/lib/commands/cwd-note";
 import { estimateTokens } from "@/ipc/utils/token_utils";
@@ -137,7 +134,6 @@ export interface BuildBranchDeps {
   streamTurnId: string;
   STREAM_CONTINUATION_MAX: number;
   chatMessages: ModelMessage[];
-  activeUserAgent: UserAgent | null;
   hasWorkspace: boolean;
   logTtftOnce: () => void;
   handleStreamStall: () => void;
@@ -201,7 +197,6 @@ export async function runBuildBranch(
     streamTurnId,
     STREAM_CONTINUATION_MAX,
     chatMessages,
-    activeUserAgent,
     hasWorkspace,
     logTtftOnce,
     handleStreamStall,
@@ -241,7 +236,6 @@ export async function runBuildBranch(
       provider: effectiveModel?.provider,
       builtinProviderId: modelClient.builtinProviderId,
     },
-    userAgentTools: activeUserAgent?.tools ?? null,
     unattended: Boolean(req.automation),
   });
   const buildToolsToInclude = buildResolved.tools;
@@ -510,7 +504,7 @@ export async function runBuildBranch(
 
             try {
               const providerId =
-                getEffectiveModelForOptions(settings)?.provider ??
+                effectiveModel?.provider ??
                 settings.selectedModel?.provider ??
                 undefined;
               const { executeCompressContext } = await import(
@@ -523,6 +517,7 @@ export async function runBuildBranch(
                 id: number;
                 role: string;
                 content: string;
+                modelContent?: string | null;
               }[];
               const outcome = await executeCompressContext(
                 { reason },
@@ -532,6 +527,7 @@ export async function runBuildBranch(
                     id: m.id,
                     role: m.role,
                     content: m.content || "",
+                    modelContent: m.modelContent,
                   })),
                   systemPromptTokens: estimateTokens(systemPrompt),
                   inputTokens: 0,
@@ -1407,17 +1403,6 @@ export async function runBuildBranch(
     : AGENTIC_PROSE_ONLY_MAX_DEFAULT;
   let totalToolExecutions = 0; // Track total tools executed across all iterations
 
-  let streamAbortLedgerCompleteCaptured = false;
-  const captureStreamAbortLedgerCompleteIfNeeded = () => {
-    if (streamAbortLedgerCompleteCaptured) return;
-    streamAbortLedgerCompleteCaptured = true;
-    captureSafe("stream_abort_ledger_complete", {
-      chat_id: req.chatId,
-      iterations: agenticIteration,
-      tools_executed: totalToolExecutions,
-    });
-  };
-
   const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } =
     await import("@/ipc/utils/text_tool_parser");
   const useTextToolFallback = shouldUseTextToolFallback(
@@ -2026,7 +2011,6 @@ export async function runBuildBranch(
       logger.log(
         `[Agentic Loop] Stream stopped after task ledger complete (chat ${req.chatId})`,
       );
-      captureStreamAbortLedgerCompleteIfNeeded();
     } else if (!abortController.signal.aborted) {
       throw streamError;
     }

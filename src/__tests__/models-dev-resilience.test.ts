@@ -51,6 +51,7 @@ import {
   refreshModelsDev,
   resetModelsDevCache,
 } from "@/lib/models_dev";
+import { estimateTurnCostUsd } from "@/lib/routing/byok-pricing";
 
 const SNAPSHOT_CATALOG = {
   anthropic: {
@@ -161,6 +162,26 @@ describe("bundled snapshot tier", () => {
     const data = await getModelsDevData();
     expect(Object.keys(data)).toContain("anthropic");
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("a loaded catalog prices a turn on a model the static table never knew", async () => {
+    await fs.mkdir(path.dirname(snapshotPath()), { recursive: true });
+    const catalog = {
+      anthropic: {
+        ...SNAPSHOT_CATALOG.anthropic,
+        models: { "claude-fable-5-1": { name: "Claude Fable 5.1", cost: { input: 10, output: 50 } } },
+      },
+    };
+    await fs.writeFile(snapshotPath(), gzipSync(Buffer.from(JSON.stringify(catalog), "utf-8")));
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+
+    await getModelsDevData();
+    expect(
+      estimateTurnCostUsd(
+        { name: "claude-fable-5-1", builtinProviderId: "anthropic" },
+        { inputTokens: 1_000_000, outputTokens: 1_000_000 },
+      ),
+    ).toBeCloseTo(60, 5);
   });
 });
 

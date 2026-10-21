@@ -46,6 +46,7 @@ vi.mock("@/lib/summarization_model", () => ({
     provider: "test",
     name: "test-model",
   }),
+  turnModelForChat: async () => ({ provider: "test", name: "test-model" }),
 }));
 vi.mock("@/ipc/utils/get_model_client", () => ({
   getModelClient: async () => ({ modelClient: { model: {} } }),

@@ -9,8 +9,8 @@
  * desktop app's selected model.
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { atlarixHomeDir } from "@/paths/atlarix-home";
 import type { EffortChoices } from "@/lib/routing/model-reasoning-profile";
 
 export interface ModelRef {
@@ -194,9 +194,9 @@ export interface CliState {
   modelLabel?: ModelRef & { label: string };
 }
 
-/** ~/.atlarix/cli-state.json; ATLARIX_CLI_STATE_FILE keeps a test run off the user's own. */
+/** ~/.atlarix/cli-state.json (a scratch profile's own: atlarixHomeDir); ATLARIX_CLI_STATE_FILE names it outright. */
 function statePath(): string {
-  return process.env.ATLARIX_CLI_STATE_FILE || path.join(os.homedir(), ".atlarix", "cli-state.json");
+  return process.env.ATLARIX_CLI_STATE_FILE || path.join(atlarixHomeDir(), "cli-state.json");
 }
 
 export function readCliState(file = statePath()): CliState {

@@ -15,12 +15,6 @@ export function getEffectiveModel(settings: UserSettings): LargeLanguageModel {
   return settings.selectedModel;
 }
 
-export function getEffectiveModelForOptions(
-  settings: UserSettings,
-): LargeLanguageModel {
-  return settings.selectedModel;
-}
-
 export async function getModelClient(): Promise<never> {
   throw new Error(
     "getModelClient() is main-process only — model dispatch must go through IPC, not the renderer.",

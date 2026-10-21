@@ -7,6 +7,7 @@
  * Pure: the TUI renders cells; src/__tests__/cli-transcript.test.ts pins the rules.
  */
 import { writePrevious } from "@/lib/chat/write-previous";
+import { noopSummary } from "@/lib/chat/stream-tool-display";
 import { plainStepText } from "@/lib/tasks/plan-checklist";
 import { displayTitle } from "@/shared/mcp-catalog";
 import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
@@ -17,6 +18,8 @@ import {
   type AssistantMessagePart,
 } from "@/lib/chat/assistant-message-parts";
 import { stripQuestionsArtifactForDisplay } from "@/lib/chat/ask-user-artifacts";
+import { extractInlineSourcesFromContent } from "@/lib/chat/citation-sources";
+import { stripSystemReminders } from "@/lib/streaming/system-reminder";
 
 export interface ChatMessageLike {
   id: number | string;
@@ -97,8 +100,9 @@ export function activityToolLine(p: {
   detail?: unknown;
 }): ToolLine {
   const name = typeof p.toolName === "string" ? p.toolName : "tool";
-  const st = p.status === "running" ? "running" : p.status === "error" || p.status === "failed" ? "error" : "success";
   const raw = typeof p.resultText === "string" ? p.resultText : undefined;
+  const failed = (p.status === "error" || p.status === "failed") && !noopSummary(name, raw);
+  const st = p.status === "running" ? "running" : failed ? "error" : "success";
   const r = toolResultText(name, raw);
   return {
     id: String(p.id ?? `${name}-${Math.random()}`),
@@ -560,7 +564,9 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
     id: part.id,
     verb: VERBS[part.toolName] ?? part.toolName.replace(/_/g, " "),
     target: toolTarget(part.toolName, part.args),
-    status: part.status,
+    // A no-op (compress_context with nothing to compact) says success:false but
+    // did what it should: done, not ✕ (A4; the app's cards settle it the same way).
+    status: part.status === "error" && noopSummary(part.toolName, part.resultText) ? "success" : part.status,
     result: part.resultText,
     error: part.error,
     // A plan the agent wrote: the plan itself, to read and correct where it was
@@ -610,6 +616,25 @@ function shownOutput(toolName: string, text: string): string | undefined {
 const cellCache = new Map<string, { content: string; model: string | null; cells: Cell[] }>();
 const CELL_CACHE_MAX = 2_000;
 
+/** The sources tag, whole or still arriving at the end of a streamed reply. */
+const SOURCES_TAG = /<atlarix-sources>[\s\S]*?(?:<\/atlarix-sources>|$)/g;
+
+/** "Sources" and one link per source, its site after it when the title does not say. */
+function sourcesText(sources: ReadonlyArray<{ url: string; title?: string }>): string {
+  const lines = sources.map((s) => {
+    let host = "";
+    try {
+      host = new URL(s.url).hostname.replace(/^www\./, "");
+    } catch {
+      /* not a URL we can name */
+    }
+    const title = (s.title || host || s.url).replace(/[[\]]/g, "");
+    const site = host && !title.toLowerCase().includes(host.toLowerCase()) ? ` · ${host}` : "";
+    return `- [${title}](${s.url})${site}`;
+  });
+  return `**Sources**\n${lines.join("\n")}`;
+}
+
 function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
   const key = `${m.role}:${m.id}`;
   if (!live) {
@@ -658,12 +683,19 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
     } else if (m.content.trim()) {
       const { text, chips } = userChips(m.content);
       // A paste: show what was pasted (the placeholder alone said nothing).
-      const full = /\[Pasted text #\d+/.test(m.content) && m.modelContent && m.modelContent !== m.content ? m.modelContent.trim() : undefined;
+      // (Without the harness's reminders: project memory rides the same row.)
+      const full = /\[Pasted text #\d+/.test(m.content) && m.modelContent && m.modelContent !== m.content ? stripSystemReminders(m.modelContent) : undefined;
       cells.push({ kind: "user", id: `${base}:u`, text: text || chips.join(" "), ...(chips.length ? { chips } : {}), ...(full ? { full } : {}) });
     }
   } else if (m.role === "assistant") {
     // The pending-questions marker is for the desktop's card; the CLI asks them in a dialog.
-    const content = stripQuestionsArtifactForDisplay(m.content);
+    const withSources = stripQuestionsArtifactForDisplay(m.content);
+    // A provider's own web search ends the reply with `<atlarix-sources>[…]`,
+    // which the desktop draws as citation chips; drawn as text it was a wall of
+    // JSON under the answer (owner, 2026-10-19). Listed as links instead, and a
+    // tag still arriving is hidden until it is whole.
+    const sources = extractInlineSourcesFromContent(withSources);
+    const content = withSources.replace(SOURCES_TAG, "").replace(/\s+$/, "");
     parseAssistantMessageParts(content, live).forEach((p, i) => {
       const id = `${base}:${i}`;
       if (p.type === "markdown") {
@@ -674,6 +706,7 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
         cells.push({ kind: "tool", id: `${base}:t:${p.id}`, tool: toolLine(p) });
       }
     });
+    if (sources.length) cells.push({ kind: "markdown", id: `${base}:sources`, text: sourcesText(sources) });
   }
   if (!live) {
     if (cellCache.size >= CELL_CACHE_MAX) cellCache.delete(cellCache.keys().next().value!);

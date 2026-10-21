@@ -155,8 +155,14 @@ function fakeServices(calls: Call[]): CliServices {
     },
     mcp: (() => {
       const servers = [{ id: 1, name: "github", transport: "stdio", enabled: true }];
+      // How each server connected, once /mcp has probed it (McpManager's record).
+      const connected = new Set<number>();
       return {
-        list: async () => servers.map((x) => ({ ...x })),
+        list: async () => servers.map((x) => ({ ...x, ...(connected.has(x.id) ? { connection: { ok: true as const } } : {}) })),
+        probe: async (ids: number[]) => {
+          calls.push(["mcp.probe", ids]);
+          for (const id of ids) connected.add(id);
+        },
         test: async () => ({ ok: true }),
         tools: async () => [],
         add: async (appId: number, server: { name: string; command?: string; url?: string }) => {
@@ -795,8 +801,10 @@ describe("command screens", () => {
     await command(setup, "/mcp");
     let frame = await frameContaining(setup, "MCP servers");
     expect(frame).toContain("github");
-    expect(frame).toContain("✓ on");
     expect(frame).toContain("On/off space");
+    // Whether it connects, not just its switch: probed once, then shown.
+    frame = await frameContaining(setup, "✓ connected");
+    expect(serviceCalls).toContainEqual(["mcp.probe", [1]]);
     setup.mockInput.pressKey(" ");
     frame = await frameContaining(setup, "○ off");
     expect(serviceCalls).toContainEqual(["mcp.setEnabled", 1, false]);
@@ -810,6 +818,21 @@ describe("command screens", () => {
     frame = await frameContaining(setup, "example added");
     setup.mockInput.pressEscape();
     expect(await frameContaining(setup, "⊙ 1 MCP")).toBeTruthy(); // github off, example on
+  });
+
+  it("/mcp: a probe that throws before it returns never empties the list", async () => {
+    // It threw synchronously, before its .catch, and /mcp read "No MCP servers yet"
+    // (2 bun failures on dev a534ecf4). The rows stay; the server just isn't marked connected.
+    const { setup } = await mount((s) => {
+      s.mcp.probe = () => {
+        throw new TypeError("probe exploded");
+      };
+    });
+    await command(setup, "/mcp");
+    const frame = await frameContaining(setup, "github");
+    expect(frame).toContain("connecting…");
+    expect(frame).not.toContain("No MCP servers yet");
+    expect(frame).not.toContain("probe exploded");
   });
 
   it("/mcp: b browses the marketplace, Verified first, and enter adds one", async () => {
@@ -932,6 +955,25 @@ describe("command screens", () => {
     expect(frame).toContain("/model switch (Atlarix Auto is free)");
   });
 
+  it("session_started says how the session began, and cli_opened is gone", async () => {
+    const { serviceCalls } = await mount((s) => void (s.analytics.consent = async () => "opted_in"));
+    expect(await until(() => serviceCalls.some((c) => c[0] === "analytics.track" && c[1] === "session_started"))).toBe(true);
+    expect(serviceCalls.find((c) => c[1] === "session_started")).toEqual(["analytics.track", "session_started", { how: "new" }]);
+    expect(serviceCalls.some((c) => c[1] === "cli_opened")).toBe(false);
+
+    const calls: Call[] = [];
+    const services = fakeServices(calls);
+    services.analytics.consent = async () => "opted_in";
+    current?.renderer.destroy();
+    current = await testRender(
+      <App session={new FakeSession() as never} modelLabel="Atlarix Auto" version="15.0.0" onQuit={() => {}} plainMarkdown services={services} launch="continue" />,
+      { width: 120, height: 40, exitOnCtrlC: false },
+    );
+    await current.renderOnce();
+    expect(await until(() => calls.some((c) => c[1] === "session_started"))).toBe(true);
+    expect(calls.find((c) => c[1] === "session_started")![2]).toEqual({ how: "continue" });
+  });
+
   it("the session rating: only with analytics on, after a real session, and it sends only the rating", async () => {
     const { setup, session, serviceCalls } = await mount((s) => void (s.analytics.consent = async () => "opted_in"), undefined, 1);
     for (let i = 0; i < 8; i++) {
@@ -1037,6 +1079,23 @@ describe("command screens", () => {
     session.set({ busy: false, turnStartedAt: null, phase: null });
     expect(await until(() => session.calls.some((c) => c[0] === "compact"))).toBe(true);
     expect(await until(() => !setup.captureCharFrame().includes("runs after this turn"))).toBe(true);
+  });
+
+  // A file the turn created is in both lists; it was counted and named twice
+  // ("changed 2 files after it: f-P1.txt, f-P1.txt", QA).
+  it("/undo names a file the turn created once", async () => {
+    const { setup, session } = await mount();
+    (session as unknown as { undoPreview: () => Promise<unknown> }).undoPreview = async () => ({
+      turnIds: ["t30"],
+      filesChanged: ["/w/f-P1.txt"],
+      createdFiles: ["/w/f-P1.txt"],
+    });
+    await command(setup, "/undo");
+    await frameContaining(setup, "Go back to a message");
+    setup.mockInput.pressEnter();
+    const frame = await frameContaining(setup, "Go back to this message?");
+    expect(frame).toContain("changed 1 file after it");
+    expect(frame.split("f-P1.txt").length - 1).toBe(1);
   });
 
   it("/undo: restore the files, edit the message in the box, and send replaces it", async () => {

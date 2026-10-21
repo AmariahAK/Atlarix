@@ -547,6 +547,7 @@ body.needs-you .needs-badge {
   margin-bottom: 0;
 }
 .body pre {
+  position: relative;
   background: var(--sunk);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -554,6 +555,26 @@ body.needs-you .needs-badge {
   overflow-x: auto;
   font-family: var(--mono);
   font-size: 0.92em;
+}
+/* Top right of each code block: shown on hover, and to the keyboard. */
+.body pre .code-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--sunk);
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.body pre:hover .code-copy,
+.body pre .code-copy:focus-visible {
+  opacity: 1;
+}
+.body pre .code-copy:hover {
+  color: var(--fg);
 }
 .body code {
   font-family: var(--mono);
@@ -649,6 +670,14 @@ body.needs-you .needs-badge {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.step--approved .step__title {
+  white-space: normal;
+}
+.step__title code {
+  font-family: var(--mono);
+  color: var(--code);
+  font-size: 0.95em;
 }
 .step.in_progress .step__mark,
 .step.pending .step__mark {

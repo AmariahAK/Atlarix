@@ -73,3 +73,14 @@ vi.mock("@/lib/session-title/generate-title", async (importOriginal) => {
     await importOriginal<typeof import("@/lib/session-title/generate-title")>();
   return { ...actual, generateSessionTitle: vi.fn(async () => null) };
 });
+
+/**
+ * Memory recall makes a side model call on a user message when the workspace has
+ * notes — the same hazard as titling above, so the call is stubbed the same way.
+ * The index and change-notice paths still run; recall's own tests drive it.
+ */
+vi.mock("@/lib/memory/recall", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/memory/recall")>();
+  return { ...actual, selectRelevantMemories: vi.fn(async () => []) };
+});

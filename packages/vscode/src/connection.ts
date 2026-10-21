@@ -50,7 +50,8 @@ export interface McpResult {
 
 export interface SessionListener {
   update(n: SessionNotification): void;
-  permission(req: RequestPermissionRequest): Promise<RequestPermissionResponse>;
+  /** `withdrawn`: aborted when the agent takes the card back (something else answered it). */
+  permission(req: RequestPermissionRequest, withdrawn: AbortSignal): Promise<RequestPermissionResponse>;
   peerWaiting(): void;
   /** What is running in the session changed. */
   tasksChanged?(count: number): void;
@@ -59,7 +60,8 @@ export interface SessionListener {
   /** Messages sent while the turn runs changed. */
   pendingChanged?(items: Array<{ id: string; text: string; kind: string }>): void;
   /** What the working line says instead of "Thinking" ("Couldn't connect, retrying…"), or null. */
-  workingChanged?(title: string | null): void;
+  /** `following`: another surface runs this session's turn (title says which); absent for a retry note. */
+  workingChanged?(title: string | null, following?: boolean): void;
   /** Text you typed into a turn you stopped that the agent never got: back to the input. */
   unsent?(text: string): void;
   /** An automation finished a run. */
@@ -72,10 +74,16 @@ export interface ConnectionOptions {
   binary: string;
   cwd: string;
   version: string;
+  /** The host editor (VS Code, Cursor, Windsurf…), reported with usage. */
+  editor?: string;
+  /** Extra environment for the agent: the editor's telemetry switch (consent.ts agentTelemetryEnv). */
+  telemetryEnv?: Record<string, string>;
   log: (line: string) => void;
   /** A page to open: Atlarix's sign-in, or an MCP server's (the CLI prints them on stderr). */
   openUrl: (url: string, kind: "sign-in" | "open") => void;
   onExit: (code: number | null) => void;
+  /** A session to open in a panel (a fork made with `/fork`). */
+  openSession?: (sessionId: string) => void;
 }
 
 /** ACP's "sign in first" (RequestError.authRequired). */
@@ -99,7 +107,12 @@ export class AtlarixConnection {
   async start(): Promise<InitializeResponse> {
     const child = spawn(this.opts.binary, ["acp"], {
       cwd: this.opts.cwd,
-      env: { ...process.env, ATLARIX_ACP_CLIENT: "vscode" },
+      env: {
+        ...process.env,
+        ATLARIX_ACP_CLIENT: "vscode",
+        ...(this.opts.editor ? { ATLARIX_ACP_EDITOR: this.opts.editor } : {}),
+        ...this.opts.telemetryEnv,
+      },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -128,7 +141,7 @@ export class AtlarixConnection {
       .onRequest("session/request_permission", (ctx) => {
         const l = this.listeners.get(ctx.params.sessionId);
         if (!l) return { outcome: { outcome: "cancelled" } };
-        return l.permission(ctx.params);
+        return l.permission(ctx.params, ctx.signal);
       })
       .onNotification("session/update", (ctx) => {
         this.listeners.get(ctx.params.sessionId)?.update(ctx.params);
@@ -149,9 +162,17 @@ export class AtlarixConnection {
       )
       .onNotification(
         "_atlarix/working",
-        (p) => p as { sessionId: string; title?: string | null },
+        (p) => p as { sessionId: string; title?: string | null; following?: boolean },
         (ctx) => {
-          this.listeners.get(ctx.params.sessionId)?.workingChanged?.(ctx.params.title ?? null);
+          this.listeners.get(ctx.params.sessionId)?.workingChanged?.(ctx.params.title ?? null, ctx.params.following);
+        },
+      )
+      // `/fork` typed in the panel: open the copy here.
+      .onNotification(
+        "_atlarix/open_session",
+        (p) => p as { sessionId: string },
+        (ctx) => {
+          if (ctx.params.sessionId) this.opts.openSession?.(ctx.params.sessionId);
         },
       )
       .onNotification(
@@ -265,6 +286,20 @@ export class AtlarixConnection {
     return this.agent.request("_atlarix/recap_setting", { on });
   }
 
+  /** Usage analytics: the setting shared with the app and the CLI. */
+  analyticsConsent(): Promise<{ consent: "opted_in" | "opted_out" | "unset" }> {
+    return this.agent.request("_atlarix/analytics_consent", {});
+  }
+
+  setAnalyticsConsent(consent: "opted_in" | "opted_out"): Promise<unknown> {
+    return this.agent.request("_atlarix/analytics_set", { consent });
+  }
+
+  /** The editor's telemetry switch changed while the agent runs. */
+  setHostTelemetry(enabled: boolean): Promise<unknown> {
+    return this.agent.request("_atlarix/host_telemetry", { enabled });
+  }
+
   handoff(sessionId: string): Promise<unknown> {
     return this.agent.request("_atlarix/handoff", { sessionId });
   }
@@ -322,10 +357,31 @@ export class AtlarixConnection {
     return this.agent.request<McpResult>("_atlarix/mcp", { sessionId, action, ...args });
   }
 
-  dispose(): void {
+  /**
+   * Let the agent go. EOF, not a kill: it closes its sessions, runs its exit
+   * sweep and releases its temp lease, then exits (bounded). Killed, it never
+   * did on Windows, where kill() is TerminateProcess (QA E11). Resolves once
+   * it has exited, for deactivate to wait on: on Windows the agent also dies
+   * with the extension host (libuv's job object). The kill is only for one
+   * that hangs.
+   */
+  dispose(): Promise<void> {
+    const child = this.child;
     this.conn?.close();
-    this.child?.kill();
     this.conn = null;
     this.child = null;
+    if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+    child.stdin?.end();
+    return new Promise((resolve) => {
+      const backstop = setTimeout(() => {
+        child.kill();
+        resolve();
+      }, 5_000);
+      backstop.unref?.();
+      child.once("exit", () => {
+        clearTimeout(backstop);
+        resolve();
+      });
+    });
   }
 }

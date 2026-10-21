@@ -42,6 +42,7 @@ vi.mock("ai", () => ({ generateText: llm.generateText }));
 vi.mock("@/main/settings", () => ({ readSettings: () => ({}) }));
 vi.mock("@/lib/summarization_model", () => ({
   getCompactionSummarizationModel: async () => ({ provider: "t", name: "m" }),
+  turnModelForChat: async () => ({ provider: "t", name: "m" }),
 }));
 vi.mock("@/ipc/utils/get_model_client", () => ({
   getModelClient: async () => ({ modelClient: { model: {} } }),

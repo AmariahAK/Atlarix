@@ -659,7 +659,11 @@ export interface AtlarixUser {
 // the Supabase edge logs): the plan, the ban flag, the subscription details, the
 // onboarding flag, "does the row exist" and the plan snapshot each ran their own
 // narrow query, and the session restore ran twice. They now share one read with
-// every column they need: one in flight at a time, kept for a few seconds.
+// every column they need: one in flight at a time, kept until something says the
+// row changed (owner, 2026-10-20) — sign-in and sign-out, the focus refresh
+// (SubscriptionManager.refreshPlanFromServer, which reads fresh and refills it),
+// and every write here (`invalidatePlanCaches`, `setOnboardingCompleted`). A few
+// seconds' TTL made each later reader a read of its own.
 //
 // Each reader keeps its OWN query as the fallback when this one fails (a column
 // not yet deployed, say), so a non-essential column can still never break the
@@ -667,7 +671,6 @@ export interface AtlarixUser {
 
 const USER_ROW_SELECT =
   "id, email, plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id, lemon_variant_id, banned_at, onboarding_completed";
-const USER_ROW_TTL_MS = 10_000;
 
 type UserRow = PlanRowInput & {
   id: string;
@@ -676,7 +679,7 @@ type UserRow = PlanRowInput & {
 };
 
 /** The row last read, under every key it answers to (the id and the email it was asked by or carries). */
-let _userRow: { keys: string[]; row: UserRow | null; at: number } | null = null;
+let _userRow: { keys: string[]; row: UserRow | null } | null = null;
 const _userRowInFlight = new Map<string, Promise<UserRow | null | undefined>>();
 
 /**
@@ -690,7 +693,7 @@ async function readUserRow(
 ): Promise<UserRow | null | undefined> {
   const key = by.id ? `id:${by.id}` : `email:${(by.email ?? "").toLowerCase()}`;
   const c = _userRow;
-  if (!fresh && c && Date.now() - c.at < USER_ROW_TTL_MS && c.keys.includes(key)) return c.row;
+  if (!fresh && c && c.keys.includes(key)) return c.row;
   const pending = _userRowInFlight.get(key);
   if (pending) return pending;
   const p = (async () => {
@@ -702,7 +705,7 @@ async function readUserRow(
       const keys = [key];
       if (row?.id) keys.push(`id:${row.id}`);
       if (row?.email) keys.push(`email:${row.email.toLowerCase()}`);
-      _userRow = { keys, row, at: Date.now() };
+      _userRow = { keys, row };
       return row;
     } catch {
       return undefined;

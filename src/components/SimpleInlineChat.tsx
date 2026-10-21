@@ -30,12 +30,13 @@ import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
 import { BackgroundJobsIndicator } from "@/components/chat/BackgroundJobsIndicator";
 import { ArrowDown } from "lucide-react";
 import { useStreamChat } from "@/hooks/useStreamChat";
+import { useFollowRunningSession } from "@/hooks/useFollowRunningSession";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import type { FileAttachment, Message } from "@/ipc/ipc_types";
 import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
-import { chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
+import { chatIdToSessionIdAtom, pendingSessionHandoffAtom } from "@/atoms/sessionAtoms";
 import { SessionRecap } from "./chat/SessionRecap";
 import { Rix } from "./atlarix/Rix";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
@@ -104,6 +105,8 @@ export function SimpleInlineChat({
   const snapshotByMessageId = useAtomValue(turnSnapshotTurnIdByMessageIdAtom);
   const setSnapshotByMessageId = useSetAtom(turnSnapshotTurnIdByMessageIdAtom);
   const { streamMessage } = useStreamChat({ hasChatId: false });
+  // A turn of this session running in another Atlarix shows here as it runs.
+  useFollowRunningSession(chatId);
   const { t } = useTranslation("chat");
   const { settings } = useSettings();
   const account = useAccountKind();
@@ -498,6 +501,24 @@ export function SimpleInlineChat({
     [chatId, isStreaming, setMessagesById, streamMessage],
   );
 
+  const runFork = useCallback(
+    async (title?: string) => {
+      const sessionId = getDefaultStore().get(chatIdToSessionIdAtom).get(chatId);
+      if (!sessionId) return showInfo("Send a message first: there is nothing to fork yet.");
+      try {
+        const made = await IpcClient.getInstance().forkWorkspaceSession(sessionId, title);
+        getDefaultStore().set(pendingSessionHandoffAtom, {
+          sessionId: made.id,
+          workspaceId: made.workspaceId,
+          note: `Forked as “${made.title}”`,
+        });
+      } catch (err) {
+        showError(err);
+      }
+    },
+    [chatId],
+  );
+
   const runCompact = useCallback(async () => {
     try {
       const store = getDefaultStore();
@@ -769,6 +790,12 @@ export function SimpleInlineChat({
           // /compact is a command, not a message (QA #16), as in the CLI.
           if (prompt.trim() === "/compact" && !attachments?.length) {
             void runCompact();
+            return;
+          }
+          // /fork [name]: a copy of this session as saved now, opened beside it.
+          const fork = /^\/fork(?:\s+([\s\S]+))?$/.exec(prompt.trim());
+          if (fork && !attachments?.length) {
+            void runFork(fork[1]?.trim());
             return;
           }
           onSendMessage(prompt, attachments);

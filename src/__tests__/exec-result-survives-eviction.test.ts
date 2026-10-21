@@ -17,10 +17,10 @@
  * intermittent rather than broken.
  */
 
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The write path reaches for snapshots, ledgers and stats. None of them bear on
 // what this test pins, and all of them want a database.
@@ -40,6 +40,7 @@ let workspace: string;
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), "atlarix-evict-"));
 });
+afterEach(() => rmSync(workspace, { recursive: true, force: true }));
 
 /** The exact request shape `edit_file` emits for a surgical replace. */
 function editRequest(path: string, oldContent: string, newContent: string) {

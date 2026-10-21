@@ -135,7 +135,12 @@ export class Chat {
         case "set-option": {
           const c = await this.host.connection();
           if (!c || !this.sessionId) return;
-          const configOptions = await c.setOption(this.sessionId, m.configId, m.value);
+          // Refused while another surface runs the turn: say why; it is no turn's end.
+          const configOptions = await c.setOption(this.sessionId, m.configId, m.value).catch((e: unknown) => {
+            this.toast(errorText(e), "error");
+            return null;
+          });
+          if (!configOptions) return;
           this.noteOptions(configOptions);
           this.post({ type: "update", update: { sessionUpdate: "config_option_update", configOptions } });
           return;
@@ -281,13 +286,13 @@ export class Chat {
     try {
       const listener: SessionListener = {
         update: (n: SessionNotification) => this.onUpdate(n),
-        permission: (req: RequestPermissionRequest) => this.onPermission(req),
+        permission: (req: RequestPermissionRequest, withdrawn: AbortSignal) => this.onPermission(req, withdrawn),
         peerWaiting: () => this.onPeerWaiting(),
         tasksChanged: (count) => this.post({ type: "tasks-changed", count }),
         automationRun: (run) => this.post({ type: "automation-run", ...run }),
         pendingChanged: (items) => this.post({ type: "pending", items }),
         mcpSuggestion: (card) => this.post({ type: "mcp-suggestion", card }),
-        workingChanged: (title) => this.post({ type: "working", title }),
+        workingChanged: (title, following) => this.post({ type: "working", title, ...(following !== undefined ? { following } : {}) }),
         unsent: (text) => this.post({ type: "unsent", text }),
         backgroundReady: () => this.onBackgroundReady(),
       };
@@ -438,7 +443,7 @@ export class Chat {
     void this.send("", [], undefined, { peerTurn: true });
   }
 
-  private onPermission(req: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+  private onPermission(req: RequestPermissionRequest, withdrawn: AbortSignal): Promise<RequestPermissionResponse> {
     const requestId = `p${++this.seq}`;
     const diffBlock = req.toolCall.content?.find((x) => x.type === "diff") as
       | { type: "diff"; path: string; oldText?: string | null; newText: string }
@@ -454,6 +459,8 @@ export class Chat {
           pending.diffDocs = docs;
         });
       }
+      // Answered without you (a rule saved on another card covers it): the bar goes.
+      withdrawn.addEventListener("abort", () => this.answerPermission(requestId, null), { once: true });
     });
   }
 
