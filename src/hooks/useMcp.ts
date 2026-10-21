@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IpcClient } from "@/ipc/ipc_client";
 import type {
@@ -27,6 +27,16 @@ export function useMcp(filter?: McpListFilter) {
     },
     meta: { showErrorToast: true },
   });
+
+  // The CLI can change the same profile's servers. react-query re-reads on
+  // `visibilitychange` only, which never fires when a still-visible window gets
+  // focus back from the terminal, so the list stayed stale until a tab switch.
+  // A local read, no network.
+  useEffect(() => {
+    const onFocus = () => void queryClient.invalidateQueries({ queryKey: ["mcp", "servers"] });
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [queryClient]);
 
   const serverIds = useMemo(
     () => (serversQuery.data || []).map((s) => s.id).sort((a, b) => a - b),
