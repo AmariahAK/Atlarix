@@ -56,3 +56,36 @@ describe("/mcp row", () => {
     expect(mcpServerRight({ ...base, needsSignIn: true }).text).toBe("sign in");
   });
 });
+
+describe("a stdio server's stderr (QA B1)", () => {
+  it("is kept, not printed over the terminal, and says why it couldn't connect", async () => {
+    const home = (await import("node:os")).homedir();
+    const key = `sk-ant-api03-${"x".repeat(40)}`;
+    const script = [
+      `console.error("node:internal/modules/cjs/loader:1458");`,
+      `console.error("Error: Cannot find module '${home}/no-such-server.mjs' ${key}");`,
+      `console.error("    at Module._resolveFilename (node:internal/modules/cjs/loader:1455:15)");`,
+      `process.exit(1);`,
+    ].join("");
+    mcpManager.setSessionServers("s-ai2a-b1", [
+      { name: "broken", transport: "stdio", command: process.execPath, args: ["-e", script], env: {} },
+    ]);
+    const [{ id }] = mcpManager.listSessionServers("s-ai2a-b1");
+    await mcpManager.probe(id);
+    const st = mcpManager.connectionStatus(id);
+    expect(st?.ok).toBe(false);
+    const error = st && !st.ok ? st.error : "";
+    // Read from the pipe: with the SDK's default ("inherit") it went to the terminal and nothing kept it.
+    expect(error).toContain("Error: Cannot find module '~/no-such-server.mjs'");
+    expect(error).not.toContain(home);
+    expect(error).not.toContain(key);
+    mcpManager.clearSessionServers("s-ai2a-b1");
+  });
+
+  it("picks the line that says why", async () => {
+    const { stderrLine } = await import("@/ipc/utils/mcp_manager");
+    expect(stderrLine("loading\nError: boom\n    at x (y.js:1:2)\n\nNode.js v25.7.0\n")).toBe("Error: boom");
+    expect(stderrLine("listening on stdio\nbye\n")).toBe("bye");
+    expect(stderrLine("")).toBe("");
+  });
+});

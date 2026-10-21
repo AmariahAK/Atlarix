@@ -31,6 +31,8 @@ import {
 } from "@/lib/security/db-secrets";
 import { readSettings } from "@/main/settings";
 import { wrapStdioSpawnForFirejail } from "@/lib/mcp/firejail";
+import { redactSecretsInText } from "@/lib/security/redact-secrets";
+import os from "node:os";
 
 export type McpAuthFailureReason = "missing" | "invalid";
 
@@ -138,7 +140,9 @@ class McpManager {
         command: wrapped.command,
         args: wrapped.args,
         env: Object.keys(spec.env).length > 0 ? spec.env : undefined,
+        stderr: "pipe",
       });
+      this.stderrTails.set(serverId, captureStderr(transport));
     } else {
       transport = new StreamableHTTPClientTransport(new URL(spec.url), {
         requestInit: Object.keys(spec.headers).length > 0 ? { headers: spec.headers } : undefined,
@@ -165,6 +169,8 @@ class McpManager {
    * connect read "✓ on" there, 15.7.0 QA).
    */
   private lastConnect = new Map<number, { ok: true } | { ok: false; error: string }>();
+  /** Each stdio server's last stderr, kept rather than printed: the CLI's screen is the terminal (QA B1). */
+  private stderrTails = new Map<number, () => string>();
   private probes = new Map<number, Promise<void>>();
 
   connectionStatus(serverId: number): { ok: true } | { ok: false; error: string } | undefined {
@@ -193,8 +199,16 @@ class McpManager {
 
   /** A client that connected but then failed (listing its tools): closed, and remembered as failed. */
   noteFailed(serverId: number, error: unknown): void {
+    const reason = this.stderrReason(serverId, error);
     this.dispose(serverId);
-    this.lastConnect.set(serverId, { ok: false, error: connectError(error) });
+    this.lastConnect.set(serverId, { ok: false, error: reason });
+  }
+
+  /** Why it failed: the error, and what the server itself printed when that says more. */
+  private stderrReason(serverId: number, error: unknown): string {
+    const said = this.stderrTails.get(serverId)?.() ?? "";
+    const base = connectError(error);
+    return said && !base.includes(said) ? `${base}: ${said}`.slice(0, 300) : base;
   }
 
   async getClient(serverId: number): Promise<MCPClient> {
@@ -205,7 +219,15 @@ class McpManager {
       this.lastConnect.set(serverId, { ok: true });
       return client;
     } catch (error) {
-      this.lastConnect.set(serverId, { ok: false, error: connectError(error) });
+      // A server that died on start writes why to stderr just before its pipe
+      // closes; give that a moment to arrive.
+      if (this.stderrTails.has(serverId)) await new Promise((r) => setTimeout(r, 50));
+      const reason = this.stderrReason(serverId, error);
+      this.lastConnect.set(serverId, { ok: false, error: reason });
+      // The app's and the CLI's "Couldn't connect: …" read the message.
+      if (reason !== connectError(error) && !(error instanceof McpNeedsAuthError)) {
+        throw Object.assign(new Error(reason), { cause: error });
+      }
       throw error;
     }
   }
@@ -259,7 +281,9 @@ class McpManager {
         command: spawn.command,
         args: spawn.args,
         env: envForTransport,
+        stderr: "pipe",
       });
+      this.stderrTails.set(serverId, captureStderr(transport));
     } else if (s.transport === "http") {
       if (!s.url) throw new Error("HTTP MCP requires url");
       if (s.authType === "oauth") {
@@ -370,12 +394,36 @@ class McpManager {
   dispose(serverId: number) {
     // Its config changed or it is being re-tested: the next look connects again.
     this.lastConnect.delete(serverId);
+    this.stderrTails.delete(serverId);
     const c = this.clients.get(serverId);
     if (c) {
       c.close();
       this.clients.delete(serverId);
     }
   }
+}
+
+const STDERR_TAIL = 4096;
+
+/** Keep the end of a stdio server's stderr; reading it also keeps a chatty server from blocking on a full pipe. */
+function captureStderr(transport: StdioClientTransport): () => string {
+  let tail = "";
+  transport.stderr?.on("data", (d: Buffer | string) => {
+    tail = (tail + String(d)).slice(-STDERR_TAIL);
+  });
+  return () => stderrLine(tail);
+}
+
+/**
+ * The line of a server's stderr that says why it stopped (`Error: Cannot find
+ * module …`), else its last line, with secrets and the home folder taken out.
+ */
+export function stderrLine(tail: string): string {
+  const lines = tail.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const telling = [...lines].reverse().find((l) => /^\w*(Error|Exception)\b|^error\b|^fatal\b|\bERR_[A-Z_]+/i.test(l));
+  const line = telling ?? lines.at(-1) ?? "";
+  const home = os.homedir();
+  return redactSecretsInText(home ? line.split(home).join("~") : line).slice(0, 200);
 }
 
 function connectError(error: unknown): string {
