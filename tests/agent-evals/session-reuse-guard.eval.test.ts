@@ -38,7 +38,9 @@ async function seedSession(
 ) {
   const { chatSessions, sessionMessages } = await import("@/db/schema");
   const db = ctx.testDb.db;
-  const created = new Date();
+  // Leftovers from an earlier launch: an hour old. A session another process
+  // created moments ago is its, never reused or pruned (A7, FRESH_EMPTY_MS).
+  const created = new Date(Date.now() - 60 * 60_000);
   await db.insert(chatSessions).values({
     id,
     workspaceId,

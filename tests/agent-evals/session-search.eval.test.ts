@@ -325,6 +325,10 @@ describe("the CURRENT conversation — the default the tool advertises", () => {
       title: "Sub-agent parent",
       streamChatId: transportChatId,
     });
+    // Bound in THIS process, as the parent turn's transport is: the shared column
+    // alone is not trusted, another process's transport may carry the number (1a).
+    const { bindTransportToSession } = await import("@/lib/chat/stream-transport");
+    bindTransportToSession(transportChatId, "current-chatid-session");
     await db.insert(sessionMessages).values({
       id: "current-chatid-msg",
       sessionId: "current-chatid-session",
