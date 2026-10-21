@@ -67,14 +67,15 @@ describe("revert turn file changes (v13.1)", () => {
     // The write landed.
     expect(ctx.ws.read("src/keep.ts")).toContain("keep = 999");
 
-    // response:end carries a numeric snapshotTurnId (= the assistant msg id).
+    // response:end carries the turn's snapshotTurnId (its assistant message id, then the pid).
     const ends = fakeIpc.sentOn("chat:response:end");
     expect(ends.length).toBeGreaterThanOrEqual(1);
     const snapshotTurnId = ends[ends.length - 1]!.payload?.snapshotTurnId as
       | string
       | undefined;
     expect(snapshotTurnId).toBeTruthy();
-    expect(Number.isFinite(Number(snapshotTurnId))).toBe(true);
+    // `<assistant message id>-<pid>` (shared/turn-id, audit 1f).
+    expect(snapshotTurnId).toMatch(/^\d+-\d+$/);
 
     // snapshot:files lists the changed file.
     const snapFiles = await getIpcHandler("snapshot:files");

@@ -175,6 +175,20 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
 - **Refused turns:** a signed-out turn reporting `error_kind: auth` is tested and checked in the app. The other
   early refusals (`content_rejected`, a too-long prompt, `no_workspace`, a legacy chat id → `other`) were changed
   the same way but only checked by reading the code. Look at "Why turns fail" after the release.
+- **7 agent-eval failures** (`npx vitest run --project agent-evals`, seen on dev 6a9c9bd2 once
+  `tests/infra` had its Node-ABI sqlite): all are evals left behind by deliberate changes, not regressions.
+  Fixed on `team/app-cli` but NOT RUN there: the worktree has no `tests/infra/node_modules`. Run them in the
+  main checkout, then fast-forward.
+  - `session-reuse-guard.eval` ×4 (guard-touched, guard-really-empty, drifted-empty, prune): its seeded
+    "leftover" sessions were stamped now. Since A7 a session another process created in the last 2 minutes is
+    never reused or pruned. Fix: seed them an hour old.
+  - `revert-turn.eval` ×1: asserted a numeric turn id. Since 1f it is `<message id>-<pid>`. Fix: assert that
+    shape (the revert after it is unchanged).
+  - `session-search.eval` ×1 (falls back to `_chatSessionId`): it found the session through the shared
+    `stream_chat_id` column, which 1a stopped trusting. Fix: bind the transport in-process, as a real parent
+    turn does.
+  - `user-agent.eval` ×1: tests a turn driven by `settings.selectedAgent`, removed on purpose (cf704456,
+    7f5c62ff). Fix: delete the file. Named agents still run as sub-agents.
 
 **Verified live 2026-10-19 (15.9.1, unchanged in 15.9.2), on the real Anthropic API:** Sonnet 5.5,
 Opus 5.5, Haiku 5.5 and Fable 5.1 get `thinking: adaptive` + `output_config.effort` as chosen
