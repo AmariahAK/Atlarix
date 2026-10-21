@@ -169,11 +169,6 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
 - **Analytics on Windows: not run.** Every analytics change in 15.10.0 passed on the Mac (CLI, app, VS Code panel,
   raw ACP). The Windows pass on the VM is still to do: turn_completed fields, session_opened, VS Code's telemetry
   switch, crash-report scrubbing (Windows paths: home folder and user name).
-- **Refused turns:** a signed-out turn reporting `error_kind: auth` is tested and checked in the app. The other
-  early refusals (`content_rejected`, a too-long prompt, `no_workspace`, a legacy chat id → `other`) were changed
-  the same way but only checked by reading the code. Look at "Why turns fail" after the release.
-- **Agent evals:** the full run on 2026-10-21 (52 files, 86 s, no hang) had 2 failures, both evals left behind
-  by A7 and 1a, fixed in 7e5684f4 and passing file by file. One full re-run under the heavy lock confirms it.
 - **Account usage counts (`client_usage_daily`) are LIVE in Supabase** (applied 2026-10-21, grants read back)
   and empty until a release carries the client (team/ai2a-telemetry). Who is active, by surface and model:
   `select * from v_latest_model_by_surface` (service role). The consent text on all four surfaces and the
