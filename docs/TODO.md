@@ -164,11 +164,11 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
   It's a one-line revert if you'd rather keep it small.
 - **Sentry code mapping:** fixed 2026-10-21. `app:///.vite/build/` → `src/` had been saved on the Book-Library
   repo; it is now on AmariahAK/Atlarix. Check one new app crash links to the right file.
+- **Done 2026-10-21 (for the record):** `ATLARIX_TEST_ANTHROPIC_KEY` rotated (new "atlarix-testing" key in
+  ~/.zshrc, old one deleted). The Supabase server key can no longer TRUNCATE or MAINTAIN any public table
+  (migration 20261021090000).
 - **ATLARIX-3Z** ("Maximum update depth exceeded"): see Open queue item 8. Map it the next time it fires (now
   that source maps upload).
-- **Rotate `ATLARIX_TEST_ANTHROPIC_KEY`.** On 2026-10-21 a session's shell line printed its environment, this
-  key included, into that session's own tool output (nothing was sent anywhere). Make a new key in the Anthropic
-  Console and replace it wherever the test env reads it.
 - **Analytics on Windows: not run.** Every analytics change in 15.10.0 passed on the Mac (CLI, app, VS Code panel,
   raw ACP). The Windows pass on the VM is still to do: turn_completed fields, session_opened, VS Code's telemetry
   switch, crash-report scrubbing (Windows paths: home folder and user name).
