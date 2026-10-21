@@ -36,7 +36,7 @@ import { ToolRegistry } from "@/lib/tools";
 import { getModeToolAllowSets } from "@/lib/tools/mode-tool-registry";
 import { isReadOnlyWorkMode, toolExecutionChatMode } from "@/lib/work-mode";
 import { constructSystemPromptParts } from "@/prompts/system_prompt";
-import { memoryDirFor } from "@/lib/agent-memory";
+import { isAgentMemoryDisabled, memoryDirFor } from "@/lib/agent-memory";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { estimateTokens, getContextWindow } from "@/ipc/utils/token_utils";
 import {
@@ -997,7 +997,7 @@ export async function runAskBranch(
             // published in Build and Debug but silently missing in exactly
             // the read-only modes where an agent is most likely to go
             // looking for it. That is how it shipped broken the first time.
-            memoryDir: appPath ? memoryDirFor(appPath) : undefined,
+            memoryDir: appPath && !isAgentMemoryDisabled() ? memoryDirFor(appPath) : undefined,
             registeredToolNames: askOfferedNames,
             ...promptIdentityOpts,
           });
