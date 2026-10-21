@@ -274,6 +274,9 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
 // when LLMs are becoming better, cheaper and more efficient"): every mode lost
 // 1,800-2,000 tokens with the same tools bound. Baselines: ask 8,512, plan 6,953,
 // build 10,439, review 8,180, debug 10,692, build-fr 10,481.
+// 2026-10-21, owner-approved memory rework: the "Project memory" rules moved from
+// the guides/memory file into the cached header, +377 (build/debug) to +417 tokens
+// per mode, and the per-turn index section left the system block. Ceilings unchanged.
 const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
   ask: { minTotal: 7_250, maxTotal: 9_200 },
   plan: { minTotal: 5_900, maxTotal: 7_500 },

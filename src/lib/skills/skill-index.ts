@@ -11,7 +11,7 @@
  * fragment.
  *
  * So this emits one line per skill — name, description, and the path to read —
- * exactly like the agent-memory index (`loadMemoryMdSection`). Nothing is capped
+ * exactly like the agent-memory index (`MEMORY.md`). Nothing is capped
  * and nothing is clipped: the index lists EVERY skill, and the model reads the
  * whole body with `read_file` when a line looks relevant to the task. Cost now
  * scales with the NUMBER of skills, not their size.
@@ -51,22 +51,16 @@ export interface SkillIndexEntry {
 /**
  * Bundled guides worth advertising.
  *
- * `guides/memory` was already REFERENCED by the memory context section ("the
- * full convention is in the `guides/memory` skill") while nothing in the app
- * could resolve that name — no tool took it, and the file ships outside the
- * workspace. The index is what finally makes that sentence actionable.
+ * There used to be a `guides/memory` here. The memory rules now live in the
+ * system header's "Project memory" section, where they are cached and always
+ * present, so a model no longer has to find and read a guide before its first
+ * note.
  */
 const BUNDLED_GUIDES: Array<{
   file: string;
   name: string;
   description: string;
 }> = [
-  {
-    file: "guides/memory.md",
-    name: "guides/memory",
-    description:
-      "How to write a project-memory note (one fact per file, plus an index line). Read before writing one.",
-  },
   {
     file: "guides/data-visualization.md",
     name: "guides/data-visualization",

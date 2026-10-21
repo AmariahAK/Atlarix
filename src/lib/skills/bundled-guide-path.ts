@@ -26,7 +26,7 @@
  * own bundled resources by name. Where the app lives is not the model's
  * business.
  *
- * So the index emits `guides/memory`, and this resolves it at read time.
+ * So the index emits `guides/<name>`, and this resolves it at read time.
  */
 
 import * as path from "node:path";
@@ -50,8 +50,8 @@ export function looksLikeBundledGuide(p: string): boolean {
 /**
  * Absolute path of a bundled guide, or null when the name doesn't match one.
  *
- * `.md` is optional so both `guides/memory` (what the index advertises) and
- * `guides/memory.md` (what a model may write out of habit) resolve — absorbing
+ * `.md` is optional so both `guides/<name>` (what the index advertises) and
+ * `guides/<name>.md` (what a model may write out of habit) resolve — absorbing
  * the alias rather than prompting against it, per the v14.22.0 rule.
  */
 export function resolveBundledGuidePath(p: string): string | null {

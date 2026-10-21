@@ -21,10 +21,10 @@
  *     MEMORY.md          index — ONE line per note: "- [Title](file.md) — hook"
  *     <note-name>.md     frontmatter (name, description, type) + body + [[links]]
  *
- * Only the INDEX is ever put in context. Cost then scales with the NUMBER of notes
- * (one line each), not their size, which is what makes it safe to keep writing notes
- * indefinitely. Bodies are read on demand with `read_file`, exactly like the agent
- * already reads source.
+ * The store is never put in context wholesale. The INDEX is shown once per session
+ * (capped), and a body only when recall picks it for a message, at most five and
+ * each once — see `lib/memory/session-context.ts`. Everything else is read on
+ * demand with `read_file`, exactly like the agent already reads source.
  *
  * WHY GLOBAL, NOT `.atlarix/memory/` IN THE REPO
  * ---------------------------------------------
@@ -415,14 +415,13 @@ export type MemoryCompactionPlan = {
   /**
    * The whole signal, as a FLAG — a handful of tokens naming the state and the notes.
    *
-   * Deliberately not a lesson. This rides `loadMemoryMdSection`, which runs on every
-   * turn, so a paragraph here is a paragraph on every request until the store shrinks:
-   * the first version of this cost 147 tokens per turn (~7,350 over a 50-turn session),
-   * which is precisely the payload-instead-of-index mistake v14.25.0 existed to undo.
+   * Deliberately not a lesson. It rides the memory index reminder and every memory
+   * write's `edit_file` notice; the first version of this was a 147-token paragraph,
+   * the payload-instead-of-index mistake v14.25.0 existed to undo.
    *
-   * The HOW lives in `skills/guides/memory.md`, which the memory section already points
-   * at. Atlarix's job is to tell the model the one thing it cannot derive — that this
-   * store needs a pass, and which notes — not to re-teach the convention every turn.
+   * The HOW lives in the "Project memory" rules of the system header. Atlarix's job
+   * here is to tell the model the one thing it cannot derive — that this store needs
+   * a pass, and which notes — not to re-teach the convention.
    */
   flag: string;
 };
@@ -462,7 +461,7 @@ export function planMemoryCompaction(args: {
   const named = targets.map((t) => t.name).join(", ");
 
   const flag = required
-    ? `${mb(totalBytes)} — compact ${named} (see guides/memory)`
+    ? `${mb(totalBytes)} — compact ${named} now`
     : `${mb(totalBytes)} — compact ${named} when next open`;
 
   return { totalBytes, required, targets, flag };

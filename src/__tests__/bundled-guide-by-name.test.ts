@@ -42,11 +42,11 @@ describe("looksLikeBundledGuide", () => {
 
 describe("resolveBundledGuidePath", () => {
   it("resolves a real bundled guide, with or without .md", () => {
-    const withoutExt = resolveBundledGuidePath("guides/memory");
-    const withExt = resolveBundledGuidePath("guides/memory.md");
+    const withoutExt = resolveBundledGuidePath("guides/data-visualization");
+    const withExt = resolveBundledGuidePath("guides/data-visualization.md");
     expect(withoutExt).toBeTruthy();
     expect(withoutExt).toBe(withExt);
-    expect(withoutExt).toMatch(/guides[/\\]memory\.md$/);
+    expect(withoutExt).toMatch(/guides[/\\]data-visualization\.md$/);
   });
 
   it("returns null for anything that is not a guide name", () => {
@@ -62,8 +62,8 @@ describe("resolveBundledGuidePath", () => {
 
   it("keeps the install location out of the NAME the model is given", () => {
     // The point of the whole change: what the model reads and repeats is
-    // `guides/memory`. The absolute path exists only inside the resolver.
-    const name = "guides/memory";
+    // `guides/<name>`. The absolute path exists only inside the resolver.
+    const name = "guides/data-visualization";
     expect(name).not.toMatch(/Users|Applications|\.app/);
     expect(resolveBundledGuidePath(name)).toMatch(/\.md$/);
   });
@@ -81,5 +81,13 @@ describe("the skills index advertises names, not install paths", () => {
       expect(g.readPath).not.toMatch(/^\//);
       expect(g.readPath).not.toMatch(/\.app|Applications|Users/);
     }
+  });
+
+  it("no longer lists a memory guide — the rules are in the system header", async () => {
+    const { buildSkillIndex } = await import("@/lib/skills/skill-index");
+    const entries = await buildSkillIndex(null, "build");
+    expect(entries.map((e) => e.name)).not.toContain("guides/memory");
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(resolveBundledGuidePath("guides/memory")!)).toBe(false);
   });
 });

@@ -26,7 +26,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { loadMemoryMdSection } from "@/ipc/handlers/chat_stream/context-sections";
+import { buildMemoryTurnContext } from "@/lib/memory/session-context";
 import { buildWorkstationIdentityBlock } from "@/lib/model-identity-prompt";
 import {
   appendIndexLine,
@@ -37,17 +37,14 @@ import {
 let root = "";
 let workspace = "";
 
-function params() {
-  return {
-    effectiveWorkMode: "build",
-    preflight: {
-      time: async <T>(_l: string, fn: () => Promise<T> | T) => await fn(),
-    },
-    hasWorkspace: true,
-    appPath: workspace,
-    effectiveAppId: 1,
-    req: {},
-  } as unknown as Parameters<typeof loadMemoryMdSection>[0];
+function firstMessage() {
+  return buildMemoryTurnContext({
+    workspacePath: workspace,
+    scope: null,
+    history: [],
+    userText: "hello",
+    select: async () => [],
+  });
 }
 
 beforeEach(async () => {
@@ -91,11 +88,11 @@ describe("memory location on an empty store", () => {
     expect(text).not.toContain("<basename>");
   });
 
-  it("costs NOTHING per turn while the store is empty", async () => {
+  it("costs NOTHING per message while the store is empty", async () => {
     // The old empty-state section rendered on every turn just to name the directory,
     // and had to be policed for size. Now the directory is named once in the cached
-    // header, so the per-turn section can disappear entirely on an empty store.
-    expect(await loadMemoryMdSection(params())).toBeNull();
+    // header, so a message carries nothing at all on an empty store.
+    expect(await firstMessage()).toBe("");
   });
 
   it("states a LOCATION without creating an obligation to write notes", () => {
@@ -108,24 +105,21 @@ describe("memory location on an empty store", () => {
     expect(text).not.toMatch(/\bremember to\b/i);
   });
 
-  it("hands over to the real index section as soon as a note exists", async () => {
+  it("hands over to the index reminder as soon as a note exists", async () => {
     const dir = memoryDirFor(workspace);
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, "thing.md"), "# thing\n", "utf8");
     await appendIndexLine(workspace, "- [Thing](thing.md) — a hook");
 
-    const section = await loadMemoryMdSection(params());
-    expect(section!.content).toContain("1 note(s)");
-    expect(section!.content).toContain("- [Thing](thing.md) — a hook");
-    // The absolute path is NOT repeated here — it belongs to the identity block, and
-    // duplicating it would put a per-workspace string back in a per-turn section.
-    expect(section!.content).not.toContain(memoryDirFor(workspace));
+    const text = await firstMessage();
+    expect(text).toContain("- [Thing](thing.md) — a hook");
+    expect(text).toContain(`Contents of ${path.join(dir, "MEMORY.md")}`);
   });
 
   it("still renders nothing when memory is switched off entirely", async () => {
     // ATLARIX_MEMORY=off must remove the surface completely, empty store included —
     // benchmark runs carry no memory surface at all.
     process.env.ATLARIX_MEMORY = "off";
-    expect(await loadMemoryMdSection(params())).toBeNull();
+    expect(await firstMessage()).toBe("");
   });
 });

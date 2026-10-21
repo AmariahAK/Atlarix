@@ -28,3 +28,13 @@ export function systemReminder(body: string): string {
   if (trimmed.startsWith(SYSTEM_REMINDER_OPEN)) return body;
   return `${SYSTEM_REMINDER_OPEN}\n${trimmed}\n${SYSTEM_REMINDER_CLOSE}`;
 }
+
+/**
+ * The text with every `<system-reminder>` block removed — for showing a user row's
+ * model content to the person who typed it (project memory rides those rows).
+ */
+export function stripSystemReminders(text: string): string {
+  return text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, "")
+    .trim();
+}

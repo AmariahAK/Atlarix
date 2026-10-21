@@ -81,10 +81,10 @@ export function buildWorkstationIdentityBlock(args: {
    * hand-made copy, with the resolved path in its context the whole time.
    *
    * Only the PATH belongs in this block. It is stable per workspace, and this
-   * block is part of the prompt-cache prefix — the note COUNT and the index stay
-   * in the per-turn section, because putting them here would churn the cache on
-   * every memory write (the same reason `freemem()` is kept out of the device
-   * line in `system_prompt.ts`).
+   * block is part of the prompt-cache prefix — the index rides the session's
+   * first user message instead (`lib/memory/session-context.ts`), because putting
+   * it here would churn the cache on every memory write (the same reason
+   * `freemem()` is kept out of the device line in `system_prompt.ts`).
    */
   memoryDir?: string;
   /**
