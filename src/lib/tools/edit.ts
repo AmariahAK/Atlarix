@@ -42,7 +42,9 @@ import {
   isAgentMemoryPath,
   listMemoryNoteSizes,
   planMemoryCompaction,
+  MEMORY_INDEX_FILE,
 } from "@/lib/agent-memory";
+import { stampNoteFrontmatter } from "@/lib/memory/note-frontmatter";
 
 const logger = log.scope("edit-tools");
 
@@ -933,9 +935,58 @@ Read the file first — \`replace\` matches its current bytes, and you'll be tol
     //
     // Nothing is ever REFUSED for size. Memory compacts like context does: the write
     // lands and the agent is told which notes to rewrite for accuracy.
-    return await annotateAgentMemoryCompaction(result, fullPath, workspace);
+    return await annotateAgentMemoryCompaction(
+      stampAgentMemoryNote(result, fullPath, workspace, rawArgs._scopeSessionId),
+      fullPath,
+      workspace,
+    );
   },
 });
+
+/**
+ * Stamp `metadata.modified` and `metadata.originSessionId` on a memory note the
+ * agent writes, so recall can say how old a note is and which session wrote it
+ * without the model having to remember to.
+ *
+ * On `preview.content`, the bytes that land: the approval diff, the write and the
+ * read-before-edit record then all see the same note. MEMORY.md and files with no
+ * frontmatter are left exactly as written.
+ */
+function stampAgentMemoryNote(
+  result: unknown,
+  fullPath: string,
+  workspace: string | undefined,
+  sessionId: string | undefined,
+): unknown {
+  if (!workspace || isAgentMemoryDisabled()) return result;
+  const envelope = result as
+    | {
+        __permission_required?: boolean;
+        preview?: { content?: string; lines?: number };
+      }
+    | undefined;
+  const content = envelope?.preview?.content;
+  if (!envelope?.__permission_required || typeof content !== "string")
+    return result;
+  if (
+    path.basename(fullPath) === MEMORY_INDEX_FILE ||
+    !isAgentMemoryPath(workspace, fullPath)
+  )
+    return result;
+  const stamped = stampNoteFrontmatter(content, {
+    modified: new Date().toISOString(),
+    ...(sessionId ? { originSessionId: sessionId } : {}),
+  });
+  if (stamped === content) return result;
+  return {
+    ...envelope,
+    preview: {
+      ...envelope.preview,
+      content: stamped,
+      lines: stamped.split("\n").length,
+    },
+  };
+}
 
 /**
  * Attach a compaction directive to an edit_file envelope whose target is an
@@ -980,7 +1031,7 @@ async function annotateAgentMemoryCompaction(
   //
   // One line, not a paragraph: the agent is already inside the memory store on this
   // call, so it needs the state and the file names, not a re-teaching of the convention
-  // (which is one `guides/memory` read away and only worth reading when acting on it).
+  // (which is in the system header's "Project memory" rules).
   const notice = `Project memory ${plan.flag}.`;
   return {
     ...envelope,

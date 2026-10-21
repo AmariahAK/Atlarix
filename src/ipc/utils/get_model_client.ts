@@ -86,6 +86,7 @@ export interface GetModelClientOptions {
     | "main"
     | "subagent"
     | "title"
+    | "memory"
     | "compaction"
     | "summary"
     | "transcribe";

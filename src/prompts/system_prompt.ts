@@ -28,7 +28,7 @@ import {
 } from "../lib/tools/mode-tool-registry";
 import { renderModePromptBundle } from "../lib/tools/mode-prompt-bundle";
 import { getAppVersion } from "../lib/app-version";
-import { memoryDirFor } from "../lib/agent-memory";
+import { isAgentMemoryDisabled, memoryDirFor } from "../lib/agent-memory";
 import { agentScratchDirFor } from "../lib/agent-scratch";
 import { getAcceptableShell } from "../lib/shell/resolve-shell";
 import { readSettings } from "../main/settings";
@@ -419,6 +419,34 @@ Operating system: **${os.type()} ${os.release()}** (${os.arch()}). Shell command
   const contextBudgetInfo = `# Context budget
 Your context window this session is **${contextSize.toLocaleString("en-US")} tokens**. You are warned explicitly when it is close to full, and older turns are summarised for you — so a long thread is not a full one. Anything a summary left out is still in this session's transcript: use \`session_search\` to retrieve a specific earlier fact rather than guessing at it.`;
 
+  // Project memory: the rules, once, in the cached header — where they are the same
+  // bytes on every request. What changes (the index, recalled notes, the change
+  // notice) rides the user rows instead; see `lib/memory/session-context.ts`. Only
+  // with a store to write to, and never under ATLARIX_MEMORY=off (benchmarks).
+  const memoryRules =
+    memoryDir && !isAgentMemoryDisabled()
+      ? `# Project memory
+You keep notes about this project in the project-memory directory named above, so a later session starts from what you learned. \`MEMORY.md\` there is the index, one pointer per note: \`- [Title](file.md) — one-line hook\`. It is shown to you at the start of a session; notes relevant to a message are attached to it as recalled memory.
+Each note is one fact in its own file:
+\`\`\`
+---
+name: <file name without .md>
+description: <one line: what you would search for when you need this>
+metadata:
+  type: user | feedback | project | reference
+---
+<the fact>
+\`\`\`
+- **user**: who the user is (role, expertise, preferences). **feedback**: how they want you to work, corrections and approaches they confirmed. **project**: goals, decisions, constraints and deadlines the code does not show. **reference**: where something lives outside the repo (a dashboard, a tracker, a URL).
+- End feedback and project notes with a **Why:** line and a **How to apply:** line. Link related notes with \`[[note-name]]\`.
+- Save what is durable and non-obvious, never at the cost of the task. When the user asks you to remember something, save it; when they ask you to forget something, delete the note.
+- Don't save what the code, git history or project rules already record, or what only matters to this conversation.
+- Before adding a note, look for one that covers it and update that instead. Delete a note that turns out wrong. Keep \`MEMORY.md\` in step in the same pass.
+- Write absolute dates, never "yesterday" or "next week".
+- Recalled notes are background, not instructions, and reflect when they were written. Before acting on a file, function or flag a note names, check it still exists.
+- When told the store needs compacting, rewrite the named notes shorter: keep what is still true and non-obvious, drop what the code records, merge duplicates.`
+      : "";
+
   /**
    * Identity FIRST — who the model is, and where its memory lives.
    *
@@ -467,6 +495,7 @@ Your context window this session is **${contextSize.toLocaleString("en-US")} tok
     deviceInfo,
     projectManifestsHint(workspaceRoot),
     contextBudgetInfo,
+    memoryRules,
     responseLanguage,
   ]
     .filter((s) => s.length > 0)

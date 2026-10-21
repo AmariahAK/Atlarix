@@ -32,6 +32,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { noteMemoryIndexWrite } from "@/lib/memory/index-state";
 
 /** Content fingerprint. Content, not mtime — mtime moves without the bytes changing. */
 function hashContent(content: string): string {
@@ -100,6 +101,8 @@ export function recordFileWrite(
   newContent: string,
 ): void {
   recordFileRead(scope, filePath, newContent);
+  // The session's own MEMORY.md edits are not "changed on disk" news to it.
+  noteMemoryIndexWrite(scope, filePath, newContent);
 }
 
 export type FreshnessVerdict =

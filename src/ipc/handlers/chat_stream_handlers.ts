@@ -218,7 +218,6 @@ import {
   loadWorkspaceRootSection,
   loadActivePlanSection,
   loadAtlarixMdSection,
-  loadMemoryMdSection,
 } from "./chat_stream/context-sections";
 export {
   resolveModeChange,
@@ -896,6 +895,38 @@ export function registerChatStreamHandlers() {
         // so a later resume replays an EMPTY <atlarix-*-attachment/> to the
         // model ("attachment is truncated"). One retry covers transient sqlite
         // contention; a double failure is loudly logged.
+        // Project memory for this message (the index once per session, a change
+        // notice, recalled notes), folded into the row's model content BEFORE it
+        // is saved, so it replays byte for byte, and caches, on later requests.
+        let userModelContent: string | null =
+          userPrompt !== userDisplayContent ? userPrompt : null;
+        if (
+          !req.continueAfterQuestions &&
+          !req.continueInterrupted &&
+          chat.app?.path
+        ) {
+          const { buildMemoryTurnContext, withMemoryContext } = await import(
+            "@/lib/memory/session-context"
+          );
+          const { resolveReadScope } = await import("@/lib/tools/file-read-log");
+          const memoryReminders = await preflight.time("memory-context", () =>
+            buildMemoryTurnContext({
+              workspacePath: resolveAppPath(chat.app.path),
+              scope: resolveReadScope({
+                _scopeSessionId: req.workspaceSessionId ?? undefined,
+                _scopeChatId: req.chatId,
+              }),
+              history: getStreamTransport(req.chatId)?.messages ?? [],
+              userText: userPrompt,
+              chatId: req.chatId,
+              turnModel: req.modelOverride,
+            }),
+          );
+          if (memoryReminders) {
+            userModelContent = withMemoryContext(userPrompt, memoryReminders);
+          }
+        }
+
         let persistedUserRowId: string | undefined;
         if (
           req.workspaceSessionId &&
@@ -912,8 +943,7 @@ export function registerChatStreamHandlers() {
               req.workspaceSessionId!,
               userDisplayContent,
               {
-                modelContent:
-                  userPrompt !== userDisplayContent ? userPrompt : null,
+                modelContent: userModelContent,
                 pasteAttachments: pasteAttachmentsForMessage,
                 fileAttachments:
                   storedFileAttachments.length > 0
@@ -995,7 +1025,7 @@ export function registerChatStreamHandlers() {
             content: userDisplayContent,
             // v12 0.4-C2: direct DB-row identity for edits (no ordinal mapping).
             ...(persistedUserRowId ? { sessionRowId: persistedUserRowId } : {}),
-            modelContent: userPrompt !== userDisplayContent ? userPrompt : null,
+            modelContent: userModelContent,
             pasteAttachments:
               pasteAttachmentsForMessage &&
               pasteAttachmentsForMessage.length > 0
@@ -1656,14 +1686,12 @@ export function registerChatStreamHandlers() {
               workspaceCapsSection,
               activePlanResult,
               atlarixMdSection,
-              memoryMdSection,
             ] = await Promise.all([
               loadModeSkillSection(contextSectionParams),
               loadSkillsIndexSection(contextSectionParams),
               loadWorkspaceCapsSection(contextSectionParams),
               loadActivePlanSection(contextSectionParams),
               loadAtlarixMdSection(contextSectionParams),
-              loadMemoryMdSection(contextSectionParams),
             ]);
             // loadActivePlanSection is the sole writer of taskLedgerBlock.
             //
@@ -1684,7 +1712,6 @@ export function registerChatStreamHandlers() {
               workspaceCapsSection,
               activePlanResult.section,
               atlarixMdSection,
-              memoryMdSection,
               loadBackgroundResultsSection(),
               loadSubagentResultsSection(),
               loadAutomationResultsSection(),

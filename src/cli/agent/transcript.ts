@@ -19,6 +19,7 @@ import {
 } from "@/lib/chat/assistant-message-parts";
 import { stripQuestionsArtifactForDisplay } from "@/lib/chat/ask-user-artifacts";
 import { extractInlineSourcesFromContent } from "@/lib/chat/citation-sources";
+import { stripSystemReminders } from "@/lib/streaming/system-reminder";
 
 export interface ChatMessageLike {
   id: number | string;
@@ -682,7 +683,8 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
     } else if (m.content.trim()) {
       const { text, chips } = userChips(m.content);
       // A paste: show what was pasted (the placeholder alone said nothing).
-      const full = /\[Pasted text #\d+/.test(m.content) && m.modelContent && m.modelContent !== m.content ? m.modelContent.trim() : undefined;
+      // (Without the harness's reminders: project memory rides the same row.)
+      const full = /\[Pasted text #\d+/.test(m.content) && m.modelContent && m.modelContent !== m.content ? stripSystemReminders(m.modelContent) : undefined;
       cells.push({ kind: "user", id: `${base}:u`, text: text || chips.join(" "), ...(chips.length ? { chips } : {}), ...(full ? { full } : {}) });
     }
   } else if (m.role === "assistant") {
