@@ -820,6 +820,21 @@ describe("command screens", () => {
     expect(await frameContaining(setup, "⊙ 1 MCP")).toBeTruthy(); // github off, example on
   });
 
+  it("/mcp: a probe that throws before it returns never empties the list", async () => {
+    // It threw synchronously, before its .catch, and /mcp read "No MCP servers yet"
+    // (2 bun failures on dev a534ecf4). The rows stay; the server just isn't marked connected.
+    const { setup } = await mount((s) => {
+      s.mcp.probe = () => {
+        throw new TypeError("probe exploded");
+      };
+    });
+    await command(setup, "/mcp");
+    const frame = await frameContaining(setup, "github");
+    expect(frame).toContain("connecting…");
+    expect(frame).not.toContain("No MCP servers yet");
+    expect(frame).not.toContain("probe exploded");
+  });
+
   it("/mcp: b browses the marketplace, Verified first, and enter adds one", async () => {
     const { setup, serviceCalls } = await mount();
     await command(setup, "/mcp");
