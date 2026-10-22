@@ -13,6 +13,7 @@
  * file names, file contents.
  */
 
+import { onFallback } from "@/shared/proxy-failover";
 import path from "node:path";
 import fs from "node:fs";
 import { app } from "electron";
@@ -515,6 +516,8 @@ export function trackTurnCompleted(
         ...(billing ? { billing } : {}),
         effort: r.effort ?? "none",
         ...(r.fellBackToCore ? { fell_back_to_core: true } : {}),
+        // Served by the proxy's fallback while the proxy was down (item 10).
+        ...(billing === "core" && onFallback() ? { proxy: "fallback" } : {}),
         origin: r.automation ? "automation" : "user",
         changed,
         ...(changed.includes("mode") ? { prev_mode: modeName(prev?.mode) } : {}),

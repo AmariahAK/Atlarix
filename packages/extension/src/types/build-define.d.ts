@@ -42,3 +42,6 @@ declare const __ATLARIX_BUILD_ID__: string;
  * `ATLARIX_CORE_PROXY_URL`.
  */
 declare const __ATLARIX_CORE_PROXY_URL__: string;
+
+/** The proxy's fallback (item 10), or "" for none: `ATLARIX_CORE_PROXY_FALLBACK_URL`. */
+declare const __ATLARIX_CORE_PROXY_FALLBACK_URL__: string;

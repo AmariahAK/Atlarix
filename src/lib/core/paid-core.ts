@@ -14,6 +14,7 @@
  */
 import {
   surfaceHeaders,
+  coreProxyFetch,
   getCoreProxyBaseUrl,
   getPinnedCoreToken,
 } from "@/ipc/shared/core_proxy";
@@ -99,7 +100,7 @@ export async function coreProxyPost(
   } else {
     payload = body.form;
   }
-  return fetch(`${base}${path}`, {
+  return coreProxyFetch(`${base}${path}`, {
     method: "POST",
     headers,
     body: payload,

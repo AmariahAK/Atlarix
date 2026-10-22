@@ -10,6 +10,7 @@
  * LOCAL dev key (never present in a packaged release), so production builds
  * always route through the proxy.
  */
+import { proxyFetch, setBuiltFallback } from "@/shared/proxy-failover";
 /**
  * The `X-Atlarix-Surface` value this build sends on every Core call.
  *
@@ -63,6 +64,18 @@ export function surfaceHeaders(): Record<string, string> {
     "X-Atlarix-Surface": atlarixSurface(),
     ...(editor ? { "X-Atlarix-Editor": editor } : {}),
   };
+}
+
+/**
+ * `fetch` for a call to the Core proxy, with its fallback (item 10,
+ * shared/proxy-failover.ts): the build's fallback URL, unless the hosted
+ * core-models.json names another.
+ */
+export function coreProxyFetch(input: string | URL, init?: RequestInit): Promise<Response> {
+  const base = getCoreProxyBaseUrl();
+  if (!base) return fetch(input, init);
+  if (typeof process !== "undefined") setBuiltFallback(process.env?.ATLARIX_CORE_PROXY_FALLBACK_URL);
+  return proxyFetch(base, input, init);
 }
 
 export function getCoreProxyBaseUrl(): string | undefined {
