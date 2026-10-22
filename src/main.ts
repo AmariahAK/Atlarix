@@ -647,6 +647,12 @@ export async function onReady() {
     initializeDatabase();
     // Other Atlarix sessions (CLI or app) can message this one (lib/peers).
     void import("./lib/peers/main-host").then((m) => m.startPeerMessaging("app"));
+    // A session another process named or renamed (the CLI, an editor) reaches
+    // the sidebar and tabs: nothing else tells this process (item 6).
+    void Promise.all([
+      import("./lib/sessions/stored-sessions-watch"),
+      import("./ipc/utils/broadcast_all_windows"),
+    ]).then(([w, b]) => w.watchStoredSessions(() => b.broadcastToAllWindows("sessions:changed", {})));
   } catch (e) {
     logger.error("Database initialization failed:", e);
     const msg = e instanceof Error ? e.message : String(e);

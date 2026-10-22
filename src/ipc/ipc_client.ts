@@ -2214,6 +2214,12 @@ export class IpcClient {
     return this.ipcRenderer.invoke("sessions:generate-title", sessionId);
   }
 
+  /** The stored sessions changed, whoever changed them (the CLI or an editor too). */
+  public onSessionsChanged(listener: () => void): () => void {
+    const off = this.ipcRenderer.on("sessions:changed", () => listener());
+    return typeof off === "function" ? off : () => {};
+  }
+
   /** Main named a session (placeholder or generated title). */
   public onSessionTitleUpdated(
     listener: (payload: { sessionId: string; title: string }) => void,

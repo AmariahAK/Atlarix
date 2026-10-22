@@ -409,6 +409,7 @@ const validReceiveChannels = [
   "plan:file-updated",
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "sessions:title-updated", // main → renderer: a session was named (placeholder, then generated title)
+  "sessions:changed", // main → renderer: the stored sessions changed, maybe in another process
   "chat:interjections", // main → renderer: the pending mid-turn-message queue changed
   "chat:remote-stop", // main → renderer: another surface following this chat pressed Stop
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)

@@ -128,6 +128,11 @@ export function WorkspaceSessionList({
       const list =
         await IpcClient.getInstance().listWorkspaceSessions(workspaceId);
       setSessions(list as WorkspaceChatSession[]);
+      // Open tabs hold a title snapshot: a name given elsewhere (the CLI, an
+      // editor) reaches them from the list (item 6).
+      for (const s of list as WorkspaceChatSession[]) {
+        if (s.title) updateOpenChatTabTitleForSession(s.id, s.title);
+      }
     } catch (e) {
       console.error("Failed to load sessions:", e);
       setSessions([]);
