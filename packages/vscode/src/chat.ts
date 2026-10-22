@@ -8,6 +8,7 @@
  * `rpc`; this file keeps what needs the editor itself: diffs, files, git, the
  * clipboard, input boxes, links, and the turn's lifecycle.
  */
+import { panelTitle } from "./chat-title";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -94,6 +95,8 @@ export class Chat {
     private readonly where: "sidebar" | "tab" = "sidebar",
     /** Bring this chat's panel to the front (a "needs you" notification's Show). */
     private readonly reveal: () => void = () => {},
+    /** The chat's name changed (null: none yet), for its tab or the sidebar's header. */
+    private readonly onTitle: (title: string | null) => void = () => {},
   ) {
     webview.onDidReceiveMessage((m: ViewMessage) => void this.onMessage(m));
   }
@@ -296,6 +299,8 @@ export class Chat {
         backgroundReady: () => this.onBackgroundReady(),
       };
       this.listener = listener;
+      // Until the chat says its name (a loaded one does at once), it has none.
+      this.onTitle(null);
       if (sessionId) {
         // Listen first: the replay arrives as updates while load is answered.
         this.sessionId = sessionId;
@@ -327,6 +332,9 @@ export class Chat {
 
   private onUpdate(n: SessionNotification): void {
     if (n.update.sessionUpdate === "config_option_update") this.noteOptions(n.update.configOptions);
+    if (n.update.sessionUpdate === "session_info_update" && "title" in n.update) {
+      this.onTitle(panelTitle((n.update as { title?: string | null }).title));
+    }
     this.post({ type: "update", update: n.update });
   }
 

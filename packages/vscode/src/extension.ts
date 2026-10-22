@@ -276,7 +276,9 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, "media", "rix-glyph.svg");
     panel.webview.html = chatHtml(panel.webview, context.extensionUri);
-    const chat = new Chat(panel.webview, host, sessionId, "tab", () => panel.reveal());
+    const chat = new Chat(panel.webview, host, sessionId, "tab", () => panel.reveal(), (title) => {
+      panel.title = title ?? "Atlarix";
+    });
     track(chat, panel);
     panel.onDidDispose(() => {
       chat.dispose();
@@ -336,7 +338,16 @@ export function activate(context: vscode.ExtensionContext): void {
             localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist"), vscode.Uri.joinPath(context.extensionUri, "media")],
           };
           view.webview.html = chatHtml(view.webview, context.extensionUri);
-          sidebar = new Chat(view.webview, host, null, "sidebar", () => void vscode.commands.executeCommand("atlarix.chat.focus"));
+          sidebar = new Chat(
+            view.webview,
+            host,
+            null,
+            "sidebar",
+            () => void vscode.commands.executeCommand("atlarix.chat.focus"),
+            (title) => {
+              view.description = title ?? undefined;
+            },
+          );
           track(sidebar, null);
           view.onDidChangeVisibility(() => {
             if (view.visible) lastActive = sidebar;
