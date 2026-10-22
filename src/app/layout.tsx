@@ -53,7 +53,6 @@ import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
 import { preloadSounds, setSoundPreferences } from "@/lib/sounds";
 import { FirstRunWizard } from "@/components/welcome/FirstRunWizard";
 import { CommunityDialog } from "@/components/CommunityDialog";
-import { CommunityPrompts } from "@/components/community/CommunityPrompts";
 import { GlobalAppSearch } from "@/components/GlobalAppSearch";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 import type { FileAttachment } from "@/ipc/ipc_types";
@@ -512,7 +511,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           {/* v10: first-run setup wizard replaces the legacy 5-step overlay. */}
           <FirstRunWizard />
           <CommunityDialog />
-          <CommunityPrompts />
           {/* Cmd/Ctrl+K from anywhere — see GlobalAppSearch for why it cannot
               live inside AppList. */}
           <GlobalAppSearch />

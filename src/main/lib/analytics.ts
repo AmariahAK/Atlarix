@@ -178,15 +178,6 @@ function withInternalFlag(properties?: Record<string, unknown>): Record<string, 
   return { ...properties, internal: INTERNAL_EMAILS.has(email.trim().toLowerCase()) };
 }
 
-/**
- * The signed-in user id, or null. Exposed so product features (not just
- * telemetry) can scope per-account state — the acquisition answer is stored
- * against a user id so a second account on the same machine is still asked.
- */
-export function getSignedInUserId(): string | null {
-  return signedInUserId;
-}
-
 /** Sign-out: fall back to the anonymous id rather than keep attributing to a user. */
 export function clearIdentifiedUser(): void {
   signedInUserId = null;
@@ -352,11 +343,7 @@ export function trackActiveDay(): void {
   try {
     const today = localDayKey();
     const settings = readSettings();
-    // The COUNT is written even when analytics are opted out: it drives the
-    // in-app PeerPush prompt, which is a product decision, not telemetry.
-    if (settings.lastActiveDay !== today) {
-      writeSettings({ lastActiveDay: today, activeDayCount: (settings.activeDayCount ?? 0) + 1 });
-    }
+    if (settings.lastActiveDay !== today) writeSettings({ lastActiveDay: today });
     // The event has its own marker: one marker for both lost the day whenever it
     // began with analytics off and they were turned on later that day.
     if (settings.lastActiveDaySent === today || !isOptedIn()) return;
@@ -367,51 +354,6 @@ export function trackActiveDay(): void {
   }
 }
 
-/**
- * Record the answer to "where did you hear about Atlarix?".
- *
- * Sent as a **person property via `$set_once`**, not just an event. A person
- * property attaches permanently, so every existing funnel can be broken down by
- * acquisition source — "do GitHub-sourced users retain better than
- * VibeCodingList ones" becomes a filter rather than a manual join. `$set_once`
- * means a reinstall or a second machine cannot overwrite the original answer,
- * which matters now that `alias()` merges those identities together.
- *
- * The accompanying event is kept so the answer also has a timestamp.
- */
-export function trackAcquisitionSource(source: string, detail?: string): void {
-  try {
-    if (!isOptedIn()) return;
-    const posthog = getPostHog();
-    if (!posthog) return;
-    posthog.capture({
-      distinctId: resolveDistinctId(),
-      event: "acquisition_source_selected",
-      properties: {
-        ...superProperties(),
-        source,
-        ...(detail ? { source_detail: detail } : {}),
-        $set_once: {
-          acquisition_source: source,
-          ...(detail ? { acquisition_source_detail: detail } : {}),
-        },
-      },
-    });
-  } catch {
-    /* analytics must never break the UI */
-  }
-}
-
-/**
- * PeerPush review prompt. `shown` and `clicked` are separate events on purpose:
- * we can observe that someone opened the review page, never that they actually
- * reviewed. Reporting a click as a review would overstate the conversion.
- */
-export function trackPeerPushPrompt(
-  action: "shown" | "clicked" | "dismissed",
-): void {
-  captureSafe("peerpush_prompt", { action });
-}
 
 /** Who pays for a turn's model: Atlarix Core, the user's own key, or a model on their machine. */
 export type TurnBilling = "core" | "byok" | "local";

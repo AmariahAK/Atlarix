@@ -78,17 +78,14 @@ describe("the app window's events", () => {
 describe("active_day", () => {
   const days = () => captured.filter((c) => c.event === "active_day");
 
-  it("a day that began with analytics off is still sent once analytics is on, and counted once", () => {
+  it("a day that began with analytics off is still sent once analytics is on, once", () => {
     consent = "opted_out";
     trackActiveDay();
     expect(days()).toHaveLength(0);
-    expect(store.activeDayCount).toBe(1);
     consent = "opted_in";
     trackActiveDay();
     trackActiveDay();
     expect(days()).toHaveLength(1);
-    // PeerPush's count is per day, however many times the day is reported.
-    expect(store.activeDayCount).toBe(1);
   });
 
   it("turning analytics on sends the day at once", async () => {

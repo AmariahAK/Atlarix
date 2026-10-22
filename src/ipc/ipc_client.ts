@@ -2299,33 +2299,6 @@ export class IpcClient {
     await this.ipcRenderer.invoke("open-external-url", url);
   }
 
-  /**
-   * Record the answer to "where did you hear about Atlarix?". Main writes the
-   * local don't-ask-again gate and sends the PostHog person property together,
-   * so a stored answer can never be missing from PostHog (or vice versa).
-   */
-  public async recordAcquisitionSource(
-    source: string,
-    detail?: string,
-    userId?: string,
-  ): Promise<{ ok: boolean }> {
-    return this.ipcRenderer.invoke("community:record-acquisition-source", {
-      source,
-      detail,
-      userId,
-    }) as Promise<{ ok: boolean }>;
-  }
-
-  /** PeerPush prompt lifecycle. "clicked" = the review page was opened, not that
-   *  a review was written — that isn't observable. */
-  public async recordPeerPushPrompt(
-    action: "shown" | "clicked" | "dismissed",
-  ): Promise<{ ok: boolean }> {
-    return this.ipcRenderer.invoke("community:peerpush-prompt", {
-      action,
-    }) as Promise<{ ok: boolean }>;
-  }
-
   public async getDiscordInviteInfo(): Promise<DiscordInviteInfoResult> {
     return this.ipcRenderer.invoke(
       "discord:get-invite-info",

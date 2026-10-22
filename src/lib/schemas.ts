@@ -350,9 +350,6 @@ export const UserSettingsSchema = z.object({
    * event presence, which made it move when instrumentation changed rather than
    * when behaviour did. */
   lastActiveDay: z.string().optional(),
-  /** How many distinct calendar days this install has been active. `lastActiveDay`
-   * alone can't answer "is this their Nth day", which the PeerPush prompt needs. */
-  activeDayCount: z.number().optional(),
   /** Local YYYY-MM-DD of the last `active_day` actually SENT. Apart from
    * `lastActiveDay` (counted): a day that began with analytics off is still sent
    * once they are turned on. */
@@ -360,42 +357,6 @@ export const UserSettingsSchema = z.object({
   /** Local providers already counted into the activation funnel. They need no
    * API key, so they never hit the key handler that fires `model_connected`. */
   analyticsLocalProvidersSeen: z.array(z.string()).optional(),
-  /**
-   * Answer to "where did you hear about Atlarix?" — the one attribution question
-   * analytics structurally cannot answer, because the referrer chain dies at the
-   * installer download. Scoped to `userId` (like `lastKnownEntitlement`) so a
-   * second account on the same machine is still asked, and stored locally only
-   * as the "don't ask again" gate — the durable record is a PostHog person
-   * property set with `$set_once`.
-   */
-  acquisitionSource: z
-    .object({
-      userId: z.string(),
-      /** One of ACQUISITION_SOURCES, or "other". */
-      source: z.string(),
-      /** Free text, only when source === "other". */
-      detail: z.string().optional(),
-      answeredAt: z.number(),
-    })
-    .optional(),
-  /**
-   * The account that closed the "Where did you hear about Atlarix?" card
-   * without answering (X). It is not asked again on that account; nothing is
-   * sent. Closing it used to store nothing, so it came back every launch.
-   */
-  acquisitionPromptDismissedFor: z.string().optional(),
-  /**
-   * PeerPush review prompt. `asked` and `clickedThrough` are deliberately
-   * SEPARATE: we can see that someone opened the review page, never that they
-   * actually reviewed. Conflating them would overstate the conversion.
-   */
-  peerPushPrompt: z
-    .object({
-      askedAt: z.number().optional(),
-      clickedThroughAt: z.number().optional(),
-      dismissedAt: z.number().optional(),
-    })
-    .optional(),
   /**
    * Last plan the SERVER confirmed, so an offline user isn't silently downgraded.
    *
