@@ -80,7 +80,7 @@ Options
   --provider-url <url>      Any OpenAI-compatible address, or Anthropic's API there with --provider-id anthropic
   --auth-header bearer      With --provider-id anthropic at another address: send the key as a Bearer token
   --model <id>              Model id
-  --api-key <key>           The provider's key (saved in this profile's settings)
+  --api-key <key>           The provider's key, kept in memory for this run
   --api-key-file <path>     The key from a file, kept in memory only; the file is DELETED after reading
   --attach <file>           Attach a file (repeatable)
   --deep-thinking           The model's highest reasoning level

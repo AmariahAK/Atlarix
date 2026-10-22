@@ -1,8 +1,7 @@
 /**
  * `--api-key-file`: the user's own provider key, read once, the file deleted,
- * the key held in memory only (pinned-provider-key.ts). Never written to
- * user-settings.json, which is what `--api-key` does, and never put in the
- * environment.
+ * the key held in memory only (pinned-provider-key.ts), like `--api-key`'s.
+ * Never written to user-settings.json, and never put in the environment.
  *
  * The key is pinned under the provider id the RUN uses. With `--provider-url`
  * that is the seeded custom provider (`atlarix-headless`), whatever
