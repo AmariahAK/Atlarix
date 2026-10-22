@@ -24,6 +24,7 @@ let reaskNext = false;
 
 class FakeSession extends EventEmitter {
   workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-screens-ws-"));
+  sessionId = "fake-session-1";
   appId = 7;
   model = undefined;
   calls: Call[] = [];
@@ -288,13 +289,13 @@ afterEach(async () => {
 /** Links the app tried to open: recorded, never sent to a real browser. */
 const opened: string[] = [];
 
-async function mount(adjust?: (services: CliServices) => void, models?: import("../src/cli/tui/App").ModelSource, ratingChance = 0) {
+async function mount(adjust?: (services: CliServices) => void, models?: import("../src/cli/tui/App").ModelSource) {
   const session = new FakeSession();
   const serviceCalls: Call[] = [];
   const services = fakeServices(serviceCalls);
   adjust?.(services);
   const setup = await testRender(
-    <App session={session as never} modelLabel="Atlarix Auto" version="15.0.0" onQuit={() => {}} plainMarkdown services={services} models={models} chromeStatus={() => "connected"} openUrl={(u) => opened.push(u)} ratingChance={ratingChance} />,
+    <App session={session as never} modelLabel="Atlarix Auto" version="15.0.0" onQuit={() => {}} plainMarkdown services={services} models={models} chromeStatus={() => "connected"} openUrl={(u) => opened.push(u)} />,
     { width: 120, height: 40, exitOnCtrlC: false },
   );
   current = setup;
@@ -974,38 +975,97 @@ describe("command screens", () => {
     expect(calls.find((c) => c[1] === "session_started")![2]).toEqual({ how: "continue" });
   });
 
-  it("the session rating: only with analytics on, after a real session, and it sends only the rating", async () => {
-    const { setup, session, serviceCalls } = await mount((s) => void (s.analytics.consent = async () => "opted_in"), undefined, 1);
-    for (let i = 0; i < 8; i++) {
+  /** A feedback service that records what it was asked to send. */
+  const feedbackFake = (sent: unknown[][], o: { askedAt?: number; ok?: boolean } = {}) =>
+    (s: CliServices) =>
+      void (s.feedback = {
+        askedAt: async () => o.askedAt,
+        noteAsked: async () => void sent.push(["noteAsked"]),
+        force: () => false,
+        send: async (answer, session) => (sent.push(["send", answer, session]), { ok: o.ok ?? true }),
+      });
+  const turns = async (setup: Setup, session: FakeSession, n: number, check?: (i: number) => void) => {
+    for (let i = 0; i < n; i++) {
       session.set({ busy: true, turnStartedAt: Date.now() });
       await settle(setup);
       session.set({ busy: false, turnStartedAt: null });
       await settle(setup);
-      if (i < 7) expect(setup.captureCharFrame()).not.toContain("How is Atlarix doing");
+      check?.(i);
     }
+  };
+
+  it("the session rating: everyone, after 6 turns, then what to improve; never the conversation", async () => {
+    const sent: unknown[][] = [];
+    // Analytics never answered: asked anyway (owner, 2026-10-22).
+    const { setup, session } = await mount(feedbackFake(sent));
+    await turns(setup, session, 6, (i) => {
+      if (i < 5) expect(setup.captureCharFrame()).not.toContain("How is Atlarix doing");
+    });
     const frame = await frameContaining(setup, "How is Atlarix doing this session?");
     expect(frame).toContain("1: Bad");
     expect(frame).toContain("0: Dismiss");
+    expect(frame).toContain("Never your code or prompts");
     setup.mockInput.pressKey("3");
-    expect(await until(() => serviceCalls.some((c) => c[0] === "analytics.track" && c[1] === "cli_session_rating"))).toBe(true);
-    const [, , props] = serviceCalls.find((c) => c[1] === "cli_session_rating")!;
-    expect(props).toEqual({ rating: "good", mode: "build", model: "Atlarix Auto", turns: 8, version: "15.0.0" });
-    expect(await until(() => !setup.captureCharFrame().includes("How is Atlarix doing"))).toBe(true);
+    expect(await until(() => sent.some((c) => c[0] === "send"))).toBe(true);
+    const [, answer, about] = sent.find((c) => c[0] === "send")!;
+    expect(answer).toEqual({ kind: "rating", rating: 3 });
+    expect(about).toMatchObject({ mode: "build", turns: 6 });
+    expect(Object.keys(about as object).sort()).toEqual(["effort", "mode", "model", "provider", "startedAt", "turns"]);
+    expect(sent.some((c) => c[0] === "noteAsked")).toBe(true);
+    // Then the optional text, which goes to /feedback, not the model.
+    await frameContaining(setup, "What should we improve?");
+    await command(setup, "the diff view is slow");
+    expect(await until(() => sent.some((c) => c[0] === "send" && (c[1] as { kind: string }).kind === "text"))).toBe(true);
+    expect(sent.find((c) => (c[1] as { kind?: string })?.kind === "text")![1]).toEqual({ kind: "text", body: "the diff view is slow" });
+    expect(session.calls.some((c) => c[0] === "submit")).toBe(false);
     // The 3 was the answer, not typed into the box.
     expect(setup.captureCharFrame()).not.toMatch(/› 3/);
+    // Once a session.
+    await turns(setup, session, 3);
+    expect(setup.captureCharFrame()).not.toContain("How is Atlarix doing");
   });
 
-  it("the session rating never appears with analytics off", async () => {
-    const { setup, session } = await mount(undefined, undefined, 1);
-    for (let i = 0; i < 9; i++) {
-      session.set({ busy: true, turnStartedAt: Date.now() });
-      await settle(setup);
-      session.set({ busy: false, turnStartedAt: null });
-      await settle(setup);
-    }
+  it("the session rating counts each session's own turns: /new starts over (QA A9)", async () => {
+    const sent: unknown[][] = [];
+    const { setup, session } = await mount(feedbackFake(sent));
+    await turns(setup, session, 5);
+    // /new: no id until its first message, then its own.
+    session.sessionId = "";
+    await turns(setup, session, 1);
+    session.sessionId = "fake-session-2";
+    await settle(setup);
+    expect(setup.captureCharFrame()).not.toContain("How is Atlarix doing");
+    await turns(setup, session, 5);
+    await frameContaining(setup, "How is Atlarix doing this session?");
+    setup.mockInput.pressKey("2");
+    expect(await until(() => sent.some((c) => c[0] === "send"))).toBe(true);
+    expect((sent.find((c) => c[0] === "send")![2] as { turns: number }).turns).toBe(6);
+  });
+
+  it("the session rating waits 3 days after any surface was answered", async () => {
+    const sent: unknown[][] = [];
+    const { setup, session } = await mount(feedbackFake(sent, { askedAt: Date.now() - 60 * 60 * 1000 }));
+    await turns(setup, session, 8);
     await Bun.sleep(100);
     await setup.renderOnce();
     expect(setup.captureCharFrame()).not.toContain("How is Atlarix doing");
+  });
+
+  it("/feedback sends text (and a rating) any time; a failed send puts the text back", async () => {
+    const sent: unknown[][] = [];
+    const { setup, session } = await mount(feedbackFake(sent));
+    await command(setup, "/feedback 2 slow on big repos");
+    expect(await until(() => sent.filter((c) => c[0] === "send").length === 2)).toBe(true);
+    expect(sent.filter((c) => c[0] === "send").map((c) => c[1])).toEqual([
+      { kind: "rating", rating: 2 },
+      { kind: "text", body: "slow on big repos" },
+    ]);
+    expect(session.calls.some((c) => c[0] === "submit")).toBe(false);
+
+    const failing: unknown[][] = [];
+    const again = await mount(feedbackFake(failing, { ok: false }));
+    await command(again.setup, "/feedback keep my words");
+    expect(await frameContaining(again.setup, "Couldn't send that")).toContain("/feedback keep my words");
   });
 
   it("usage analytics: asked once on a first run, the answer saved; /analytics changes it later", async () => {

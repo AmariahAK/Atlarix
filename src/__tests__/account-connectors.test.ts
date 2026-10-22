@@ -66,6 +66,8 @@ let proxyBase: string | undefined = "https://proxy.test/v1";
 vi.mock("@/ipc/shared/core_proxy", () => ({
   surfaceHeaders: () => ({ "X-Atlarix-Surface": "app" }),
   getCoreProxyBaseUrl: () => proxyBase,
+  // The fallback wrapper (item 10) passes straight through with none configured.
+  coreProxyFetch: (input: string, init?: RequestInit) => fetch(input, init),
 }));
 
 import {

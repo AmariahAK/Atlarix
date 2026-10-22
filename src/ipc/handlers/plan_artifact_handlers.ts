@@ -41,6 +41,28 @@ function broadcastPlanEvent(
   }
 }
 
+/** A plan's new text, as plans:update writes and announces it (also another session's update, item 11). */
+export async function updatePlanAndAnnounce(
+  planId: string,
+  content: string,
+  title?: string,
+): Promise<PlanArtifactPayload | null> {
+  const row = await withPlanArtifactLock(planId, () => updatePlanArtifactContent(planId, content, title));
+  if (!row) return null;
+  const payload = toPayload(row);
+  broadcastPlanEvent("plan:artifact-updated", payload);
+  return payload;
+}
+
+/** A plan's status, as plans:set-status writes and announces it (also another session's approval, item 11). */
+export async function setPlanStatusAndAnnounce(planId: string, planStatus: PlanArtifactStatus): Promise<PlanArtifactPayload | null> {
+  const row = await setPlanArtifactStatus(planId, planStatus);
+  if (!row) return null;
+  const payload = toPayload(row);
+  broadcastPlanEvent("plan:artifact-updated", payload);
+  return payload;
+}
+
 export function registerPlanArtifactHandlers(): void {
   handle(
     "plans:update",
@@ -51,12 +73,8 @@ export function registerPlanArtifactHandlers(): void {
       // Serialised against the agent's own writes. The user editing the plan
       // while a turn marks steps is a genuine two-writer case; whoever is second
       // should land after the first, not on top of a stale body.
-      const row = await withPlanArtifactLock(params.planId, () =>
-        updatePlanArtifactContent(params.planId, params.content),
-      );
-      if (!row) throw new Error("Plan artifact not found");
-      const payload = toPayload(row);
-      broadcastPlanEvent("plan:artifact-updated", payload);
+      const payload = await updatePlanAndAnnounce(params.planId, params.content);
+      if (!payload) throw new Error("Plan artifact not found");
       return payload;
     },
   );
@@ -119,10 +137,8 @@ export function registerPlanArtifactHandlers(): void {
       _event,
       params: { planId: string; planStatus: PlanArtifactStatus },
     ): Promise<PlanArtifactPayload> => {
-      const row = await setPlanArtifactStatus(params.planId, params.planStatus);
-      if (!row) throw new Error("Plan artifact not found");
-      const payload = toPayload(row);
-      broadcastPlanEvent("plan:artifact-updated", payload);
+      const payload = await setPlanStatusAndAnnounce(params.planId, params.planStatus);
+      if (!payload) throw new Error("Plan artifact not found");
       return payload;
     },
   );

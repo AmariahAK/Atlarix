@@ -8,6 +8,7 @@
  * `rpc`; this file keeps what needs the editor itself: diffs, files, git, the
  * clipboard, input boxes, links, and the turn's lifecycle.
  */
+import { panelTitle } from "./chat-title";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -30,6 +31,8 @@ export interface ChatHost {
   /** The `atlarix` program this extension runs (for "Continue in the terminal"). */
   binaryPath(): string | null;
   connection(): Promise<AtlarixConnection | null>;
+  /** Why the last start failed, when it did: the panel says "Atlarix couldn't start: <this>", not "Starting Atlarix…". */
+  startError(): string | null;
   workspace(): string | null;
   diffs: DiffDocuments;
   openInTab(sessionId: string | null): void;
@@ -37,8 +40,6 @@ export interface ChatHost {
   openElsewhere(sessionId: string, folder: string): Promise<void>;
   showLog(): void;
   signIn(): Promise<void>;
-  /** A turn finished normally (counts toward the one-time rating request). */
-  turnFinished(): void;
   /** This chat's model or busy state changed (the status bar). */
   changed?(chat: Chat): void;
   /** The Problems panel's errors and warnings, as context. */
@@ -96,6 +97,8 @@ export class Chat {
     private readonly where: "sidebar" | "tab" = "sidebar",
     /** Bring this chat's panel to the front (a "needs you" notification's Show). */
     private readonly reveal: () => void = () => {},
+    /** The chat's name changed (null: none yet), for its tab or the sidebar's header. */
+    private readonly onTitle: (title: string | null) => void = () => {},
   ) {
     webview.onDidReceiveMessage((m: ViewMessage) => void this.onMessage(m));
   }
@@ -279,7 +282,8 @@ export class Chat {
     if (!cwd) return this.post({ type: "status", status: "no-folder" });
     this.post({ type: "status", status: "starting" });
     const c = await this.host.connection();
-    if (!c) return;
+    // Never left on "Starting Atlarix…" when it could not start (QA E8).
+    if (!c) return this.post({ type: "status", status: "error", detail: this.host.startError() ?? undefined });
     // Only this chat's own listener: another chat may have taken the session over.
     if (this.sessionId) c.forget(this.sessionId, this.listener ?? undefined);
     for (const id of [...this.pending.keys()]) this.answerPermission(id, null);
@@ -289,6 +293,7 @@ export class Chat {
         permission: (req: RequestPermissionRequest, withdrawn: AbortSignal) => this.onPermission(req, withdrawn),
         peerWaiting: () => this.onPeerWaiting(),
         tasksChanged: (count) => this.post({ type: "tasks-changed", count }),
+        sessionsChanged: () => this.post({ type: "sessions-changed" }),
         automationRun: (run) => this.post({ type: "automation-run", ...run }),
         pendingChanged: (items) => this.post({ type: "pending", items }),
         mcpSuggestion: (card) => this.post({ type: "mcp-suggestion", card }),
@@ -297,6 +302,8 @@ export class Chat {
         backgroundReady: () => this.onBackgroundReady(),
       };
       this.listener = listener;
+      // Until the chat says its name (a loaded one does at once), it has none.
+      this.onTitle(null);
       if (sessionId) {
         // Listen first: the replay arrives as updates while load is answered.
         this.sessionId = sessionId;
@@ -328,6 +335,9 @@ export class Chat {
 
   private onUpdate(n: SessionNotification): void {
     if (n.update.sessionUpdate === "config_option_update") this.noteOptions(n.update.configOptions);
+    if (n.update.sessionUpdate === "session_info_update" && "title" in n.update) {
+      this.onTitle(panelTitle((n.update as { title?: string | null }).title));
+    }
     this.post({ type: "update", update: n.update });
   }
 
@@ -391,7 +401,6 @@ export class Chat {
     try {
       const r = await c.prompt(sessionId, this.blocks(text, context), answers?.length ? { answers, ...meta } : meta);
       this.post({ type: "turn-end", stopReason: r.stopReason });
-      if (r.stopReason === "end_turn") this.host.turnFinished();
     } catch (e) {
       if (isAuthRequired(e)) this.post({ type: "status", status: "signed-out" });
       this.post({ type: "turn-end", stopReason: null, error: errorText(e) });

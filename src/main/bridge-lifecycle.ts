@@ -178,6 +178,10 @@ export async function startBridge(opts: StartBridgeOptions = {}): Promise<void> 
   // one.
   try {
     const install = await installNativeHost({ relayPath, socketPath });
+    if (install.scratchProfile) {
+      logger.info("native host left as it is: a scratch profile (ATLARIX_USER_DATA_DIR) never rewrites the browser's");
+      return;
+    }
     logger.info(
       `native host installed for ${install.manifests.length} browser profile(s)` +
         (install.registryKeys

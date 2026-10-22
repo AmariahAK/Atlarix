@@ -3,6 +3,7 @@ import { registerAppHandlers } from "./handlers/app_handlers";
 import { registerChatHandlers } from "./handlers/chat_handlers";
 import { registerChatStreamHandlers } from "./handlers/chat_stream_handlers";
 import { registerSettingsHandlers } from "./handlers/settings_handlers";
+import { registerFeedbackHandlers } from "./handlers/feedback_handlers";
 import { registerShellHandlers } from "./handlers/shell_handler";
 import { registerTerminalHandlers } from "./handlers/terminal_handlers";
 import { registerTerminalInstancesHandlers } from "./handlers/terminal_instances_handlers";
@@ -62,6 +63,7 @@ export function registerIpcHandlers() {
   registerDisplaySnapshotHandlers();
   registerChatStreamHandlers();
   registerSettingsHandlers();
+  registerFeedbackHandlers();
   registerShellHandlers();
   registerTerminalHandlers();
   registerTerminalInstancesHandlers();

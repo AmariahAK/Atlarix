@@ -24,6 +24,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import { extractPlanChecklistTitle, parsePlanChecklist, plainStepText, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
 import type { SessionMcpServer } from "@/ipc/utils/mcp_manager";
+import type { FeedbackSession } from "@/main/lib/session-feedback";
 import type { AgentSession, ModelChoice, SessionState, WorkMode } from "../agent/session";
 import { promptInput } from "./content";
 import {
@@ -112,6 +113,10 @@ export function sessionMcpServersFrom(list: unknown): SessionMcpServer[] {
   return out;
 }
 
+const SESSION_WATCH_MS = 2_000;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function isAuthError(msg: string | null | undefined): boolean {
   return !!msg && /ATLARIX_AUTH_REQUIRED|sign in to use atlarix|please sign in/i.test(msg);
 }
@@ -144,6 +149,10 @@ class Thread {
   private replayAll = false;
   /** The editor's own MCP servers for this session, listed by /mcp (QA #9). */
   editorMcpServers: SessionMcpServer[] = [];
+  /** When this chat was opened here: the session length a rating sends. */
+  readonly openedAt = Date.now();
+  /** The session rating was asked in this chat (answered or dismissed): once a session. */
+  ratingAsked = false;
 
   constructor(
     readonly id: string,
@@ -160,6 +169,12 @@ class Thread {
     session.on("background-ready", () => this.onBackgroundReady());
     session.on("tasks-changed", () => this.checkTasks());
     session.on("automation", (run: Record<string, unknown>) => this.onAutomationRun(run));
+    // Another session changed the model (item 9): the editor's picker follows.
+    // A mode change already goes out with the session's state.
+    // The line saying who changed it is its notice cell, sent with the cells.
+    session.on("peer-settings", () => {
+      void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+    });
     // A stopped turn's unsent text goes back to the editor's input box.
     session.on("unsent", (text: string) => {
       if (this.extras()) void this.client().notify("_atlarix/unsent", { sessionId: this.id, text }).catch(() => {});
@@ -426,7 +441,7 @@ class Thread {
       sessionUpdate: "agent_message_chunk",
       content: {
         type: "text",
-        text: "\n\n📨 A message from another Atlarix session arrived. Send anything (\"go on\") and I'll read it.\n",
+        text: "\n\nA message from another Atlarix session arrived. Send anything (\"go on\") and I'll read it.\n",
       },
     });
   }
@@ -660,6 +675,12 @@ class Thread {
     const errorBefore = this.session.state.lastError;
     const slash = /^\/(\w+)\s*$/.exec(text);
     const skill = this.skillFor(text);
+    // `/feedback [1|2|3] [text]`: to Atlarix, never to the model.
+    const feedbackCmd = /^\/feedback(?:\s+([\s\S]*))?$/i.exec(text.trim());
+    if (feedbackCmd) {
+      await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: await this.feedbackCommand(feedbackCmd[1] ?? "") } });
+      return { stopReason: "end_turn" };
+    }
     // `/mcp add` with nothing after it: say what it takes, rather than sending it to the model.
     if (/^\/mcp\s+add\s*$/i.test(text)) {
       await this.send({
@@ -896,6 +917,40 @@ class Thread {
   }
 
   /** `/effort` lists this model's levels; `/effort <level>` sets one (as the picker's Effort). */
+  /** What a rating or /feedback says about this chat: never a prompt or code. */
+  async feedbackSession(): Promise<FeedbackSession> {
+    const thinking = (await this.options().catch(() => [])).find((o) => o.id === "thinking") as { currentValue?: unknown } | undefined;
+    return {
+      mode: this.session.state.mode,
+      ...(thinking?.currentValue ? { effort: String(thinking.currentValue) } : {}),
+      provider: this.session.model?.provider,
+      model: this.session.model?.name,
+      turns: this.session.myMessages().length,
+      startedAt: this.openedAt,
+    };
+  }
+
+  async feedbackCommand(rest: string): Promise<string> {
+    const { parseFeedbackCommand, FEEDBACK_THANKS, FEEDBACK_FAILED, FEEDBACK_USAGE, FEEDBACK_TOO_LONG } = await import(
+      "@/lib/feedback/session-rating"
+    );
+    const { sendSessionFeedback, noteRatingAsked } = await import("@/main/lib/session-feedback");
+    const { rating, body, problem } = parseFeedbackCommand(rest);
+    if (problem === "rating" || (!rating && !body)) return FEEDBACK_USAGE;
+    // Nothing is sent: your message is still above, to shorten and send again.
+    if (problem === "too_long") return FEEDBACK_TOO_LONG;
+    const about = await this.feedbackSession();
+    if (rating) {
+      this.ratingAsked = true;
+      noteRatingAsked();
+      await sendSessionFeedback({ kind: "rating", rating }, about);
+    }
+    if (!body) return FEEDBACK_THANKS;
+    const sent = await sendSessionFeedback({ kind: "text", body }, about);
+    // Typed text is never dropped quietly: it is repeated, to copy and send again.
+    return sent.ok ? FEEDBACK_THANKS : `${FEEDBACK_FAILED} What you wrote: "${body}"`;
+  }
+
   private async effortCommand(arg: string | undefined): Promise<string> {
     const option = (await this.options()).find((o) => o.id === "thinking") as
       | { currentValue: unknown; options: Array<{ value: string; description?: string | null }> }
@@ -918,7 +973,7 @@ class Thread {
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "build"];
+const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "feedback", "build"];
 
 function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
   return {
@@ -936,6 +991,7 @@ function commandsUpdate(planReady: boolean, skills: Array<{ name: string; descri
       { name: "automations", description: "Scheduled and triggered tasks in this folder; run one, or turn it on or off." },
       { name: "handoff", description: "Continue this chat in the Atlarix app." },
       { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },
+      { name: "feedback", description: "Tell us what to improve; 1, 2 or 3 first also rates this chat.", input: { hint: "1|2|3 (optional), then what to improve" } },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),
       ...skills.map((s) => ({ name: s.name, description: `Skill: ${s.description || s.name}`, input: { hint: "what to do (optional)" } })),
     ],
@@ -1007,6 +1063,8 @@ export class AcpAgent {
   setClientCapabilities(caps: unknown): void {
     const meta = (caps as { _meta?: { atlarix?: unknown } } | null | undefined)?._meta;
     this.atlarixClient = !!meta?.atlarix;
+    // Zed and JetBrains start turns themselves: a message waits for the next prompt.
+    void import("@/lib/peers/peers").then((m) => m.setIdleMessagesWait(() => !this.atlarixClient));
   }
 
   constructor(private readonly deps: AcpDeps) {}
@@ -1020,6 +1078,63 @@ export class AcpAgent {
     if (!this.client) throw new Error("ACP connection not ready");
     return this.client;
   };
+
+  /**
+   * Past chats open in the editor (`_atlarix/sessions_watch`): it is told
+   * `_atlarix/sessions_changed` when the stored chats change, whoever changed
+   * them (a CLI in another process saving one, say). Before, the list stayed as
+   * it was until reopened (QA 4(b), 2026-10-22). One cheap local read every
+   * 2 s, only while some page is watching; nothing is sent when nothing changed.
+   */
+  private sessionWatchers = 0;
+  private stopSessionWatch: (() => void) | null = null;
+
+  async watchSessions(on: boolean): Promise<void> {
+    this.sessionWatchers = Math.max(0, this.sessionWatchers + (on ? 1 : -1));
+    await this.syncStoreWatch();
+  }
+
+  /**
+   * One watch of the stored sessions while anything needs it: a page showing
+   * Past chats, or an open chat whose name another process may change (a
+   * rename from the CLI or another editor; the tab kept the old one, QA E4).
+   */
+  private async syncStoreWatch(): Promise<void> {
+    const needed = this.sessionWatchers > 0 || this.threads.size > 0;
+    if (!needed) {
+      this.stopSessionWatch?.();
+      this.stopSessionWatch = null;
+      return;
+    }
+    if (this.stopSessionWatch) return;
+    const { watchStoredSessions } = await import("@/lib/sessions/stored-sessions-watch");
+    if (this.stopSessionWatch) return;
+    this.stopSessionWatch = watchStoredSessions(
+      () => {
+        if (this.sessionWatchers > 0) void this.client?.notify("_atlarix/sessions_changed", {}).catch(() => {});
+        void this.refreshTitles();
+      },
+      { intervalMs: SESSION_WATCH_MS },
+    );
+  }
+
+  /** Each open chat takes the name stored for it, when another process changed it. */
+  private async refreshTitles(): Promise<void> {
+    const ids = [...this.threads.keys()];
+    if (!ids.length) return;
+    try {
+      const { db } = await import("@/db");
+      const { chatSessions } = await import("@/db/schema");
+      const { inArray } = await import("drizzle-orm");
+      const rows = await db
+        .select({ id: chatSessions.id, title: chatSessions.title })
+        .from(chatSessions)
+        .where(inArray(chatSessions.id, ids));
+      for (const r of rows) this.threads.get(r.id)?.session.noteStoredTitle(r.title);
+    } catch {
+      /* a title is cosmetic: the next change tries again */
+    }
+  }
 
   private thread(id: string): Thread {
     const t = this.threads.get(id);
@@ -1092,10 +1207,21 @@ export class AcpAgent {
   private async open(cwd: string, sessionId?: string): Promise<Thread> {
     if (!path.isAbsolute(cwd)) throw RequestError.invalidParams(undefined, "cwd must be an absolute path");
     let session: AgentSession | null = null;
+    let id = sessionId ?? "";
     try {
       session = await this.deps.createSession(cwd);
-      if (sessionId) await session.resume(sessionId);
-      else await session.open();
+      // A new chat gets its id now; the stored session is made at its first prompt.
+      if (!sessionId) id = (await session.open()).sessionId;
+      else {
+        try {
+          await session.resume(sessionId);
+        } catch (e) {
+          // A new chat that never got a message isn't stored: an editor that
+          // reopens it after the agent restarted gets it back, still empty.
+          if (!/session not found/i.test((e as Error).message ?? "") || !UUID_RE.test(sessionId)) throw e;
+          id = (await session.open(sessionId)).sessionId;
+        }
+      }
     } catch (e) {
       await session?.close().catch(() => {});
       const msg = (e as Error).message ?? String(e);
@@ -1107,7 +1233,7 @@ export class AcpAgent {
     if (!session) throw RequestError.internalError(undefined, "Atlarix couldn't start a session.");
     surfaceNames = (await import("../agent/session")).SURFACE_NAMES;
     const t: Thread = new Thread(
-      session.sessionId,
+      id,
       cwd,
       session,
       this.ctx,
@@ -1117,6 +1243,7 @@ export class AcpAgent {
     t.setOption = (configId, value) => this.setConfigOption(t.id, configId, value);
     t.forkTo = (title) => this.forkCopy(t.id, title);
     this.threads.set(t.id, t);
+    void this.syncStoreWatch();
     return t;
   }
 
@@ -1261,6 +1388,46 @@ export class AcpAgent {
     return this.thread(sessionId).tasks(action, id);
   }
 
+  /**
+   * The session rating, for an editor that draws its own card (the VS Code
+   * panel): whether to ask now (lib/feedback/session-rating.ts), and the answer.
+   * Other editors have `/feedback` only: an unprompted question would have to be
+   * text in the agent's reply, saved in the chat and read by the model.
+   */
+  async ratingDue(sessionId: string): Promise<{ ask: boolean }> {
+    const t = this.threads.get(sessionId);
+    if (!t) return { ask: false };
+    const { shouldAskRating } = await import("@/lib/feedback/session-rating");
+    const { ratingAskedAt, forceRating } = await import("@/main/lib/session-feedback");
+    return {
+      ask:
+        !t.session.state.busy &&
+        shouldAskRating({
+          turns: t.session.myMessages().length,
+          ratedAt: ratingAskedAt(),
+          now: Date.now(),
+          askedThisSession: t.ratingAsked,
+          force: forceRating(),
+        }),
+    };
+  }
+
+  /** 1-3 answers, 0 dismisses; either way it is not asked again for a while. */
+  async rate(sessionId: string, rating: number): Promise<{ ok: boolean }> {
+    const t = this.thread(sessionId);
+    const { sendSessionFeedback, noteRatingAsked } = await import("@/main/lib/session-feedback");
+    t.ratingAsked = true;
+    noteRatingAsked();
+    if (rating !== 1 && rating !== 2 && rating !== 3) return { ok: true };
+    return sendSessionFeedback({ kind: "rating", rating }, await t.feedbackSession());
+  }
+
+  async feedback(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+    const t = this.thread(sessionId);
+    const { sendSessionFeedback } = await import("@/main/lib/session-feedback");
+    return sendSessionFeedback({ kind: "text", body: String(text ?? "") }, await t.feedbackSession());
+  }
+
   async recap(sessionId: string): Promise<{ text: string | null }> {
     const t = this.thread(sessionId);
     if (t.session.state.busy) return { text: null };
@@ -1325,6 +1492,7 @@ export class AcpAgent {
       await open.session.close().catch(() => {});
       await this.deps.setSessionMcpServers?.(sessionId, []);
       this.threads.delete(sessionId);
+      void this.syncStoreWatch();
     }
     if (!this.deps.changeSession) throw RequestError.methodNotFound("_atlarix/session");
     await this.deps.changeSession(sessionId, change);

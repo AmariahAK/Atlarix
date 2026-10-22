@@ -126,8 +126,12 @@ export function updateOpenChatTabTitleForSession(
       .map(([chatId]) => chatId),
   );
   if (chatIds.size === 0) return;
+  // Unchanged stays the same array: the sessions list calls this for every
+  // session each time it re-reads (item 6), and tabs must not redraw for that.
   store.set(openChatTabsAtom, (prev) =>
-    prev.map((t) => (chatIds.has(t.chatId) ? { ...t, title: trimmed } : t)),
+    prev.some((t) => chatIds.has(t.chatId) && t.title !== trimmed)
+      ? prev.map((t) => (chatIds.has(t.chatId) ? { ...t, title: trimmed } : t))
+      : prev,
   );
 }
 

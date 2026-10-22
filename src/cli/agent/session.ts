@@ -10,6 +10,7 @@
  * state object and emits "change"; the TUI renders that state and nothing else.
  */
 import { ownMessages, withTeammateMessages } from "./own-messages";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
@@ -543,8 +544,10 @@ export class AgentSession extends EventEmitter {
     const elsewhere = this.followingNote();
     if (elsewhere) return elsewhere;
     this.update({ mode });
+    this.modeChosen = true;
     // A deliberate choice in this session, stamped on it as the desktop does,
-    // so resuming it (here or in the app) comes back in the same mode.
+    // so resuming it (here or in the app) comes back in the same mode. Before
+    // the first message there is no row yet: ensureSession stamps it then.
     if (this.sessionId) {
       void handler("sessions:set-work-mode")
         .then((h) => h({}, this.sessionId, mode))
@@ -577,6 +580,7 @@ export class AgentSession extends EventEmitter {
     await this.newSession();
     this.sessionId = sessionId;
     this.chatId = chatId;
+    void this.reportModel();
     // Reachable by its real id now (allocate-transport registered it).
     void import("@/lib/peers/peers").then((m) => m.forgetLiveSession(this.pendingPeerId()));
     this.applySaved(got.messages);
@@ -1167,6 +1171,44 @@ export class AgentSession extends EventEmitter {
 
   setModel(model: ModelChoice | undefined): void {
     this.model = model;
+    void this.reportModel();
+  }
+
+  /** The model, as people see it, for other sessions' list_sessions (item 9). */
+  private async reportModel(): Promise<void> {
+    if (!this.sessionId || !this.model) return;
+    const { provider, name } = this.model;
+    const { loadModelOptions } = await import("./models");
+    const label = (await loadModelOptions().catch(() => [])).find((o) => o.provider === provider && o.name === name)?.label;
+    const { noteSessionModel } = await import("@/lib/peers/peers");
+    noteSessionModel(this.sessionId, label ?? name);
+  }
+
+  /**
+   * Another session set this one's mode and/or model: from the next turn (a
+   * running turn keeps what it started with), with a line saying who. Main
+   * already stored the mode on the session.
+   */
+  private applyPeerSettings(p: Record<string, unknown>): void {
+    const mode = typeof p.mode === "string" ? (p.mode as WorkMode) : undefined;
+    const model = p.model as { provider: string; name: string } | undefined;
+    if (mode) {
+      this.update({ mode });
+      this.modeChosen = true;
+    }
+    if (model?.provider && model.name) this.setModel({ provider: model.provider, name: model.name });
+    // Another session approved the plan (item 11): its build is starting, so the offer goes.
+    if (p.plan === "approve") this.update({ planReady: null });
+    const id = `${Date.now().toString(36)}${++interjectionSeq}`;
+    this.wakeNotes.push({
+      id,
+      cellId: `peer-settings:${id}`,
+      afterCellId: lastAnchorCell(this.state.cells),
+      afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
+      text: `◇ ${String(p.notice ?? "")}`,
+    });
+    this.update({ cells: this.cellsFor(this.state.busy) });
+    this.emit("peer-settings", { mode, model, notice: String(p.notice ?? "") });
   }
 
   /**
@@ -1255,13 +1297,23 @@ export class AgentSession extends EventEmitter {
   }
 
   /**
-   * Create the stored session now rather than at the first message. An editor
-   * (ACP) needs the id up front; it throws when the user isn't signed in.
+   * An editor (ACP) needs the session's id up front, at `session/new`. It gets
+   * one now, and the stored session is created under it at the first message,
+   * like the CLI's: creating it here left an empty session (and a live-session
+   * row) behind every New chat (QA, 2026-10-22). Throws when the user isn't
+   * signed in, as before.
    */
-  async open(): Promise<{ sessionId: string; chatId: number }> {
-    await this.ensureSession();
-    return { sessionId: this.sessionId, chatId: this.chatId };
+  async open(id?: string): Promise<{ sessionId: string }> {
+    const { requireAuthSession } = await import("@/lib/auth/require_auth_session");
+    await requireAuthSession();
+    this.reservedId ??= id ?? randomUUID();
+    return { sessionId: this.reservedId };
   }
+
+  /** The id `open()` gave the editor, until the session is created under it. */
+  private reservedId: string | null = null;
+  /** The mode was chosen here (setMode), not just the default: stored with the session. */
+  private modeChosen = false;
 
   /** Stop hearing this process's broadcasts and leave the session list. */
   async close(): Promise<void> {
@@ -1285,13 +1337,19 @@ export class AgentSession extends EventEmitter {
     const started = (await (await handler("sessions:start"))(
       {},
       this.appId,
-      this.surface === "editor" ? { claim: true } : undefined,
+      this.surface === "editor" ? { claim: true, ...(this.reservedId ? { id: this.reservedId } : {}) } : undefined,
     )) as {
       sessionId: string;
       chatId: number;
     };
     this.sessionId = started.sessionId;
     this.chatId = started.chatId;
+    this.reservedId = null;
+    void this.reportModel();
+    // A mode picked before the first message had no row to go on (QA E1).
+    if (this.modeChosen) {
+      await (await handler("sessions:set-work-mode"))({}, this.sessionId, this.state.mode).catch(() => {});
+    }
     // The real session is registered by sessions:start; drop the placeholder.
     void import("@/lib/peers/peers").then((m) => m.forgetLiveSession(this.pendingPeerId()));
   }
@@ -1406,7 +1464,25 @@ export class AgentSession extends EventEmitter {
     this.recapLine = null;
     if (!opts.systemWake) this.userStopped = false;
     this.turnWasWake = !!opts.systemWake;
-    await this.ensureSession();
+    try {
+      await this.ensureSession();
+    } catch (e) {
+      // A new editor chat is stored at its first message, so a sign-in that
+      // lapsed before it stops the turn HERE, short of the stream that reports
+      // turns. Reported the same way: an auth error, not silence (QA A10).
+      if ((e as { code?: string }).code === "auth_required" || /ATLARIX_AUTH_REQUIRED|sign in/i.test((e as Error).message ?? "")) {
+        const { trackTurnCompleted } = await import("@/main/lib/analytics");
+        trackTurnCompleted({
+          chatId: this.chatId,
+          end: { outcome: "error", errorKind: "auth" },
+          mode: this.state.mode,
+          durationMs: 0,
+          hadHistory: false,
+          outputTokens: 0,
+        });
+      }
+      throw e;
+    }
     if (!opts.continueAfterQuestions) {
       const display = opts.display ?? text;
       if (!opts.retry) text = this.takeShellContext(text);
@@ -1823,6 +1899,10 @@ export class AgentSession extends EventEmitter {
       case "chat:remote-stop":
         void this.interrupt();
         return;
+      // Another session set this one's mode and/or model (item 9).
+      case "session:peer-settings":
+        this.applyPeerSettings(p);
+        return;
       case "chat:response:chunk": {
         if (this.state.retrying) this.update({ retrying: null });
         if (p.type === "permission-request") {
@@ -2077,6 +2157,17 @@ export class AgentSession extends EventEmitter {
     if (!app) throw new Error("Open the Atlarix app first, then /handoff again.");
     const r = await peers.requestOpenInApp(app, this.sessionId);
     if (!r.ok) throw new Error(`The app couldn't open it: ${r.error ?? "unknown error"}`);
+  }
+
+  /**
+   * The name stored for this session, as another process may have changed it
+   * (a rename from the CLI or another editor). Shown, not written back. A
+   * placeholder ("Untitled") never replaces a name.
+   */
+  noteStoredTitle(title: string | null | undefined): void {
+    const t = title?.trim();
+    if (!t || t === this.state.title || /^(untitled|new chat|new conversation)( session)?$/i.test(t)) return;
+    this.update({ title: t });
   }
 
   async rename(title: string): Promise<void> {

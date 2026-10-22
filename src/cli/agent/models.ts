@@ -109,6 +109,28 @@ async function accountPaysForAuto(): Promise<boolean> {
 }
 
 /**
+ * The models another session may set this user's sessions to (item 9): what
+ * they can run. Atlarix Core and Auto need the account, so they are left out
+ * while signed out, as the picker leaves them out (QA A10).
+ */
+export async function settableModelOptions(): Promise<ModelOption[]> {
+  const options = await loadModelOptions();
+  return (await hasCoreAccount()) ? options : options.filter((o) => o.provider !== COMPASS);
+}
+
+/** Signed in (or a cloud run's own Core token): what a Core turn is authorized with. */
+async function hasCoreAccount(): Promise<boolean> {
+  try {
+    const { getPinnedCoreToken } = await import("@/ipc/shared/core_proxy");
+    if (getPinnedCoreToken()) return true;
+    const { getSession } = await import("@/lib/auth/supabase-client");
+    return Boolean((await getSession())?.access_token);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The model a turn runs on: the Plan model while planning, when one is set,
  * else the chosen one (undefined: the desktop's selected model).
  */
@@ -179,8 +201,6 @@ export interface CliState {
   effort?: string;
   /** Terminal notifications when a turn ends or needs you (on unless turned off). */
   notifications?: boolean;
-  /** When the session rating was last answered or dismissed (session-rating.ts). */
-  ratedAt?: number;
   /** A different model while planning (Plan mode); the chosen model builds. Off when unset. */
   planModel?: ModelRef;
   /** Chats starred in an editor's Past chats, newest first. */
@@ -209,7 +229,6 @@ export function readCliState(file = statePath()): CliState {
       deepThinking: s.deepThinking,
       effort: typeof s.effort === "string" ? s.effort : undefined,
       notifications: s.notifications,
-      ratedAt: typeof s.ratedAt === "number" ? s.ratedAt : undefined,
       planModel: s.planModel && typeof s.planModel.provider === "string" && typeof s.planModel.name === "string" ? s.planModel : undefined,
       starredSessions: Array.isArray(s.starredSessions) ? s.starredSessions.filter((x): x is string => typeof x === "string") : undefined,
       modelLabel:

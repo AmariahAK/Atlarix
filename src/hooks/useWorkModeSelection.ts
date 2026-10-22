@@ -16,7 +16,8 @@
  */
 
 import { useCallback } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { getDefaultStore, useAtomValue, useSetAtom } from "jotai";
+import { activeChatIdAtom, peerModeByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import { IpcClient } from "@/ipc/ipc_client";
 import {
@@ -62,6 +63,15 @@ export function useWorkModeSelection(): {
       // window whose global preference has since moved on — and, more immediately, so
       // that it is the value the next turn actually dispatches with. Optimistic: the
       // atom is set before the write lands, because the chip must not lag the input.
+      // Your own pick ends one another session set for the chat in front of you (items 9, 11).
+      const store = getDefaultStore();
+      const here = [store.get(selectedChatIdAtom), store.get(activeChatIdAtom)];
+      store.set(peerModeByChatIdAtom, (prev) => {
+        if (!here.some((id) => id != null && prev.has(id))) return prev;
+        const next = new Map(prev);
+        for (const id of here) if (id != null) next.delete(id);
+        return next;
+      });
       if (activeSessionId) {
         setSessionWorkMode(mode);
         void IpcClient.getInstance()

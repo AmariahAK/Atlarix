@@ -54,3 +54,30 @@ export function skillsDirFrom(
   }
   return dir;
 }
+
+/**
+ * The build's skills, written out on FIRST USE rather than at startup:
+ * `atlarix --version` unpacked them into the profile's folder just to print a
+ * version (QA, 2026-10-21). The skill loader asks for them when it needs one.
+ */
+let pending: { files: Record<string, string> | undefined; atlarixHome?: string } | null = null;
+
+export function registerBundledSkills(files: Record<string, string> | undefined, atlarixHome?: string): void {
+  pending = { files, atlarixHome };
+}
+
+/** The bundled skills folder, written out now if it has not been; undefined without a build's copy. */
+export function bundledSkillsDir(): string | undefined {
+  if (process.env.ATLARIX_SKILLS_DIR) return process.env.ATLARIX_SKILLS_DIR;
+  if (!pending) return undefined;
+  const { files, atlarixHome } = pending;
+  pending = null;
+  try {
+    const dir = skillsDirFrom(files, atlarixHome);
+    if (dir) process.env.ATLARIX_SKILLS_DIR = dir;
+    return dir;
+  } catch {
+    // A read-only home: no bundled skills this run; the loader says what is missing.
+    return undefined;
+  }
+}

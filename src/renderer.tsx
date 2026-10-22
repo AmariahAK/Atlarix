@@ -281,7 +281,7 @@ async function bootstrap() {
     // Held, not started. `ensurePostHogInitialized` writes nothing to this
     // device until consent exists — see posthog-client.ts for why that is not
     // the same as `before_send` dropping events.
-    setPostHogConfig(posthogConfig.posthogApiKey, posthogConfig.analyticsId, sentryConfig.version);
+    setPostHogConfig(posthogConfig.posthogApiKey, posthogConfig.analyticsId, sentryConfig.version, posthogConfig.replaySampleRate);
     ensurePostHogInitialized();
   }
   createRoot(document.getElementById("root")!).render(

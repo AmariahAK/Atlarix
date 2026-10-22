@@ -197,6 +197,7 @@ const result = await build({
     __ATLARIX_EXTENSION_VERSION__: JSON.stringify(version),
     __ATLARIX_BUILD_ID__: JSON.stringify(BUILD_ID_PLACEHOLDER),
     __ATLARIX_CORE_PROXY_URL__: JSON.stringify(coreProxyUrl),
+    __ATLARIX_CORE_PROXY_FALLBACK_URL__: JSON.stringify(process.env.ATLARIX_CORE_PROXY_FALLBACK_URL ?? ""),
   },
   plugins: [noNodeBuiltinsPlugin],
 });

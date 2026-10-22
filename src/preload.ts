@@ -317,10 +317,10 @@ const validInvokeChannels = [
   "tour:set-state",
   // Community (Discord)
   "discord:get-invite-info",
-  // Community asks: "where did you hear about Atlarix?" + the PeerPush prompt.
-  // Both write the local gate AND the PostHog person property in main.
-  "community:record-acquisition-source",
-  "community:peerpush-prompt",
+  // The session rating and /feedback (lib/feedback/session-rating.ts).
+  "feedback:state",
+  "feedback:rate",
+  "feedback:send",
   // Auto-updater
   "update:defer", // write defer flag to userData; install on next cold start
   "update:install-now", // quit and install downloaded update immediately
@@ -409,6 +409,8 @@ const validReceiveChannels = [
   "plan:file-updated",
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "sessions:title-updated", // main → renderer: a session was named (placeholder, then generated title)
+  "sessions:changed", // main → renderer: the stored sessions changed, maybe in another process
+  "session:peer-settings", // main → renderer: another session set this one's mode and/or model (item 9)
   "chat:interjections", // main → renderer: the pending mid-turn-message queue changed
   "chat:remote-stop", // main → renderer: another surface following this chat pressed Stop
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)

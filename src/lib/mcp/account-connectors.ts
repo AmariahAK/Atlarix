@@ -36,7 +36,7 @@
 import log from "electron-log";
 
 import { getSession, getSupabaseClient } from "@/lib/auth/supabase-client";
-import { surfaceHeaders, getCoreProxyBaseUrl } from "@/ipc/shared/core_proxy";
+import { coreProxyFetch, surfaceHeaders, getCoreProxyBaseUrl } from "@/ipc/shared/core_proxy";
 
 const logger = log.scope("account-connectors");
 
@@ -92,7 +92,7 @@ async function proxyPost<T>(path: string, payload: unknown): Promise<T | null> {
   if (!token || token === "atlarix-headless") return null;
 
   try {
-    const res = await fetch(`${base}${path}`, {
+    const res = await coreProxyFetch(`${base}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -287,7 +287,7 @@ async function proxyWrite(path: string, payload: unknown): Promise<WriteResult<R
     return { ok: false, error: WRITE_MESSAGES.not_authenticated! };
   }
   try {
-    const res = await fetch(`${base}${path}`, {
+    const res = await coreProxyFetch(`${base}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

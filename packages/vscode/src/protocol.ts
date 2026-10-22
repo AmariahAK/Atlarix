@@ -71,6 +71,10 @@ export const RPC_METHODS = [
   "_atlarix/plan_model",
   "_atlarix/star",
   "_atlarix/sessions",
+  "_atlarix/sessions_watch",
+  "_atlarix/rating_due",
+  "_atlarix/rate",
+  "_atlarix/feedback",
   "_atlarix/session",
   "_atlarix/undo",
   "_atlarix/checkpoint",
@@ -126,6 +130,8 @@ export type HostMessage =
   | { type: "host-settings"; settings: HostSettings }
   /** What is running in this chat changed (sub-agents, background commands): `count` of them. */
   | { type: "tasks-changed"; count: number }
+  /** The stored chats changed (Past chats, while open, reloads). */
+  | { type: "sessions-changed" }
   /** Messages sent while the turn runs, still waiting (steers, queued). */
   | { type: "pending"; items: Array<{ id: string; text: string; kind: string }> }
   /** Atlarix suggests an MCP server for this chat; `resolved` takes the card away. */

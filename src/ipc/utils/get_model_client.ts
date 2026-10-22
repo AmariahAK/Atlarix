@@ -51,6 +51,7 @@ import {
 } from "../shared/compass_constants";
 import {
   surfaceHeaders,
+  coreProxyFetch,
   getCoreProxyBaseUrl,
   getPinnedCoreToken,
 } from "../shared/core_proxy";
@@ -481,7 +482,8 @@ async function getRegularModelClient(
               for (const [k, v] of Object.entries(autoHeaders))
                 headers.set(k, v);
             }
-            const res = await fetch(input as RequestInfo, { ...init, headers });
+            // The proxy, or its fallback when the proxy is down (item 10).
+            const res = await coreProxyFetch(input as string, { ...init, headers });
             // Atlarix Auto says which model answered and how much free share is
             // left; hand that to the composer.
             if (isAutoTier && res.ok) {

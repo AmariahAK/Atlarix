@@ -260,7 +260,10 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
         out.push({ sessionUpdate: "tool_call", toolCallId: c.id, title: c.text.replace(/^▸\s*/, ""), kind: "other", status: "completed" });
         continue;
       }
-      if (c.id.startsWith("wake:")) {
+      // Who changed this session's mode, model or plan ("◇ Mode set to Review
+      // by Rix. From the next turn.", items 9 and 11): the same finished step,
+      // in the panel and every other editor (QA E5, E7).
+      if (c.id.startsWith("wake:") || c.id.startsWith("peer-settings:")) {
         out.push({
           sessionUpdate: "tool_call",
           toolCallId: c.id,

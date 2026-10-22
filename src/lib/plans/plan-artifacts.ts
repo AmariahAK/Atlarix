@@ -109,10 +109,11 @@ export function withPlanArtifactLock<T>(
 export async function updatePlanArtifactContent(
   planId: string,
   content: string,
+  title?: string,
 ): Promise<PlanArtifactRow | null> {
   const [row] = await db
     .update(sessionMessages)
-    .set({ content: content.trim() })
+    .set({ content: content.trim(), ...(title ? { title } : {}) })
     .where(
       and(eq(sessionMessages.id, planId), eq(sessionMessages.kind, "plan")),
     )

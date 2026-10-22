@@ -39,7 +39,18 @@ bottom) and `~/.atlarix-e2e/team/MORNING.md` (the owner's list).
   1,300+ CPU-s). Check on a real Windows machine; if it holds, look at signing the exe (the Windows code-signing
   cert in Security follow-ups) or a smaller binary.
 - **Windows ACP folder option reads `src/`** with a forward slash. Cosmetic.
+- **Linux: `run_command` can't see the host's /tmp** (ai-b8, 2026-10-22, pre-existing). The bwrap sandbox mounts
+  `--tmpfs /tmp`, so `cat /tmp/x` from a command says "No such file" (no denial, no card) unless /tmp is a writable
+  root. Owner decision: should the host's /tmp be visible read-only inside the sandbox?
 - **`atlarix --version` unpacks the skills cache.** It shouldn't need to.
+- **Vercel's git auto-deploy for atlarix-launchpad didn't fire** on 2026-10-21 (two main pushes, no deployment);
+  `vercel deploy --prod --yes --scope amariah-kamaus-projects` from a clean tree worked. Check the Git integration.
+- **Seen while filming the release video (ai-fc, on the released 15.10.0, not yet verified):** (a) each "New chat"
+  click in the VS Code panel adds a "New editor session (<project>)" row to `__atlarix_live_sessions` (~30 rows
+  after ~30 clicks), so empty sessions pile up; (b) the panel's Past chats doesn't refresh while open, so a chat
+  the CLI starts only appears after it's reopened; (c) `glob` (`Find *`) in the memory folder, under a hidden
+  path (`~/.atlarix-e2e/…`), returned "no files" right after a note was written there — the glob may skip
+  hidden-path dirs (ripgrep's hidden-file default?). Reproduce on a scratch profile first.
 - **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix, then the
   Microsoft Store resubmission (`unvirtualizedResources` justification in the MSIX manifest comment). winget is
   still blocked on microsoft/winget-pkgs#446527.
@@ -79,6 +90,12 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
 
 ### C. AWS / proxy
 
+- **Railway security breach (2026-10-21, disclosed 20:44 UTC): rotate every Railway env var.** Railway says an
+  attacker read stored environment variables, some decrypted, aimed at AI inference providers
+  (blog.railway.com/p/security-disclosure-wednesday-october-21st). Covers projects Atlarix-Proxy, atlarix-reviewer
+  and atlarix-backup (DATABASE_URL = the Supabase DB password, R2 keys). Builds were still paused on 2026-10-22, so
+  new values can't load yet: mint new keys → set them in Railway → deploy once builds resume → revoke the old ones.
+  Also check each service's logs and the providers' usage for anything unusual.
 - **Shared free-tier state is ON** (`ATLARIX_SHARED_FREE_STATE=on` on Railway project Atlarix-Proxy, service
   `Atlarix`, set by the owner 2026-10-20 ~23:25 UTC). Counters live in DynamoDB `atlarix-proxy-counters`
   (eu-west-1, provisioned 20/20 = inside the always-free 25/25). **Live test passed 2026-10-20 23:34 UTC** (agent@

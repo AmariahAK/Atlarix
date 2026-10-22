@@ -89,6 +89,8 @@ vi.mock("@/ipc/ipc_client", () => ({
       listUserInterjections: async () => [...mainQueue],
       // The MCP suggestion cards above the box: none in these tests.
       listMcpSuggestions: async () => [],
+      // The session rating above the box: never due in these tests.
+      getFeedbackState: async () => ({ askedAt: Date.now(), force: false }),
       onMcpSuggestion: () => () => {},
       onUserInterjections: () => () => {},
     }),

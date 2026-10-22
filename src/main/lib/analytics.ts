@@ -13,6 +13,8 @@
  * file names, file contents.
  */
 
+import { replaySampleRate } from "@/lib/analytics/replay";
+import { onFallback } from "@/shared/proxy-failover";
 import path from "node:path";
 import fs from "node:fs";
 import { app } from "electron";
@@ -178,15 +180,6 @@ function withInternalFlag(properties?: Record<string, unknown>): Record<string, 
   return { ...properties, internal: INTERNAL_EMAILS.has(email.trim().toLowerCase()) };
 }
 
-/**
- * The signed-in user id, or null. Exposed so product features (not just
- * telemetry) can scope per-account state — the acquisition answer is stored
- * against a user id so a second account on the same machine is still asked.
- */
-export function getSignedInUserId(): string | null {
-  return signedInUserId;
-}
-
 /** Sign-out: fall back to the anonymous id rather than keep attributing to a user. */
 export function clearIdentifiedUser(): void {
   signedInUserId = null;
@@ -230,6 +223,50 @@ function superProperties(): Record<string, unknown> {
     os: process.platform,
     arch: process.arch,
   };
+}
+
+/**
+ * A session rating or `/feedback` from someone signed out, sent whatever the
+ * analytics answer: answering is the consent for this one event, and the card
+ * says what it sends (owner, 2026-10-22). Nothing ties it to anyone: a fresh id
+ * per event, no person profile, no location, no address.
+ */
+export async function sendAnonymousFeedback(
+  properties: Record<string, unknown>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  const apiKey = process.env.POSTHOG_API_KEY;
+  if (!apiKey) return false;
+  // Its own request, answered: queued with the batch, it was "sent" even with
+  // no network, and the user was thanked for feedback that never left (QA A16).
+  try {
+    const res = await fetchImpl(`${posthogHost()}/batch/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        batch: [
+          {
+            type: "capture",
+            event: "session_feedback",
+            distinct_id: uuidv4(),
+            timestamp: new Date().toISOString(),
+            properties: {
+              ...superProperties(),
+              ...properties,
+              $process_person_profile: false,
+              $geoip_disable: true,
+              $ip: null,
+            },
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** Fire-and-forget capture; never throws (analytics must not break the app). */
@@ -352,11 +389,7 @@ export function trackActiveDay(): void {
   try {
     const today = localDayKey();
     const settings = readSettings();
-    // The COUNT is written even when analytics are opted out: it drives the
-    // in-app PeerPush prompt, which is a product decision, not telemetry.
-    if (settings.lastActiveDay !== today) {
-      writeSettings({ lastActiveDay: today, activeDayCount: (settings.activeDayCount ?? 0) + 1 });
-    }
+    if (settings.lastActiveDay !== today) writeSettings({ lastActiveDay: today });
     // The event has its own marker: one marker for both lost the day whenever it
     // began with analytics off and they were turned on later that day.
     if (settings.lastActiveDaySent === today || !isOptedIn()) return;
@@ -367,51 +400,6 @@ export function trackActiveDay(): void {
   }
 }
 
-/**
- * Record the answer to "where did you hear about Atlarix?".
- *
- * Sent as a **person property via `$set_once`**, not just an event. A person
- * property attaches permanently, so every existing funnel can be broken down by
- * acquisition source — "do GitHub-sourced users retain better than
- * VibeCodingList ones" becomes a filter rather than a manual join. `$set_once`
- * means a reinstall or a second machine cannot overwrite the original answer,
- * which matters now that `alias()` merges those identities together.
- *
- * The accompanying event is kept so the answer also has a timestamp.
- */
-export function trackAcquisitionSource(source: string, detail?: string): void {
-  try {
-    if (!isOptedIn()) return;
-    const posthog = getPostHog();
-    if (!posthog) return;
-    posthog.capture({
-      distinctId: resolveDistinctId(),
-      event: "acquisition_source_selected",
-      properties: {
-        ...superProperties(),
-        source,
-        ...(detail ? { source_detail: detail } : {}),
-        $set_once: {
-          acquisition_source: source,
-          ...(detail ? { acquisition_source_detail: detail } : {}),
-        },
-      },
-    });
-  } catch {
-    /* analytics must never break the UI */
-  }
-}
-
-/**
- * PeerPush review prompt. `shown` and `clicked` are separate events on purpose:
- * we can observe that someone opened the review page, never that they actually
- * reviewed. Reporting a click as a review would overstate the conversion.
- */
-export function trackPeerPushPrompt(
-  action: "shown" | "clicked" | "dismissed",
-): void {
-  captureSafe("peerpush_prompt", { action });
-}
 
 /** Who pays for a turn's model: Atlarix Core, the user's own key, or a model on their machine. */
 export type TurnBilling = "core" | "byok" | "local";
@@ -546,6 +534,8 @@ export function trackTurnCompleted(
         ...(billing ? { billing } : {}),
         effort: r.effort ?? "none",
         ...(r.fellBackToCore ? { fell_back_to_core: true } : {}),
+        // Served by the proxy's fallback while the proxy was down (item 10).
+        ...(billing === "core" && onFallback() ? { proxy: "fallback" } : {}),
         origin: r.automation ? "automation" : "user",
         changed,
         ...(changed.includes("mode") ? { prev_mode: modeName(prev?.mode) } : {}),
@@ -638,6 +628,18 @@ export function trackAnalyticsTurnedOn(): void {
 }
 
 /**
+ * Send what is queued now, not with the next batch: a session rating or
+ * /feedback answered in a CLI killed before it exits was lost (QA, ai-b8).
+ */
+export function flushSoon(): void {
+  try {
+    void client?.flush();
+  } catch {
+    /* analytics must never break the UI */
+  }
+}
+
+/**
  * Flush and shutdown the client. Call before app quit.
  */
 export function shutdown(): void {
@@ -658,13 +660,15 @@ export async function flushAndClose(): Promise<void> {
   if (c) await c.shutdown();
 }
 
-/** Config for renderer PostHog init (API key + anonymous ID). Key is undefined if not set. */
+/** Config for renderer PostHog init (API key + anonymous ID + replay rate). Key is undefined if not set. */
 export function getPostHogConfigForRenderer(): {
   posthogApiKey: string | undefined;
   analyticsId: string;
+  replaySampleRate: number;
 } {
   return {
     posthogApiKey: process.env.POSTHOG_API_KEY || undefined,
     analyticsId: getOrCreateAnonymousId(),
+    replaySampleRate: replaySampleRate(),
   };
 }

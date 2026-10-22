@@ -66,6 +66,8 @@ export interface SessionListener {
   unsent?(text: string): void;
   /** An automation finished a run. */
   automationRun?(run: { name: string; status: string; summary: string | null }): void;
+  /** The stored chats changed (any session, any process), while Past chats is watching. */
+  sessionsChanged?(): void;
   /** Atlarix suggests connecting an MCP server (or a suggestion was answered: `resolved`). */
   mcpSuggestion?(card: Record<string, unknown>): void;
 }
@@ -92,6 +94,16 @@ export function isAuthRequired(e: unknown): boolean {
   return err?.code === -32000 || /sign in|auth.?required/i.test(err?.message ?? "");
 }
 
+/**
+ * How to start `binary`: a .cmd or .bat (atlarix.cliPath on Windows) only runs
+ * through the shell, quoted. Node refuses it otherwise ("spawn EINVAL") since
+ * its 2024 fix, and the panel waited on "Starting Atlarix…" (QA E8).
+ */
+export function spawnCommand(binary: string, platform: NodeJS.Platform = process.platform): { command: string; shell: boolean } {
+  if (platform === "win32" && /\.(cmd|bat)$/i.test(binary)) return { command: `"${binary}"`, shell: true };
+  return { command: binary, shell: false };
+}
+
 export class AtlarixConnection {
   private child: ChildProcess | null = null;
   private conn: acp.ClientConnection | null = null;
@@ -105,7 +117,9 @@ export class AtlarixConnection {
   }
 
   async start(): Promise<InitializeResponse> {
-    const child = spawn(this.opts.binary, ["acp"], {
+    const how = spawnCommand(this.opts.binary);
+    const child = spawn(how.command, ["acp"], {
+      shell: how.shell,
       cwd: this.opts.cwd,
       env: {
         ...process.env,
@@ -151,6 +165,13 @@ export class AtlarixConnection {
         (p) => p as { sessionId: string },
         (ctx) => {
           this.listeners.get(ctx.params.sessionId)?.peerWaiting();
+        },
+      )
+      .onNotification(
+        "_atlarix/sessions_changed",
+        (p) => p as Record<string, never>,
+        () => {
+          for (const l of this.listeners.values()) l.sessionsChanged?.();
         },
       )
       .onNotification(

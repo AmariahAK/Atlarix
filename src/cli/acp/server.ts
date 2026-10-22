@@ -449,6 +449,13 @@ export function buildAgentApp(
         })),
       };
     })
+    .onRequest("_atlarix/rating_due", (p) => p as { sessionId: string }, (ctx) => agent.ratingDue(ctx.params.sessionId))
+    .onRequest("_atlarix/rate", (p) => p as { sessionId: string; rating: number }, (ctx) => agent.rate(ctx.params.sessionId, Number(ctx.params.rating)))
+    .onRequest("_atlarix/feedback", (p) => p as { sessionId: string; text: string }, (ctx) => agent.feedback(ctx.params.sessionId, ctx.params.text))
+    .onRequest("_atlarix/sessions_watch", (p) => p as { on?: boolean }, async (ctx) => {
+      await agent.watchSessions(ctx.params.on === true);
+      return {};
+    })
     .onRequest("_atlarix/session", (p) => p as { sessionId: string; action: "rename" | "delete"; title?: string }, async (ctx) => {
       const { sessionId, action, title } = ctx.params;
       try {

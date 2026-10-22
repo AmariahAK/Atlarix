@@ -707,7 +707,12 @@ const FRESH_EMPTY_MS = 2 * 60_000;
 
 export async function startWorkspaceSession(
   workspaceId: number,
-  opts: { claim?: boolean } = {},
+  /**
+   * `id`: the id an editor already gave the chat at `session/new`, created only
+   * at its first message (a New chat no longer leaves an empty session behind,
+   * QA 2026-10-22). Such a session is never swapped for a reused empty one.
+   */
+  opts: { claim?: boolean; id?: string } = {},
 ): Promise<{
   sessionId: string;
   chatId: number;
@@ -760,7 +765,7 @@ export async function startWorkspaceSession(
             .join(",")}]`,
       );
     }
-    if (reuseId) {
+    if (reuseId && !opts.id) {
       const verified = await verifyTrulyEmptySession(reuseId, "reuse");
       if (verified.row && verified.empty) {
         session = mapSession(verified.row);
@@ -800,7 +805,7 @@ export async function startWorkspaceSession(
   }
 
   if (!session) {
-    session = await insertWorkspaceSession(workspaceId);
+    session = await insertWorkspaceSession(workspaceId, opts.id);
   }
   if (opts.claim) claimedSessions.add(session.id);
   const chatId = createStreamTransport(workspaceId);
@@ -810,9 +815,10 @@ export async function startWorkspaceSession(
 
 async function insertWorkspaceSession(
   workspaceId: number,
+  presetId?: string,
 ): Promise<ChatSessionRow> {
   const now = new Date();
-  const id = randomUUID();
+  const id = presetId ?? randomUUID();
   const [row] = await db
     .insert(chatSessions)
     .values({
@@ -1061,11 +1067,12 @@ export function registerWorkspaceSessionHandlers(): void {
     },
   );
 
-  handle("sessions:start", async (_event, workspaceId: number, opts?: { claim?: boolean }) => {
+  handle("sessions:start", async (_event, workspaceId: number, opts?: { claim?: boolean; id?: string }) => {
     // Defense-in-depth: a workspace session may only be started by a signed-in
     // user (the UI gates selection too, but never trust the renderer).
     await requireAuthSession();
-    const started = await startWorkspaceSession(workspaceId, { claim: opts?.claim === true });
+    const id = typeof opts?.id === "string" && /^[0-9a-f-]{36}$/i.test(opts.id) ? opts.id : undefined;
+    const started = await startWorkspaceSession(workspaceId, { claim: opts?.claim === true, ...(id ? { id } : {}) });
     logger.info(
       `sessions:start workspace=${workspaceId} session=${started.sessionId} transport=${started.chatId}`,
     );

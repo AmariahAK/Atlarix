@@ -20,7 +20,8 @@ import { applyOptions, emit, loadProviders, on, state } from "./state";
 import { button, el, iconButton, MODE_NAME, relTime, rixGlyph } from "./ui";
 import { renderAccount } from "./views/account";
 import { renderAddProvider } from "./views/addProvider";
-import { renderHistory, renderUndo } from "./views/history";
+import { historyChanged, leaveHistory, renderHistory, renderUndo } from "./views/history";
+import { clearRating, maybeAskRating } from "./chat/rating";
 import { renderAutomations } from "./views/automations";
 import { renderMcp } from "./views/mcp";
 import type { Nav, View } from "./views/nav";
@@ -81,6 +82,7 @@ const navApi: Nav = {
 
 function go(v: View): void {
   closePicker();
+  leaveHistory();
   if (v.name === "chat") {
     stack.length = 0;
     page.classList.add("hidden");
@@ -270,6 +272,7 @@ onHost((m: HostMessage) => {
         T.resetTranscript();
         clearTask();
         resetTasks();
+        clearRating();
         emit("session");
         // The new chat's ring starts empty, not the last chat's (QA).
         emit("usage");
@@ -308,6 +311,9 @@ onHost((m: HostMessage) => {
     case "tasks-changed":
       tasksChanged(m.count);
       return;
+    case "sessions-changed":
+      historyChanged();
+      return;
     case "pending":
       return C.showPending(m.items);
     case "mcp-suggestion":
@@ -326,6 +332,7 @@ onHost((m: HostMessage) => {
       const ready = m.stopReason === "cancelled" || m.error ? null : readyPlanTitle();
       if (ready) T.showPlanReady(ready.title, ready.resume, () => window.dispatchEvent(new CustomEvent("atlarix-build")));
       else T.clearPlanReady();
+      if (!m.error && m.stopReason !== "cancelled" && !ready) void maybeAskRating();
       return;
     }
     case "add-context":
@@ -386,5 +393,8 @@ window.addEventListener("blur", sendVisibility);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !page.classList.contains("hidden") && !(e.target as HTMLElement).closest("input,textarea,select")) navApi.back();
 });
+
+// A reload or a closed panel never leaves Past chats the usual way: stop its watch.
+window.addEventListener("pagehide", () => leaveHistory());
 
 post({ type: "ready" });

@@ -203,6 +203,21 @@ export interface CliServices {
     setConsent(v: "opted_in" | "opted_out"): Promise<void>;
     track(event: string, properties?: Record<string, unknown>): void;
   };
+  /**
+   * The session rating and `/feedback` (lib/feedback/session-rating.ts).
+   * Optional so test fakes need not answer it; without it nothing is asked.
+   */
+  feedback?: {
+    /** When the rating was last answered or dismissed on any surface. */
+    askedAt(): Promise<number | undefined>;
+    noteAsked(): Promise<void>;
+    /** ATLARIX_FORCE_RATING=1: ask after the first turn. */
+    force(): boolean;
+    send(
+      answer: { kind: "rating"; rating: 1 | 2 | 3 } | { kind: "text"; body: string },
+      session: { mode?: string; effort?: string; provider?: string; model?: string; turns?: number; startedAt?: number },
+    ): Promise<{ ok: boolean; error?: string }>;
+  };
   account: {
     email(): Promise<string | null>;
     /** Your name, picture (a data: URL) and how you signed in, from GitHub or Google; nulls when unknown. */
@@ -705,6 +720,18 @@ export const realServices: CliServices = {
     async setVisibility(id, visibility) {
       const { setRelicVisibility } = await import("@/lib/relics/relic-store");
       await setRelicVisibility(id, visibility);
+    },
+  },
+  feedback: {
+    async askedAt() {
+      return (await import("@/main/lib/session-feedback")).ratingAskedAt();
+    },
+    async noteAsked() {
+      (await import("@/main/lib/session-feedback")).noteRatingAsked();
+    },
+    force: () => process.env.ATLARIX_FORCE_RATING === "1",
+    async send(answer, session) {
+      return (await import("@/main/lib/session-feedback")).sendSessionFeedback(answer, session);
     },
   },
   analytics: {

@@ -345,6 +345,8 @@ export interface InstallResult {
   skipped: { dir: string; reason: string }[];
   /** Windows only: registry keys written. */
   registryKeys?: string[];
+  /** Nothing was written: a scratch profile (ATLARIX_USER_DATA_DIR) installing into the real home. */
+  scratchProfile?: true;
 }
 
 /**
@@ -369,6 +371,20 @@ export async function installNativeHost(opts: {
   const platform = opts.platform ?? process.platform;
   const home = opts.home ?? os.homedir();
   const socket = opts.socketPath ?? bridgeSocketPath(platform);
+
+  // A scratch profile (QA, tests) never rewrites the person's real browser
+  // host: scratch CLI runs rewrote ~/.atlarix/chrome (item 8, 2026-10-22).
+  // Real users never set ATLARIX_USER_DATA_DIR. An explicit `home` is an
+  // install the caller asked for, into that folder.
+  if (process.env.ATLARIX_USER_DATA_DIR && !opts.home) {
+    return {
+      wrapper: wrapperPath(home, platform),
+      hostEnv: hostEnvPath(home),
+      manifests: [],
+      skipped: [],
+      scratchProfile: true,
+    };
+  }
 
   const dir = bridgeHome(home);
   await fs.mkdir(dir, { recursive: true });

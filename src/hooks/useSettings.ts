@@ -145,8 +145,9 @@ function processSettingsForTelemetry(settings: UserSettings) {
   // started at the moment consent arrives. This is the single choke point every
   // settings load and change already passes through. No-op when already running
   // or still not opted in.
+  // Also the opt-out hook: a withdrawal stops a running replay at once (item 12).
   void import("@/lib/analytics/posthog-client").then((m) =>
-    m.ensurePostHogInitialized(),
+    m.syncPostHogConsent(),
   );
   if (settings.telemetryUserId) {
     window.localStorage.setItem(

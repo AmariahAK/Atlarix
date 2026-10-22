@@ -14,6 +14,7 @@ import path from "node:path";
 import { makeFakeSender } from "./fake-sender";
 import { autoApprove } from "./auto-approve";
 import { createTrajectoryWriter } from "./trajectory-writer";
+import { setPinnedProviderKey } from "@/ipc/shared/pinned-provider-key";
 
 export interface HeadlessProvider {
   /**
@@ -120,9 +121,9 @@ const PROVIDER_ID = "atlarix-headless";
 export async function runHeadlessAgent(
   opts: RunHeadlessOptions,
 ): Promise<RunHeadlessResult> {
-  // Batch runs rewrite user-settings.json (the model, a plaintext key) and add a
-  // workspace row per run. That is right for their throwaway folder and wrong
-  // for a person's desktop data, which the interactive CLI shares.
+  // Batch runs add a workspace row (and a provider row for an address) per run.
+  // That is right for their own data folder and wrong for a person's desktop
+  // data, which the interactive CLI shares.
   if (process.env.ATLARIX_DB_SHARED === "1") {
     throw new Error(
       "atlarix run cannot use the desktop app's data folder (ATLARIX_DB_SHARED=1). Unset it, or point ATLARIX_USER_DATA_DIR at a separate folder.",
@@ -173,10 +174,16 @@ export async function runHeadlessAgent(
   const seed = headlessProviderSeed(opts.provider);
   const providerId = seed.providerId;
   if (seed.row) {
+    // Updated, not skipped, on a later run: one with a different address used to
+    // keep calling the FIRST run's.
+    const { id: _id, ...rowFields } = seed.row;
     await db
       .insert(schema.language_model_providers)
       .values(seed.row)
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: schema.language_model_providers.id,
+        set: { api_format: null, auth_header: null, ...rowFields },
+      });
     await db
       .insert(schema.language_models)
       .values({
@@ -200,29 +207,26 @@ export async function runHeadlessAgent(
   // has one (a shared data folder), so repeated runs don't add duplicates.
   const appId = await workspaceAppIdForPath(opts.workspaceDir);
 
-  // Settings: build mode + the provider/model + its key (plaintext; safeStorage
-  // is unavailable headless). readSettings merges this over DEFAULT_SETTINGS.
-  const settings: Record<string, unknown> = {
+  // The run's choices: mode, the provider/model and its reasoning level. Held in
+  // THIS process only, never written: the file used to be REPLACED by them, so a
+  // run on a real profile (a script, CI, a shared test account) lost every other
+  // setting, flipped its analytics answer and kept the run's model selected; with
+  // `--api-key`, the key sat there in plaintext (QA A5, 2026-10-22). The key is
+  // pinned in memory like `--api-key-file`'s.
+  const { setRuntimeSettingsOverride } = await import("@/main/settings");
+  setRuntimeSettingsOverride({
     selectedChatMode: mode,
     workModePreference: mode === "ask" ? "ask" : "build",
     selectedModel: { name: opts.provider.model, provider: providerId },
     hasRunBefore: true,
     telemetryConsent: "opted_out",
-    // Always written, both states. `deepThinking` is `z.boolean().optional()` with no
-    // default, so omitting it resolved to OFF — one notch below the model's ceiling.
+    // Always set, both states. `deepThinking` is `z.boolean().optional()` with no
+    // default, so leaving it out resolved to OFF — one notch below the model's ceiling.
     deepThinking: !!opts.deepThinking,
-    ...(opts.effort ? { effort: opts.effort } : {}),
-  };
-  if (opts.provider.apiKey) {
-    settings.providerSettings = {
-      [providerId]: { apiKey: { value: opts.provider.apiKey } },
-    };
-  }
+    effort: opts.effort,
+  } as Parameters<typeof setRuntimeSettingsOverride>[0]);
+  if (opts.provider.apiKey) setPinnedProviderKey(providerId, opts.provider.apiKey);
   fs.mkdirSync(settingsDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(settingsDir, "user-settings.json"),
-    JSON.stringify(settings, null, 2),
-  );
 
   // Register the real handlers once (records onto the electron stub's ipcMain).
   if (!handlersRegistered) {

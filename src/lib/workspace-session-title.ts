@@ -87,12 +87,22 @@ function setSessionTitleGenerating(
  * Idempotent per window — call once at startup. Returns the unsubscribe.
  */
 export function subscribeToSessionTitleUpdates(): () => void {
-  return IpcClient.getInstance().onSessionTitleUpdated(({ sessionId, title }) => {
+  const ipc = IpcClient.getInstance();
+  const offTitle = ipc.onSessionTitleUpdated(({ sessionId, title }) => {
     getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
     // The tab strip holds a title SNAPSHOT — push the new name into any open
     // tab for this session or it keeps the old one.
     updateOpenChatTabTitleForSession(sessionId, title);
   });
+  // Another process (the CLI, an editor) named, renamed or re-titled a session:
+  // the list re-reads, and its tabs take the new names from it (item 6).
+  const offChanged = ipc.onSessionsChanged(() => {
+    getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
+  });
+  return () => {
+    offTitle();
+    offChanged();
+  };
 }
 
 /**

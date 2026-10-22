@@ -6,7 +6,6 @@
  * editor's own diff, and the editor's selection and files as context.
  */
 import path from "node:path";
-import { noteTurn, ratingUrl, type RatingState } from "./rating";
 import {
   CONSENT_ASKED_KEY,
   CONSENT_DETAIL,
@@ -30,6 +29,8 @@ import { problemsText } from "./problems";
 
 let connection: AtlarixConnection | null = null;
 let starting: Promise<AtlarixConnection | null> | null = null;
+/** Why the last start failed, for the chat's "Atlarix couldn't start: …" (null once one starts). */
+let startError: string | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("Atlarix");
@@ -86,11 +87,13 @@ export function activate(context: vscode.ExtensionContext): void {
         // Reported by the next run that starts (a word, never the path).
         void context.globalState.update(HOST_ERROR_KEY, found.badSetting ? "cli_path_unusable" : "cli_not_found");
         if (found.badSetting) {
+          startError = `atlarix.cliPath can't be run (${found.badSetting})`;
           void vscode.window
             .showErrorMessage(`Atlarix can't run atlarix.cliPath: ${found.badSetting}`, "Open Settings")
             .then((go) => go && vscode.commands.executeCommand("workbench.action.openSettings", "atlarix.cliPath"));
           return null;
         }
+        startError = "its agent program wasn't found. Reinstall the extension, or install the CLI (npm i -g atlarix).";
         void vscode.window
           .showErrorMessage("Atlarix couldn't find its agent program. Reinstall the extension, or install the CLI (npm i -g atlarix).", "Get Atlarix")
           .then((go) => go && vscode.env.openExternal(vscode.Uri.parse("https://atlarix.dev/download")));
@@ -124,12 +127,14 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         await c.start();
         connection = c;
+        startError = null;
         // Reported by this run (session_started), so forget it.
         void context.globalState.update(HOST_ERROR_KEY, undefined);
         void askAnalyticsConsent(c);
         return c;
       } catch (e) {
         log.appendLine(`Couldn't start Atlarix: ${(e as Error).message}`);
+        startError = (e as Error).message;
         void context.globalState.update(HOST_ERROR_KEY, "start_failed");
         c.dispose();
         void vscode.window.showErrorMessage(`Atlarix couldn't start: ${(e as Error).message}`, "Show log").then((s) => s && log.show());
@@ -142,15 +147,6 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const binaryPath = () => findAtlarix(context.extensionPath, vscode.workspace.getConfiguration("atlarix").get<string>("cliPath")).binary;
-  const RATING_KEY = "atlarix.rating";
-  const turnFinished = () => {
-    const { state, ask } = noteTurn(context.globalState.get<RatingState>(RATING_KEY) ?? { turns: 0, asked: false });
-    void context.globalState.update(RATING_KEY, state);
-    if (!ask) return;
-    void vscode.window
-      .showInformationMessage("Enjoying Atlarix? A rating helps other developers find it.", "Rate Atlarix", "Not now")
-      .then((pick) => pick === "Rate Atlarix" && vscode.env.openExternal(vscode.Uri.parse(ratingUrl(vscode.env.appName))));
-  };
   // The status bar: Rix, the model of the chat in use, and a dot while it works.
   const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusItem.command = "atlarix.pickModel";
@@ -229,11 +225,11 @@ export function activate(context: vscode.ExtensionContext): void {
       return text ? { path: "", label: text.label, text: text.body } : null;
     },
     connection: connect,
+    startError: () => startError,
     workspace,
     diffs,
     openInTab: (sessionId) => openTab(sessionId),
     showLog: () => log.show(),
-    turnFinished,
     signIn: async () => {
       // One sign-in at a time: another click shows its page again. Each click
       // used to start its own, and an earlier page then led nowhere.
@@ -287,7 +283,9 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, "media", "rix-glyph.svg");
     panel.webview.html = chatHtml(panel.webview, context.extensionUri);
-    const chat = new Chat(panel.webview, host, sessionId, "tab", () => panel.reveal());
+    const chat = new Chat(panel.webview, host, sessionId, "tab", () => panel.reveal(), (title) => {
+      panel.title = title ?? "Atlarix";
+    });
     track(chat, panel);
     panel.onDidDispose(() => {
       chat.dispose();
@@ -347,7 +345,19 @@ export function activate(context: vscode.ExtensionContext): void {
             localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist"), vscode.Uri.joinPath(context.extensionUri, "media")],
           };
           view.webview.html = chatHtml(view.webview, context.extensionUri);
-          sidebar = new Chat(view.webview, host, null, "sidebar", () => void vscode.commands.executeCommand("atlarix.chat.focus"));
+          sidebar = new Chat(
+            view.webview,
+            host,
+            null,
+            "sidebar",
+            () => void vscode.commands.executeCommand("atlarix.chat.focus"),
+            (title) => {
+              // The title, not the description: the Atlarix container has one
+              // view, so VS Code hides the view's own header (and its
+              // description) and shows "Atlarix: <view title>" (QA E2).
+              view.title = title ?? "Chat";
+            },
+          );
           track(sidebar, null);
           view.onDidChangeVisibility(() => {
             if (view.visible) lastActive = sidebar;

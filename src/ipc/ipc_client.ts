@@ -294,6 +294,16 @@ export type McpSuggestionView = import("@/lib/mcp/mcp-suggestions").McpSuggestio
   status?: import("@/lib/mcp/mcp-suggestions").McpServerStatus | null;
 };
 
+/** What a rating or /feedback says about the session: never a prompt or code. */
+export interface FeedbackSessionInfo {
+  mode?: string;
+  effort?: string;
+  provider?: string;
+  model?: string;
+  turns?: number;
+  startedAt?: number;
+}
+
 export class IpcClient {
   private static instance: IpcClient;
   private ipcRenderer: PreloadIpcRenderer;
@@ -2204,6 +2214,27 @@ export class IpcClient {
     return this.ipcRenderer.invoke("sessions:generate-title", sessionId);
   }
 
+  /** Another session set one of this window's sessions' mode and/or model (item 9). */
+  public onPeerSessionSettings(
+    listener: (p: {
+      chatId: number;
+      sessionId: string;
+      mode?: import("@/lib/schemas").WorkMode;
+      model?: { provider: string; name: string; label: string };
+      plan?: "approve" | "reject" | "update";
+      notice: string;
+    }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("session:peer-settings", (payload) => listener(payload as never));
+    return typeof off === "function" ? off : () => {};
+  }
+
+  /** The stored sessions changed, whoever changed them (the CLI or an editor too). */
+  public onSessionsChanged(listener: () => void): () => void {
+    const off = this.ipcRenderer.on("sessions:changed", () => listener());
+    return typeof off === "function" ? off : () => {};
+  }
+
   /** Main named a session (placeholder or generated title). */
   public onSessionTitleUpdated(
     listener: (payload: { sessionId: string; title: string }) => void,
@@ -2299,31 +2330,19 @@ export class IpcClient {
     await this.ipcRenderer.invoke("open-external-url", url);
   }
 
-  /**
-   * Record the answer to "where did you hear about Atlarix?". Main writes the
-   * local don't-ask-again gate and sends the PostHog person property together,
-   * so a stored answer can never be missing from PostHog (or vice versa).
-   */
-  public async recordAcquisitionSource(
-    source: string,
-    detail?: string,
-    userId?: string,
-  ): Promise<{ ok: boolean }> {
-    return this.ipcRenderer.invoke("community:record-acquisition-source", {
-      source,
-      detail,
-      userId,
-    }) as Promise<{ ok: boolean }>;
+  /** The session rating's shared quiet period, and ATLARIX_FORCE_RATING. */
+  public async getFeedbackState(): Promise<{ askedAt: number | null; force: boolean }> {
+    return this.ipcRenderer.invoke("feedback:state") as Promise<{ askedAt: number | null; force: boolean }>;
   }
 
-  /** PeerPush prompt lifecycle. "clicked" = the review page was opened, not that
-   *  a review was written — that isn't observable. */
-  public async recordPeerPushPrompt(
-    action: "shown" | "clicked" | "dismissed",
-  ): Promise<{ ok: boolean }> {
-    return this.ipcRenderer.invoke("community:peerpush-prompt", {
-      action,
-    }) as Promise<{ ok: boolean }>;
+  /** 1-3 answers, 0 dismisses; either way it is not asked again for a while. */
+  public async rateSession(rating: number, session: FeedbackSessionInfo): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("feedback:rate", { rating, session }) as Promise<{ ok: boolean }>;
+  }
+
+  /** `/feedback`, or the text after a rating. */
+  public async sendFeedback(text: string, session: FeedbackSessionInfo): Promise<{ ok: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("feedback:send", { text, session }) as Promise<{ ok: boolean; error?: string }>;
   }
 
   public async getDiscordInviteInfo(): Promise<DiscordInviteInfoResult> {
@@ -2555,10 +2574,11 @@ export class IpcClient {
     return this.ipcRenderer.invoke("perf:tool-snapshot");
   }
 
-  /** Get PostHog config (API key + anonymous ID) for renderer init. Key undefined if not set. */
+  /** Get PostHog config (API key + anonymous ID + replay rate) for renderer init. Key undefined if not set. */
   public async getPostHogConfig(): Promise<{
     posthogApiKey: string | undefined;
     analyticsId: string;
+    replaySampleRate?: number;
   }> {
     return this.ipcRenderer.invoke("get-posthog-config");
   }

@@ -33,6 +33,7 @@ const MAIN_KEYS = [
   // ship in the client (SB-02/06). Core routes through atlarix-proxy instead; the
   // client only needs the public proxy URL below.
   "ATLARIX_CORE_PROXY_URL",
+  "ATLARIX_CORE_PROXY_FALLBACK_URL",
   "ATLARIX_CORE_MODEL_1",
   "ATLARIX_CORE_MODEL_2",
   "ATLARIX_CORE_MODEL_3",

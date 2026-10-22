@@ -17,6 +17,7 @@
  * that is actually true for this caller right now.
  */
 
+import { proxyFetch, setBuiltFallback } from "@/shared/proxy-failover";
 import { getAccessToken } from "../auth/sign-in";
 import { CREDIT_FIRST_LINE } from "./upgrade-line";
 
@@ -272,6 +273,12 @@ function baseUrl(): string {
   return raw.endsWith("/v1") ? raw : `${raw}/v1`;
 }
 
+/** `f`, with the proxy's fallback when the proxy is down (item 10, shared/proxy-failover.ts). */
+function viaProxy(f: typeof fetch): typeof fetch {
+  setBuiltFallback(__ATLARIX_CORE_PROXY_FALLBACK_URL__);
+  return ((input: string | URL, init?: RequestInit) => proxyFetch(baseUrl(), input, init, f)) as typeof fetch;
+}
+
 /**
  * What a call is for, so paid Atlarix Auto can pick a model per request (the
  * extension has no work modes; its turns are build-like). Hints only — the
@@ -317,7 +324,7 @@ export async function coreProxyFetch<T>(
   payload: unknown,
   f: typeof fetch = fetch,
 ): Promise<T> {
-  const res = await f(`${baseUrl()}${path}`, {
+  const res = await viaProxy(f)(`${baseUrl()}${path}`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(payload),
@@ -337,7 +344,7 @@ export async function coreProxyFetch<T>(
 export async function listModels(
   f: typeof fetch = fetch,
 ): Promise<CoreModel[]> {
-  const res = await f(`${baseUrl()}/models`, { headers: await authHeaders() });
+  const res = await viaProxy(f)(`${baseUrl()}/models`, { headers: await authHeaders() });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) throw coreErrorFrom(res.status, body);
   const data = Array.isArray(body.data) ? body.data : [];
@@ -429,7 +436,7 @@ export async function* streamTurn(
   },
   f: typeof fetch = fetch,
 ): AsyncGenerator<CoreEvent> {
-  const res = await f(`${baseUrl()}/chat/completions`, {
+  const res = await viaProxy(f)(`${baseUrl()}/chat/completions`, {
     method: "POST",
     headers: { ...(await authHeaders()), ...autoHeaders(args.purpose ?? "main") },
     signal: args.signal,

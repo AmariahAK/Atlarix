@@ -12,7 +12,9 @@ import { apps, chatSessions } from "@/db/schema";
 import {
   isPlaceholderTitle,
   noteLiveSession,
+  noteSessionModel,
   publishPeerState,
+  setDefaultModelLabel,
   startPeerInbox,
   type Surface,
 } from "./peers";
@@ -95,8 +97,115 @@ async function openSessionInApp(
 
 let unhookLive: (() => void) | null = null;
 
+/**
+ * Another session sets this one's mode and/or model (item 9): checked here,
+ * the mode stored on the session as a mode picked in it is, and the change
+ * told to the windows (the app's, the CLI's and the editors' sessions), which
+ * use it from the next turn and show `notice`.
+ */
+async function applyPeerSettings(
+  target: { chatId: number; sessionId: string; name?: string },
+  set: { mode?: string; model?: string; plan?: string; planText?: string },
+  from: { name: string },
+): Promise<{ ok: boolean; error?: string; notice?: string; startTurn?: string }> {
+  const s = await import("./session-settings");
+  // Its plan awaiting approval (item 11): checked first, so nothing else
+  // changes when the plan part is refused.
+  let plan: { action: import("./session-settings").PeerPlanAction; id: string } | undefined;
+  if (set.plan) {
+    const action = s.parsePlanAction(set.plan);
+    if (!action) return { ok: false, error: `no plan action "${set.plan}": approve, reject or update` };
+    const name = target.name || "that session";
+    // As the user's own Build/edit: not while a turn runs, which may be writing it.
+    if (isChatStreamLive(target.chatId)) return { ok: false, error: `${name} is busy; answer its plan when its turn ends` };
+    if (action === "approve" && set.mode) return { ok: false, error: "approve builds the plan in Build; send it without a mode" };
+    if (action === "update" && !set.planText?.trim()) return { ok: false, error: "update needs plan_text: the whole new plan" };
+    const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+    const latest = await getLatestPlanArtifact(target.sessionId, "plan").catch(() => null);
+    if (!latest) return { ok: false, error: `${name} has no plan awaiting approval` };
+    plan = { action, id: latest.id };
+  }
+  let mode: import("./session-settings").PeerMode | undefined;
+  if (set.mode) {
+    const parsed = s.parseMode(set.mode);
+    if (!parsed) return { ok: false, error: `no mode "${set.mode}": build, explore, plan, debug or review` };
+    mode = parsed;
+  }
+  const row = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, target.sessionId) });
+  let model: { provider: string; name: string; label: string } | undefined;
+  if (set.model) {
+    const { settableModelOptions } = await import("@/cli/agent/models");
+    const options = await settableModelOptions().catch(() => []);
+    const hit = s.matchModel(set.model, options);
+    if ("error" in hit) return { ok: false, error: hit.error };
+    // The name list_sessions shows: "label (provider)" when two share a label.
+    const shown = s.modelNames(options).find((n) => n.option === hit)?.name ?? hit.label;
+    model = { provider: hit.provider, name: hit.name, label: shown };
+  }
+  // Approve: exactly the user's Build (the plan card's and /build): the plan
+  // goes to building, the session to Build, and the build turn starts.
+  let startTurn: string | undefined;
+  if (plan) {
+    const handlers = await import("@/ipc/handlers/plan_artifact_handlers");
+    if (plan.action === "approve") {
+      await handlers.setPlanStatusAndAnnounce(plan.id, "building");
+      mode = "build";
+      startTurn = (await import("@/lib/work-mode")).BUILD_FROM_PLAN_PROMPT;
+    } else if (plan.action === "update") {
+      const text = set.planText!.trim();
+      await handlers.updatePlanAndAnnounce(plan.id, text, s.planTitleOf(text));
+    }
+  }
+  if (mode && row) {
+    await db.update(chatSessions).set({ workMode: mode }).where(eq(chatSessions.id, target.sessionId));
+  }
+  if (model) noteSessionModel(target.sessionId, model.label);
+  const notice = [
+    set.mode || set.model ? s.settingsNotice({ mode: set.mode ? mode : undefined, model: model?.label }, from.name) : "",
+    plan ? s.planNotice(plan.action, from.name) : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  broadcastToAllWindows("session:peer-settings", {
+    chatId: target.chatId,
+    sessionId: target.sessionId,
+    ...(mode ? { mode } : {}),
+    ...(model ? { model } : {}),
+    ...(plan ? { plan: plan.action, planId: plan.id } : {}),
+    notice,
+  });
+  return { ok: true, notice, ...(startTurn ? { startTurn } : {}) };
+}
+
 /** Start the inbox for this process. Never throws. */
+/**
+ * The app's selected model, as people see it, for its chats' list_sessions
+ * lines (a chat another session set a model for shows that one instead).
+ * Read on each publish, so a pick shows within one heartbeat; the label is
+ * looked up once per model.
+ */
+let appDefault: { key: string; label: string } | null = null;
+function appDefaultModelLabel(): string | undefined {
+  const sel = readSettings().selectedModel;
+  if (!sel?.provider || !sel.name) return undefined;
+  const key = `${sel.provider}/${sel.name}`;
+  if (appDefault?.key !== key) {
+    const mine = { key, label: sel.name };
+    appDefault = mine;
+    void import("@/cli/agent/models")
+      .then((m) => m.loadModelOptions())
+      .then((opts) => {
+        const o = opts.find((x) => x.provider === sel.provider && x.name === sel.name);
+        if (o) mine.label = o.label;
+      })
+      .catch(() => {});
+  }
+  return appDefault.label;
+}
+
 export async function startPeerMessaging(surface: Surface): Promise<void> {
+  // The CLI and the editors report each session's own model.
+  if (surface === "app") setDefaultModelLabel(appDefaultModelLabel);
   try {
     await startPeerInbox({
       surface,
@@ -142,6 +251,7 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
           broadcastToAllWindows("chat:remote-stop", { chatId });
         },
         ...(surface === "app" ? { openSession: openSessionInApp } : {}),
+        applySettings: applyPeerSettings,
         inbound: () => {
           try {
             const v = (readSettings() as { peerMessages?: string })

@@ -11,8 +11,10 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import * as path from "node:path";
+import { stat } from "node:fs/promises";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
+import { classifyRgFailure, expandHome, toSlashes, unreadableNote } from "./search-root";
 import { resolveRipgrepPath } from "./resolve-ripgrep";
 import { resolveToolTargetPath } from "@/ipc/utils/safeWorkspaceRelativePath";
 import {
@@ -98,21 +100,35 @@ export function parseGrepOutput(output: string): GrepGroup[] {
 
 async function runRipgrepSearch(args: {
   pattern: string;
+  /** Where the search starts: the workspace, or a folder outside it. */
+  root: string;
   workspace: string;
   contextLines: number;
   filePattern?: string;
   caseSensitive: boolean;
-}): Promise<GrepGroup[]> {
-  const { pattern, workspace, contextLines, filePattern, caseSensitive } = args;
+}): Promise<{ groups: GrepGroup[]; unreadable: string[] }> {
+  const { pattern, root, workspace, contextLines, filePattern, caseSensitive } = args;
   // `--no-require-git` + optional .atlarixignore, so ignores are honored even in
-  // a non-git workspace (matches the glob tool; see ripgrep-ignore.ts).
-  const ignoreArgs = await ripgrepIgnoreArgs(workspace);
+  // a non-git workspace (matches the glob tool; see ripgrep-ignore.ts). A root
+  // outside the workspace gets none of the workspace's ignores.
+  const ignoreArgs = await ripgrepIgnoreArgs(workspace, root);
+  // ripgrep reads an --ignore-file's rules relative to its cwd, so it runs IN the
+  // root (as glob does): from the process's cwd an anchored rule such as
+  // `/node_modules/` pointed at the wrong folder (QA A7). A file root runs in
+  // its folder. Paths come back absolute, as before.
+  const isFile = await stat(root).then((st) => st.isFile(), () => false);
+  const cwd = isFile ? path.dirname(root) : root;
+  const target = isFile ? path.basename(root) : ".";
+  const absolute = (groups: GrepGroup[]) => groups.map((g) => ({ ...g, file: path.resolve(cwd, g.file) }));
   // Argv form (no shell): pattern/filePattern are model-controlled, so they must
   // never be interpolated into a shell string — `rg` receives them as literal
   // argv entries. `--` terminates option parsing so a pattern beginning with `-`
   // is treated as a pattern, not a flag.
   const buildArgs = (extra: string[]) => [
     "-n",
+    // The file's name on every line: searching ONE file, ripgrep leaves it out
+    // ("1:const …"), and every match was dropped as unparseable (QA A8).
+    "-H",
     // Without this, a RECURSIVE search skips any file containing a NUL byte and
     // says nothing at all — the notice below is only printed for files named
     // explicitly on the command line, which is not how this tool searches. So a
@@ -130,15 +146,27 @@ async function runRipgrepSearch(args: {
     ...extra,
     "--",
     pattern,
-    workspace,
+    target,
   ];
 
   const rgPath = await resolveRipgrepPath();
   const runOnce = async (extra: string[]) => {
     const { stdout } = await execFileAsync(rgPath, buildArgs(extra), {
+      cwd,
       maxBuffer: 10 * 1024 * 1024,
     });
-    return parseGrepOutput(stdout);
+    return { groups: absolute(parseGrepOutput(stdout)), unreadable: [] };
+  };
+
+  // Exit 2 is ALSO what one unreadable folder gives, with the matches still on
+  // stdout (QA A1, 2026-10-22): keep those and say which folders were skipped.
+  const walkOnly = (e: unknown) => {
+    const err = e as { code?: number; stdout?: string; stderr?: string };
+    if (err.code !== 2) return null;
+    const failure = classifyRgFailure(err);
+    return failure.kind === "walk"
+      ? { groups: absolute(parseGrepOutput(failure.stdout)), unreadable: failure.unreadable }
+      : null;
   };
 
   try {
@@ -150,13 +178,17 @@ async function runRipgrepSearch(args: {
     // matches", so an unsupported pattern silently returned empty and the model
     // wrongly concluded there was nothing to find. Distinguish them:
     const err = e as { code?: number; stderr?: string };
-    if (err.code === 1) return []; // genuinely no matches
+    if (err.code === 1) return { groups: [], unreadable: [] }; // genuinely no matches
+    const walked = walkOnly(e);
+    if (walked) return walked;
     // Retry once with PCRE2 so lookahead/backreferences/etc. actually work.
     try {
       return await runOnce(["--pcre2"]);
     } catch (e2) {
       const err2 = e2 as { code?: number; stderr?: string };
-      if (err2.code === 1) return [];
+      if (err2.code === 1) return { groups: [], unreadable: [] };
+      const walked2 = walkOnly(e2);
+      if (walked2) return walked2;
       const msg = (err2.stderr || err.stderr || "").trim().split("\n")[0];
       // Surface the real problem to the model instead of a misleading "no
       // matches" so it can fix the pattern rather than trust an empty result.
@@ -165,6 +197,11 @@ async function runRipgrepSearch(args: {
       );
     }
   }
+}
+
+/** A match's path from where the search started; a one-file search names the file. */
+function relLabel(root: string, file: string): string {
+  return toSlashes(path.relative(root, file) || path.basename(file));
 }
 
 function pathToRipgrepGlob(scopePath: string | undefined): string | undefined {
@@ -294,12 +331,13 @@ ToolRegistry.register({
     // `../sibling` counts as outside: it was previously treated as a workspace
     // glob, which quietly matched nothing instead of searching where the caller
     // asked — a silent wrong answer, worse than the error it replaced.
-    const scope = params.path?.trim()
-      ? resolveToolTargetPath(workspace, params.path)
+    // `~` is the home folder, as in a shell; ripgrep never expands it.
+    const scopePath = params.path?.trim() ? expandHome(params.path) : undefined;
+    const scope = scopePath?.trim()
+      ? resolveToolTargetPath(workspace, scopePath)
       : null;
     const absoluteScope =
-      scope &&
-      (path.isAbsolute(params.path!.trim()) || scope.isOutsideWorkspace)
+      scope && (path.isAbsolute(scopePath!.trim()) || scope.isOutsideWorkspace)
         ? scope.absPath
         : null;
     const searchRoot = absoluteScope ?? workspace;
@@ -307,10 +345,11 @@ ToolRegistry.register({
     try {
       const filePattern = absoluteScope
         ? params.include?.trim()
-        : params.include?.trim() || pathToRipgrepGlob(params.path);
-      const groups = await runRipgrepSearch({
+        : params.include?.trim() || pathToRipgrepGlob(scopePath);
+      const { groups, unreadable } = await runRipgrepSearch({
         pattern: params.pattern,
-        workspace: searchRoot,
+        root: searchRoot,
+        workspace,
         contextLines,
         filePattern,
         caseSensitive: params.case_sensitive === true,
@@ -329,7 +368,7 @@ ToolRegistry.register({
             file: g.file,
             matches: [],
             binary: true,
-            relFile: path.relative(searchRoot, g.file).replace(/\\/g, "/"),
+            relFile: relLabel(searchRoot, g.file),
           });
           continue;
         }
@@ -338,25 +377,31 @@ ToolRegistry.register({
         trimmed.push({
           file: g.file,
           matches: slice,
-          relFile: path.relative(searchRoot, g.file).replace(/\\/g, "/"),
+          relFile: relLabel(searchRoot, g.file),
         });
         kept += slice.length;
       }
 
+      // Named as glob names them: relative to where the search started.
+      const unreadableLine = unreadable.length
+        ? `\n\n${unreadableNote(unreadable.map((u) => (path.isAbsolute(u) ? `./${path.relative(searchRoot, u)}` : u)))}.`
+        : "";
+
       if (trimmed.length === 0) {
         return {
           success: true,
-          result: `No matches for "${params.pattern}".`,
+          result: `No matches for "${params.pattern}".${unreadableLine}`,
           ui: { groups: [] },
         };
       }
 
       return {
         success: true,
-        result: formatGrepGroupsForDisplay(trimmed, params.pattern, {
-          perFileCap: 5,
-          maxBytes,
-        }),
+        result:
+          formatGrepGroupsForDisplay(trimmed, params.pattern, {
+            perFileCap: 5,
+            maxBytes,
+          }).trimEnd() + unreadableLine,
         ui: {
           groups: trimmed.map((g) => ({
             file: g.file,

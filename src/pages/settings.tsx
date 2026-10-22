@@ -26,7 +26,6 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { VoiceInputSettings } from "@/components/settings/VoiceInputSettings";
 import { DiagnosticsPanel } from "@/components/settings/DiagnosticsPanel";
-import { CommunitySettingsSection } from "@/components/community/CommunitySettingsSection";
 import {
   Link,
   Outlet,
@@ -42,7 +41,6 @@ import {
   Search,
   Bell,
   Mic,
-  Users,
   TriangleAlert,
 } from "lucide-react";
 
@@ -64,7 +62,7 @@ import {
  * scroll-spy is deleted rather than maintained.
  *
  * Order: what this install IS (General, Diagnostics), then how it behaves
- * (Browser, Search, Notifications, Voice), then Community, then the escape hatch.
+ * (Browser, Search, Notifications, Voice), then the escape hatch.
  */
 
 const SECTIONS = [
@@ -74,7 +72,6 @@ const SECTIONS = [
   { to: "/settings/search", label: "Search", icon: Search },
   { to: "/settings/notifications", label: "Notifications", icon: Bell },
   { to: "/settings/voice", label: "Voice input", icon: Mic },
-  { to: "/settings/community", label: "Community", icon: Users },
   { to: "/settings/danger", label: "Danger zone", icon: TriangleAlert },
 ] as const;
 
@@ -240,10 +237,6 @@ export function DiagnosticsSection() {
       <DiagnosticsPanel />
     </div>
   );
-}
-
-export function CommunitySection() {
-  return <CommunitySettingsSection />;
 }
 
 export function DangerZoneSettings() {

@@ -263,6 +263,10 @@ export async function runBuildBranch(
 
   // Register interceptor for IPC handlers (so UI can approve/reject)
   registerInterceptor(req.chatId, permissionInterceptor);
+  // Nobody to answer its own cards in a headless run or an automation.
+  permissionInterceptor.setUnattended(
+    Boolean(req.automation) || process.env.ATLARIX_HEADLESS === "1",
+  );
 
   const autonomousTurnId = String(placeholderAssistantMessage.id);
 

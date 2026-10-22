@@ -19,6 +19,8 @@
  * hook.
  */
 
+import { getDefaultStore } from "jotai";
+import { activeChatIdAtom, peerModelByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,6 +36,15 @@ export function useSelectModel(): (model: LargeLanguageModel) => Promise<void> {
   return useCallback(
     async (model: LargeLanguageModel) => {
       await updateSettings({ selectedModel: model });
+      // Your own pick ends one another session set for the chat in front of you (item 9).
+      const store = getDefaultStore();
+      const here = [store.get(selectedChatIdAtom), store.get(activeChatIdAtom)];
+      store.set(peerModelByChatIdAtom, (prev) => {
+        if (!here.some((id) => id != null && prev.has(id))) return prev;
+        const next = new Map(prev);
+        for (const id of here) if (id != null) next.delete(id);
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });
       // The user's own pick is not news: move the "your Core model changed"
       // baseline to it, or the banner announced it, often in the wrong
