@@ -77,6 +77,19 @@ describe("an editor's New chat", () => {
     e.llm.close?.();
   }, 60_000);
 
+  it("a mode chosen before the first message is stored with the session (QA E1)", async () => {
+    const e = await editor();
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/set_config_option", { sessionId, configId: "mode", value: "ask" } as never);
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
+    const { db } = await import("../src/db");
+    const { chatSessions } = await import("../src/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const row = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, sessionId) });
+    expect(row?.workMode).toBe("ask");
+    e.llm.close?.();
+  }, 60_000);
+
   it("an empty new chat reopened after the agent restarted comes back, still unstored", async () => {
     const first = await editor();
     const { sessionId } = await first.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });

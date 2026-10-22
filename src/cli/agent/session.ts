@@ -544,8 +544,10 @@ export class AgentSession extends EventEmitter {
     const elsewhere = this.followingNote();
     if (elsewhere) return elsewhere;
     this.update({ mode });
+    this.modeChosen = true;
     // A deliberate choice in this session, stamped on it as the desktop does,
-    // so resuming it (here or in the app) comes back in the same mode.
+    // so resuming it (here or in the app) comes back in the same mode. Before
+    // the first message there is no row yet: ensureSession stamps it then.
     if (this.sessionId) {
       void handler("sessions:set-work-mode")
         .then((h) => h({}, this.sessionId, mode))
@@ -1271,6 +1273,8 @@ export class AgentSession extends EventEmitter {
 
   /** The id `open()` gave the editor, until the session is created under it. */
   private reservedId: string | null = null;
+  /** The mode was chosen here (setMode), not just the default: stored with the session. */
+  private modeChosen = false;
 
   /** Stop hearing this process's broadcasts and leave the session list. */
   async close(): Promise<void> {
@@ -1302,6 +1306,10 @@ export class AgentSession extends EventEmitter {
     this.sessionId = started.sessionId;
     this.chatId = started.chatId;
     this.reservedId = null;
+    // A mode picked before the first message had no row to go on (QA E1).
+    if (this.modeChosen) {
+      await (await handler("sessions:set-work-mode"))({}, this.sessionId, this.state.mode).catch(() => {});
+    }
     // The real session is registered by sessions:start; drop the placeholder.
     void import("@/lib/peers/peers").then((m) => m.forgetLiveSession(this.pendingPeerId()));
   }
