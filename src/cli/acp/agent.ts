@@ -112,6 +112,8 @@ export function sessionMcpServersFrom(list: unknown): SessionMcpServer[] {
   return out;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function isAuthError(msg: string | null | undefined): boolean {
   return !!msg && /ATLARIX_AUTH_REQUIRED|sign in to use atlarix|please sign in/i.test(msg);
 }
@@ -1092,10 +1094,21 @@ export class AcpAgent {
   private async open(cwd: string, sessionId?: string): Promise<Thread> {
     if (!path.isAbsolute(cwd)) throw RequestError.invalidParams(undefined, "cwd must be an absolute path");
     let session: AgentSession | null = null;
+    let id = sessionId ?? "";
     try {
       session = await this.deps.createSession(cwd);
-      if (sessionId) await session.resume(sessionId);
-      else await session.open();
+      // A new chat gets its id now; the stored session is made at its first prompt.
+      if (!sessionId) id = (await session.open()).sessionId;
+      else {
+        try {
+          await session.resume(sessionId);
+        } catch (e) {
+          // A new chat that never got a message isn't stored: an editor that
+          // reopens it after the agent restarted gets it back, still empty.
+          if (!/session not found/i.test((e as Error).message ?? "") || !UUID_RE.test(sessionId)) throw e;
+          id = (await session.open(sessionId)).sessionId;
+        }
+      }
     } catch (e) {
       await session?.close().catch(() => {});
       const msg = (e as Error).message ?? String(e);
@@ -1107,7 +1120,7 @@ export class AcpAgent {
     if (!session) throw RequestError.internalError(undefined, "Atlarix couldn't start a session.");
     surfaceNames = (await import("../agent/session")).SURFACE_NAMES;
     const t: Thread = new Thread(
-      session.sessionId,
+      id,
       cwd,
       session,
       this.ctx,

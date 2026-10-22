@@ -10,6 +10,7 @@
  * state object and emits "change"; the TUI renders that state and nothing else.
  */
 import { ownMessages, withTeammateMessages } from "./own-messages";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
@@ -1255,13 +1256,21 @@ export class AgentSession extends EventEmitter {
   }
 
   /**
-   * Create the stored session now rather than at the first message. An editor
-   * (ACP) needs the id up front; it throws when the user isn't signed in.
+   * An editor (ACP) needs the session's id up front, at `session/new`. It gets
+   * one now, and the stored session is created under it at the first message,
+   * like the CLI's: creating it here left an empty session (and a live-session
+   * row) behind every New chat (QA, 2026-10-22). Throws when the user isn't
+   * signed in, as before.
    */
-  async open(): Promise<{ sessionId: string; chatId: number }> {
-    await this.ensureSession();
-    return { sessionId: this.sessionId, chatId: this.chatId };
+  async open(id?: string): Promise<{ sessionId: string }> {
+    const { requireAuthSession } = await import("@/lib/auth/require_auth_session");
+    await requireAuthSession();
+    this.reservedId ??= id ?? randomUUID();
+    return { sessionId: this.reservedId };
   }
+
+  /** The id `open()` gave the editor, until the session is created under it. */
+  private reservedId: string | null = null;
 
   /** Stop hearing this process's broadcasts and leave the session list. */
   async close(): Promise<void> {
@@ -1285,13 +1294,14 @@ export class AgentSession extends EventEmitter {
     const started = (await (await handler("sessions:start"))(
       {},
       this.appId,
-      this.surface === "editor" ? { claim: true } : undefined,
+      this.surface === "editor" ? { claim: true, ...(this.reservedId ? { id: this.reservedId } : {}) } : undefined,
     )) as {
       sessionId: string;
       chatId: number;
     };
     this.sessionId = started.sessionId;
     this.chatId = started.chatId;
+    this.reservedId = null;
     // The real session is registered by sessions:start; drop the placeholder.
     void import("@/lib/peers/peers").then((m) => m.forgetLiveSession(this.pendingPeerId()));
   }
@@ -1406,7 +1416,25 @@ export class AgentSession extends EventEmitter {
     this.recapLine = null;
     if (!opts.systemWake) this.userStopped = false;
     this.turnWasWake = !!opts.systemWake;
-    await this.ensureSession();
+    try {
+      await this.ensureSession();
+    } catch (e) {
+      // A new editor chat is stored at its first message, so a sign-in that
+      // lapsed before it stops the turn HERE, short of the stream that reports
+      // turns. Reported the same way: an auth error, not silence (QA A10).
+      if ((e as { code?: string }).code === "auth_required" || /ATLARIX_AUTH_REQUIRED|sign in/i.test((e as Error).message ?? "")) {
+        const { trackTurnCompleted } = await import("@/main/lib/analytics");
+        trackTurnCompleted({
+          chatId: this.chatId,
+          end: { outcome: "error", errorKind: "auth" },
+          mode: this.state.mode,
+          durationMs: 0,
+          hadHistory: false,
+          outputTokens: 0,
+        });
+      }
+      throw e;
+    }
     if (!opts.continueAfterQuestions) {
       const display = opts.display ?? text;
       if (!opts.retry) text = this.takeShellContext(text);
