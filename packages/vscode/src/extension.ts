@@ -29,6 +29,8 @@ import { problemsText } from "./problems";
 
 let connection: AtlarixConnection | null = null;
 let starting: Promise<AtlarixConnection | null> | null = null;
+/** Why the last start failed, for the chat's "Atlarix couldn't start: …" (null once one starts). */
+let startError: string | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("Atlarix");
@@ -85,11 +87,13 @@ export function activate(context: vscode.ExtensionContext): void {
         // Reported by the next run that starts (a word, never the path).
         void context.globalState.update(HOST_ERROR_KEY, found.badSetting ? "cli_path_unusable" : "cli_not_found");
         if (found.badSetting) {
+          startError = `atlarix.cliPath can't be run (${found.badSetting})`;
           void vscode.window
             .showErrorMessage(`Atlarix can't run atlarix.cliPath: ${found.badSetting}`, "Open Settings")
             .then((go) => go && vscode.commands.executeCommand("workbench.action.openSettings", "atlarix.cliPath"));
           return null;
         }
+        startError = "its agent program wasn't found. Reinstall the extension, or install the CLI (npm i -g atlarix).";
         void vscode.window
           .showErrorMessage("Atlarix couldn't find its agent program. Reinstall the extension, or install the CLI (npm i -g atlarix).", "Get Atlarix")
           .then((go) => go && vscode.env.openExternal(vscode.Uri.parse("https://atlarix.dev/download")));
@@ -123,12 +127,14 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         await c.start();
         connection = c;
+        startError = null;
         // Reported by this run (session_started), so forget it.
         void context.globalState.update(HOST_ERROR_KEY, undefined);
         void askAnalyticsConsent(c);
         return c;
       } catch (e) {
         log.appendLine(`Couldn't start Atlarix: ${(e as Error).message}`);
+        startError = (e as Error).message;
         void context.globalState.update(HOST_ERROR_KEY, "start_failed");
         c.dispose();
         void vscode.window.showErrorMessage(`Atlarix couldn't start: ${(e as Error).message}`, "Show log").then((s) => s && log.show());
@@ -219,6 +225,7 @@ export function activate(context: vscode.ExtensionContext): void {
       return text ? { path: "", label: text.label, text: text.body } : null;
     },
     connection: connect,
+    startError: () => startError,
     workspace,
     diffs,
     openInTab: (sessionId) => openTab(sessionId),

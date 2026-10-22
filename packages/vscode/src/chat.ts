@@ -31,6 +31,8 @@ export interface ChatHost {
   /** The `atlarix` program this extension runs (for "Continue in the terminal"). */
   binaryPath(): string | null;
   connection(): Promise<AtlarixConnection | null>;
+  /** Why the last start failed, when it did: the panel says "Atlarix couldn't start: <this>", not "Starting Atlarix…". */
+  startError(): string | null;
   workspace(): string | null;
   diffs: DiffDocuments;
   openInTab(sessionId: string | null): void;
@@ -280,7 +282,8 @@ export class Chat {
     if (!cwd) return this.post({ type: "status", status: "no-folder" });
     this.post({ type: "status", status: "starting" });
     const c = await this.host.connection();
-    if (!c) return;
+    // Never left on "Starting Atlarix…" when it could not start (QA E8).
+    if (!c) return this.post({ type: "status", status: "error", detail: this.host.startError() ?? undefined });
     // Only this chat's own listener: another chat may have taken the session over.
     if (this.sessionId) c.forget(this.sessionId, this.listener ?? undefined);
     for (const id of [...this.pending.keys()]) this.answerPermission(id, null);
