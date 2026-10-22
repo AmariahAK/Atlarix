@@ -59,6 +59,7 @@ describe("/feedback", () => {
 const rpc = vi.fn();
 let session: unknown = null;
 const anon: Array<Record<string, unknown>> = [];
+let anonDown = false;
 const rated: Array<Record<string, unknown>> = [];
 vi.mock("electron", () => ({ app: { getVersion: () => "15.10.1" } }));
 vi.mock("@/lib/auth/supabase-client", () => ({
@@ -73,7 +74,7 @@ vi.mock("@/ipc/shared/language_model_helpers", () => ({
   ],
 }));
 vi.mock("@/main/lib/analytics", () => ({
-  captureAnonymousFeedback: (p: Record<string, unknown>) => (anon.push(p), true),
+  sendAnonymousFeedback: async (p: Record<string, unknown>) => (anonDown ? false : (anon.push(p), true)),
   captureSafe: (_e: string, p: Record<string, unknown>) => void rated.push(p),
   flushSoon: () => {},
   providerFields: (id: string, type?: string, fmt?: string) =>
@@ -88,6 +89,7 @@ beforeEach(() => {
   rpc.mockReset();
   rpc.mockResolvedValue({ data: { ok: true }, error: null });
   anon.length = 0;
+  anonDown = false;
   rated.length = 0;
   session = { user: { id: "u1" } };
 });
@@ -139,6 +141,21 @@ describe("sending", () => {
     expect(anon).toHaveLength(5);
     expect(anon[0]).toMatchObject({ kind: "text", body: "idea 0", mode: "build" });
     expect(anon[0]).not.toHaveProperty("user_id");
+  });
+
+  it("signed out and PostHog unreachable: not sent, so the text is kept to send again (QA A16)", async () => {
+    session = null;
+    anonDown = true;
+    // Past the hour the test above used up.
+    const spy = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 2 * 60 * 60 * 1000);
+    try {
+      expect(await sendSessionFeedback({ kind: "text", body: "offline idea" }, {})).toEqual({ ok: false, error: "not_sent" });
+      // A failure does not use up the hour's allowance.
+      anonDown = false;
+      for (let i = 0; i < 5; i++) expect((await sendSessionFeedback({ kind: "text", body: `idea ${i}` }, {})).ok).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("a rating also goes to the dashboards when analytics is on (captureSafe checks consent)", async () => {

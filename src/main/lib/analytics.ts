@@ -231,22 +231,39 @@ function superProperties(): Record<string, unknown> {
  * says what it sends (owner, 2026-10-22). Nothing ties it to anyone: a fresh id
  * per event, no person profile, no location, no address.
  */
-export function captureAnonymousFeedback(properties: Record<string, unknown>): boolean {
+export async function sendAnonymousFeedback(
+  properties: Record<string, unknown>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  const apiKey = process.env.POSTHOG_API_KEY;
+  if (!apiKey) return false;
+  // Its own request, answered: queued with the batch, it was "sent" even with
+  // no network, and the user was thanked for feedback that never left (QA A16).
   try {
-    const posthog = getPostHog();
-    if (!posthog) return false;
-    posthog.capture({
-      distinctId: uuidv4(),
-      event: "session_feedback",
-      disableGeoip: true,
-      properties: {
-        ...superProperties(),
-        ...properties,
-        $process_person_profile: false,
-        $ip: null,
-      },
+    const res = await fetchImpl(`${posthogHost()}/batch/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        batch: [
+          {
+            type: "capture",
+            event: "session_feedback",
+            distinct_id: uuidv4(),
+            timestamp: new Date().toISOString(),
+            properties: {
+              ...superProperties(),
+              ...properties,
+              $process_person_profile: false,
+              $geoip_disable: true,
+              $ip: null,
+            },
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(10_000),
     });
-    return true;
+    return res.ok;
   } catch {
     return false;
   }

@@ -4,7 +4,7 @@
  *
  * Signed in: Supabase `record_session_feedback`, as the caller's own account,
  * so the owner can follow up with the person. Signed out: one PostHog event
- * that names nobody (captureAnonymousFeedback). And with analytics on, a
+ * that names nobody (sendAnonymousFeedback). And with analytics on, a
  * `session_rated` event (the rating, no text) for the dashboards.
  *
  * Never a prompt, code or a key: the rating or the typed text, and the
@@ -17,7 +17,7 @@ import { atlarixEditor, atlarixSurface } from "@/ipc/shared/core_proxy";
 import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import { FEEDBACK_MAX, RATINGS, type RatingKey } from "@/lib/feedback/session-rating";
 import { readSettings, writeSettings } from "../settings";
-import { captureAnonymousFeedback, captureSafe, flushSoon, providerFields } from "./analytics";
+import { captureSafe, flushSoon, providerFields, sendAnonymousFeedback } from "./analytics";
 
 const logger = log.scope("session-feedback");
 
@@ -80,16 +80,18 @@ export async function sendSessionFeedback(
     const now = Date.now();
     while (anonSent.length && now - anonSent[0]! > 60 * 60 * 1000) anonSent.shift();
     if (anonSent.length >= ANON_PER_HOUR) return { ok: false, error: "rate_limited" };
-    const sent = captureAnonymousFeedback({
+    // Answered by PostHog, or "not sent": the text stays to send again (QA A16).
+    const sent = await sendAnonymousFeedback({
       kind: answer.kind,
       ...(answer.kind === "rating" ? { rating: answer.rating } : { body }),
       ...context,
     });
-    if (sent) {
-      anonSent.push(now);
-      flushSoon();
+    if (!sent) {
+      logger.warn("not recorded: the anonymous event was not accepted");
+      return { ok: false, error: "not_sent" };
     }
-    return sent ? { ok: true } : { ok: false, error: "not_sent" };
+    anonSent.push(now);
+    return { ok: true };
   }
 
   try {
