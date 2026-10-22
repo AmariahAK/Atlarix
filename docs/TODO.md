@@ -39,6 +39,9 @@ bottom) and `~/.atlarix-e2e/team/MORNING.md` (the owner's list).
   1,300+ CPU-s). Check on a real Windows machine; if it holds, look at signing the exe (the Windows code-signing
   cert in Security follow-ups) or a smaller binary.
 - **Windows ACP folder option reads `src/`** with a forward slash. Cosmetic.
+- **Linux: `run_command` can't see the host's /tmp** (ai-b8, 2026-10-22, pre-existing). The bwrap sandbox mounts
+  `--tmpfs /tmp`, so `cat /tmp/x` from a command says "No such file" (no denial, no card) unless /tmp is a writable
+  root. Owner decision: should the host's /tmp be visible read-only inside the sandbox?
 - **`atlarix --version` unpacks the skills cache.** It shouldn't need to.
 - **Vercel's git auto-deploy for atlarix-launchpad didn't fire** on 2026-10-21 (two main pushes, no deployment);
   `vercel deploy --prod --yes --scope amariah-kamaus-projects` from a clean tree worked. Check the Git integration.
