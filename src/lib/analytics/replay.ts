@@ -75,3 +75,27 @@ export const REPLAY_RECORDING_OPTIONS = {
   recordBody: false,
   recordCrossOriginIframes: false,
 } as const;
+
+/**
+ * A replay's events with no user's folder in them (QA A14): rrweb's meta event
+ * carries the page's address, which for the app is its install path. Under a
+ * per-user install that is /Users/<name>/… or C:\Users\<name>\…, in every
+ * recording. The meta event's address becomes "file:///", and any user folder
+ * left anywhere else (a stylesheet's url(), a font) loses its name.
+ */
+export function scrubReplayPaths<T>(snapshotData: T): T {
+  if (!Array.isArray(snapshotData)) return snapshotData;
+  const json = JSON.stringify(
+    snapshotData.map((e) =>
+      e && typeof e === "object" && (e as { type?: unknown }).type === 4 && (e as { data?: { href?: unknown } }).data?.href
+        ? { ...e, data: { ...(e as { data: object }).data, href: "file:///" } }
+        : e,
+    ),
+  );
+  return JSON.parse(
+    json
+      .replace(/\/Users\/[^/"\\]+/g, "/Users/~")
+      .replace(/\/home\/[^/"\\]+/g, "/home/~")
+      .replace(/([A-Za-z]:(?:\\\\|\/)Users(?:\\\\|\/))[^\\/"]+/gi, "$1~"),
+  ) as T;
+}

@@ -3,7 +3,7 @@ import posthog from "posthog-js";
 // posthog-js would otherwise load from its CDN when recording starts (item 12).
 import "posthog-js/dist/posthog-recorder";
 import { isTelemetryOptedIn } from "@/hooks/useSettings";
-import { REPLAY_RECORDING_OPTIONS, REPLAY_SAMPLE_RATE } from "@/lib/analytics/replay";
+import { REPLAY_RECORDING_OPTIONS, REPLAY_SAMPLE_RATE, scrubReplayPaths } from "@/lib/analytics/replay";
 
 /**
  * Owns WHEN the renderer's PostHog client starts.
@@ -87,6 +87,10 @@ export function ensurePostHogInitialized(): ReturnType<
       // No longer blanking `$ip`: that is what PostHog resolves the country and
       // city from (the consent text says so). The project discards the address
       // itself after the lookup.
+      // A replay never carries the user's folder (item 12, QA A14).
+      if (event?.event === "$snapshot" && event.properties?.$snapshot_data) {
+        event.properties.$snapshot_data = scrubReplayPaths(event.properties.$snapshot_data);
+      }
       return event;
     },
   });
