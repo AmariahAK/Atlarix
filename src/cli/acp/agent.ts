@@ -112,6 +112,22 @@ export function sessionMcpServersFrom(list: unknown): SessionMcpServer[] {
   return out;
 }
 
+const SESSION_WATCH_MS = 2_000;
+
+/** What Past chats shows, in one row: how many, the newest change, and the titles' total length. */
+async function storedSessionsSignature(): Promise<string> {
+  try {
+    const { db } = await import("@/db");
+    const { sql } = await import("drizzle-orm");
+    const row = db.get<{ n: number; u: number | null; t: number }>(
+      sql`select count(*) as n, max(updated_at) as u, total(length(coalesce(title, ''))) as t from chat_sessions`,
+    );
+    return `${row?.n ?? 0}:${row?.u ?? 0}:${row?.t ?? 0}`;
+  } catch {
+    return "";
+  }
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isAuthError(msg: string | null | undefined): boolean {
@@ -1022,6 +1038,36 @@ export class AcpAgent {
     if (!this.client) throw new Error("ACP connection not ready");
     return this.client;
   };
+
+  /**
+   * Past chats open in the editor (`_atlarix/sessions_watch`): it is told
+   * `_atlarix/sessions_changed` when the stored chats change, whoever changed
+   * them (a CLI in another process saving one, say). Before, the list stayed as
+   * it was until reopened (QA 4(b), 2026-10-22). One cheap local read every
+   * 2 s, only while some page is watching; nothing is sent when nothing changed.
+   */
+  private sessionWatchers = 0;
+  private sessionWatch: ReturnType<typeof setInterval> | null = null;
+  private sessionSignature = "";
+
+  async watchSessions(on: boolean): Promise<void> {
+    this.sessionWatchers = Math.max(0, this.sessionWatchers + (on ? 1 : -1));
+    if (this.sessionWatchers === 0) {
+      if (this.sessionWatch) clearInterval(this.sessionWatch);
+      this.sessionWatch = null;
+      return;
+    }
+    if (this.sessionWatch) return;
+    this.sessionSignature = await storedSessionsSignature();
+    this.sessionWatch = setInterval(() => {
+      void storedSessionsSignature().then((sig) => {
+        if (sig === this.sessionSignature) return;
+        this.sessionSignature = sig;
+        void this.client?.notify("_atlarix/sessions_changed", {}).catch(() => {});
+      });
+    }, SESSION_WATCH_MS);
+    this.sessionWatch.unref?.();
+  }
 
   private thread(id: string): Thread {
     const t = this.threads.get(id);

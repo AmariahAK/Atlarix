@@ -20,7 +20,7 @@ import { applyOptions, emit, loadProviders, on, state } from "./state";
 import { button, el, iconButton, MODE_NAME, relTime, rixGlyph } from "./ui";
 import { renderAccount } from "./views/account";
 import { renderAddProvider } from "./views/addProvider";
-import { renderHistory, renderUndo } from "./views/history";
+import { historyChanged, leaveHistory, renderHistory, renderUndo } from "./views/history";
 import { renderAutomations } from "./views/automations";
 import { renderMcp } from "./views/mcp";
 import type { Nav, View } from "./views/nav";
@@ -81,6 +81,7 @@ const navApi: Nav = {
 
 function go(v: View): void {
   closePicker();
+  leaveHistory();
   if (v.name === "chat") {
     stack.length = 0;
     page.classList.add("hidden");
@@ -307,6 +308,9 @@ onHost((m: HostMessage) => {
       return;
     case "tasks-changed":
       tasksChanged(m.count);
+      return;
+    case "sessions-changed":
+      historyChanged();
       return;
     case "pending":
       return C.showPending(m.items);

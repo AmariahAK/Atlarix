@@ -66,6 +66,8 @@ export interface SessionListener {
   unsent?(text: string): void;
   /** An automation finished a run. */
   automationRun?(run: { name: string; status: string; summary: string | null }): void;
+  /** The stored chats changed (any session, any process), while Past chats is watching. */
+  sessionsChanged?(): void;
   /** Atlarix suggests connecting an MCP server (or a suggestion was answered: `resolved`). */
   mcpSuggestion?(card: Record<string, unknown>): void;
 }
@@ -151,6 +153,13 @@ export class AtlarixConnection {
         (p) => p as { sessionId: string },
         (ctx) => {
           this.listeners.get(ctx.params.sessionId)?.peerWaiting();
+        },
+      )
+      .onNotification(
+        "_atlarix/sessions_changed",
+        (p) => p as Record<string, never>,
+        () => {
+          for (const l of this.listeners.values()) l.sessionsChanged?.();
         },
       )
       .onNotification(

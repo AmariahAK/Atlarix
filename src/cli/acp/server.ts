@@ -449,6 +449,10 @@ export function buildAgentApp(
         })),
       };
     })
+    .onRequest("_atlarix/sessions_watch", (p) => p as { on?: boolean }, async (ctx) => {
+      await agent.watchSessions(ctx.params.on === true);
+      return {};
+    })
     .onRequest("_atlarix/session", (p) => p as { sessionId: string; action: "rename" | "delete"; title?: string }, async (ctx) => {
       const { sessionId, action, title } = ctx.params;
       try {

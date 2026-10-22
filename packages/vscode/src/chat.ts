@@ -289,6 +289,7 @@ export class Chat {
         permission: (req: RequestPermissionRequest, withdrawn: AbortSignal) => this.onPermission(req, withdrawn),
         peerWaiting: () => this.onPeerWaiting(),
         tasksChanged: (count) => this.post({ type: "tasks-changed", count }),
+        sessionsChanged: () => this.post({ type: "sessions-changed" }),
         automationRun: (run) => this.post({ type: "automation-run", ...run }),
         pendingChanged: (items) => this.post({ type: "pending", items }),
         mcpSuggestion: (card) => this.post({ type: "mcp-suggestion", card }),

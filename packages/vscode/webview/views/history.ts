@@ -23,6 +23,26 @@ let scope: "here" | "all" | "starred" = "here";
 let sort: "newest" | "oldest" = "newest";
 let query = "";
 
+/**
+ * While Past chats is open it follows the stored chats: the agent says when
+ * they change (a chat the CLI just saved), and "just now" ages. It used to
+ * show what it had when opened until reopened (QA 4(b), 2026-10-22).
+ */
+let live: { reload: () => void; clock: ReturnType<typeof setInterval> } | null = null;
+
+/** The stored chats changed: reload the open list, quietly. */
+export function historyChanged(): void {
+  live?.reload();
+}
+
+/** Leaving Past chats (any other page, or the chat). */
+export function leaveHistory(): void {
+  if (!live) return;
+  clearInterval(live.clock);
+  live = null;
+  void rpc("_atlarix/sessions_watch", { on: false }).catch(() => {});
+}
+
 export async function renderHistory(page: HTMLElement, nav: Nav): Promise<void> {
   page.textContent = "";
   page.append(pageHeader("Past chats", () => nav.back()));
@@ -38,13 +58,29 @@ export async function renderHistory(page: HTMLElement, nav: Nav): Promise<void> 
   page.append(tools, list);
 
   let rows: Row[] = [];
-  const load = async () => {
-    list.textContent = "";
-    list.append(el("div", "muted pad", "Loading…"));
-    const r = await rpc<{ sessions: Row[] }>("_atlarix/sessions", scope === "all" ? { all: true } : { cwd: state.workspace }).catch(() => ({ sessions: [] }));
+  // `quiet`: a refresh while you look at it keeps the list (and where you are in it) until the new one is ready.
+  const load = async (quiet = false) => {
+    if (!quiet) {
+      list.textContent = "";
+      list.append(el("div", "muted pad", "Loading…"));
+    }
+    const r = await rpc<{ sessions: Row[] }>("_atlarix/sessions", scope === "all" ? { all: true } : { cwd: state.workspace }).catch(() => null);
+    if (!r) return;
     rows = r.sessions;
+    const top = page.scrollTop;
     draw();
+    if (quiet) page.scrollTop = top;
   };
+  leaveHistory();
+  live = {
+    reload: () => void load(true),
+    clock: setInterval(() => {
+      const top = page.scrollTop;
+      draw();
+      page.scrollTop = top;
+    }, 30_000),
+  };
+  void rpc("_atlarix/sessions_watch", { on: true }).catch(() => {});
 
   const drawFilters = () => {
     filters.textContent = "";
