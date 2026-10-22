@@ -2115,6 +2115,17 @@ export class AgentSession extends EventEmitter {
     if (!r.ok) throw new Error(`The app couldn't open it: ${r.error ?? "unknown error"}`);
   }
 
+  /**
+   * The name stored for this session, as another process may have changed it
+   * (a rename from the CLI or another editor). Shown, not written back. A
+   * placeholder ("Untitled") never replaces a name.
+   */
+  noteStoredTitle(title: string | null | undefined): void {
+    const t = title?.trim();
+    if (!t || t === this.state.title || /^(untitled|new chat|new conversation)( session)?$/i.test(t)) return;
+    this.update({ title: t });
+  }
+
   async rename(title: string): Promise<void> {
     const name = title.trim();
     if (!name) throw new Error("Give the session a name: /rename <name>");

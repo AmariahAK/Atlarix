@@ -67,12 +67,13 @@ function improve(sessionId: string): void {
   const { box, body } = card("What should we improve?", close);
   const text = el("textarea", "field");
   text.rows = 3;
-  text.maxLength = 2000;
   text.placeholder = "Optional";
   const note = el("span", "muted small");
   const send = button("Send", "primary small", () => {
     const words = text.value.trim();
     if (!words) return close();
+    // Never cut quietly: it stays in the box to shorten (QA E3).
+    if (words.length > 2000) return void (note.textContent = "That's over 2,000 characters. Shorten it and send it again.");
     send.disabled = true;
     void rpc<{ ok: boolean }>("_atlarix/feedback", { sessionId, text: words })
       .catch(() => ({ ok: false }))

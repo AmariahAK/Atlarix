@@ -79,6 +79,19 @@ describe("the app's session rating", () => {
     expect(screen.queryByText("How is Atlarix doing this session?")).toBeNull();
   });
 
+  it("/feedback 7, or text over 2,000 characters: nothing sent, the words kept, and why (QA E3)", async () => {
+    renderWithProviders(<SessionRatingCard chatId={106} composerEmpty />);
+    await act(async () => openFeedbackFor(106, { problem: "rating" }));
+    expect(await screen.findByText(/1, 2 or 3/)).toBeTruthy();
+    const long = "x".repeat(2001);
+    await act(async () => openFeedbackFor(106, { body: long, problem: "too_long" }));
+    expect(await screen.findByText(/over 2,000 characters/)).toBeTruthy();
+    expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(long);
+    await act(async () => fireEvent.click(screen.getByText("Send")));
+    expect(fakeIpc.sendFeedback).not.toHaveBeenCalled();
+    expect(fakeIpc.rateSession).not.toHaveBeenCalled();
+  });
+
   it("/feedback with text sends it; a failed send keeps the words", async () => {
     fakeIpc.sendFeedback = vi.fn(async () => ({ ok: false }));
     renderWithProviders(<SessionRatingCard chatId={105} composerEmpty />);

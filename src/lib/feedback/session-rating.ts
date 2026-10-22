@@ -42,10 +42,28 @@ export function shouldAskRating(o: {
   return o.ratedAt == null || o.now - o.ratedAt >= RATING_QUIET_MS;
 }
 
-/** `/feedback 3 great on refactors` → a rating and/or text. */
-export function parseFeedbackCommand(rest: string): { rating?: 1 | 2 | 3; body?: string } {
+/** How /feedback is used, said when it was used wrong ("/feedback 7"). */
+export const FEEDBACK_USAGE = "Rate this session 1, 2 or 3 (1 bad, 2 fine, 3 good), or just write what to improve: /feedback 3 great at refactors";
+export const FEEDBACK_TOO_LONG = `That's over ${FEEDBACK_MAX.toLocaleString("en-US")} characters. Shorten it and send it again.`;
+
+/**
+ * `/feedback 3 great on refactors` → a rating and/or text. A number that is not
+ * 1-3 ("/feedback 7") is a rating gone wrong, not feedback text; text over the
+ * limit is refused whole, never cut quietly (QA E3).
+ */
+export function parseFeedbackCommand(rest: string): {
+  rating?: 1 | 2 | 3;
+  body?: string;
+  problem?: "rating" | "too_long";
+} {
   const m = /^\s*([123])(?:\s+|$)([\s\S]*)$/.exec(rest);
+  // A number alone that is not 1-3; "12 tabs is too many" is still text.
+  if (!m && /^\s*\d+\s*$/.test(rest)) return { problem: "rating" };
   const rating = m ? (Number(m[1]) as 1 | 2 | 3) : undefined;
-  const body = (m ? m[2]! : rest).trim().slice(0, FEEDBACK_MAX);
-  return { ...(rating ? { rating } : {}), ...(body ? { body } : {}) };
+  const body = (m ? m[2]! : rest).trim();
+  return {
+    ...(rating ? { rating } : {}),
+    ...(body ? { body } : {}),
+    ...(body.length > FEEDBACK_MAX ? { problem: "too_long" as const } : {}),
+  };
 }

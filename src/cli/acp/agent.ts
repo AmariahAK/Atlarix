@@ -435,7 +435,7 @@ class Thread {
       sessionUpdate: "agent_message_chunk",
       content: {
         type: "text",
-        text: "\n\n📨 A message from another Atlarix session arrived. Send anything (\"go on\") and I'll read it.\n",
+        text: "\n\nA message from another Atlarix session arrived. Send anything (\"go on\") and I'll read it.\n",
       },
     });
   }
@@ -925,12 +925,14 @@ class Thread {
   }
 
   async feedbackCommand(rest: string): Promise<string> {
-    const { parseFeedbackCommand, FEEDBACK_THANKS, FEEDBACK_FAILED } = await import("@/lib/feedback/session-rating");
+    const { parseFeedbackCommand, FEEDBACK_THANKS, FEEDBACK_FAILED, FEEDBACK_USAGE, FEEDBACK_TOO_LONG } = await import(
+      "@/lib/feedback/session-rating"
+    );
     const { sendSessionFeedback, noteRatingAsked } = await import("@/main/lib/session-feedback");
-    const { rating, body } = parseFeedbackCommand(rest);
-    if (!rating && !body) {
-      return "Tell us what to improve: `/feedback` and your words. Put 1, 2 or 3 first to rate this chat too (1 bad, 2 fine, 3 good).";
-    }
+    const { rating, body, problem } = parseFeedbackCommand(rest);
+    if (problem === "rating" || (!rating && !body)) return FEEDBACK_USAGE;
+    // Nothing is sent: your message is still above, to shorten and send again.
+    if (problem === "too_long") return FEEDBACK_TOO_LONG;
     const about = await this.feedbackSession();
     if (rating) {
       this.ratingAsked = true;
@@ -1081,17 +1083,49 @@ export class AcpAgent {
 
   async watchSessions(on: boolean): Promise<void> {
     this.sessionWatchers = Math.max(0, this.sessionWatchers + (on ? 1 : -1));
-    if (this.sessionWatchers === 0) {
+    await this.syncStoreWatch();
+  }
+
+  /**
+   * One watch of the stored sessions while anything needs it: a page showing
+   * Past chats, or an open chat whose name another process may change (a
+   * rename from the CLI or another editor; the tab kept the old one, QA E4).
+   */
+  private async syncStoreWatch(): Promise<void> {
+    const needed = this.sessionWatchers > 0 || this.threads.size > 0;
+    if (!needed) {
       this.stopSessionWatch?.();
       this.stopSessionWatch = null;
       return;
     }
     if (this.stopSessionWatch) return;
     const { watchStoredSessions } = await import("@/lib/sessions/stored-sessions-watch");
+    if (this.stopSessionWatch) return;
     this.stopSessionWatch = watchStoredSessions(
-      () => void this.client?.notify("_atlarix/sessions_changed", {}).catch(() => {}),
+      () => {
+        if (this.sessionWatchers > 0) void this.client?.notify("_atlarix/sessions_changed", {}).catch(() => {});
+        void this.refreshTitles();
+      },
       { intervalMs: SESSION_WATCH_MS },
     );
+  }
+
+  /** Each open chat takes the name stored for it, when another process changed it. */
+  private async refreshTitles(): Promise<void> {
+    const ids = [...this.threads.keys()];
+    if (!ids.length) return;
+    try {
+      const { db } = await import("@/db");
+      const { chatSessions } = await import("@/db/schema");
+      const { inArray } = await import("drizzle-orm");
+      const rows = await db
+        .select({ id: chatSessions.id, title: chatSessions.title })
+        .from(chatSessions)
+        .where(inArray(chatSessions.id, ids));
+      for (const r of rows) this.threads.get(r.id)?.session.noteStoredTitle(r.title);
+    } catch {
+      /* a title is cosmetic: the next change tries again */
+    }
   }
 
   private thread(id: string): Thread {
@@ -1201,6 +1235,7 @@ export class AcpAgent {
     t.setOption = (configId, value) => this.setConfigOption(t.id, configId, value);
     t.forkTo = (title) => this.forkCopy(t.id, title);
     this.threads.set(t.id, t);
+    void this.syncStoreWatch();
     return t;
   }
 
@@ -1449,6 +1484,7 @@ export class AcpAgent {
       await open.session.close().catch(() => {});
       await this.deps.setSessionMcpServers?.(sessionId, []);
       this.threads.delete(sessionId);
+      void this.syncStoreWatch();
     }
     if (!this.deps.changeSession) throw RequestError.methodNotFound("_atlarix/session");
     await this.deps.changeSession(sessionId, change);

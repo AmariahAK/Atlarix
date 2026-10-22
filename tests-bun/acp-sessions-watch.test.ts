@@ -68,4 +68,42 @@ describe("Past chats follows the stored chats", () => {
     await cli.close();
     llm.close?.();
   }, 60_000);
+
+  it("an open chat takes a name another process gives it (QA E4)", async () => {
+    const llm = startFakeLlm([{ text: "Hello." }]);
+    const { AgentSession, seedDevProvider, listFolderSessions, changeFolderSession } = await import("../src/cli/agent/session");
+    const { AcpAgent } = await import("../src/cli/acp/agent");
+    const { buildAgentApp } = await import("../src/cli/acp/server");
+    const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });
+    const agent = new AcpAgent({
+      createSession: async (cwd) => {
+        const s = new AgentSession({ workspaceDir: cwd, model, surface: "editor", idlePeerMessages: "hold" });
+        await s.start();
+        return s;
+      },
+      models: async () => ({ options: [{ ...model, label: "Fake" }], current: model }),
+      rememberModel: () => {},
+      listSessions: (cwd) => listFolderSessions(cwd),
+      changeSession: (id, change) => changeFolderSession(id, change),
+    });
+    const titles: string[] = [];
+    const conn = acp
+      .client({ name: "test-editor" })
+      .onNotification("session/update", (ctx) => {
+        const u = ctx.params.update as { sessionUpdate: string; title?: string };
+        if (u.sessionUpdate === "session_info_update" && u.title) titles.push(u.title);
+      })
+      .connect(buildAgentApp(agent, "test"));
+    await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
+    const { sessionId } = await conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
+    // Another process renames it: straight in the database, as the CLI's rename lands for us.
+    const { db } = await import("../src/db");
+    const { chatSessions } = await import("../src/db/schema");
+    const { eq } = await import("drizzle-orm");
+    await db.update(chatSessions).set({ title: "Renamed in the CLI", titleSource: "user" } as never).where(eq(chatSessions.id, sessionId));
+    for (let i = 0; i < 50 && !titles.includes("Renamed in the CLI"); i++) await wait(100);
+    expect(titles).toContain("Renamed in the CLI");
+    llm.close?.();
+  }, 60_000);
 });

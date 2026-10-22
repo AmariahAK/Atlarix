@@ -41,6 +41,18 @@ describe("/feedback", () => {
     expect(parseFeedbackCommand("12 tabs is too many")).toEqual({ body: "12 tabs is too many" });
     expect(parseFeedbackCommand("  ")).toEqual({});
   });
+
+  it("a number alone that is not 1-3 is a rating gone wrong, not text (QA E3)", () => {
+    expect(parseFeedbackCommand("7")).toEqual({ problem: "rating" });
+    expect(parseFeedbackCommand(" 0 ")).toEqual({ problem: "rating" });
+  });
+
+  it("text over 2,000 characters is refused whole, never cut (QA E3)", () => {
+    const long = "x".repeat(2001);
+    expect(parseFeedbackCommand(long)).toEqual({ body: long, problem: "too_long" });
+    expect(parseFeedbackCommand(`2 ${long}`)).toEqual({ rating: 2, body: long, problem: "too_long" });
+    expect(parseFeedbackCommand("x".repeat(2000)).problem).toBeUndefined();
+  });
 });
 
 // ── where answers go ──────────────────────────────────────────────────────────

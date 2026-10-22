@@ -76,6 +76,19 @@ describe("feedback from an editor", () => {
     e.llm.close?.();
   }, 60_000);
 
+  it("/feedback 7 and over-long text are refused with why, and nothing is sent (QA E3)", async () => {
+    sent.length = 0;
+    const e = await editor();
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/feedback 7" }] });
+    expect(e.chunks.join("")).toContain("1, 2 or 3");
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: `/feedback ${"x".repeat(2001)}` }] });
+    expect(e.chunks.join("")).toContain("over 2,000 characters");
+    expect(sent).toHaveLength(0);
+    expect(e.llm.requests?.length ?? 0).toBe(0);
+    e.llm.close?.();
+  }, 60_000);
+
   it("the panel's card: due after the turns, once, and a dismissal sends nothing", async () => {
     sent.length = 0;
     process.env.ATLARIX_FORCE_RATING = "1";

@@ -12,6 +12,8 @@ import {
   FEEDBACK_MAX,
   FEEDBACK_QUESTION,
   FEEDBACK_THANKS,
+  FEEDBACK_TOO_LONG,
+  FEEDBACK_USAGE,
   RATING_QUESTION,
   RATING_SENDS,
   shouldAskRating,
@@ -24,10 +26,11 @@ import {
  * and 0 dismisses while the composer is empty. `/feedback` opens the second
  * half directly (`openFeedbackFor`).
  */
-let openFeedback: ((chatId: number, given: { rating?: 1 | 2 | 3; body?: string }) => void) | null = null;
+type Given = { rating?: 1 | 2 | 3; body?: string; problem?: "rating" | "too_long" };
+let openFeedback: ((chatId: number, given: Given) => void) | null = null;
 
 /** `/feedback [1|2|3] [text]` typed in the composer: sent, or the text box when there is nothing after it. */
-export function openFeedbackFor(chatId: number, given: { rating?: 1 | 2 | 3; body?: string } = {}): void {
+export function openFeedbackFor(chatId: number, given: Given = {}): void {
   openFeedback?.(chatId, given);
 }
 
@@ -56,6 +59,12 @@ export function SessionRatingCard({ chatId, composerEmpty }: { chatId: number; c
     openFeedback = (id, given) => {
       if (id !== chatId) return;
       setNote(null);
+      // "/feedback 7", or text over the limit: nothing is sent, and the words stay to fix (QA E3).
+      if (given.problem) {
+        if (given.body) setText(given.body);
+        setNote(given.problem === "rating" ? FEEDBACK_USAGE : FEEDBACK_TOO_LONG);
+        return setStage("improve");
+      }
       if (given.rating) rate(given.rating, false);
       if (given.body) return void send(given.body);
       setStage(given.rating ? "thanks" : "improve");
@@ -127,6 +136,7 @@ export function SessionRatingCard({ chatId, composerEmpty }: { chatId: number; c
     if (!words) return setStage("none");
     if (given) setText(given);
     setStage("improve");
+    if (words.length > FEEDBACK_MAX) return setNote(FEEDBACK_TOO_LONG);
     setSending(true);
     const r = await IpcClient.getInstance()
       .sendFeedback(words, session())
@@ -177,7 +187,6 @@ export function SessionRatingCard({ chatId, composerEmpty }: { chatId: number; c
               <textarea
                 className="mt-2 w-full resize-none rounded-md border border-border bg-background p-2 text-sm"
                 rows={3}
-                maxLength={FEEDBACK_MAX}
                 value={text}
                 autoFocus
                 onChange={(e) => setText(e.target.value)}

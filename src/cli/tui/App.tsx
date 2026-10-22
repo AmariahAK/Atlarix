@@ -106,8 +106,11 @@ import { SessionHeader, type AccountKind } from "./Header";
 import { gitBranch } from "./git-branch";
 import {
   FEEDBACK_FAILED,
+  FEEDBACK_MAX,
   FEEDBACK_QUESTION,
   FEEDBACK_THANKS,
+  FEEDBACK_TOO_LONG,
+  FEEDBACK_USAGE,
   parseFeedbackCommand,
   RATING_QUESTION,
   RATING_SENDS,
@@ -1209,6 +1212,12 @@ export function App({
     switch (name) {
       case "/feedback": {
         const parsed = parseFeedbackCommand(rest);
+        if (parsed.problem === "rating") return flash(FEEDBACK_USAGE, 8000);
+        if (parsed.problem === "too_long") {
+          // Nothing sent, nothing cut: the words go back in the box.
+          composer.current?.setText(`/feedback ${rest.trim()}`);
+          return flash(FEEDBACK_TOO_LONG, 6000, "error");
+        }
         if (!parsed.rating && !parsed.body) return setFeedbackOpen(true);
         return sendFeedback(parsed);
       }
@@ -1638,6 +1647,7 @@ export function App({
 
   const onSubmit = (s: { prompt: string; display: string; images: Array<{ path: string; mime: string; label: string }> }) => {
     if (feedbackOpen && s.display.trim() && !s.display.trim().startsWith("/")) {
+      if (s.display.trim().length > FEEDBACK_MAX) return flash(FEEDBACK_TOO_LONG, 6000, "error");
       setFeedbackOpen(false);
       composer.current?.clear();
       return sendFeedback({ body: s.display.trim() });
