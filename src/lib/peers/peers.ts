@@ -849,7 +849,7 @@ export function sendPeerMessage(
   row: { socket: string; token: string; session_id: string },
   from: PeerFrame["from"],
   text: string,
-  set?: { mode?: string; model?: string },
+  set?: PeerFrame["set"],
 ): Promise<{ ok: boolean; error?: string; applied?: string }> {
   // Delivering to a CLI's placeholder first creates its session (seconds).
   return sendFrame(
