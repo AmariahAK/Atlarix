@@ -100,7 +100,10 @@ describe("a session sets another's mode and model", () => {
     llm.close?.();
   }, 90_000);
 
-  it("an editor without the Atlarix panel gets the line as text (QA E5)", async () => {
+  it.each([
+    ["Zed", undefined],
+    ["the Atlarix panel", { atlarix: { panel: true } }],
+  ])("%s draws the line, once (QA E5, E7)", async (_name, meta) => {
     const llm = startFakeLlm([{ text: "Hello." }]);
     const acp = await import("@agentclientprotocol/sdk");
     const { AgentSession, seedDevProvider, listFolderSessions, changeFolderSession } = await import("../src/cli/agent/session");
@@ -119,14 +122,19 @@ describe("a session sets another's mode and model", () => {
       changeSession: (id, change) => changeFolderSession(id, change),
     });
     const text: string[] = [];
+    const steps: string[] = [];
     const conn = acp
       .client({ name: "zed" })
       .onNotification("session/update", (ctx) => {
-        const u = ctx.params.update as { sessionUpdate: string; content?: { text?: string } };
+        const u = ctx.params.update as { sessionUpdate: string; content?: { text?: string }; title?: string };
         if (u.sessionUpdate === "agent_message_chunk" && u.content?.text) text.push(u.content.text);
+        if (u.sessionUpdate === "tool_call" && u.title) steps.push(u.title);
       })
       .connect(buildAgentApp(agent, "test"));
-    await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
+    await conn.agent.request("initialize", {
+      protocolVersion: acp.PROTOCOL_VERSION,
+      clientCapabilities: meta ? { _meta: meta } : {},
+    });
     const { sessionId } = await conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
     await conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
     const { db } = await import("../src/db");
@@ -140,8 +148,10 @@ describe("a session sets another's mode and model", () => {
       mode: "review",
       notice: "Mode set to Review by Rix. From the next turn.",
     });
-    for (let i = 0; i < 30 && !text.join("").includes("Mode set to Review by Rix"); i++) await wait(100);
-    expect(text.join("")).toContain("◇ Mode set to Review by Rix. From the next turn.");
+    // The cell the target adds (session.applyPeerSettings) is what the editor draws.
+    for (let i = 0; i < 30 && !steps.includes("Mode set to Review by Rix. From the next turn."); i++) await wait(100);
+    expect(steps.filter((t) => t === "Mode set to Review by Rix. From the next turn.")).toHaveLength(1);
+    expect(text.join("")).not.toContain("Mode set to");
     llm.close?.();
   }, 60_000);
 });
