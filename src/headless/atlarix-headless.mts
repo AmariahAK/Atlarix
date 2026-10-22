@@ -44,7 +44,7 @@ import path from "node:path";
 import { runHeadlessAgent } from "./headless-runner";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
 import { setPinnedCoreToken } from "@/ipc/shared/core_proxy";
-import { pinApiKeyFile } from "./api-key-file";
+import { missingEndpointKey, pinApiKeyFile } from "./api-key-file";
 import { formatFatal } from "@/cli/errors";
 
 /**
@@ -219,6 +219,11 @@ async function main() {
       console.error(`atlarix-headless: ${pinned.error}`);
       process.exit(2);
     }
+  }
+  const noKey = await missingEndpointKey({ providerId, providerUrl, apiKey, apiKeyFile });
+  if (noKey) {
+    console.error(`atlarix-headless: ${noKey}`);
+    process.exit(2);
   }
   if (providerId === "compass") {
     if (!process.env.ATLARIX_CORE_PROXY_URL) {

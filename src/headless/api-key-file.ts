@@ -35,3 +35,22 @@ export function pinApiKeyFile(
   setPinnedProviderKey(providerId, key);
   return { providerId };
 }
+
+/**
+ * A run against an endpoint the user named, with no key for it: refused with
+ * how to give one. It went on to the app's own fallback, Atlarix Core, and
+ * failed "Sign in to use Atlarix Core" (QA, ai-95). An address on this machine
+ * needs no key, and a named vendor (--provider-id) may take its key from its
+ * environment variable, so both run as before.
+ */
+export async function missingEndpointKey(o: {
+  providerId?: string;
+  providerUrl?: string;
+  apiKey?: string;
+  apiKeyFile?: string;
+}): Promise<string | null> {
+  if (!o.providerUrl || o.providerId || o.apiKey || o.apiKeyFile) return null;
+  const { isLoopbackUrl } = await import("@/ipc/utils/get_model_client");
+  if (isLoopbackUrl(o.providerUrl)) return null;
+  return `--provider-url ${o.providerUrl} needs its key: --api-key-file <file> (or --api-key). Only an address on this machine runs without one.`;
+}

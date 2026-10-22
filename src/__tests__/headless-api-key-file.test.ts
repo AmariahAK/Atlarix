@@ -70,3 +70,19 @@ describe("--api-key-file", () => {
     expect(pinApiKeyFile(keyFile("  \n"), { id: "anthropic" })).toHaveProperty("error");
   });
 });
+
+describe("--provider-url with no key (QA, ai-95)", () => {
+  it("a remote endpoint is refused with how to give the key; this machine, a key, or a named vendor run as before", async () => {
+    const { missingEndpointKey } = await import("@/headless/api-key-file");
+    expect(await missingEndpointKey({ providerUrl: "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1" })).toContain(
+      "needs its key: --api-key-file <file>",
+    );
+    expect(await missingEndpointKey({ providerUrl: "http://localhost:11434/v1" })).toBeNull();
+    expect(await missingEndpointKey({ providerUrl: "http://127.0.0.1:8080/v1" })).toBeNull();
+    expect(await missingEndpointKey({ providerUrl: "https://api.example.com/v1", apiKeyFile: "/tmp/k" })).toBeNull();
+    expect(await missingEndpointKey({ providerUrl: "https://api.example.com/v1", apiKey: "k" })).toBeNull();
+    expect(await missingEndpointKey({ providerUrl: "https://api.anthropic.com", providerId: "anthropic" })).toBeNull();
+    expect(await missingEndpointKey({})).toBeNull();
+  });
+});
+
