@@ -169,9 +169,13 @@ function clockOf(cron: string): string | null {
   return `${time}, ${days[f[4]!] ?? `weekdays ${f[4]}`}`;
 }
 
-/** A folder as its own system writes it, with its separator at the end: "C:\Users\Public\", "src/" (QA, Windows). */
-export function nativeDir(dir: string): string {
-  const win = /^[A-Za-z]:[\\/]|^\\\\/.test(dir);
+/**
+ * A folder as its own system writes it, with its separator at the end:
+ * "C:\Users\Public\", "src/" (QA, Windows). A relative folder takes the running
+ * system's: on Windows "src/" read as a Unix path (QA, 2026-10-21).
+ */
+export function nativeDir(dir: string, platform: NodeJS.Platform = process.platform): string {
+  const win = platform === "win32" || /^[A-Za-z]:[\\/]|^\\\\/.test(dir);
   const d = win ? dir.replace(/\//g, "\\") : dir;
   const sep = win ? "\\" : "/";
   return d.endsWith(sep) ? d : d + sep;

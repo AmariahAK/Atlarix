@@ -10,7 +10,13 @@ const card = (preview: Record<string, unknown>, operation = "run_command"): Pend
 describe("approval paths as each system writes them (QA, Windows VM)", () => {
   it("a Windows folder keeps its backslashes", () => {
     expect(nativeDir("C:/Users/Public")).toBe("C:\\Users\\Public\\");
-    expect(nativeDir("src/lib")).toBe("src/lib/");
+    expect(nativeDir("src/lib", "darwin")).toBe("src/lib/");
+  });
+
+  it("a relative folder takes the running system's separator (QA, Windows ACP)", () => {
+    expect(nativeDir("src", "win32")).toBe("src\\");
+    expect(nativeDir("src/lib", "win32")).toBe("src\\lib\\");
+    expect(nativeDir("src", "linux")).toBe("src/");
   });
 
   it("knows a file outside the project, on Windows and elsewhere", () => {
