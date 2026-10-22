@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { skillsCacheRoot, skillsDirFrom } from "../src/runtime/embedded-skills";
+import { bundledSkillsDir, registerBundledSkills, skillsCacheRoot, skillsDirFrom } from "../src/runtime/embedded-skills";
 import { binDir } from "../src/runtime/embedded-bin";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "skills-"));
@@ -63,5 +63,24 @@ describe("bundled skills folder", () => {
   it("no skills, no folder", () => {
     expect(skillsDirFrom(undefined)).toBeUndefined();
     expect(skillsDirFrom({})).toBeUndefined();
+  });
+
+  it("the build's skills are written out on first use, not at startup (`--version`, QA 2026-10-21)", () => {
+    const flat = tmp();
+    const home = path.join(tmp(), ".atlarix");
+    fs.writeFileSync(path.join(flat, "subagent-a1b2.md"), "scout");
+    const was = process.env.ATLARIX_SKILLS_DIR;
+    delete process.env.ATLARIX_SKILLS_DIR;
+    try {
+      registerBundledSkills({ "subagents/subagent.md": path.join(flat, "subagent-a1b2.md") }, home);
+      expect(fs.existsSync(home)).toBe(false);
+      const dir = bundledSkillsDir()!;
+      expect(fs.readFileSync(path.join(dir, "subagents", "subagent.md"), "utf8")).toBe("scout");
+      expect(process.env.ATLARIX_SKILLS_DIR).toBe(dir);
+      expect(bundledSkillsDir()).toBe(dir);
+    } finally {
+      if (was === undefined) delete process.env.ATLARIX_SKILLS_DIR;
+      else process.env.ATLARIX_SKILLS_DIR = was;
+    }
   });
 });

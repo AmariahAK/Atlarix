@@ -9,7 +9,7 @@
  * instructions file. That file would silently replace Atlarix's guidance.
  */
 import { assets } from "atlarix:assets";
-import { skillsDirFrom } from "../runtime/embedded-skills";
+import { registerBundledSkills } from "../runtime/embedded-skills";
 
 const set = (key: string, value: string | undefined) => {
   if (value && !process.env[key]) process.env[key] = value;
@@ -22,12 +22,6 @@ set("ATLARIX_EMBEDDED_RG", assets.rg);
 set("ATLARIX_EMBEDDED_RELAY", assets.relay);
 
 // The mode prompts, sub-agent prompts and guides. Read from `<cwd>/src/skills`
-// before, which only exists inside this repository. Startup goes on without
-// them if the folder cannot be written; the loader then says what is missing.
-if (!process.env.ATLARIX_SKILLS_DIR) {
-  try {
-    set("ATLARIX_SKILLS_DIR", skillsDirFrom(assets.skills));
-  } catch {
-    /* read-only home: no bundled skills this run */
-  }
-}
+// before, which only exists inside this repository. Written out when the skill
+// loader first needs them (embedded-skills.ts), not here: `--version` did it.
+registerBundledSkills(assets.skills);

@@ -33,13 +33,15 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { app } from "electron";
 import { applySharedPromptFragments } from "@/lib/prompts/shared-fragments";
+import { bundledSkillsDir } from "@/runtime/embedded-skills";
 
 const skillCache = new Map<string, string>();
 
 export function resolveBuiltinSkillsRoot(): string {
   // The CLI and headless builds carry their own copy (src/headless/bundled-assets.ts):
   // their `cwd` is the user's repository, where `src/skills` is not Atlarix's.
-  if (process.env.ATLARIX_SKILLS_DIR) return process.env.ATLARIX_SKILLS_DIR;
+  const bundled = bundledSkillsDir();
+  if (bundled) return bundled;
   try {
     if (app.isPackaged) {
       // packagerConfig.extraResource copies `src/skills` → resources/skills (basename)
