@@ -2573,10 +2573,11 @@ export class IpcClient {
     return this.ipcRenderer.invoke("perf:tool-snapshot");
   }
 
-  /** Get PostHog config (API key + anonymous ID) for renderer init. Key undefined if not set. */
+  /** Get PostHog config (API key + anonymous ID + replay rate) for renderer init. Key undefined if not set. */
   public async getPostHogConfig(): Promise<{
     posthogApiKey: string | undefined;
     analyticsId: string;
+    replaySampleRate?: number;
   }> {
     return this.ipcRenderer.invoke("get-posthog-config");
   }

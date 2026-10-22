@@ -10,6 +10,7 @@
  * Mirrors the fetch/cache pattern in `src/lib/models_dev.ts`.
  */
 
+import { setHostedReplaySampleRate } from "@/lib/analytics/replay";
 import { setConfiguredFallback, setProxyFailoverLog } from "@/shared/proxy-failover";
 import * as fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -73,6 +74,8 @@ interface CoreModelsPayload {
   modelEfforts?: unknown;
   /** The Core proxy's fallback (item 10): `{ fallbackUrl: "https://….on.aws" }`. */
   proxy?: unknown;
+  /** The app's session replay (item 12): `{ sampleRate: 0.25 }`. */
+  replay?: unknown;
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -114,6 +117,8 @@ function applyOverridesAndNotify(raw: unknown): void {
   registerEffortOverrides(efforts);
   // The proxy's fallback (item 10): here first, so it changes without a release.
   setConfiguredFallback((raw as { proxy?: { fallbackUrl?: unknown } } | null)?.proxy?.fallbackUrl ?? null);
+  // The app's session replay rate (item 12), read at the next launch.
+  setHostedReplaySampleRate((raw as { replay?: { sampleRate?: unknown } } | null)?.replay?.sampleRate);
   // Auto and the effort lists are part of what the picker shows, so a change to
   // either must reach the renderer like a lineup change does.
   const serialized = map

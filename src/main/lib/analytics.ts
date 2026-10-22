@@ -13,6 +13,7 @@
  * file names, file contents.
  */
 
+import { replaySampleRate } from "@/lib/analytics/replay";
 import { onFallback } from "@/shared/proxy-failover";
 import path from "node:path";
 import fs from "node:fs";
@@ -642,13 +643,15 @@ export async function flushAndClose(): Promise<void> {
   if (c) await c.shutdown();
 }
 
-/** Config for renderer PostHog init (API key + anonymous ID). Key is undefined if not set. */
+/** Config for renderer PostHog init (API key + anonymous ID + replay rate). Key is undefined if not set. */
 export function getPostHogConfigForRenderer(): {
   posthogApiKey: string | undefined;
   analyticsId: string;
+  replaySampleRate: number;
 } {
   return {
     posthogApiKey: process.env.POSTHOG_API_KEY || undefined,
     analyticsId: getOrCreateAnonymousId(),
+    replaySampleRate: replaySampleRate(),
   };
 }
