@@ -1206,7 +1206,7 @@ export class AgentSession extends EventEmitter {
       text: `◇ ${String(p.notice ?? "")}`,
     });
     this.update({ cells: this.cellsFor(this.state.busy) });
-    this.emit("peer-settings", { mode, model });
+    this.emit("peer-settings", { mode, model, notice: String(p.notice ?? "") });
   }
 
   /**

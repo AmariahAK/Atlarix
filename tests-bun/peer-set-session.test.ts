@@ -85,4 +85,49 @@ describe("a session sets another's mode and model", () => {
     await guard.close();
     llm.close?.();
   }, 90_000);
+
+  it("an editor without the Atlarix panel gets the line as text (QA E5)", async () => {
+    const llm = startFakeLlm([{ text: "Hello." }]);
+    const acp = await import("@agentclientprotocol/sdk");
+    const { AgentSession, seedDevProvider, listFolderSessions, changeFolderSession } = await import("../src/cli/agent/session");
+    const { AcpAgent } = await import("../src/cli/acp/agent");
+    const { buildAgentApp } = await import("../src/cli/acp/server");
+    const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });
+    const agent = new AcpAgent({
+      createSession: async (cwd) => {
+        const s = new AgentSession({ workspaceDir: cwd, model, surface: "editor", idlePeerMessages: "hold" });
+        await s.start();
+        return s;
+      },
+      models: async () => ({ options: [{ ...model, label: "Fake" }], current: model }),
+      rememberModel: () => {},
+      listSessions: (cwd) => listFolderSessions(cwd),
+      changeSession: (id, change) => changeFolderSession(id, change),
+    });
+    const text: string[] = [];
+    const conn = acp
+      .client({ name: "zed" })
+      .onNotification("session/update", (ctx) => {
+        const u = ctx.params.update as { sessionUpdate: string; content?: { text?: string } };
+        if (u.sessionUpdate === "agent_message_chunk" && u.content?.text) text.push(u.content.text);
+      })
+      .connect(buildAgentApp(agent, "test"));
+    await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
+    const { sessionId } = await conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
+    const { db } = await import("../src/db");
+    const { chatSessions } = await import("../src/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const row = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, sessionId) });
+    const { broadcastToAllWindows } = await import("../src/ipc/utils/broadcast_all_windows");
+    broadcastToAllWindows("session:peer-settings", {
+      chatId: row!.streamChatId,
+      sessionId,
+      mode: "review",
+      notice: "Mode set to Review by Rix. From the next turn.",
+    });
+    for (let i = 0; i < 30 && !text.join("").includes("Mode set to Review by Rix"); i++) await wait(100);
+    expect(text.join("")).toContain("◇ Mode set to Review by Rix. From the next turn.");
+    llm.close?.();
+  }, 60_000);
 });

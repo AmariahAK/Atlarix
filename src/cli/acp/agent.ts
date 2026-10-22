@@ -171,8 +171,13 @@ class Thread {
     session.on("automation", (run: Record<string, unknown>) => this.onAutomationRun(run));
     // Another session changed the model (item 9): the editor's picker follows.
     // A mode change already goes out with the session's state.
-    session.on("peer-settings", () => {
+    session.on("peer-settings", (e: { notice?: string }) => {
       void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+      // The line saying who changed it: the panel draws its notice cell, any
+      // other editor gets it as text, as the peer-message notice is (QA E5).
+      if (e?.notice && !this.extras()) {
+        void this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n◇ ${e.notice}\n` } });
+      }
     });
     // A stopped turn's unsent text goes back to the editor's input box.
     session.on("unsent", (text: string) => {
