@@ -120,7 +120,7 @@ import { usePostHog } from "posthog-js/react";
 import * as Sentry from "@sentry/electron/renderer";
 import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 import { useSettings } from "./useSettings";
-import { activeChatIdAtom, peerModelByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, peerModeByChatIdAtom, peerModelByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import {
   clearActivityForChatInStore,
   filterActivityForChat,
@@ -1681,7 +1681,8 @@ export function useStreamChat({
           workspaceSessionId != null &&
           workspaceSessionId === modeStore.get(activeWorkspaceSessionIdAtom)
             ? modeStore.get(activeSessionWorkModeAtom)
-            : null;
+            : // A chat not on screen whose mode another session set (items 9, 11).
+              (modeStore.get(peerModeByChatIdAtom).get(chatId) ?? null);
 
         // Remember what THIS turn dispatched with, so the composer can show the mode
         // the turn is actually running in while the picker offers the next one.

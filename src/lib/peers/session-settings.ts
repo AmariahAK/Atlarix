@@ -84,3 +84,19 @@ export function settingsNotice(change: { mode?: PeerMode; model?: string }, send
   if (change.mode) return `Mode set to ${MODE_NAMES[change.mode]} by ${by}. From the next turn.`;
   return `Model set to ${change.model} by ${by}. From the next turn.`;
 }
+
+/** A session's answer to another's plan awaiting approval (item 11). */
+export type PeerPlanAction = "approve" | "reject" | "update";
+
+export function parsePlanAction(s: unknown): PeerPlanAction | null {
+  const t = String(s ?? "").trim().toLowerCase();
+  return t === "approve" || t === "reject" || t === "update" ? t : null;
+}
+
+/** "Plan approved by Rix. Building it." */
+export function planNotice(action: PeerPlanAction, sender: string): string {
+  const by = sender.trim() || "another session";
+  if (action === "approve") return `Plan approved by ${by}. Building it.`;
+  if (action === "reject") return `Plan rejected by ${by}.`;
+  return `Plan updated by ${by}. It's waiting for approval.`;
+}

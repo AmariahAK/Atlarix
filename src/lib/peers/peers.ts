@@ -97,8 +97,8 @@ interface PeerFrame {
   id: string;
   /** Optional when `set` is given: a change alone. */
   text: string;
-  /** Set the session's mode and/or model from its next turn (item 9). */
-  set?: { mode?: string; model?: string };
+  /** Set the session's mode and/or model from its next turn (item 9), and/or answer its plan (item 11). */
+  set?: { mode?: string; model?: string; plan?: string; planText?: string };
   from: {
     sessionId: string;
     name: string;
@@ -116,12 +116,16 @@ export interface PeerHost {
   wake(chatId: number): void;
   /** "accept" (default) or "refuse". */
   inbound(): "accept" | "refuse";
-  /** Set a session's mode and/or model from its next turn (item 9); `notice` is the line it shows. */
+  /**
+   * Set a session's mode and/or model from its next turn (item 9), and/or
+   * answer its plan (item 11). `notice` is the line it shows; `startTurn`, the
+   * turn an approval starts (the plan's own Build).
+   */
   applySettings?(
-    target: { chatId: number; sessionId: string },
-    set: { mode?: string; model?: string },
+    target: { chatId: number; sessionId: string; name?: string },
+    set: { mode?: string; model?: string; plan?: string; planText?: string },
     from: PeerFrame["from"],
-  ): Promise<{ ok: boolean; error?: string; notice?: string }>;
+  ): Promise<{ ok: boolean; error?: string; notice?: string; startTurn?: string }>;
   /**
    * Show this session here and carry on in it (a handoff from another surface).
    * Only the app implements it: a CLI cannot open a terminal for itself.
@@ -463,7 +467,7 @@ export async function receive(
       error: "that session does not accept messages from other sessions",
     };
   const text = typeof f.text === "string" ? f.text.trim() : "";
-  const set = f.set && (f.set.mode || f.set.model) ? f.set : null;
+  const set = f.set && (f.set.mode || f.set.model || f.set.plan) ? f.set : null;
   if (!text && !set) return { ok: false, error: "empty message" };
   if (text.length > PEER_TEXT_CAP)
     return { ok: false, error: `message over ${PEER_TEXT_CAP} characters` };
@@ -471,6 +475,8 @@ export async function receive(
     return { ok: false, error: "a browser session has no mode or model to set" };
   if (set && !hostImpl.applySettings)
     return { ok: false, error: "this Atlarix cannot set another session's mode or model" };
+  // A reject says why: the reason reaches it as the message.
+  if (set?.plan === "reject" && !text) return { ok: false, error: "a reject needs a message saying why" };
 
   const now = Date.now();
   const senderKey = `${f.from?.sessionId}->${f.to}`;
@@ -484,13 +490,13 @@ export async function receive(
         "too many messages to this session just now — batch them into one or wait a minute",
     };
   }
-  const dupKey = `${senderKey}\0${text}\0${set?.mode ?? ""}\0${set?.model ?? ""}`;
+  // Everything the frame asks for: a plan answer is not a repeat of a bare message.
+  const dupKey = [senderKey, text, set?.mode, set?.model, set?.plan, set?.planText].map((v) => v ?? "").join("\0");
   if ((recentTexts.get(dupKey) ?? 0) > now - DUPLICATE_WINDOW_MS) {
     return { ok: true }; // a repeat; already delivered
   }
   times.push(now);
   recentBySender.set(senderKey, times);
-  recentTexts.set(dupKey, now);
   for (const [k, t] of recentTexts)
     if (t < now - DUPLICATE_WINDOW_MS) recentTexts.delete(k);
 
@@ -535,20 +541,30 @@ export async function receive(
 
   // The change first: refused (a model not set up there), nothing is
   // delivered, so the sender learns it as one answer.
-  let applied: { notice?: string } = {};
+  let applied: { notice?: string; startTurn?: string } = {};
   if (set) {
-    const r = await hostImpl.applySettings!({ chatId: target.chatId, sessionId: target.sessionId }, set, f.from);
+    const r = await hostImpl.applySettings!(
+      { chatId: target.chatId, sessionId: target.sessionId, name: target.name },
+      set,
+      f.from,
+    );
     if (!r.ok) return { ok: false, error: r.error ?? "not changed" };
     applied = r;
   }
+  // A repeat only once it went through: a refused one ("busy, answer when its
+  // turn ends") retried is a new attempt, never "ok" with nothing done.
+  recentTexts.set(dupKey, now);
+  // An approval's build turn: the plan's own Build instruction, as the user's
+  // Build sends it, never wrapped as a peer's words (item 11).
+  if (applied.startTurn) hostImpl.enqueue(target.chatId, `${f.id || randomUUID()}-build`, applied.startTurn);
   if (text) {
     hostImpl.enqueue(
       target.chatId,
       f.id || randomUUID(),
       wrapPeerMessage(f.from, text),
     );
-    if (!hostImpl.isBusy(target.chatId)) hostImpl.wake(target.chatId);
   }
+  if ((text || applied.startTurn) && !hostImpl.isBusy(target.chatId)) hostImpl.wake(target.chatId);
   return { ok: true, ...(applied.notice ? { applied: applied.notice } : {}) };
 }
 

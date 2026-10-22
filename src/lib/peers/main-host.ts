@@ -103,11 +103,27 @@ let unhookLive: (() => void) | null = null;
  * use it from the next turn and show `notice`.
  */
 async function applyPeerSettings(
-  target: { chatId: number; sessionId: string },
-  set: { mode?: string; model?: string },
+  target: { chatId: number; sessionId: string; name?: string },
+  set: { mode?: string; model?: string; plan?: string; planText?: string },
   from: { name: string },
-): Promise<{ ok: boolean; error?: string; notice?: string }> {
+): Promise<{ ok: boolean; error?: string; notice?: string; startTurn?: string }> {
   const s = await import("./session-settings");
+  // Its plan awaiting approval (item 11): checked first, so nothing else
+  // changes when the plan part is refused.
+  let plan: { action: import("./session-settings").PeerPlanAction; id: string } | undefined;
+  if (set.plan) {
+    const action = s.parsePlanAction(set.plan);
+    if (!action) return { ok: false, error: `no plan action "${set.plan}": approve, reject or update` };
+    const name = target.name || "that session";
+    // As the user's own Build/edit: not while a turn runs, which may be writing it.
+    if (isChatStreamLive(target.chatId)) return { ok: false, error: `${name} is busy; answer its plan when its turn ends` };
+    if (action === "approve" && set.mode) return { ok: false, error: "approve builds the plan in Build; send it without a mode" };
+    if (action === "update" && !set.planText?.trim()) return { ok: false, error: "update needs plan_text: the whole new plan" };
+    const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+    const latest = await getLatestPlanArtifact(target.sessionId, "plan").catch(() => null);
+    if (!latest) return { ok: false, error: `${name} has no plan awaiting approval` };
+    plan = { action, id: latest.id };
+  }
   let mode: import("./session-settings").PeerMode | undefined;
   if (set.mode) {
     const parsed = s.parseMode(set.mode);
@@ -125,19 +141,38 @@ async function applyPeerSettings(
     const shown = s.modelNames(options).find((n) => n.option === hit)?.name ?? hit.label;
     model = { provider: hit.provider, name: hit.name, label: shown };
   }
+  // Approve: exactly the user's Build (the plan card's and /build): the plan
+  // goes to building, the session to Build, and the build turn starts.
+  let startTurn: string | undefined;
+  if (plan) {
+    const handlers = await import("@/ipc/handlers/plan_artifact_handlers");
+    if (plan.action === "approve") {
+      await handlers.setPlanStatusAndAnnounce(plan.id, "building");
+      mode = "build";
+      startTurn = (await import("@/lib/work-mode")).BUILD_FROM_PLAN_PROMPT;
+    } else if (plan.action === "update") {
+      await handlers.updatePlanAndAnnounce(plan.id, set.planText!.trim());
+    }
+  }
   if (mode && row) {
     await db.update(chatSessions).set({ workMode: mode }).where(eq(chatSessions.id, target.sessionId));
   }
   if (model) noteSessionModel(target.sessionId, model.label);
-  const notice = s.settingsNotice({ mode, model: model?.label }, from.name);
+  const notice = [
+    set.mode || set.model ? s.settingsNotice({ mode: set.mode ? mode : undefined, model: model?.label }, from.name) : "",
+    plan ? s.planNotice(plan.action, from.name) : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   broadcastToAllWindows("session:peer-settings", {
     chatId: target.chatId,
     sessionId: target.sessionId,
     ...(mode ? { mode } : {}),
     ...(model ? { model } : {}),
+    ...(plan ? { plan: plan.action, planId: plan.id } : {}),
     notice,
   });
-  return { ok: true, notice };
+  return { ok: true, notice, ...(startTurn ? { startTurn } : {}) };
 }
 
 /** Start the inbox for this process. Never throws. */

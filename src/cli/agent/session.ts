@@ -1197,6 +1197,8 @@ export class AgentSession extends EventEmitter {
       this.modeChosen = true;
     }
     if (model?.provider && model.name) this.setModel({ provider: model.provider, name: model.name });
+    // Another session approved the plan (item 11): its build is starting, so the offer goes.
+    if (p.plan === "approve") this.update({ planReady: null });
     const id = `${Date.now().toString(36)}${++interjectionSeq}`;
     this.wakeNotes.push({
       id,

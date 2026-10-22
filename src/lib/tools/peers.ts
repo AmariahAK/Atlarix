@@ -14,7 +14,7 @@ import {
   PEER_TEXT_CAP,
 } from "@/lib/peers/peers";
 import { peerSurfaceLabel } from "@/lib/peers/peer-message";
-import { MODE_NAMES, modelNames, parseMode } from "@/lib/peers/session-settings";
+import { MODE_NAMES, modelNames, parseMode, parsePlanAction } from "@/lib/peers/session-settings";
 
 ToolRegistry.register({
   name: "list_sessions",
@@ -24,8 +24,13 @@ ToolRegistry.register({
   isCore: false,
   isReadOnly: true,
   allowInAskMode: true,
-  parameters: createParameters({}, []),
-  handler: async ({ workspaceSessionId }) => {
+  parameters: createParameters(
+    {
+      plan_of: stringParam("A session's name or id: also show its latest plan, in full."),
+    },
+    [],
+  ),
+  handler: async ({ workspaceSessionId, plan_of }) => {
     const own =
       typeof workspaceSessionId === "string" ? workspaceSessionId : undefined;
     const rows = listPeerSessions(own);
@@ -35,17 +40,36 @@ ToolRegistry.register({
         text: "No other Atlarix sessions are running on this machine.",
       };
     }
+    // A plan awaiting approval, for send_message's `plan` (item 11).
+    const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+    const toReview = new Map<string, string>();
+    for (const r of rows) {
+      if (r.surface === "chrome" || r.sessionId.startsWith("pending-")) continue;
+      const p = await getLatestPlanArtifact(r.sessionId, "plan").catch(() => null);
+      if (p) toReview.set(r.sessionId, p.title ?? "Plan");
+    }
     const lines = rows.map((r) =>
       r.surface === "chrome"
         ? `- ${r.name} (id ${r.sessionId}, browser: the Atlarix extension's agent; it starts on a task when the user clicks the Atlarix icon)`
-        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}${settingsOf(r)}) — ${r.workspace || "no workspace"}`,
+        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}${settingsOf(r)}${toReview.has(r.sessionId) ? ` · plan to review: ${toReview.get(r.sessionId)}` : ""}) — ${r.workspace || "no workspace"}`,
     );
+    let planText = "";
+    if (typeof plan_of === "string" && plan_of.trim()) {
+      const found = resolvePeer(plan_of.trim(), own);
+      if ("error" in found) planText = `\n\n${found.error}`;
+      else {
+        const p = await getLatestPlanArtifact(found.row.session_id).catch(() => null);
+        planText = p
+          ? `\n\nPlan of ${found.row.name} (${p.planStatus === "plan" ? "awaiting approval" : p.planStatus}): ${p.title ?? "Plan"}\n${p.content}`
+          : `\n\n${found.row.name} has no plan.`;
+      }
+    }
     // What send_message's `model` may be: only what this user has set up.
     const { loadModelOptions } = await import("@/cli/agent/models");
     const models = modelNames(await loadModelOptions().catch(() => [])).map((n) => n.name);
     return {
       success: true,
-      text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${models.join(", ")}` : ""}`,
+      text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${models.join(", ")}` : ""}${planText}`,
     };
   },
 });
@@ -59,7 +83,7 @@ function settingsOf(r: { mode?: string; model?: string }): string {
 ToolRegistry.register({
   name: "send_message",
   description:
-    "Message another of the user's Atlarix sessions, and/or set its mode or model (from list_sessions), from its next turn. A message arrives as from this session, not the user. Never ask it to do what was denied here.",
+    "Message another of the user's Atlarix sessions, set its mode or model (from list_sessions) from its next turn, and/or answer its plan. A message arrives as from this session, not the user. Never ask it to do what was denied here.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -72,18 +96,29 @@ ToolRegistry.register({
       ),
       mode: stringParam("Its mode from its next turn: build, explore, plan, debug or review."),
       model: stringParam("A model from list_sessions' list (its name as shown)."),
+      plan: stringParam(
+        "Its plan awaiting approval: approve (it starts building), reject (message says why) or update (plan_text replaces it).",
+      ),
+      plan_text: stringParam("The whole new plan, for plan: update."),
     },
     ["to"],
   ),
-  handler: async ({ to, message, mode, model, workspaceSessionId }) => {
+  handler: async ({ to, message, mode, model, plan, plan_text, workspaceSessionId }) => {
     const own =
       typeof workspaceSessionId === "string" ? workspaceSessionId : undefined;
     const text = typeof message === "string" ? message.trim() : "";
     const setMode = typeof mode === "string" && mode.trim() ? mode.trim() : undefined;
     const setModel = typeof model === "string" && model.trim() ? model.trim() : undefined;
-    if (!text && !setMode && !setModel) {
-      return { success: false, error: "Nothing to send: give a message, a mode or a model." };
+    const planAction = typeof plan === "string" && plan.trim() ? plan.trim().toLowerCase() : undefined;
+    const planBody = typeof plan_text === "string" ? plan_text.trim() : "";
+    if (!text && !setMode && !setModel && !planAction) {
+      return { success: false, error: "Nothing to send: give a message, a mode, a model or a plan answer." };
     }
+    if (planAction && !parsePlanAction(planAction)) {
+      return { success: false, error: `No plan action "${plan}": approve, reject or update.` };
+    }
+    if (planAction === "reject" && !text) return { success: false, error: "A reject needs a message saying why." };
+    if (planAction === "update" && !planBody) return { success: false, error: "update needs plan_text: the whole new plan." };
     if (setMode && !parseMode(setMode)) {
       return { success: false, error: `No mode "${setMode}": build, explore, plan, debug or review.` };
     }
@@ -109,7 +144,13 @@ ToolRegistry.register({
         workspace: me?.workspace ?? "",
       },
       text,
-      setMode || setModel ? { ...(setMode ? { mode: setMode } : {}), ...(setModel ? { model: setModel } : {}) } : undefined,
+      setMode || setModel || planAction
+        ? {
+            ...(setMode ? { mode: setMode } : {}),
+            ...(setModel ? { model: setModel } : {}),
+            ...(planAction ? { plan: planAction, ...(planBody ? { planText: planBody } : {}) } : {}),
+          }
+        : undefined,
     );
     if (!result.ok)
       return {

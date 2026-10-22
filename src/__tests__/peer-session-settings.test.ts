@@ -60,7 +60,8 @@ describe("the rules", () => {
 const sqlite = new DatabaseSync(":memory:");
 const queued: Array<{ chatId: number; text: string }> = [];
 const woken: number[] = [];
-const applied: Array<{ chatId: number; set: { mode?: string; model?: string } }> = [];
+const applied: Array<{ chatId: number; set: { mode?: string; model?: string; plan?: string } }> = [];
+let busyOnce = false;
 const host: PeerHost = {
   isBusy: () => false,
   enqueue: (chatId, _id, text) => void queued.push({ chatId, text }),
@@ -68,6 +69,14 @@ const host: PeerHost = {
   inbound: () => "accept",
   applySettings: async (target, set, from) => {
     if (set.model === "not-set-up") return { ok: false, error: `"not-set-up" is not a model this user has set up` };
+    if (set.plan && busyOnce) {
+      busyOnce = false;
+      return { ok: false, error: "Guard is busy; answer its plan when its turn ends" };
+    }
+    if (set.plan) {
+      applied.push({ chatId: target.chatId, set });
+      return { ok: true, notice: `Plan ${set.plan}d by ${from.name}.` };
+    }
     applied.push({ chatId: target.chatId, set });
     return { ok: true, notice: settingsNotice({ mode: parseMode(set.mode) ?? undefined, model: set.model }, from.name) };
   },
@@ -119,5 +128,15 @@ describe("setting another session", () => {
 
   it("nothing at all is still refused", async () => {
     expect((await sendPeerMessage(guard(), from, "")).ok).toBe(false);
+  });
+
+  it("a plan answer is not a repeat of an earlier bare frame, and a refused one retried really applies (item 11)", async () => {
+    busyOnce = true;
+    const first = await sendPeerMessage(guard(), from, "", { plan: "update", planText: "- [ ] x" });
+    expect(first).toEqual({ ok: false, error: "Guard is busy; answer its plan when its turn ends" });
+    const retry = await sendPeerMessage(guard(), from, "", { plan: "update", planText: "- [ ] x" });
+    expect(retry).toEqual({ ok: true, applied: "Plan updated by Rix." });
+    const approve = await sendPeerMessage(guard(), from, "", { plan: "approve" });
+    expect(approve.applied).toBe("Plan approved by Rix.");
   });
 });
