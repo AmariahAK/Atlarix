@@ -133,8 +133,8 @@ async function applyPeerSettings(
   const row = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, target.sessionId) });
   let model: { provider: string; name: string; label: string } | undefined;
   if (set.model) {
-    const { loadModelOptions } = await import("@/cli/agent/models");
-    const options = await loadModelOptions().catch(() => []);
+    const { settableModelOptions } = await import("@/cli/agent/models");
+    const options = await settableModelOptions().catch(() => []);
     const hit = s.matchModel(set.model, options);
     if ("error" in hit) return { ok: false, error: hit.error };
     // The name list_sessions shows: "label (provider)" when two share a label.

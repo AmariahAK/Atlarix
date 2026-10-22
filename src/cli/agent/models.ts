@@ -109,6 +109,28 @@ async function accountPaysForAuto(): Promise<boolean> {
 }
 
 /**
+ * The models another session may set this user's sessions to (item 9): what
+ * they can run. Atlarix Core and Auto need the account, so they are left out
+ * while signed out, as the picker leaves them out (QA A10).
+ */
+export async function settableModelOptions(): Promise<ModelOption[]> {
+  const options = await loadModelOptions();
+  return (await hasCoreAccount()) ? options : options.filter((o) => o.provider !== COMPASS);
+}
+
+/** Signed in (or a cloud run's own Core token): what a Core turn is authorized with. */
+async function hasCoreAccount(): Promise<boolean> {
+  try {
+    const { getPinnedCoreToken } = await import("@/ipc/shared/core_proxy");
+    if (getPinnedCoreToken()) return true;
+    const { getSession } = await import("@/lib/auth/supabase-client");
+    return Boolean((await getSession())?.access_token);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The model a turn runs on: the Plan model while planning, when one is set,
  * else the chosen one (undefined: the desktop's selected model).
  */

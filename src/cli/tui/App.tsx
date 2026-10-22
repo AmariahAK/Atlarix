@@ -583,10 +583,22 @@ export function App({
       composer.current?.setText(now ? `${text}\n${now}` : text);
     };
     session.on("unsent", onUnsent);
+    // Another session set the model (item 9): the header shows it from now, as
+    // a /model pick does, not the old one until a turn ran (QA A11).
+    const onPeerSettings = (e: { model?: { provider: string; name: string } }) => {
+      const ref = e?.model;
+      if (!ref || !models) return;
+      void models.load().then((all) => {
+        const o = all.find((x) => x.provider === ref.provider && x.name === ref.name);
+        setModelLabel(o ? headerModelLabel(o) : ref.name);
+      }, () => setModelLabel(ref.name));
+    };
+    session.on("peer-settings", onPeerSettings);
     return () => {
       session.off("change", on);
       session.off("automation", onAutomation);
       session.off("unsent", onUnsent);
+      session.off("peer-settings", onPeerSettings);
     };
   }, [session]);
 

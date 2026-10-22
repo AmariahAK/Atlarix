@@ -15,6 +15,8 @@ beforeAll(() => {
   process.env.ATLARIX_USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "peer-set-ud-"));
   process.env.ATLARIX_CLI_DEV_PROVIDER = "1";
   process.env.ATLARIX_SURFACE = "cli";
+  // A Core model in the lineup, as a release build has: listed, but not runnable signed out (QA A10).
+  process.env.ATLARIX_CORE_MODEL_1 = "z-ai/glm-5.2";
   ws = fs.mkdtempSync(path.join(os.tmpdir(), "peer-set-ws-"));
 });
 
@@ -56,7 +58,19 @@ describe("a session sets another's mode and model", () => {
     await guard.rename("Guard");
 
     const { loadModelOptions } = await import("../src/cli/agent/models");
-    const label = (await loadModelOptions())[0]!.label;
+    const all = await loadModelOptions();
+    // Signed out: Atlarix Core's models are in the catalogue but cannot run (QA A10).
+    const core = all.filter((o) => o.provider === "compass");
+    expect(core.length).toBeGreaterThan(0);
+    const label = all.find((o) => o.provider !== "compass")!.label;
+
+    // Each line says the model it runs on, before anyone set one (QA A11).
+    const before = await run("list_sessions", { workspaceSessionId: coord.sessionId });
+    expect(before.text).toMatch(new RegExp(`Guard \\(id [^)]*· Build · ${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`));
+    for (const o of core) expect(before.text).not.toContain(o.label);
+    const coreSet = await run("send_message", { to: guard.sessionId, model: core[0]!.label, workspaceSessionId: coord.sessionId });
+    expect(coreSet.success).toBe(false);
+    expect(coreSet.error).toContain("not a model this user has set up");
 
     const set = await run("send_message", { to: guard.sessionId, mode: "review", model: label, workspaceSessionId: coord.sessionId });
     expect(set.success).toBe(true);
@@ -64,7 +78,7 @@ describe("a session sets another's mode and model", () => {
 
     for (let i = 0; i < 50 && guard.state.mode !== "review"; i++) await wait(100);
     expect(guard.state.mode).toBe("review");
-    expect(guard.model?.name).toBe((await loadModelOptions())[0]!.name);
+    expect(guard.model?.name).toBe(all.find((o) => o.provider !== "compass")!.name);
     expect(JSON.stringify(guard.state.cells)).toContain("Mode set to Review");
 
     const { db } = await import("../src/db");

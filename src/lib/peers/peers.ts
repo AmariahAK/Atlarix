@@ -383,9 +383,16 @@ export function noteLiveSession(s: LocalSession): void {
     if (prev.name !== s.name) aliases.add(prev.name);
     s = { ...s, aliases: [...aliases] };
   }
+  // The model, kept: registering again (a rename, a reload) dropped it, and it
+  // may have been told before the session was registered at all (QA A11).
+  s = { ...s, model: s.model ?? prev?.model ?? modelsBeforeRegistration.get(s.sessionId) };
+  modelsBeforeRegistration.delete(s.sessionId);
   local.set(s.sessionId, s);
-  if (!prev || prev.name !== s.name || prev.chatId !== s.chatId) publish();
+  if (!prev || prev.name !== s.name || prev.chatId !== s.chatId || prev.model !== s.model) publish();
 }
+
+/** Models told for a session not registered yet (its registration is async). */
+const modelsBeforeRegistration = new Map<string, string>();
 
 /**
  * Sessions another running Atlarix process has open. Starting a session must
@@ -855,7 +862,11 @@ export function sendPeerMessage(
 /** The model a session of this process runs on, as people see it, for list_sessions (item 9). */
 export function noteSessionModel(sessionId: string, label: string | undefined): void {
   const s = local.get(sessionId);
-  if (!s || s.model === label) return;
+  if (!s) {
+    if (label) modelsBeforeRegistration.set(sessionId, label);
+    return;
+  }
+  if (s.model === label) return;
   s.model = label;
   publish();
 }

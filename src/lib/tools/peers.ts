@@ -65,8 +65,8 @@ ToolRegistry.register({
       }
     }
     // What send_message's `model` may be: only what this user has set up.
-    const { loadModelOptions } = await import("@/cli/agent/models");
-    const models = modelNames(await loadModelOptions().catch(() => [])).map((n) => n.name);
+    const { settableModelOptions } = await import("@/cli/agent/models");
+    const models = modelNames(await settableModelOptions().catch(() => [])).map((n) => n.name);
     return {
       success: true,
       text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${models.join(", ")}` : ""}${planText}`,
