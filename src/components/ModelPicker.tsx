@@ -86,6 +86,19 @@ function optionLabelLines(
   return { primary: resolved, secondary: fallbackProviderName };
 }
 
+/**
+ * The model a chat's chip names and its turns run on: one another session set
+ * for it (item 9), as the turn sends it (provider and name only, so the old
+ * model's custom id cannot name it), else the app's selected model.
+ */
+export function chipModel(
+  selected: LargeLanguageModel | undefined,
+  peer: { provider: string; name: string } | undefined,
+): LargeLanguageModel | undefined {
+  if (!peer) return selected;
+  return { provider: peer.provider as LargeLanguageModel["provider"], name: peer.name };
+}
+
 export function ModelPicker({
   className,
   resetKey,
@@ -114,14 +127,12 @@ export function ModelPicker({
   const { data: catalog = [] } = useAtlarixCoreCatalog();
   const { models: ollamaModels = [] } = useLocalModels();
   const { models: lmStudioModels = [] } = useLocalLMSModels();
-  const modelDisplayName = useModelDisplayName();
 
   // A model another session set for this chat (item 9) is what it runs on.
   const peerModel = useAtomValue(peerModelByChatIdAtom).get(resetKey ?? -1);
-  const selectedModel =
-    peerModel && settings?.selectedModel
-      ? { ...settings.selectedModel, provider: peerModel.provider, name: peerModel.name }
-      : settings?.selectedModel;
+  const selectedModel = chipModel(settings?.selectedModel, peerModel);
+  // The chip names that one too, not the app's selected model (QA A15).
+  const modelDisplayName = useModelDisplayName(selectedModel);
 
   // A yes given to the OLD wording ("shared with OpenAI") is asked again ONCE,
   // when free Auto is in use: it now also runs on free models through other

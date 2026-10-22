@@ -20,26 +20,28 @@ import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
+import type { LargeLanguageModel } from "@/lib/schemas";
 
-export function useModelDisplayName(): string {
+export function useModelDisplayName(model?: LargeLanguageModel): string {
   const { settings } = useSettings();
+  // The model this chat runs on, when it is not the app's selected one (a model
+  // another session set for it, item 9: QA A15). Else the selected model.
+  const shown = model ?? settings?.selectedModel;
   const { data: catalog = [] } = useAtlarixCoreCatalog();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
   const { models: ollamaModels = [] } = useLocalModels();
   const { models: lmStudioModels = [] } = useLocalLMSModels();
   const { data: providers } = useLanguageModelProviders();
 
-  return resolveModelDisplayLabel(settings?.selectedModel, {
-    providerName: providers?.find(
-      (p) => p.id === settings?.selectedModel?.provider,
-    )?.name,
+  return resolveModelDisplayLabel(shown, {
+    providerName: providers?.find((p) => p.id === shown?.provider)?.name,
     catalog,
     modelsByProviders: modelsByProviders ?? undefined,
     ollamaDisplayName: ollamaModels.find(
-      (m) => m.modelName === settings?.selectedModel?.name,
+      (m) => m.modelName === shown?.name,
     )?.displayName,
     lmStudioDisplayName: lmStudioModels.find(
-      (m) => m.modelName === settings?.selectedModel?.name,
+      (m) => m.modelName === shown?.name,
     )?.displayName,
   });
 }
