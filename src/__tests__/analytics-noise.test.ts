@@ -66,7 +66,10 @@ describe("the settings diff sends nothing", () => {
 describe("the app window's events", () => {
   it("say which surface and version sent them", async () => {
     const register = vi.fn();
-    vi.doMock("posthog-js", () => ({ default: { init: () => ({}), identify: () => {}, register } }));
+    // With session replay's methods: a launch drawn for recording calls them (item 12).
+    vi.doMock("posthog-js", () => ({
+      default: { init: () => ({}), identify: () => {}, register, startSessionRecording: () => {}, stopSessionRecording: () => {} },
+    }));
     vi.doMock("@/hooks/useSettings", () => ({ isTelemetryOptedIn: () => true }));
     const { setPostHogConfig, ensurePostHogInitialized } = await import("@/lib/analytics/posthog-client");
     setPostHogConfig("phc_test", "anon-1", "15.9.9");
