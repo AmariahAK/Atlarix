@@ -3,8 +3,8 @@ import { useAtomValue } from "jotai";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { isStreamingForChatAtom, messagesForChatAtom } from "@/atoms/chatAtoms";
-import { activeSessionWorkModeAtom } from "@/atoms/sessionAtoms";
+import { isStreamingForChatAtom, messagesForChatAtom, turnWorkModeByChatIdAtom } from "@/atoms/chatAtoms";
+import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
 import { useSettings } from "@/hooks/useSettings";
 import { IpcClient, type FeedbackSessionInfo } from "@/ipc/ipc_client";
 import {
@@ -16,6 +16,7 @@ import {
   FEEDBACK_USAGE,
   RATING_QUESTION,
   RATING_SENDS,
+  ratingMode,
   shouldAskRating,
 } from "@/lib/feedback/session-rating";
 
@@ -37,7 +38,8 @@ export function openFeedbackFor(chatId: number, given: Given = {}): void {
 export function SessionRatingCard({ chatId, composerEmpty }: { chatId: number; composerEmpty: boolean }) {
   const { t } = useTranslation("chat");
   const { settings } = useSettings();
-  const mode = useAtomValue(activeSessionWorkModeAtom);
+  const { workMode: shownMode } = useWorkModeSelection();
+  const turnMode = useAtomValue(turnWorkModeByChatIdAtom).get(chatId);
   const streaming = useAtomValue(isStreamingForChatAtom(chatId));
   const messages = useAtomValue(messagesForChatAtom(chatId));
   const [stage, setStage] = useState<"none" | "ask" | "improve" | "thanks">("none");
@@ -77,7 +79,7 @@ export function SessionRatingCard({ chatId, composerEmpty }: { chatId: number; c
 
   const turns = messages.filter((m) => m.role === "user").length;
   const session = (): FeedbackSessionInfo => ({
-    mode: mode ?? undefined,
+    mode: ratingMode(turnMode, shownMode),
     effort: settings?.effort || undefined,
     provider: settings?.selectedModel?.provider,
     model: settings?.selectedModel?.name,

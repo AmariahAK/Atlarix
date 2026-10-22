@@ -67,3 +67,12 @@ export function parseFeedbackCommand(rest: string): {
     ...(body.length > FEEDBACK_MAX ? { problem: "too_long" as const } : {}),
   };
 }
+
+/**
+ * The mode a rating is filed under: the one the last turn ran in, else the one
+ * the composer shows. The session's stored mode alone is empty for a chat on
+ * the default mode, so app rows had none (QA A12).
+ */
+export function ratingMode(turnMode: string | null | undefined, shown: string | null | undefined): string | undefined {
+  return turnMode || shown || undefined;
+}

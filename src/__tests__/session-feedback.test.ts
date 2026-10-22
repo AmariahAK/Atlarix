@@ -148,3 +148,12 @@ describe("sending", () => {
     expect(rated).toHaveLength(1);
   });
 });
+
+describe("the mode a rating is filed under (QA A12)", () => {
+  it("the last turn's mode, else the composer's; never empty for a chat on the default mode", async () => {
+    const { ratingMode } = await import("@/lib/feedback/session-rating");
+    expect(ratingMode("review", "ask")).toBe("review");
+    expect(ratingMode(undefined, "ask")).toBe("ask");
+    expect(ratingMode(null, null)).toBeUndefined();
+  });
+});
