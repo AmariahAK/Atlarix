@@ -364,8 +364,9 @@ ToolRegistry.register({
         kept += slice.length;
       }
 
+      // Named as glob names them: relative to where the search started.
       const unreadableLine = unreadable.length
-        ? `\n\n${unreadableNote(unreadable)}.`
+        ? `\n\n${unreadableNote(unreadable.map((u) => (path.isAbsolute(u) ? `./${path.relative(searchRoot, u)}` : u)))}.`
         : "";
 
       if (trimmed.length === 0) {
@@ -382,7 +383,7 @@ ToolRegistry.register({
           formatGrepGroupsForDisplay(trimmed, params.pattern, {
             perFileCap: 5,
             maxBytes,
-          }) + unreadableLine,
+          }).trimEnd() + unreadableLine,
         ui: {
           groups: trimmed.map((g) => ({
             file: g.file,

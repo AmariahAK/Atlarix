@@ -90,6 +90,21 @@ describe("glob outside the workspace", () => {
     expect(out).toContain("draft.md");
   });
 
+  it("an outside folder's OWN .gitignore still applies, git or not (QA A6)", async () => {
+    const sib = path.join(tmp, "sib");
+    fs.mkdirSync(path.join(sib, "src"), { recursive: true });
+    fs.mkdirSync(path.join(sib, "node_modules", "pkg"), { recursive: true });
+    fs.writeFileSync(path.join(sib, ".gitignore"), "node_modules/\n");
+    fs.writeFileSync(path.join(sib, "src", "a.ts"), "const needle = 1;\n");
+    fs.writeFileSync(path.join(sib, "node_modules", "pkg", "index.ts"), "const needle = 2;\n");
+    const grep = await run("grep", { pattern: "needle", path: sib });
+    expect(grep).toContain("a.ts");
+    expect(grep).not.toContain("node_modules");
+    const glob = await run("glob", { pattern: "**/*.ts", path: sib });
+    expect(glob).toContain("a.ts");
+    expect(glob).not.toContain("node_modules");
+  });
+
   it("in the workspace, ignored folders and hidden files stay out", async () => {
     const out = await run("glob", { pattern: "**/*.ts" });
     expect(out).toContain("main.ts");
@@ -117,7 +132,8 @@ describe.runIf(canLock)("one unreadable folder", () => {
   it("grep keeps its matches and says which folder it couldn't read", async () => {
     const out = await run("grep", { pattern: "needle" }, pws);
     expect(out).toContain("a.ts");
-    expect(out).toMatch(/couldn't be read/);
+    expect(out).toMatch(/couldn't be read \(permissions\): \.\/locked\./);
+    expect(out).not.toMatch(/\n\n\n/);
     expect(out).not.toMatch(/Invalid grep pattern|THREW/);
   });
 
