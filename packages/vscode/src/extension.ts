@@ -345,7 +345,10 @@ export function activate(context: vscode.ExtensionContext): void {
             "sidebar",
             () => void vscode.commands.executeCommand("atlarix.chat.focus"),
             (title) => {
-              view.description = title ?? undefined;
+              // The title, not the description: the Atlarix container has one
+              // view, so VS Code hides the view's own header (and its
+              // description) and shows "Atlarix: <view title>" (QA E2).
+              view.title = title ?? "Chat";
             },
           );
           track(sidebar, null);
