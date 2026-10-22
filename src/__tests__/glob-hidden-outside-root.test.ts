@@ -105,6 +105,18 @@ describe("glob outside the workspace", () => {
     expect(glob).not.toContain("node_modules");
   });
 
+  it("an anchored rule in that .gitignore (/node_modules/) applies too (QA A7)", async () => {
+    const siba = path.join(tmp, "siba");
+    fs.mkdirSync(path.join(siba, "src"), { recursive: true });
+    fs.mkdirSync(path.join(siba, "node_modules", "pkg"), { recursive: true });
+    fs.writeFileSync(path.join(siba, ".gitignore"), "/node_modules/\n");
+    fs.writeFileSync(path.join(siba, "src", "a.ts"), "const needle = 1;\n");
+    fs.writeFileSync(path.join(siba, "node_modules", "pkg", "index.ts"), "const needle = 2;\n");
+    const grep = await run("grep", { pattern: "needle", path: siba });
+    expect(grep).toContain("a.ts");
+    expect(grep).not.toContain("node_modules");
+  });
+
   it("in the workspace, ignored folders and hidden files stay out", async () => {
     const out = await run("glob", { pattern: "**/*.ts" });
     expect(out).toContain("main.ts");

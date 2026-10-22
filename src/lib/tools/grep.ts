@@ -11,6 +11,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import * as path from "node:path";
+import { stat } from "node:fs/promises";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
 import { classifyRgFailure, expandHome, unreadableNote } from "./search-root";
@@ -111,6 +112,14 @@ async function runRipgrepSearch(args: {
   // a non-git workspace (matches the glob tool; see ripgrep-ignore.ts). A root
   // outside the workspace gets none of the workspace's ignores.
   const ignoreArgs = await ripgrepIgnoreArgs(workspace, root);
+  // ripgrep reads an --ignore-file's rules relative to its cwd, so it runs IN the
+  // root (as glob does): from the process's cwd an anchored rule such as
+  // `/node_modules/` pointed at the wrong folder (QA A7). A file root runs in
+  // its folder. Paths come back absolute, as before.
+  const isFile = await stat(root).then((st) => st.isFile(), () => false);
+  const cwd = isFile ? path.dirname(root) : root;
+  const target = isFile ? path.basename(root) : ".";
+  const absolute = (groups: GrepGroup[]) => groups.map((g) => ({ ...g, file: path.resolve(cwd, g.file) }));
   // Argv form (no shell): pattern/filePattern are model-controlled, so they must
   // never be interpolated into a shell string — `rg` receives them as literal
   // argv entries. `--` terminates option parsing so a pattern beginning with `-`
@@ -134,15 +143,16 @@ async function runRipgrepSearch(args: {
     ...extra,
     "--",
     pattern,
-    root,
+    target,
   ];
 
   const rgPath = await resolveRipgrepPath();
   const runOnce = async (extra: string[]) => {
     const { stdout } = await execFileAsync(rgPath, buildArgs(extra), {
+      cwd,
       maxBuffer: 10 * 1024 * 1024,
     });
-    return { groups: parseGrepOutput(stdout), unreadable: [] };
+    return { groups: absolute(parseGrepOutput(stdout)), unreadable: [] };
   };
 
   // Exit 2 is ALSO what one unreadable folder gives, with the matches still on
@@ -152,7 +162,7 @@ async function runRipgrepSearch(args: {
     if (err.code !== 2) return null;
     const failure = classifyRgFailure(err);
     return failure.kind === "walk"
-      ? { groups: parseGrepOutput(failure.stdout), unreadable: failure.unreadable }
+      ? { groups: absolute(parseGrepOutput(failure.stdout)), unreadable: failure.unreadable }
       : null;
   };
 
