@@ -607,6 +607,18 @@ export function trackAnalyticsTurnedOn(): void {
 }
 
 /**
+ * Send what is queued now, not with the next batch: a session rating or
+ * /feedback answered in a CLI killed before it exits was lost (QA, ai-b8).
+ */
+export function flushSoon(): void {
+  try {
+    void client?.flush();
+  } catch {
+    /* analytics must never break the UI */
+  }
+}
+
+/**
  * Flush and shutdown the client. Call before app quit.
  */
 export function shutdown(): void {

@@ -75,6 +75,7 @@ vi.mock("@/ipc/shared/language_model_helpers", () => ({
 vi.mock("@/main/lib/analytics", () => ({
   captureAnonymousFeedback: (p: Record<string, unknown>) => (anon.push(p), true),
   captureSafe: (_e: string, p: Record<string, unknown>) => void rated.push(p),
+  flushSoon: () => {},
   providerFields: (id: string, type?: string, fmt?: string) =>
     type === "custom" ? { provider: "custom", provider_type: `custom:${fmt}` } : { provider: id, provider_type: id },
 }));

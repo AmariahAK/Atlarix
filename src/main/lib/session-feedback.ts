@@ -17,7 +17,7 @@ import { atlarixEditor, atlarixSurface } from "@/ipc/shared/core_proxy";
 import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import { FEEDBACK_MAX, RATINGS, type RatingKey } from "@/lib/feedback/session-rating";
 import { readSettings, writeSettings } from "../settings";
-import { captureAnonymousFeedback, captureSafe, providerFields } from "./analytics";
+import { captureAnonymousFeedback, captureSafe, flushSoon, providerFields } from "./analytics";
 
 const logger = log.scope("session-feedback");
 
@@ -71,6 +71,7 @@ export async function sendSessionFeedback(
       rating: RATINGS[String(answer.rating) as RatingKey],
       ...context,
     });
+    flushSoon();
   }
 
   const { getSession, getSupabaseClient } = await import("@/lib/auth/supabase-client");
@@ -84,7 +85,10 @@ export async function sendSessionFeedback(
       ...(answer.kind === "rating" ? { rating: answer.rating } : { body }),
       ...context,
     });
-    if (sent) anonSent.push(now);
+    if (sent) {
+      anonSent.push(now);
+      flushSoon();
+    }
     return sent ? { ok: true } : { ok: false, error: "not_sent" };
   }
 
