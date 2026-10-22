@@ -58,3 +58,61 @@ describe.runIf(process.platform === "darwin" || process.platform === "linux")("h
     expect(second).toMatch(/No one is here to approve/);
   }, 30_000);
 });
+
+describe("headless approvals the auto-approver answers", () => {
+  it("an ordinary command card is still approved (QA: git init)", async () => {
+    ctx.server.register(
+      scenario("hl-unattended-git-init")
+        .toolCall("run_command", { command: "git init -q .", description: "init a repo" })
+        .text("Done.")
+        .build(),
+    );
+    const res = await runHeadlessAgent({
+      workspaceDir: wsDir,
+      prompt: "sc=hl-unattended-git-init init",
+      provider: { baseUrl: ctx.server.baseURL, model: "hl-model" },
+      mode: "build",
+      timeoutMs: 20_000,
+      resolveHandler: (channel) => getIpcHandler(channel),
+    });
+    expect(res.completed).toBe(true);
+    expect(fs.existsSync(path.join(wsDir, ".git"))).toBe(true);
+    // ...and the model was told it ran, not that it was refused.
+    const second = ctx.server.requestsFor("hl-unattended-git-init")[1] as {
+      messages?: Array<{ role: string; content: unknown }>;
+    };
+    const toolResults = (second?.messages ?? []).filter((m) => m.role === "tool");
+    expect(toolResults.length).toBeGreaterThan(0);
+    expect(JSON.stringify(toolResults)).not.toMatch(/denied|rejected|declined/i);
+  }, 30_000);
+
+  it("with ATLARIX_AUTONOMOUS_DANGER=1 a dangerous command's card is approved and it runs", async () => {
+    fs.writeFileSync(path.join(wsDir, "old.txt"), "x");
+    ctx.server.register(
+      scenario("hl-unattended-rm")
+        .toolCall("run_command", { command: "rm old.txt", description: "remove a file" })
+        .text("Done.")
+        .build(),
+    );
+    process.env.ATLARIX_AUTONOMOUS_DANGER = "1";
+    try {
+      const res = await runHeadlessAgent({
+        workspaceDir: wsDir,
+        prompt: "sc=hl-unattended-rm remove it",
+        provider: { baseUrl: ctx.server.baseURL, model: "hl-model" },
+        mode: "build",
+        timeoutMs: 20_000,
+        resolveHandler: (channel) => getIpcHandler(channel),
+      });
+      expect(res.completed).toBe(true);
+      expect(fs.existsSync(path.join(wsDir, "old.txt"))).toBe(false);
+      const second = ctx.server.requestsFor("hl-unattended-rm")[1] as {
+        messages?: Array<{ role: string; content: unknown }>;
+      };
+      const toolResults = (second?.messages ?? []).filter((m) => m.role === "tool");
+      expect(JSON.stringify(toolResults)).not.toMatch(/denied|rejected|declined/i);
+    } finally {
+      delete process.env.ATLARIX_AUTONOMOUS_DANGER;
+    }
+  }, 30_000);
+});

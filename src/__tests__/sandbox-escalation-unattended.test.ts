@@ -121,9 +121,15 @@ describe("a real sandbox denial", () => {
     expect(text).toMatch(/No one is here to approve/);
   });
 
-  it("A3: any card waited on in an unattended run is rejected, not left blocking", async () => {
-    const i = interceptor();
+  it("A3: a tool call's own card still waits for the run's auto-approver", async () => {
+    // Headless and automations answer THESE through execute-permission; only the
+    // cards the interceptor raises itself are denied up front (QA, 2026-10-22).
+    const ac = new AbortController();
+    const i = interceptor(ac.signal);
     i.setUnattended?.(true);
-    expect(await within(i.waitForApproval("op_other"))).toBe("rejected");
+    const wait = i.waitForApproval("op_tool_call", { abortSignal: ac.signal });
+    expect(await within(wait)).toBe("blocked");
+    ac.abort();
+    await wait.catch(() => {});
   });
 });

@@ -322,10 +322,12 @@ export class PermissionInterceptor extends EventEmitter {
 
   /**
    * Nobody can answer a card this turn: a headless `atlarix run` or an
-   * automation. Their auto-approvers only see the cards a tool call raises; the
-   * ones raised here (a sandbox or folder grant) reach app windows alone, and the
+   * automation. Their auto-approvers answer the cards a tool call raises; the
+   * ones raised HERE (a sandbox or folder grant) reach app windows alone, and the
    * wait has no timeout, so the run blocked until killed (QA A3, 2026-10-22).
-   * Unattended, every such card is answered at once with a denial the model reads.
+   * Unattended, those two are denied before they are raised, with a reason the
+   * model reads. Tool-call cards still wait for the auto-approver: denying them
+   * here too told the model `git init` was refused (QA, 2026-10-22).
    */
   private unattended = false;
 
@@ -747,12 +749,6 @@ export class PermissionInterceptor extends EventEmitter {
     operationId: string,
     opts?: { abortSignal?: AbortSignal },
   ): Promise<WaitOutcome> {
-    if (this.unattended) {
-      logger.log(
-        `[waitForApproval] ${operationId}: unattended run, nobody to approve -> REJECTED`,
-      );
-      return "rejected";
-    }
     return new Promise((resolve, reject) => {
       const abortSignal = opts?.abortSignal;
       const onAbort = () => {
