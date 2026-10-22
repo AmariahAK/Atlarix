@@ -320,6 +320,19 @@ export class PermissionInterceptor extends EventEmitter {
    */
   private turnAbortSignal: AbortSignal | null = null;
 
+  /**
+   * Nobody can answer a card this turn: a headless `atlarix run` or an
+   * automation. Their auto-approvers only see the cards a tool call raises; the
+   * ones raised here (a sandbox or folder grant) reach app windows alone, and the
+   * wait has no timeout, so the run blocked until killed (QA A3, 2026-10-22).
+   * Unattended, every such card is answered at once with a denial the model reads.
+   */
+  private unattended = false;
+
+  setUnattended(on: boolean): void {
+    this.unattended = on;
+  }
+
   constructor(
     workspacePath: string,
     workspaceId?: number,
@@ -734,6 +747,12 @@ export class PermissionInterceptor extends EventEmitter {
     operationId: string,
     opts?: { abortSignal?: AbortSignal },
   ): Promise<WaitOutcome> {
+    if (this.unattended) {
+      logger.log(
+        `[waitForApproval] ${operationId}: unattended run, nobody to approve -> REJECTED`,
+      );
+      return "rejected";
+    }
     return new Promise((resolve, reject) => {
       const abortSignal = opts?.abortSignal;
       const onAbort = () => {
@@ -1406,6 +1425,11 @@ export class PermissionInterceptor extends EventEmitter {
     if (needed.size === 0) return;
 
     for (const [grantPath, example] of needed) {
+      if (this.unattended) {
+        throw new Error(
+          `Write to ${example} declined — ${grantPath} is outside this workspace, and no one is here to approve it (unattended run).`,
+        );
+      }
       const escalationId = `${operationId}:dir:${++this.sandboxEscalationSeq}`;
       this.bufferOperation(escalationId, {
         __permission_required: true,
@@ -2224,8 +2248,22 @@ export class PermissionInterceptor extends EventEmitter {
 
     let queue = parseSandboxDenialsFromOutput(
       `${result.stderr ?? ""}\n${result.stdout ?? ""}`,
-    ).filter((d) => !isSkippable(d.grantPath));
+    ).filter(
+      (d) => !isSkippable(d.grantPath) && userCanReadAndWrite(d.deniedPath),
+    );
     if (queue.length === 0) return null;
+
+    if (this.unattended) {
+      const first = queue[0]!;
+      return {
+        ...result,
+        stderr:
+          `${result.stderr ?? ""}\n\n[atlarix] The command sandbox blocked a write to ` +
+          `${first.deniedPath}. No one is here to approve write access to ` +
+          `${first.grantPath} (unattended run), so it was denied. Write inside the ` +
+          `workspace instead.`,
+      };
+    }
 
     let current = sandboxOpts;
     let retried: CommandResult | null = null;
@@ -2245,6 +2283,9 @@ export class PermissionInterceptor extends EventEmitter {
           grantPath: denial.grantPath,
           description: `The command sandbox blocked a write to ${denial.deniedPath}. Grant it write access to ${denial.grantPath} for this workspace and retry?`,
           workingDirectory: workingDir,
+          // A folder grant outlives the run, like the `:dir:` card's: an
+          // unattended run must never approve one for itself.
+          systemScope: true,
         },
       });
 
@@ -2765,4 +2806,28 @@ export class PermissionInterceptor extends EventEmitter {
   /**
    * Convert pending operations to CodeProposal format for FileDiffPanel
    */
+}
+
+/**
+ * Whether the user's OWN permissions allow reading and writing `p` (or, for a
+ * path not made yet, its nearest existing folder). The sandbox confines writes
+ * only, so a denial on a path the user cannot read or write anyway is the
+ * folder's own mode (`find` passing a chmod-000 folder), never a grant to ask
+ * for (QA A2, 2026-10-22).
+ */
+function userCanReadAndWrite(p: string): boolean {
+  let at = path.resolve(p);
+  for (;;) {
+    if (fsSync.existsSync(at)) {
+      try {
+        fsSync.accessSync(at, fsSync.constants.R_OK | fsSync.constants.W_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    const up = path.dirname(at);
+    if (up === at) return false;
+    at = up;
+  }
 }

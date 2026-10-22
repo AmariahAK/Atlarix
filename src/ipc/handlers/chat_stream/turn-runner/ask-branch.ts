@@ -202,6 +202,10 @@ export async function runAskBranch(
     resolveEditStatsModel(effectiveModel, dispatchedModelIdentity(modelClient)),
   );
   registerInterceptor(req.chatId, askPermissionInterceptor);
+  // Nobody to answer its own cards in a headless run or an automation.
+  askPermissionInterceptor.setUnattended(
+    Boolean(req.automation) || process.env.ATLARIX_HEADLESS === "1",
+  );
 
   // Forward agent command output to the renderer (in-chat command card
   // + Agent terminal tab) — parity with Build mode. Ask runs read-only
