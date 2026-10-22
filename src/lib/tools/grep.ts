@@ -126,6 +126,9 @@ async function runRipgrepSearch(args: {
   // is treated as a pattern, not a flag.
   const buildArgs = (extra: string[]) => [
     "-n",
+    // The file's name on every line: searching ONE file, ripgrep leaves it out
+    // ("1:const …"), and every match was dropped as unparseable (QA A8).
+    "-H",
     // Without this, a RECURSIVE search skips any file containing a NUL byte and
     // says nothing at all — the notice below is only printed for files named
     // explicitly on the command line, which is not how this tool searches. So a
@@ -194,6 +197,11 @@ async function runRipgrepSearch(args: {
       );
     }
   }
+}
+
+/** A match's path from where the search started; a one-file search names the file. */
+function relLabel(root: string, file: string): string {
+  return (path.relative(root, file) || path.basename(file)).replace(/\\/g, "/");
 }
 
 function pathToRipgrepGlob(scopePath: string | undefined): string | undefined {
@@ -360,7 +368,7 @@ ToolRegistry.register({
             file: g.file,
             matches: [],
             binary: true,
-            relFile: path.relative(searchRoot, g.file).replace(/\\/g, "/"),
+            relFile: relLabel(searchRoot, g.file),
           });
           continue;
         }
@@ -369,7 +377,7 @@ ToolRegistry.register({
         trimmed.push({
           file: g.file,
           matches: slice,
-          relFile: path.relative(searchRoot, g.file).replace(/\\/g, "/"),
+          relFile: relLabel(searchRoot, g.file),
         });
         kept += slice.length;
       }

@@ -117,6 +117,15 @@ describe("glob outside the workspace", () => {
     expect(grep).not.toContain("node_modules");
   });
 
+  it("grep finds matches in one file given by its absolute path (QA A8)", async () => {
+    const one = path.join(tmp, "one-file");
+    fs.mkdirSync(one, { recursive: true });
+    fs.writeFileSync(path.join(one, "a.ts"), "const needle = 1;\n");
+    const out = await run("grep", { pattern: "needle", path: path.join(one, "a.ts") });
+    expect(out).toContain("a.ts");
+    expect(out).not.toMatch(/No matches/);
+  });
+
   it("in the workspace, ignored folders and hidden files stay out", async () => {
     const out = await run("glob", { pattern: "**/*.ts" });
     expect(out).toContain("main.ts");
