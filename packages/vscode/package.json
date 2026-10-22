@@ -243,6 +243,7 @@
         "atlarix.cliPath": {
           "type": "string",
           "default": "",
+          "scope": "machine",
           "markdownDescription": "Path to an `atlarix` program to use instead of the one inside this extension."
         },
         "atlarix.attachOpenFile": {
