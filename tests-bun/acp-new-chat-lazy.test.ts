@@ -56,16 +56,18 @@ describe("an editor's New chat", () => {
   it("stores nothing until the first message, then exactly one session under the id it was given", async () => {
     const e = await editor();
     const before = await storedSessionIds();
+    const { localSessionIds } = await import("../src/lib/peers/peers");
+    // Other files in this process leave their own sessions registered.
+    const liveBefore = new Set(localSessionIds());
     const ids: string[] = [];
     for (let i = 0; i < 5; i++) {
       ids.push((await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] })).sessionId);
     }
     expect(new Set(ids).size).toBe(5);
     expect(await storedSessionIds()).toEqual(before);
-    const { localSessionIds } = await import("../src/lib/peers/peers");
     // At most the process's one placeholder, never a row per click.
     expect(localSessionIds().filter((id) => ids.includes(id))).toEqual([]);
-    expect(localSessionIds().length).toBeLessThanOrEqual(1);
+    expect(localSessionIds().filter((id) => !liveBefore.has(id)).length).toBeLessThanOrEqual(1);
 
     const last = ids[4]!;
     await e.conn.agent.request("session/prompt", { sessionId: last, prompt: [{ type: "text", text: "hi" }] });
