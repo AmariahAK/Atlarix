@@ -53,6 +53,19 @@ export function modelNames<T extends ModelChoiceLike>(options: readonly T[]): Ar
   }));
 }
 
+/** At most this many names in a list the model reads; any one of them can still be set. */
+export const MODEL_LIST_MAX = 25;
+
+/**
+ * "A, B, C … and 180 more": a signed-in user with every region of a cloud
+ * provider has ~200 models, and the whole list went into the model's context
+ * on every list_sessions and every refusal (QA, ai-b8).
+ */
+export function shortModelList(names: readonly string[], max = MODEL_LIST_MAX): string {
+  if (names.length <= max) return names.join(", ");
+  return `${names.slice(0, max).join(", ")} … and ${names.length - max} more (any model set up here, by its name)`;
+}
+
 /**
  * The model asked for, among the ones this user has set up: by its name as
  * listed, `provider/name`, or its id. A name two models share is refused with
@@ -61,7 +74,7 @@ export function modelNames<T extends ModelChoiceLike>(options: readonly T[]): Ar
 export function matchModel<T extends ModelChoiceLike>(asked: string, options: readonly T[]): T | { error: string } {
   const a = asked.trim().toLowerCase();
   const named = modelNames(options);
-  const listed = named.map((n) => n.name).join(", ");
+  const listed = shortModelList(named.map((n) => n.name));
   const exact = named.find((n) => n.name.toLowerCase() === a);
   if (exact) return exact.option;
   const byPath = options.find((o) => `${o.provider}/${o.name}`.toLowerCase() === a);

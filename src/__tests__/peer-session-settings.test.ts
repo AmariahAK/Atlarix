@@ -9,13 +9,16 @@ import { DatabaseSync } from "node:sqlite";
 import {
   __resetPeersForTests,
   noteLiveSession,
+  noteSessionModel,
   resolvePeer,
+  publishPeerState,
   sendPeerMessage,
+  setDefaultModelLabel,
   setIdleMessagesWait,
   startPeerInbox,
   type PeerHost,
 } from "@/lib/peers/peers";
-import { matchModel, modelNames, parseMode, settingsNotice } from "@/lib/peers/session-settings";
+import { matchModel, MODEL_LIST_MAX, modelNames, parseMode, settingsNotice, shortModelList } from "@/lib/peers/session-settings";
 
 describe("the rules", () => {
   it("takes a mode by the name people see or its id", () => {
@@ -151,3 +154,44 @@ describe("setting another session", () => {
     expect((await sendPeerMessage(guard(), from, "and the tests")).waits).toBeUndefined();
   });
 });
+
+describe("the app's line above the composer (QA A13)", () => {
+  it("a plan answer's line outlives the build turn it starts; a mode line goes at the next turn", async () => {
+    const { noticeFor, noticeAfterTurnStart } = await import("@/lib/peers/peer-settings-window");
+    const approved = noticeFor({ notice: "Plan approved by Rix. Building it.", plan: "approve" });
+    const afterBuild = noticeAfterTurnStart(approved);
+    expect(afterBuild?.text).toBe("Plan approved by Rix. Building it.");
+    expect(noticeAfterTurnStart(afterBuild)).toBeUndefined();
+    expect(noticeAfterTurnStart(noticeFor({ notice: "Mode set to Review by Rix. From the next turn." }))).toBeUndefined();
+  });
+});
+
+describe("a long model list (QA, ai-b8)", () => {
+  it("names at most MODEL_LIST_MAX and says how many more; every one can still be set", () => {
+    const many = Array.from({ length: 200 }, (_, i) => ({ provider: "bedrock", name: `m${i}`, label: `Model ${i}` }));
+    const listed = shortModelList(many.map((m) => m.label));
+    expect(listed.split(" … ")[0]!.split(", ").length).toBe(MODEL_LIST_MAX);
+    expect(listed).toContain(`and ${200 - MODEL_LIST_MAX} more`);
+    expect(matchModel("Model 199", many)).toMatchObject({ name: "m199" });
+    const no = matchModel("GPT-6 Astra", many);
+    expect("error" in no && no.error.length).toBeLessThan(800);
+  });
+});
+
+describe("an app chat's line carries the app's model (QA, ai-b8)", () => {
+  it("a session with no model of its own is listed with the process's default; its own wins", () => {
+    setDefaultModelLabel(() => "Claude Haiku 4.5");
+    try {
+      publishPeerState();
+      const row = (id: string) =>
+        sqlite.prepare("SELECT model FROM __atlarix_live_sessions WHERE session_id = ?").get(id) as { model: string };
+      expect(row("sess-coord-0001").model).toBe("Claude Haiku 4.5");
+      noteSessionModel("sess-coord-0001", "Glm 5.2");
+      publishPeerState();
+      expect(row("sess-coord-0001").model).toBe("Glm 5.2");
+    } finally {
+      setDefaultModelLabel(() => undefined);
+    }
+  });
+});
+

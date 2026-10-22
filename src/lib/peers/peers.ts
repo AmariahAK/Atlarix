@@ -178,6 +178,14 @@ let hostImpl: PeerHost | null = null;
  * that, not that it starts a turn (QA, ai-95).
  */
 let idleMessagesWait: () => boolean = () => false;
+/**
+ * The model a session here runs on when it named none of its own: the app's
+ * chats run on the app's selected model, so their lines showed no model (QA, ai-b8).
+ */
+let defaultModelLabel: () => string | undefined = () => undefined;
+export function setDefaultModelLabel(label: () => string | undefined): void {
+  defaultModelLabel = label;
+}
 export function setIdleMessagesWait(waits: () => boolean): void {
   idleMessagesWait = waits;
 }
@@ -310,7 +318,7 @@ function publish(): void {
         !s.deliver && hostImpl?.isBusy(s.chatId) ? 1 : 0,
         now,
         JSON.stringify(s.aliases ?? []),
-        s.model ?? "",
+        s.model ?? (s.deliver ? "" : (defaultModelLabel() ?? "")),
       );
     }
   } catch (e) {

@@ -14,6 +14,7 @@ import {
   noteLiveSession,
   noteSessionModel,
   publishPeerState,
+  setDefaultModelLabel,
   startPeerInbox,
   type Surface,
 } from "./peers";
@@ -176,7 +177,34 @@ async function applyPeerSettings(
 }
 
 /** Start the inbox for this process. Never throws. */
+/**
+ * The app's selected model, as people see it, for its chats' list_sessions
+ * lines (a chat another session set a model for shows that one instead).
+ * Read on each publish, so a pick shows within one heartbeat; the label is
+ * looked up once per model.
+ */
+let appDefault: { key: string; label: string } | null = null;
+function appDefaultModelLabel(): string | undefined {
+  const sel = readSettings().selectedModel;
+  if (!sel?.provider || !sel.name) return undefined;
+  const key = `${sel.provider}/${sel.name}`;
+  if (appDefault?.key !== key) {
+    const mine = { key, label: sel.name };
+    appDefault = mine;
+    void import("@/cli/agent/models")
+      .then((m) => m.loadModelOptions())
+      .then((opts) => {
+        const o = opts.find((x) => x.provider === sel.provider && x.name === sel.name);
+        if (o) mine.label = o.label;
+      })
+      .catch(() => {});
+  }
+  return appDefault.label;
+}
+
 export async function startPeerMessaging(surface: Surface): Promise<void> {
+  // The CLI and the editors report each session's own model.
+  if (surface === "app") setDefaultModelLabel(appDefaultModelLabel);
   try {
     await startPeerInbox({
       surface,

@@ -14,7 +14,7 @@ import {
   PEER_TEXT_CAP,
 } from "@/lib/peers/peers";
 import { peerSurfaceLabel } from "@/lib/peers/peer-message";
-import { MODE_NAMES, modelNames, parseMode, parsePlanAction } from "@/lib/peers/session-settings";
+import { MODE_NAMES, modelNames, parseMode, parsePlanAction, shortModelList } from "@/lib/peers/session-settings";
 
 ToolRegistry.register({
   name: "list_sessions",
@@ -69,7 +69,7 @@ ToolRegistry.register({
     const models = modelNames(await settableModelOptions().catch(() => [])).map((n) => n.name);
     return {
       success: true,
-      text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${models.join(", ")}` : ""}${planText}`,
+      text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${shortModelList(models)}` : ""}${planText}`,
     };
   },
 });
