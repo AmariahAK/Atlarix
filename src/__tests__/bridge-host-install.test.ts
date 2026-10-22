@@ -355,3 +355,47 @@ describe("where the desktop listens", () => {
     expect(bridgeSocketPath("win32")).toMatch(/^\\\\\.\\pipe\\/);
   });
 });
+
+/**
+ * A scratch profile (ATLARIX_USER_DATA_DIR, QA and tests) must never install
+ * or rewrite the browser's native host in the person's real home: scratch CLI
+ * runs changed ~/.atlarix/chrome/host.env and the wrapper (ai-95, 2026-10-22).
+ * Real users never set the variable.
+ */
+describe("a scratch profile leaves the real native host alone", () => {
+  it("writes nothing in the home folder, and says why", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-scratch-home-"));
+    const was = { ud: process.env.ATLARIX_USER_DATA_DIR, home: process.env.HOME };
+    process.env.ATLARIX_USER_DATA_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-scratch-ud-"));
+    process.env.HOME = home; // os.homedir(): where the real install would go
+    const runReg = async () => {
+      throw new Error("must not touch the registry");
+    };
+    try {
+      const result = await installNativeHost({ relayPath: "/opt/relay", platform: "darwin", runReg });
+      expect(result.scratchProfile).toBe(true);
+      expect(result.manifests).toEqual([]);
+      await expect(fs.readdir(home)).resolves.toEqual([]);
+    } finally {
+      if (was.ud === undefined) delete process.env.ATLARIX_USER_DATA_DIR;
+      else process.env.ATLARIX_USER_DATA_DIR = was.ud;
+      process.env.HOME = was.home;
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("an explicit home (an install the caller asked for) still installs", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-explicit-home-"));
+    const was = process.env.ATLARIX_USER_DATA_DIR;
+    process.env.ATLARIX_USER_DATA_DIR = home;
+    try {
+      const result = await installNativeHost({ relayPath: "/opt/relay", home, platform: "darwin" });
+      expect(result.scratchProfile).toBeUndefined();
+      expect(result.manifests.length).toBeGreaterThan(0);
+    } finally {
+      if (was === undefined) delete process.env.ATLARIX_USER_DATA_DIR;
+      else process.env.ATLARIX_USER_DATA_DIR = was;
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+});
