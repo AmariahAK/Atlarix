@@ -394,4 +394,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !page.classList.contains("hidden") && !(e.target as HTMLElement).closest("input,textarea,select")) navApi.back();
 });
 
+// A reload or a closed panel never leaves Past chats the usual way: stop its watch.
+window.addEventListener("pagehide", () => leaveHistory());
+
 post({ type: "ready" });
