@@ -37,8 +37,6 @@ export interface ChatHost {
   openElsewhere(sessionId: string, folder: string): Promise<void>;
   showLog(): void;
   signIn(): Promise<void>;
-  /** A turn finished normally (counts toward the one-time rating request). */
-  turnFinished(): void;
   /** This chat's model or busy state changed (the status bar). */
   changed?(chat: Chat): void;
   /** The Problems panel's errors and warnings, as context. */
@@ -392,7 +390,6 @@ export class Chat {
     try {
       const r = await c.prompt(sessionId, this.blocks(text, context), answers?.length ? { answers, ...meta } : meta);
       this.post({ type: "turn-end", stopReason: r.stopReason });
-      if (r.stopReason === "end_turn") this.host.turnFinished();
     } catch (e) {
       if (isAuthRequired(e)) this.post({ type: "status", status: "signed-out" });
       this.post({ type: "turn-end", stopReason: null, error: errorText(e) });
