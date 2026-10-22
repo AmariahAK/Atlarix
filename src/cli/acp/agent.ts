@@ -1063,6 +1063,8 @@ export class AcpAgent {
   setClientCapabilities(caps: unknown): void {
     const meta = (caps as { _meta?: { atlarix?: unknown } } | null | undefined)?._meta;
     this.atlarixClient = !!meta?.atlarix;
+    // Zed and JetBrains start turns themselves: a message waits for the next prompt.
+    void import("@/lib/peers/peers").then((m) => m.setIdleMessagesWait(() => !this.atlarixClient));
   }
 
   constructor(private readonly deps: AcpDeps) {}

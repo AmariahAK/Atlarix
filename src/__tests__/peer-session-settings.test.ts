@@ -11,6 +11,7 @@ import {
   noteLiveSession,
   resolvePeer,
   sendPeerMessage,
+  setIdleMessagesWait,
   startPeerInbox,
   type PeerHost,
 } from "@/lib/peers/peers";
@@ -138,5 +139,15 @@ describe("setting another session", () => {
     expect(retry).toEqual({ ok: true, applied: "Plan updated by Rix." });
     const approve = await sendPeerMessage(guard(), from, "", { plan: "approve" });
     expect(approve.applied).toBe("Plan approved by Rix.");
+  });
+
+  it("a message to an idle editor session that waits for its next prompt says so (Zed, JetBrains)", async () => {
+    setIdleMessagesWait(() => true);
+    try {
+      expect((await sendPeerMessage(guard(), from, "read the spec")).waits).toBe(true);
+    } finally {
+      setIdleMessagesWait(() => false);
+    }
+    expect((await sendPeerMessage(guard(), from, "and the tests")).waits).toBeUndefined();
   });
 });

@@ -172,6 +172,15 @@ let token = "";
 let server: net.Server | null = null;
 let heartbeat: ReturnType<typeof setInterval> | null = null;
 let hostImpl: PeerHost | null = null;
+/**
+ * An idle session here waits for its next prompt to read a message (Zed,
+ * JetBrains: the editor starts turns, not Atlarix), so the sender is told
+ * that, not that it starts a turn (QA, ai-95).
+ */
+let idleMessagesWait: () => boolean = () => false;
+export function setIdleMessagesWait(waits: () => boolean): void {
+  idleMessagesWait = waits;
+}
 let surface: Surface = "app";
 let dbFn: (() => Sqlite | null) | null = null;
 const recentBySender = new Map<string, number[]>();
@@ -454,7 +463,7 @@ function accept(socket: net.Socket): void {
 /** Exported for tests. */
 export async function receive(
   f: PeerFrame,
-): Promise<{ ok: boolean; error?: string; applied?: string }> {
+): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean }> {
   if (!f || !["peer-message", "open-session", "steer", "stop"].includes(f.type))
     return { ok: false, error: "unknown frame" };
   if (!token || f.token !== token)
@@ -571,8 +580,13 @@ export async function receive(
       wrapPeerMessage(f.from, text),
     );
   }
-  if ((text || applied.startTurn) && !hostImpl.isBusy(target.chatId)) hostImpl.wake(target.chatId);
-  return { ok: true, ...(applied.notice ? { applied: applied.notice } : {}) };
+  const idle = (text || applied.startTurn) && !hostImpl.isBusy(target.chatId);
+  if (idle) hostImpl.wake(target.chatId);
+  return {
+    ok: true,
+    ...(applied.notice ? { applied: applied.notice } : {}),
+    ...(idle && idleMessagesWait() ? { waits: true } : {}),
+  };
 }
 
 /**
@@ -850,7 +864,7 @@ export function sendPeerMessage(
   from: PeerFrame["from"],
   text: string,
   set?: PeerFrame["set"],
-): Promise<{ ok: boolean; error?: string; applied?: string }> {
+): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean }> {
   // Delivering to a CLI's placeholder first creates its session (seconds).
   return sendFrame(
     row.socket,
@@ -876,7 +890,7 @@ function sendFrame(
   socketPath: string,
   frame: PeerFrame,
   timeoutError: string,
-): Promise<{ ok: boolean; error?: string; applied?: string }> {
+): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean }> {
   return new Promise((resolve) => {
     const socket = net.connect(socketPath);
     const reader = new FrameReader();
@@ -888,7 +902,7 @@ function sendFrame(
     socket.once("connect", () => socket.write(encodeFrame(frame)));
     socket.on("data", (chunk) => {
       try {
-        const [reply] = reader.push(chunk) as Array<{ ok: boolean; error?: string; applied?: string }>;
+        const [reply] = reader.push(chunk) as Array<{ ok: boolean; error?: string; applied?: string; waits?: boolean }>;
         if (reply) finish(reply);
       } catch {
         finish({ ok: false, error: "garbled reply" });
