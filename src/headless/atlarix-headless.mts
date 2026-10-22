@@ -44,7 +44,7 @@ import path from "node:path";
 import { runHeadlessAgent } from "./headless-runner";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
 import { setPinnedCoreToken } from "@/ipc/shared/core_proxy";
-import { setPinnedProviderKey } from "@/ipc/shared/pinned-provider-key";
+import { pinApiKeyFile } from "./api-key-file";
 import { formatFatal } from "@/cli/errors";
 
 /**
@@ -80,7 +80,8 @@ Options
   --provider-url <url>      Any OpenAI-compatible address, or Anthropic's API there with --provider-id anthropic
   --auth-header bearer      With --provider-id anthropic at another address: send the key as a Bearer token
   --model <id>              Model id
-  --api-key <key> | --api-key-file <path>
+  --api-key <key>           The provider's key (saved in this profile's settings)
+  --api-key-file <path>     The key from a file, kept in memory only; the file is DELETED after reading
   --attach <file>           Attach a file (repeatable)
   --deep-thinking           The model's highest reasoning level
   --effort <level>          A level exactly as the model lists it (e.g. xhigh)
@@ -205,22 +206,19 @@ async function main() {
     fs.rmSync(coreTokenFile, { force: true });
   }
   // The user's own provider key (the cloud agent's own-key runs): the same
-  // treatment as the Core token. Read once, the file deleted, the key held in
-  // memory for `--provider-id` only. Never written to user-settings.json, which
-  // is what `--api-key` does, and never put in the environment.
+  // treatment as the Core token, pinned under the provider the run uses
+  // (api-key-file.ts).
   const apiKeyFile = arg("api-key-file");
   if (apiKeyFile) {
-    if (!providerId || providerId === "compass") {
-      console.error("atlarix-headless: --api-key-file needs --provider-id naming the key's provider (e.g. anthropic)");
+    const pinned = pinApiKeyFile(apiKeyFile, {
+      id: providerId,
+      baseUrl: providerUrl,
+      ...(authHeader ? { authHeader } : {}),
+    });
+    if ("error" in pinned) {
+      console.error(`atlarix-headless: ${pinned.error}`);
       process.exit(2);
     }
-    const key = fs.readFileSync(apiKeyFile, "utf8");
-    fs.rmSync(apiKeyFile, { force: true });
-    if (!key.trim()) {
-      console.error("atlarix-headless: the --api-key-file was empty");
-      process.exit(2);
-    }
-    setPinnedProviderKey(providerId, key);
   }
   if (providerId === "compass") {
     if (!process.env.ATLARIX_CORE_PROXY_URL) {
