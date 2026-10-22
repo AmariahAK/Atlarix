@@ -2221,6 +2221,7 @@ export class IpcClient {
       sessionId: string;
       mode?: import("@/lib/schemas").WorkMode;
       model?: { provider: string; name: string; label: string };
+      plan?: "approve" | "reject" | "update";
       notice: string;
     }) => void,
   ): () => void {

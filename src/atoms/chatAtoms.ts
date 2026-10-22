@@ -32,7 +32,13 @@ export const peerModelByChatIdAtom = atom<Map<number, { provider: string; name: 
  */
 export const peerModeByChatIdAtom = atom<Map<number, import("@/lib/schemas").WorkMode>>(new Map());
 /** The line saying another session changed this chat's mode or model (item 9). */
-export const peerSettingsNoticeByChatIdAtom = atom<Map<number, string>>(new Map());
+export const peerSettingsNoticeByChatIdAtom = atom<Map<number, PeerNotice>>(new Map());
+
+/** The line, and how many turn starts it outlives (an approval's own build turn: 1). */
+export interface PeerNotice {
+  text: string;
+  keepTurns: number;
+}
 
 /**
  * Concurrent sessions: every workspace conversation the user has opened this
