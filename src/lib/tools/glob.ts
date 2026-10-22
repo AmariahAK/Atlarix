@@ -25,6 +25,7 @@ import {
   stripToolPathPrefixes,
 } from "../../ipc/utils/safeWorkspaceRelativePath";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
+import { classifyRgFailure, expandHome, unreadableNote } from "./search-root";
 import { resolveRipgrepPath } from "./resolve-ripgrep";
 
 const execFileAsync = promisify(execFile);
@@ -41,8 +42,11 @@ const MAX_LIMIT = 1000;
  * metacharacter. `src/**\/*.ts` is untouched — a workspace-relative pattern is a
  * pattern, and ripgrep already handles it.
  *
- * An explicit `path` argument WINS: the caller said where to look, so a directory
- * prefix in the pattern is left alone rather than silently retargeting the search.
+ * An explicit `path` argument WINS over a `../` prefix: the caller said where to
+ * look, so that prefix is left alone rather than silently retargeting the search.
+ * An ABSOLUTE pattern INSIDE that path is made relative to it: handed to ripgrep
+ * as a glob it matched nothing at all (QA 4(c), 2026-10-22). One pointing
+ * elsewhere is still left alone.
  *
  * `p` is the path flavour, injectable ONLY so both platforms can be tested from
  * one machine. It defaults to the running platform's and nothing passes it in
@@ -58,11 +62,11 @@ export function absorbPatternDirectoryPrefix(
 ): { pattern: string; searchPath: string } {
   const trimmed = (pattern ?? "").trim();
   const callerGavePath = (searchPath ?? "").trim() !== "" && searchPath !== ".";
-  if (callerGavePath || !trimmed) return { pattern, searchPath };
+  if (!trimmed) return { pattern, searchPath };
 
   const isAbsolute = p.isAbsolute(trimmed);
   const startsWithParent = /^\.\.[\\/]/.test(trimmed);
-  if (!isAbsolute && !startsWithParent) return { pattern, searchPath };
+  if (!isAbsolute && (callerGavePath || !startsWithParent)) return { pattern, searchPath };
 
   // Take the ROOT from the platform rather than assuming one leading separator.
   //
@@ -92,6 +96,13 @@ export function absorbPatternDirectoryPrefix(
   // a UNC root, where naive concatenation loses a leading slash.
   const dir = isAbsolute ? p.join(root, ...dirSegments) : dirSegments.join("/");
   const remainder = segments.slice(i).join("/");
+
+  if (callerGavePath) {
+    const rel = p.relative(p.resolve(searchPath), p.resolve(dir));
+    if (rel.startsWith("..") || p.isAbsolute(rel)) return { pattern, searchPath };
+    const relPattern = [...rel.split(/[\\/]+/).filter(Boolean), remainder || "*"].join("/");
+    return { pattern: relPattern, searchPath };
+  }
 
   // Nothing left to match on (e.g. `../telios`) → list that directory, which is
   // already the documented "bare directory listing" form of this tool.
@@ -162,7 +173,11 @@ ToolRegistry.register({
     // the `path` parameter that would have worked. Observed cost: the model
     // abandoned the tool and went to `pwd`/`ls`/`find`, then guessed the wrong
     // directory. Absorb the alias; don't prompt against it.
-    const absorbed = absorbPatternDirectoryPrefix(pattern, searchPath);
+    // `~` is the home folder in both, as in a shell; ripgrep never expands it.
+    const absorbed = absorbPatternDirectoryPrefix(
+      expandHome(pattern),
+      expandHome(searchPath),
+    );
     const effectivePattern = absorbed.pattern;
     const effectiveSearchPath = absorbed.searchPath;
     try {
@@ -201,16 +216,21 @@ ToolRegistry.register({
         trimmed === "*" ||
         trimmed === "**" ||
         trimmed === "**/*";
-      const ignoreArgs = await ripgrepIgnoreArgs(workspace);
+      const ignoreArgs = await ripgrepIgnoreArgs(workspace, fullPath);
       const rgArgs = ["--files", ...ignoreArgs];
       // ripgrep skips dot-folders, so `.atlarix/skills/*` (where skills live)
       // found nothing (QA 15.7.1). A pattern that NAMES a dot-folder looks in
       // it; .git stays out, and broad patterns keep skipping hidden files.
-      if (!isUniversal && /(^|[\\/])\.[^./\\*]/.test(effectivePattern)) {
+      if (
+        !rgArgs.includes("--hidden") &&
+        !isUniversal &&
+        /(^|[\\/])\.[^./\\*]/.test(effectivePattern)
+      ) {
         rgArgs.push("--hidden", "-g", "!.git/");
       }
       if (!isUniversal) rgArgs.push("-g", effectivePattern);
       let matched: string[] = [];
+      let unreadable: string[] = [];
       try {
         const { stdout } = await execFileAsync(
           await resolveRipgrepPath(),
@@ -229,16 +249,31 @@ ToolRegistry.register({
         // 2 on a real failure (e.g. a malformed glob like an unbalanced
         // '['). Only the former is "no files"; surface the latter so the
         // model fixes the pattern instead of trusting an empty result.
-        const err = e as { code?: number; stderr?: string };
+        //
+        // Exit 2 is ALSO what one unreadable folder gives (`./.Trash: Operation
+        // not permitted`), with the matches still on stdout: keep those and say
+        // which folders were skipped (QA A1, 2026-10-22).
+        const err = e as { code?: number; stdout?: string; stderr?: string };
         if (err.code === 1) {
           matched = [];
         } else {
-          const msg = (err.stderr || "").trim().split("\n")[0];
-          throw new Error(
-            msg
-              ? `Invalid glob pattern: ${msg}`
-              : "glob failed to run the pattern",
-          );
+          const failure = classifyRgFailure(err);
+          if (err.code !== 2 || failure.kind === "fatal") {
+            const msg =
+              failure.kind === "fatal"
+                ? failure.message
+                : (err.stderr || "").trim().split("\n")[0];
+            throw new Error(
+              msg
+                ? `Invalid glob pattern: ${msg}`
+                : "glob failed to run the pattern",
+            );
+          }
+          unreadable = failure.unreadable;
+          matched = failure.stdout
+            .split("\n")
+            .map((l) => l.trim())
+            .filter(Boolean);
         }
       }
       if (trimmed === "*") {
@@ -265,6 +300,9 @@ ToolRegistry.register({
           effectivePattern !== pattern
             ? ` (searched "${effectivePattern}" under ${fullPath})`
             : "";
+        if (unreadable.length) {
+          return `No files found matching pattern: ${pattern}${searchedNote}. ${unreadableNote(unreadable)}.`;
+        }
         return `No files found matching pattern: ${pattern}${searchedNote}. Often an extension or casing issue — try a broader glob (e.g. "**/${effectivePattern}"), or use grep to find the file by its content.`;
       }
 
@@ -298,7 +336,11 @@ ToolRegistry.register({
           ? `\n… ${withMtime.length - max} more matched — narrow the pattern or raise limit.`
           : "";
 
-      return `Found ${withMtime.length} file(s) (${bySize ? "largest first" : "newest first"}):\n${kept.join("\n")}${truncatedNote}`;
+      const unreadableLine = unreadable.length
+        ? `\n${unreadableNote(unreadable)}.`
+        : "";
+
+      return `Found ${withMtime.length} file(s) (${bySize ? "largest first" : "newest first"}):\n${kept.join("\n")}${truncatedNote}${unreadableLine}`;
     } catch (error) {
       throw new Error(`Failed to find files: ${error}`);
     }

@@ -13,6 +13,7 @@ import { promisify } from "util";
 import * as path from "node:path";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
+import { classifyRgFailure, expandHome, unreadableNote } from "./search-root";
 import { resolveRipgrepPath } from "./resolve-ripgrep";
 import { resolveToolTargetPath } from "@/ipc/utils/safeWorkspaceRelativePath";
 import {
@@ -98,15 +99,18 @@ export function parseGrepOutput(output: string): GrepGroup[] {
 
 async function runRipgrepSearch(args: {
   pattern: string;
+  /** Where the search starts: the workspace, or a folder outside it. */
+  root: string;
   workspace: string;
   contextLines: number;
   filePattern?: string;
   caseSensitive: boolean;
-}): Promise<GrepGroup[]> {
-  const { pattern, workspace, contextLines, filePattern, caseSensitive } = args;
+}): Promise<{ groups: GrepGroup[]; unreadable: string[] }> {
+  const { pattern, root, workspace, contextLines, filePattern, caseSensitive } = args;
   // `--no-require-git` + optional .atlarixignore, so ignores are honored even in
-  // a non-git workspace (matches the glob tool; see ripgrep-ignore.ts).
-  const ignoreArgs = await ripgrepIgnoreArgs(workspace);
+  // a non-git workspace (matches the glob tool; see ripgrep-ignore.ts). A root
+  // outside the workspace gets none of the workspace's ignores.
+  const ignoreArgs = await ripgrepIgnoreArgs(workspace, root);
   // Argv form (no shell): pattern/filePattern are model-controlled, so they must
   // never be interpolated into a shell string — `rg` receives them as literal
   // argv entries. `--` terminates option parsing so a pattern beginning with `-`
@@ -130,7 +134,7 @@ async function runRipgrepSearch(args: {
     ...extra,
     "--",
     pattern,
-    workspace,
+    root,
   ];
 
   const rgPath = await resolveRipgrepPath();
@@ -138,7 +142,18 @@ async function runRipgrepSearch(args: {
     const { stdout } = await execFileAsync(rgPath, buildArgs(extra), {
       maxBuffer: 10 * 1024 * 1024,
     });
-    return parseGrepOutput(stdout);
+    return { groups: parseGrepOutput(stdout), unreadable: [] };
+  };
+
+  // Exit 2 is ALSO what one unreadable folder gives, with the matches still on
+  // stdout (QA A1, 2026-10-22): keep those and say which folders were skipped.
+  const walkOnly = (e: unknown) => {
+    const err = e as { code?: number; stdout?: string; stderr?: string };
+    if (err.code !== 2) return null;
+    const failure = classifyRgFailure(err);
+    return failure.kind === "walk"
+      ? { groups: parseGrepOutput(failure.stdout), unreadable: failure.unreadable }
+      : null;
   };
 
   try {
@@ -150,13 +165,17 @@ async function runRipgrepSearch(args: {
     // matches", so an unsupported pattern silently returned empty and the model
     // wrongly concluded there was nothing to find. Distinguish them:
     const err = e as { code?: number; stderr?: string };
-    if (err.code === 1) return []; // genuinely no matches
+    if (err.code === 1) return { groups: [], unreadable: [] }; // genuinely no matches
+    const walked = walkOnly(e);
+    if (walked) return walked;
     // Retry once with PCRE2 so lookahead/backreferences/etc. actually work.
     try {
       return await runOnce(["--pcre2"]);
     } catch (e2) {
       const err2 = e2 as { code?: number; stderr?: string };
-      if (err2.code === 1) return [];
+      if (err2.code === 1) return { groups: [], unreadable: [] };
+      const walked2 = walkOnly(e2);
+      if (walked2) return walked2;
       const msg = (err2.stderr || err.stderr || "").trim().split("\n")[0];
       // Surface the real problem to the model instead of a misleading "no
       // matches" so it can fix the pattern rather than trust an empty result.
@@ -294,12 +313,13 @@ ToolRegistry.register({
     // `../sibling` counts as outside: it was previously treated as a workspace
     // glob, which quietly matched nothing instead of searching where the caller
     // asked — a silent wrong answer, worse than the error it replaced.
-    const scope = params.path?.trim()
-      ? resolveToolTargetPath(workspace, params.path)
+    // `~` is the home folder, as in a shell; ripgrep never expands it.
+    const scopePath = params.path?.trim() ? expandHome(params.path) : undefined;
+    const scope = scopePath?.trim()
+      ? resolveToolTargetPath(workspace, scopePath)
       : null;
     const absoluteScope =
-      scope &&
-      (path.isAbsolute(params.path!.trim()) || scope.isOutsideWorkspace)
+      scope && (path.isAbsolute(scopePath!.trim()) || scope.isOutsideWorkspace)
         ? scope.absPath
         : null;
     const searchRoot = absoluteScope ?? workspace;
@@ -307,10 +327,11 @@ ToolRegistry.register({
     try {
       const filePattern = absoluteScope
         ? params.include?.trim()
-        : params.include?.trim() || pathToRipgrepGlob(params.path);
-      const groups = await runRipgrepSearch({
+        : params.include?.trim() || pathToRipgrepGlob(scopePath);
+      const { groups, unreadable } = await runRipgrepSearch({
         pattern: params.pattern,
-        workspace: searchRoot,
+        root: searchRoot,
+        workspace,
         contextLines,
         filePattern,
         caseSensitive: params.case_sensitive === true,
@@ -343,20 +364,25 @@ ToolRegistry.register({
         kept += slice.length;
       }
 
+      const unreadableLine = unreadable.length
+        ? `\n\n${unreadableNote(unreadable)}.`
+        : "";
+
       if (trimmed.length === 0) {
         return {
           success: true,
-          result: `No matches for "${params.pattern}".`,
+          result: `No matches for "${params.pattern}".${unreadableLine}`,
           ui: { groups: [] },
         };
       }
 
       return {
         success: true,
-        result: formatGrepGroupsForDisplay(trimmed, params.pattern, {
-          perFileCap: 5,
-          maxBytes,
-        }),
+        result:
+          formatGrepGroupsForDisplay(trimmed, params.pattern, {
+            perFileCap: 5,
+            maxBytes,
+          }) + unreadableLine,
         ui: {
           groups: trimmed.map((g) => ({
             file: g.file,
