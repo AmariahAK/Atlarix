@@ -35,21 +35,44 @@ export interface ModelChoiceLike {
   provider: string;
   name: string;
   label: string;
+  /** "Atlarix", or the provider's own name: tells two models with one label apart. */
+  providerName?: string;
+}
+
+/**
+ * Each model's name as list_sessions shows it and send_message takes it: its
+ * label, or "label (provider)" when two of them share a label (the same model
+ * through two providers, QA E6).
+ */
+export function modelNames<T extends ModelChoiceLike>(options: readonly T[]): Array<{ name: string; option: T }> {
+  const count = new Map<string, number>();
+  for (const o of options) count.set(o.label.toLowerCase(), (count.get(o.label.toLowerCase()) ?? 0) + 1);
+  return options.map((o) => ({
+    name: (count.get(o.label.toLowerCase()) ?? 0) > 1 ? `${o.label} (${o.providerName || o.provider})` : o.label,
+    option: o,
+  }));
 }
 
 /**
  * The model asked for, among the ones this user has set up: by its name as
- * listed, `provider/name`, or its id. Anything else is refused with the list.
+ * listed, `provider/name`, or its id. A name two models share is refused with
+ * both forms, never resolved to the first; anything else is refused with the list.
  */
 export function matchModel<T extends ModelChoiceLike>(asked: string, options: readonly T[]): T | { error: string } {
   const a = asked.trim().toLowerCase();
-  const hit =
-    options.find((o) => o.label.toLowerCase() === a) ??
-    options.find((o) => `${o.provider}/${o.name}`.toLowerCase() === a) ??
-    options.find((o) => o.name.toLowerCase() === a);
-  if (hit) return hit;
-  const names = options.map((o) => o.label).join(", ");
-  return { error: `"${asked}" is not a model this user has set up${names ? `. Models you can set: ${names}` : ""}` };
+  const named = modelNames(options);
+  const listed = named.map((n) => n.name).join(", ");
+  const exact = named.find((n) => n.name.toLowerCase() === a);
+  if (exact) return exact.option;
+  const byPath = options.find((o) => `${o.provider}/${o.name}`.toLowerCase() === a);
+  if (byPath) return byPath;
+  const loose = options.filter((o) => o.label.toLowerCase() === a || o.name.toLowerCase() === a);
+  if (loose.length === 1) return loose[0]!;
+  if (loose.length > 1) {
+    const forms = named.filter((n) => loose.includes(n.option)).map((n) => `"${n.name}"`).join(" or ");
+    return { error: `"${asked}" names more than one model: say ${forms}` };
+  }
+  return { error: `"${asked}" is not a model this user has set up${listed ? `. Models you can set: ${listed}` : ""}` };
 }
 
 /** The line the changed session shows: "Mode set to Review by Rix. From the next turn." */

@@ -118,9 +118,12 @@ async function applyPeerSettings(
   let model: { provider: string; name: string; label: string } | undefined;
   if (set.model) {
     const { loadModelOptions } = await import("@/cli/agent/models");
-    const hit = s.matchModel(set.model, await loadModelOptions().catch(() => []));
+    const options = await loadModelOptions().catch(() => []);
+    const hit = s.matchModel(set.model, options);
     if ("error" in hit) return { ok: false, error: hit.error };
-    model = { provider: hit.provider, name: hit.name, label: hit.label };
+    // The name list_sessions shows: "label (provider)" when two share a label.
+    const shown = s.modelNames(options).find((n) => n.option === hit)?.name ?? hit.label;
+    model = { provider: hit.provider, name: hit.name, label: shown };
   }
   if (mode && row) {
     await db.update(chatSessions).set({ workMode: mode }).where(eq(chatSessions.id, target.sessionId));

@@ -14,7 +14,7 @@ import {
   startPeerInbox,
   type PeerHost,
 } from "@/lib/peers/peers";
-import { matchModel, parseMode, settingsNotice } from "@/lib/peers/session-settings";
+import { matchModel, modelNames, parseMode, settingsNotice } from "@/lib/peers/session-settings";
 
 describe("the rules", () => {
   it("takes a mode by the name people see or its id", () => {
@@ -34,6 +34,17 @@ describe("the rules", () => {
     expect(matchModel("claude-haiku-4-5", set)).toMatchObject({ label: "Claude Haiku 4.5" });
     const no = matchModel("GPT-6 Astra", set);
     expect("error" in no && no.error).toContain("Models you can set: Atlarix Auto, Claude Haiku 4.5");
+  });
+
+  it("two models with one label: each named with its provider, and a bare name is refused, never the first (QA E6)", () => {
+    const set = [
+      { provider: "atlarix-headless", name: "zai.glm-4.7-flash", label: "zai.glm-4.7-flash", providerName: "Atlarix Headless" },
+      { provider: "custom::qa-bedrock", name: "zai.glm-4.7-flash", label: "zai.glm-4.7-flash", providerName: "qa-bedrock" },
+    ];
+    expect(modelNames(set).map((n) => n.name)).toEqual(["zai.glm-4.7-flash (Atlarix Headless)", "zai.glm-4.7-flash (qa-bedrock)"]);
+    expect(matchModel("zai.glm-4.7-flash (qa-bedrock)", set)).toMatchObject({ provider: "custom::qa-bedrock" });
+    const bare = matchModel("zai.glm-4.7-flash", set);
+    expect("error" in bare && bare.error).toContain('say "zai.glm-4.7-flash (Atlarix Headless)" or "zai.glm-4.7-flash (qa-bedrock)"');
   });
 
   it("says who changed what, from the next turn", () => {

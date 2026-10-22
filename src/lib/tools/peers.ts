@@ -14,7 +14,7 @@ import {
   PEER_TEXT_CAP,
 } from "@/lib/peers/peers";
 import { peerSurfaceLabel } from "@/lib/peers/peer-message";
-import { MODE_NAMES, parseMode } from "@/lib/peers/session-settings";
+import { MODE_NAMES, modelNames, parseMode } from "@/lib/peers/session-settings";
 
 ToolRegistry.register({
   name: "list_sessions",
@@ -42,7 +42,7 @@ ToolRegistry.register({
     );
     // What send_message's `model` may be: only what this user has set up.
     const { loadModelOptions } = await import("@/cli/agent/models");
-    const models = (await loadModelOptions().catch(() => [])).map((o) => o.label);
+    const models = modelNames(await loadModelOptions().catch(() => [])).map((n) => n.name);
     return {
       success: true,
       text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${models.join(", ")}` : ""}`,
