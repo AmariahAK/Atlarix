@@ -25,7 +25,7 @@ import {
   stripToolPathPrefixes,
 } from "../../ipc/utils/safeWorkspaceRelativePath";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
-import { classifyRgFailure, expandHome, unreadableNote } from "./search-root";
+import { classifyRgFailure, expandHome, toSlashes, unreadableNote } from "./search-root";
 import { resolveRipgrepPath } from "./resolve-ripgrep";
 
 const execFileAsync = promisify(execFile);
@@ -289,7 +289,8 @@ ToolRegistry.register({
 
       // Like opencode / Claude Code, in-workspace files (incl. .env) are
       // enumerable — the agent works over the whole project.
-      const files = matched;
+      // "/" on every platform, as grep reports them.
+      const files = matched.map(toSlashes);
 
       if (files.length === 0) {
         // Report what was actually searched, not just what was asked. When a

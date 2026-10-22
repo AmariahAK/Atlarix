@@ -162,3 +162,11 @@ describe.runIf(canLock)("one unreadable folder", () => {
     expect(await run("glob", { pattern: "src/[a" }, pws)).toMatch(/Invalid glob pattern/);
   });
 });
+
+describe("one path spelling for grep and glob (QA, ai-b8: Windows)", () => {
+  it("backslashes become slashes", async () => {
+    const { toSlashes } = await import("@/lib/tools/search-root");
+    expect(toSlashes("src\\a.ts")).toBe("src/a.ts");
+    expect(toSlashes("src/b.ts")).toBe("src/b.ts");
+  });
+});

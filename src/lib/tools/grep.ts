@@ -14,7 +14,7 @@ import * as path from "node:path";
 import { stat } from "node:fs/promises";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
-import { classifyRgFailure, expandHome, unreadableNote } from "./search-root";
+import { classifyRgFailure, expandHome, toSlashes, unreadableNote } from "./search-root";
 import { resolveRipgrepPath } from "./resolve-ripgrep";
 import { resolveToolTargetPath } from "@/ipc/utils/safeWorkspaceRelativePath";
 import {
@@ -201,7 +201,7 @@ async function runRipgrepSearch(args: {
 
 /** A match's path from where the search started; a one-file search names the file. */
 function relLabel(root: string, file: string): string {
-  return (path.relative(root, file) || path.basename(file)).replace(/\\/g, "/");
+  return toSlashes(path.relative(root, file) || path.basename(file));
 }
 
 function pathToRipgrepGlob(scopePath: string | undefined): string | undefined {

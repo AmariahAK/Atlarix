@@ -63,3 +63,11 @@ export function unreadableNote(unreadable: string[]): string {
   const more = unreadable.length > 3 ? `, +${unreadable.length - 3} more` : "";
   return `${unreadable.length} folder(s) couldn't be read (permissions): ${shown}${more}`;
 }
+
+/**
+ * A path as grep and glob report it: with "/" on every platform. On Windows
+ * grep said "src/a.ts" and glob "src\\a.ts" for the same file (QA, ai-b8).
+ */
+export function toSlashes(p: string): string {
+  return p.replace(/\\/g, "/");
+}
