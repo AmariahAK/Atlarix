@@ -760,6 +760,21 @@ export function App({
   const sessionStartedAt = useRef(Date.now());
   const [ratedAt, setRatedAt] = useState<number | undefined | null>(null);
   const [ratingDone, setRatingDone] = useState(false);
+  // Per SESSION, not per process: /new, /resume and a fork start over. The
+  // turns counted before /new asked the next session after one turn, and sent
+  // the wrong count (QA A9).
+  const ratingSession = useRef(session.sessionId);
+  useEffect(() => {
+    if (ratingSession.current === session.sessionId) return;
+    // A new session's first message gives it its id mid-turn: still the same session.
+    const firstId = !ratingSession.current && session.sessionId;
+    ratingSession.current = session.sessionId;
+    if (firstId) return;
+    setTurnsDone(0);
+    setRatingDone(false);
+    setFeedbackOpen(false);
+    sessionStartedAt.current = Date.now();
+  });
   /** The next line typed goes to /feedback, not the model (after a rating, or a bare /feedback). */
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   useEffect(() => {

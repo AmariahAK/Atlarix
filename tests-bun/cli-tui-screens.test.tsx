@@ -24,6 +24,7 @@ let reaskNext = false;
 
 class FakeSession extends EventEmitter {
   workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-screens-ws-"));
+  sessionId = "fake-session-1";
   appId = 7;
   model = undefined;
   calls: Call[] = [];
@@ -1022,6 +1023,23 @@ describe("command screens", () => {
     // Once a session.
     await turns(setup, session, 3);
     expect(setup.captureCharFrame()).not.toContain("How is Atlarix doing");
+  });
+
+  it("the session rating counts each session's own turns: /new starts over (QA A9)", async () => {
+    const sent: unknown[][] = [];
+    const { setup, session } = await mount(feedbackFake(sent));
+    await turns(setup, session, 5);
+    // /new: no id until its first message, then its own.
+    session.sessionId = "";
+    await turns(setup, session, 1);
+    session.sessionId = "fake-session-2";
+    await settle(setup);
+    expect(setup.captureCharFrame()).not.toContain("How is Atlarix doing");
+    await turns(setup, session, 5);
+    await frameContaining(setup, "How is Atlarix doing this session?");
+    setup.mockInput.pressKey("2");
+    expect(await until(() => sent.some((c) => c[0] === "send"))).toBe(true);
+    expect((sent.find((c) => c[0] === "send")![2] as { turns: number }).turns).toBe(6);
   });
 
   it("the session rating waits 3 days after any surface was answered", async () => {
