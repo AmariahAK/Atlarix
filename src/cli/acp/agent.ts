@@ -169,6 +169,11 @@ class Thread {
     session.on("background-ready", () => this.onBackgroundReady());
     session.on("tasks-changed", () => this.checkTasks());
     session.on("automation", (run: Record<string, unknown>) => this.onAutomationRun(run));
+    // Another session changed the model (item 9): the editor's picker follows.
+    // A mode change already goes out with the session's state.
+    session.on("peer-settings", () => {
+      void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+    });
     // A stopped turn's unsent text goes back to the editor's input box.
     session.on("unsent", (text: string) => {
       if (this.extras()) void this.client().notify("_atlarix/unsent", { sessionId: this.id, text }).catch(() => {});

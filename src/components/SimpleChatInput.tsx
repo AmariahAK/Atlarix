@@ -8,6 +8,7 @@
 import React, { useRef, useEffect } from "react";
 import { McpSuggestionCards } from "@/components/chat/McpSuggestionCards";
 import { SessionRatingCard } from "@/components/chat/SessionRatingCard";
+import { PeerSettingsNotice } from "@/components/chat/PeerSettingsNotice";
 import {
   SendIcon,
   Paperclip,
@@ -344,6 +345,9 @@ export function SimpleChatInput({
 
       {/* MCP servers the agent suggested: connect one here, no marketplace trip. */}
       <McpSuggestionCards chatId={chatId} />
+
+      {/* Another session changed this chat's mode or model (item 9). */}
+      <PeerSettingsNotice chatId={chatId} />
 
       {/* "How is Atlarix doing this session?", then "What should we improve?". */}
       <SessionRatingCard chatId={chatId} composerEmpty={!inputValue.trim()} />

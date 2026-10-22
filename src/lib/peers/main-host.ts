@@ -12,6 +12,7 @@ import { apps, chatSessions } from "@/db/schema";
 import {
   isPlaceholderTitle,
   noteLiveSession,
+  noteSessionModel,
   publishPeerState,
   startPeerInbox,
   type Surface,
@@ -95,6 +96,47 @@ async function openSessionInApp(
 
 let unhookLive: (() => void) | null = null;
 
+/**
+ * Another session sets this one's mode and/or model (item 9): checked here,
+ * the mode stored on the session as a mode picked in it is, and the change
+ * told to the windows (the app's, the CLI's and the editors' sessions), which
+ * use it from the next turn and show `notice`.
+ */
+async function applyPeerSettings(
+  target: { chatId: number; sessionId: string },
+  set: { mode?: string; model?: string },
+  from: { name: string },
+): Promise<{ ok: boolean; error?: string; notice?: string }> {
+  const s = await import("./session-settings");
+  let mode: import("./session-settings").PeerMode | undefined;
+  if (set.mode) {
+    const parsed = s.parseMode(set.mode);
+    if (!parsed) return { ok: false, error: `no mode "${set.mode}": build, explore, plan, debug or review` };
+    mode = parsed;
+  }
+  const row = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, target.sessionId) });
+  let model: { provider: string; name: string; label: string } | undefined;
+  if (set.model) {
+    const { loadModelOptions } = await import("@/cli/agent/models");
+    const hit = s.matchModel(set.model, await loadModelOptions().catch(() => []));
+    if ("error" in hit) return { ok: false, error: hit.error };
+    model = { provider: hit.provider, name: hit.name, label: hit.label };
+  }
+  if (mode && row) {
+    await db.update(chatSessions).set({ workMode: mode }).where(eq(chatSessions.id, target.sessionId));
+  }
+  if (model) noteSessionModel(target.sessionId, model.label);
+  const notice = s.settingsNotice({ mode, model: model?.label }, from.name);
+  broadcastToAllWindows("session:peer-settings", {
+    chatId: target.chatId,
+    sessionId: target.sessionId,
+    ...(mode ? { mode } : {}),
+    ...(model ? { model } : {}),
+    notice,
+  });
+  return { ok: true, notice };
+}
+
 /** Start the inbox for this process. Never throws. */
 export async function startPeerMessaging(surface: Surface): Promise<void> {
   try {
@@ -142,6 +184,7 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
           broadcastToAllWindows("chat:remote-stop", { chatId });
         },
         ...(surface === "app" ? { openSession: openSessionInApp } : {}),
+        applySettings: applyPeerSettings,
         inbound: () => {
           try {
             const v = (readSettings() as { peerMessages?: string })

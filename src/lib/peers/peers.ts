@@ -59,6 +59,8 @@ export interface LocalSession {
   aliases?: string[];
   /** Published as this surface instead of the process's own (a browser this process speaks for). */
   surface?: Surface;
+  /** The model it runs on, as people see it, for list_sessions (item 9). */
+  model?: string;
   /**
    * Hand the message on instead of queueing it in a chat here: a session this
    * process registers on behalf of something else (a browser behind the
@@ -78,6 +80,9 @@ export interface PeerSessionRow {
   surface: Surface;
   busy: boolean;
   pid: number;
+  /** Its mode (the stored one; Build when none was chosen) and model, when known (item 9). */
+  mode?: string;
+  model?: string;
 }
 
 interface PeerFrame {
@@ -90,7 +95,10 @@ interface PeerFrame {
   token: string;
   to: string;
   id: string;
+  /** Optional when `set` is given: a change alone. */
   text: string;
+  /** Set the session's mode and/or model from its next turn (item 9). */
+  set?: { mode?: string; model?: string };
   from: {
     sessionId: string;
     name: string;
@@ -108,6 +116,12 @@ export interface PeerHost {
   wake(chatId: number): void;
   /** "accept" (default) or "refuse". */
   inbound(): "accept" | "refuse";
+  /** Set a session's mode and/or model from its next turn (item 9); `notice` is the line it shows. */
+  applySettings?(
+    target: { chatId: number; sessionId: string },
+    set: { mode?: string; model?: string },
+    from: PeerFrame["from"],
+  ): Promise<{ ok: boolean; error?: string; notice?: string }>;
   /**
    * Show this session here and carry on in it (a handoff from another surface).
    * Only the app implements it: a CLI cannot open a terminal for itself.
@@ -182,6 +196,11 @@ function ensureTable(db: Sqlite): void {
   } catch {
     /* already there */
   }
+  try {
+    db.exec(`ALTER TABLE ${LIVE_SESSIONS_TABLE} ADD COLUMN model TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    /* already there */
+  }
 }
 
 /**
@@ -247,8 +266,8 @@ function publish(): void {
     ).run(process.pid, host);
     const insert = d.prepare(
       `INSERT INTO ${LIVE_SESSIONS_TABLE}
-       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     // This process itself: how a handoff reaches "the app" with nothing open.
     insert.run(
@@ -263,6 +282,7 @@ function publish(): void {
       0,
       now,
       "[]",
+      "",
     );
     for (const s of local.values()) {
       insert.run(
@@ -277,6 +297,7 @@ function publish(): void {
         !s.deliver && hostImpl?.isBusy(s.chatId) ? 1 : 0,
         now,
         JSON.stringify(s.aliases ?? []),
+        s.model ?? "",
       );
     }
   } catch (e) {
@@ -422,7 +443,7 @@ function accept(socket: net.Socket): void {
 /** Exported for tests. */
 export async function receive(
   f: PeerFrame,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; applied?: string }> {
   if (!f || !["peer-message", "open-session", "steer", "stop"].includes(f.type))
     return { ok: false, error: "unknown frame" };
   if (!token || f.token !== token)
@@ -442,9 +463,14 @@ export async function receive(
       error: "that session does not accept messages from other sessions",
     };
   const text = typeof f.text === "string" ? f.text.trim() : "";
-  if (!text) return { ok: false, error: "empty message" };
+  const set = f.set && (f.set.mode || f.set.model) ? f.set : null;
+  if (!text && !set) return { ok: false, error: "empty message" };
   if (text.length > PEER_TEXT_CAP)
     return { ok: false, error: `message over ${PEER_TEXT_CAP} characters` };
+  if (set && target.deliver)
+    return { ok: false, error: "a browser session has no mode or model to set" };
+  if (set && !hostImpl.applySettings)
+    return { ok: false, error: "this Atlarix cannot set another session's mode or model" };
 
   const now = Date.now();
   const senderKey = `${f.from?.sessionId}->${f.to}`;
@@ -458,7 +484,7 @@ export async function receive(
         "too many messages to this session just now — batch them into one or wait a minute",
     };
   }
-  const dupKey = `${senderKey}\0${text}`;
+  const dupKey = `${senderKey}\0${text}\0${set?.mode ?? ""}\0${set?.model ?? ""}`;
   if ((recentTexts.get(dupKey) ?? 0) > now - DUPLICATE_WINDOW_MS) {
     return { ok: true }; // a repeat; already delivered
   }
@@ -507,13 +533,23 @@ export async function receive(
     }
   }
 
-  hostImpl.enqueue(
-    target.chatId,
-    f.id || randomUUID(),
-    wrapPeerMessage(f.from, text),
-  );
-  if (!hostImpl.isBusy(target.chatId)) hostImpl.wake(target.chatId);
-  return { ok: true };
+  // The change first: refused (a model not set up there), nothing is
+  // delivered, so the sender learns it as one answer.
+  let applied: { notice?: string } = {};
+  if (set) {
+    const r = await hostImpl.applySettings!({ chatId: target.chatId, sessionId: target.sessionId }, set, f.from);
+    if (!r.ok) return { ok: false, error: r.error ?? "not changed" };
+    applied = r;
+  }
+  if (text) {
+    hostImpl.enqueue(
+      target.chatId,
+      f.id || randomUUID(),
+      wrapPeerMessage(f.from, text),
+    );
+    if (!hostImpl.isBusy(target.chatId)) hostImpl.wake(target.chatId);
+  }
+  return { ok: true, ...(applied.notice ? { applied: applied.notice } : {}) };
 }
 
 /**
@@ -551,6 +587,7 @@ export const NOT_RUNNING = "not running";
 
 interface Row {
   aliases?: string;
+  model?: string;
   session_id: string;
   pid: number;
   host: string;
@@ -599,6 +636,7 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
   const out: PeerSessionRow[] = [];
   const rows = liveRows().sort((a, b) => b.last_seen - a.last_seen);
   const blank = blankSessions(rows.map((r) => r.session_id));
+  const modes = storedModes(rows.map((r) => r.session_id));
   for (const r of rows) {
     if (r.session_id.startsWith(PROCESS_ROW_PREFIX)) continue;
     if (r.session_id === exclude || seen.has(r.session_id)) continue;
@@ -626,9 +664,28 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       surface: asSurface(r.surface),
       busy: r.busy === 1,
       pid: r.pid,
+      ...(r.surface !== "chrome" ? { mode: modes.get(r.session_id) ?? "build" } : {}),
+      ...(r.model ? { model: r.model } : {}),
     });
   }
   return out;
+}
+
+/** The stored mode of each session (work_mode); a session with none runs in Build. */
+function storedModes(ids: string[]): Map<string, string> {
+  const d = db();
+  if (!d || !ids.length) return new Map();
+  try {
+    return new Map(
+      (
+        d
+          .prepare(`SELECT id, work_mode FROM chat_sessions WHERE id IN (${ids.map(() => "?").join(",")}) AND work_mode IS NOT NULL`)
+          .all(...ids) as Array<{ id: string; work_mode: string }>
+      ).map((r) => [r.id, r.work_mode]),
+    );
+  } catch {
+    return new Map(); // no chat_sessions here (tests)
+  }
 }
 
 /** Which of these sessions hold no messages yet. None when the database can't say. */
@@ -769,13 +826,22 @@ export function sendPeerMessage(
   row: { socket: string; token: string; session_id: string },
   from: PeerFrame["from"],
   text: string,
-): Promise<{ ok: boolean; error?: string }> {
+  set?: { mode?: string; model?: string },
+): Promise<{ ok: boolean; error?: string; applied?: string }> {
   // Delivering to a CLI's placeholder first creates its session (seconds).
   return sendFrame(
     row.socket,
-    { type: "peer-message", token: row.token, to: row.session_id, id: randomUUID(), text, from },
+    { type: "peer-message", token: row.token, to: row.session_id, id: randomUUID(), text, ...(set ? { set } : {}), from },
     "that session did not answer",
   );
+}
+
+/** The model a session of this process runs on, as people see it, for list_sessions (item 9). */
+export function noteSessionModel(sessionId: string, label: string | undefined): void {
+  const s = local.get(sessionId);
+  if (!s || s.model === label) return;
+  s.model = label;
+  publish();
 }
 
 /** One frame to another process's inbox, and its answer. */
@@ -783,7 +849,7 @@ function sendFrame(
   socketPath: string,
   frame: PeerFrame,
   timeoutError: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; applied?: string }> {
   return new Promise((resolve) => {
     const socket = net.connect(socketPath);
     const reader = new FrameReader();
@@ -795,7 +861,7 @@ function sendFrame(
     socket.once("connect", () => socket.write(encodeFrame(frame)));
     socket.on("data", (chunk) => {
       try {
-        const [reply] = reader.push(chunk) as Array<{ ok: boolean; error?: string }>;
+        const [reply] = reader.push(chunk) as Array<{ ok: boolean; error?: string; applied?: string }>;
         if (reply) finish(reply);
       } catch {
         finish({ ok: false, error: "garbled reply" });

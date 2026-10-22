@@ -23,6 +23,11 @@ export const selectedChatIdAtom = atom<number | null>(null);
 // Only reset when "New Chat" is clicked or app restarts
 export const activeChatIdAtom = atom<number | null>(null);
 
+/** A model another session set for this chat (item 9): its turns use it until you pick a model. */
+export const peerModelByChatIdAtom = atom<Map<number, { provider: string; name: string; label: string }>>(new Map());
+/** The line saying another session changed this chat's mode or model (item 9). */
+export const peerSettingsNoticeByChatIdAtom = atom<Map<number, string>>(new Map());
+
 /**
  * Concurrent sessions: every workspace conversation the user has opened this
  * run, in open order. Switching the active chat must NOT drop the others — a

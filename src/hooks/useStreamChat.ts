@@ -120,7 +120,7 @@ import { usePostHog } from "posthog-js/react";
 import * as Sentry from "@sentry/electron/renderer";
 import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 import { useSettings } from "./useSettings";
-import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, peerModelByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import {
   clearActivityForChatInStore,
   filterActivityForChat,
@@ -691,7 +691,7 @@ export function useStreamChat({
       chatId,
       redo,
       attachments,
-      modelOverride,
+      modelOverride: askedModel,
       onSettled,
       continueAfterQuestions,
       continueInterrupted,
@@ -723,6 +723,10 @@ export function useStreamChat({
       /** Persisted workspace session id for this stream turn. */
       workspaceSessionId?: string | null;
     }) => {
+      // A model another session set for this chat (item 9), unless this turn names one.
+      const peerModel = getDefaultStore().get(peerModelByChatIdAtom).get(chatId);
+      const modelOverride =
+        askedModel ?? (peerModel ? { provider: peerModel.provider, name: peerModel.name } : undefined);
       if (!chatId) return;
       const hasAttachments =
         attachments?.some(

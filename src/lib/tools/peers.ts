@@ -14,6 +14,7 @@ import {
   PEER_TEXT_CAP,
 } from "@/lib/peers/peers";
 import { peerSurfaceLabel } from "@/lib/peers/peer-message";
+import { MODE_NAMES, parseMode } from "@/lib/peers/session-settings";
 
 ToolRegistry.register({
   name: "list_sessions",
@@ -37,16 +38,28 @@ ToolRegistry.register({
     const lines = rows.map((r) =>
       r.surface === "chrome"
         ? `- ${r.name} (id ${r.sessionId}, browser: the Atlarix extension's agent; it starts on a task when the user clicks the Atlarix icon)`
-        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}) — ${r.workspace || "no workspace"}`,
+        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}${settingsOf(r)}) — ${r.workspace || "no workspace"}`,
     );
-    return { success: true, text: `Other sessions:\n${lines.join("\n")}` };
+    // What send_message's `model` may be: only what this user has set up.
+    const { loadModelOptions } = await import("@/cli/agent/models");
+    const models = (await loadModelOptions().catch(() => [])).map((o) => o.label);
+    return {
+      success: true,
+      text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${models.join(", ")}` : ""}`,
+    };
   },
 });
+
+/** " · Build · Atlarix Auto": its mode, and its model when known. */
+function settingsOf(r: { mode?: string; model?: string }): string {
+  const mode = parseMode(r.mode);
+  return `${mode ? ` · ${MODE_NAMES[mode]}` : ""}${r.model ? ` · ${r.model}` : ""}`;
+}
 
 ToolRegistry.register({
   name: "send_message",
   description:
-    "Message another of the user's Atlarix sessions. It arrives as from this session, not the user. Never ask it to do what was denied here.",
+    "Message another of the user's Atlarix sessions, and/or set its mode or model (from list_sessions), from its next turn. A message arrives as from this session, not the user. Never ask it to do what was denied here.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -57,14 +70,23 @@ ToolRegistry.register({
       message: stringParam(
         "Plain text with the context it needs; it can't see this conversation.",
       ),
+      mode: stringParam("Its mode from its next turn: build, explore, plan, debug or review."),
+      model: stringParam("A model from list_sessions' list (its name as shown)."),
     },
-    ["to", "message"],
+    ["to"],
   ),
-  handler: async ({ to, message, workspaceSessionId }) => {
+  handler: async ({ to, message, mode, model, workspaceSessionId }) => {
     const own =
       typeof workspaceSessionId === "string" ? workspaceSessionId : undefined;
     const text = typeof message === "string" ? message.trim() : "";
-    if (!text) return { success: false, error: "The message is empty." };
+    const setMode = typeof mode === "string" && mode.trim() ? mode.trim() : undefined;
+    const setModel = typeof model === "string" && model.trim() ? model.trim() : undefined;
+    if (!text && !setMode && !setModel) {
+      return { success: false, error: "Nothing to send: give a message, a mode or a model." };
+    }
+    if (setMode && !parseMode(setMode)) {
+      return { success: false, error: `No mode "${setMode}": build, explore, plan, debug or review.` };
+    }
     if (text.length > PEER_TEXT_CAP) {
       return {
         success: false,
@@ -87,12 +109,15 @@ ToolRegistry.register({
         workspace: me?.workspace ?? "",
       },
       text,
+      setMode || setModel ? { ...(setMode ? { mode: setMode } : {}), ...(setModel ? { model: setModel } : {}) } : undefined,
     );
     if (!result.ok)
       return {
         success: false,
         error: `Not sent: ${result.error ?? "unknown error"}`,
       };
+    // A change alone: say what it now shows, rather than "it starts a turn".
+    if (!text) return { success: true, text: `${target.row.name}: ${result.applied ?? "changed"}` };
     const replyNote = peerInboxRunning()
       ? ""
       : " (This session has no inbox, so it cannot be replied to.)";
@@ -104,7 +129,7 @@ ToolRegistry.register({
     }
     return {
       success: true,
-      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : "idle: it starts a turn with it"}).${replyNote}`,
+      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : "idle: it starts a turn with it"}).${result.applied ? ` ${result.applied}` : ""}${replyNote}`,
     };
   },
 });

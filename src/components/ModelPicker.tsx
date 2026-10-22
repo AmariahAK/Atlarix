@@ -25,6 +25,8 @@
  * advantage, the price badge.
  */
 
+import { useAtomValue } from "jotai";
+import { peerModelByChatIdAtom } from "@/atoms/chatAtoms";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useSelectModel } from "@/hooks/useSelectModel";
@@ -114,7 +116,12 @@ export function ModelPicker({
   const { models: lmStudioModels = [] } = useLocalLMSModels();
   const modelDisplayName = useModelDisplayName();
 
-  const selectedModel = settings?.selectedModel;
+  // A model another session set for this chat (item 9) is what it runs on.
+  const peerModel = useAtomValue(peerModelByChatIdAtom).get(resetKey ?? -1);
+  const selectedModel =
+    peerModel && settings?.selectedModel
+      ? { ...settings.selectedModel, provider: peerModel.provider, name: peerModel.name }
+      : settings?.selectedModel;
 
   // A yes given to the OLD wording ("shared with OpenAI") is asked again ONCE,
   // when free Auto is in use: it now also runs on free models through other

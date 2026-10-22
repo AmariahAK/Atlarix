@@ -1,4 +1,5 @@
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
+import { subscribeToPeerSessionSettings } from "@/lib/peers/peer-settings-window";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "../contexts/ThemeContext";
 import { DeepLinkProvider } from "../contexts/DeepLinkContext";
@@ -309,6 +310,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // Session titles are written by main (placeholder, then generated title);
   // this keeps the sidebar and open tabs in step with them.
   useEffect(() => subscribeToSessionTitleUpdates(), []);
+  useEffect(() => subscribeToPeerSessionSettings(), []);
 
   // F1: keep the sound module's enabled/volume in sync with the user setting
   // (default on at 0.7 when unset, matching DEFAULT_SETTINGS).

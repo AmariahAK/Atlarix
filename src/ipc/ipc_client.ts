@@ -2214,6 +2214,20 @@ export class IpcClient {
     return this.ipcRenderer.invoke("sessions:generate-title", sessionId);
   }
 
+  /** Another session set one of this window's sessions' mode and/or model (item 9). */
+  public onPeerSessionSettings(
+    listener: (p: {
+      chatId: number;
+      sessionId: string;
+      mode?: import("@/lib/schemas").WorkMode;
+      model?: { provider: string; name: string; label: string };
+      notice: string;
+    }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("session:peer-settings", (payload) => listener(payload as never));
+    return typeof off === "function" ? off : () => {};
+  }
+
   /** The stored sessions changed, whoever changed them (the CLI or an editor too). */
   public onSessionsChanged(listener: () => void): () => void {
     const off = this.ipcRenderer.on("sessions:changed", () => listener());

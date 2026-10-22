@@ -580,6 +580,7 @@ export class AgentSession extends EventEmitter {
     await this.newSession();
     this.sessionId = sessionId;
     this.chatId = chatId;
+    void this.reportModel();
     // Reachable by its real id now (allocate-transport registered it).
     void import("@/lib/peers/peers").then((m) => m.forgetLiveSession(this.pendingPeerId()));
     this.applySaved(got.messages);
@@ -1170,6 +1171,42 @@ export class AgentSession extends EventEmitter {
 
   setModel(model: ModelChoice | undefined): void {
     this.model = model;
+    void this.reportModel();
+  }
+
+  /** The model, as people see it, for other sessions' list_sessions (item 9). */
+  private async reportModel(): Promise<void> {
+    if (!this.sessionId || !this.model) return;
+    const { provider, name } = this.model;
+    const { loadModelOptions } = await import("./models");
+    const label = (await loadModelOptions().catch(() => [])).find((o) => o.provider === provider && o.name === name)?.label;
+    const { noteSessionModel } = await import("@/lib/peers/peers");
+    noteSessionModel(this.sessionId, label ?? name);
+  }
+
+  /**
+   * Another session set this one's mode and/or model: from the next turn (a
+   * running turn keeps what it started with), with a line saying who. Main
+   * already stored the mode on the session.
+   */
+  private applyPeerSettings(p: Record<string, unknown>): void {
+    const mode = typeof p.mode === "string" ? (p.mode as WorkMode) : undefined;
+    const model = p.model as { provider: string; name: string } | undefined;
+    if (mode) {
+      this.update({ mode });
+      this.modeChosen = true;
+    }
+    if (model?.provider && model.name) this.setModel({ provider: model.provider, name: model.name });
+    const id = `${Date.now().toString(36)}${++interjectionSeq}`;
+    this.wakeNotes.push({
+      id,
+      cellId: `peer-settings:${id}`,
+      afterCellId: lastAnchorCell(this.state.cells),
+      afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
+      text: `◇ ${String(p.notice ?? "")}`,
+    });
+    this.update({ cells: this.cellsFor(this.state.busy) });
+    this.emit("peer-settings", { mode, model });
   }
 
   /**
@@ -1306,6 +1343,7 @@ export class AgentSession extends EventEmitter {
     this.sessionId = started.sessionId;
     this.chatId = started.chatId;
     this.reservedId = null;
+    void this.reportModel();
     // A mode picked before the first message had no row to go on (QA E1).
     if (this.modeChosen) {
       await (await handler("sessions:set-work-mode"))({}, this.sessionId, this.state.mode).catch(() => {});
@@ -1858,6 +1896,10 @@ export class AgentSession extends EventEmitter {
       // Another surface following this session pressed Stop: as Esc here.
       case "chat:remote-stop":
         void this.interrupt();
+        return;
+      // Another session set this one's mode and/or model (item 9).
+      case "session:peer-settings":
+        this.applyPeerSettings(p);
         return;
       case "chat:response:chunk": {
         if (this.state.retrying) this.update({ retrying: null });
