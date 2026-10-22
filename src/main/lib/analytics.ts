@@ -223,6 +223,33 @@ function superProperties(): Record<string, unknown> {
   };
 }
 
+/**
+ * A session rating or `/feedback` from someone signed out, sent whatever the
+ * analytics answer: answering is the consent for this one event, and the card
+ * says what it sends (owner, 2026-10-22). Nothing ties it to anyone: a fresh id
+ * per event, no person profile, no location, no address.
+ */
+export function captureAnonymousFeedback(properties: Record<string, unknown>): boolean {
+  try {
+    const posthog = getPostHog();
+    if (!posthog) return false;
+    posthog.capture({
+      distinctId: uuidv4(),
+      event: "session_feedback",
+      disableGeoip: true,
+      properties: {
+        ...superProperties(),
+        ...properties,
+        $process_person_profile: false,
+        $ip: null,
+      },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Fire-and-forget capture; never throws (analytics must not break the app). */
 export function captureSafe(
   event: string,

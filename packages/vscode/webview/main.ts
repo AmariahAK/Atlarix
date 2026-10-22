@@ -21,6 +21,7 @@ import { button, el, iconButton, MODE_NAME, relTime, rixGlyph } from "./ui";
 import { renderAccount } from "./views/account";
 import { renderAddProvider } from "./views/addProvider";
 import { historyChanged, leaveHistory, renderHistory, renderUndo } from "./views/history";
+import { clearRating, maybeAskRating } from "./chat/rating";
 import { renderAutomations } from "./views/automations";
 import { renderMcp } from "./views/mcp";
 import type { Nav, View } from "./views/nav";
@@ -271,6 +272,7 @@ onHost((m: HostMessage) => {
         T.resetTranscript();
         clearTask();
         resetTasks();
+        clearRating();
         emit("session");
         // The new chat's ring starts empty, not the last chat's (QA).
         emit("usage");
@@ -330,6 +332,7 @@ onHost((m: HostMessage) => {
       const ready = m.stopReason === "cancelled" || m.error ? null : readyPlanTitle();
       if (ready) T.showPlanReady(ready.title, ready.resume, () => window.dispatchEvent(new CustomEvent("atlarix-build")));
       else T.clearPlanReady();
+      if (!m.error && m.stopReason !== "cancelled" && !ready) void maybeAskRating();
       return;
     }
     case "add-context":

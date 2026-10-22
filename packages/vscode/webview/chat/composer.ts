@@ -13,6 +13,7 @@ import { button, el, icon, iconButton, MODE_NAME, tokens } from "../ui";
 import { closePicker, openPicker, picker, pickerOpen } from "./picker";
 import * as T from "./transcript";
 import { suggestionsBox } from "./suggestions";
+import { ratingBox } from "./rating";
 import { keptFilesLine } from "../../../../src/lib/chat/kept-files-line";
 
 export interface ComposerHooks {
@@ -76,7 +77,7 @@ export function initComposer(h: ComposerHooks): void {
   box.append(chips, input, bar);
   under.append(modelBtn, ctxRing, el("span", "grow"), chromeDot);
   on("usage", renderContext);
-  composer.append(approval, working, editBar, suggest, modeMenu, approveLine, pendingList, suggestionsBox, box, under);
+  composer.append(approval, working, editBar, suggest, modeMenu, approveLine, pendingList, suggestionsBox, ratingBox, box, under);
   setBusy(false);
   renderOptions();
   on("options", renderOptions);

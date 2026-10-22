@@ -37,6 +37,14 @@
     "label": "While you were away",
     "dismiss": "Dismiss"
   },
+  "sessionRating": {
+    "bad": "1 Bad",
+    "fine": "2 Fine",
+    "good": "3 Good",
+    "dismiss": "Dismiss",
+    "send": "Send",
+    "skip": "Skip"
+  },
   "mcpSuggest": {
     "recommended": "Recommended for you",
     "browseAll": "Browse all",

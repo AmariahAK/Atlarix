@@ -294,6 +294,16 @@ export type McpSuggestionView = import("@/lib/mcp/mcp-suggestions").McpSuggestio
   status?: import("@/lib/mcp/mcp-suggestions").McpServerStatus | null;
 };
 
+/** What a rating or /feedback says about the session: never a prompt or code. */
+export interface FeedbackSessionInfo {
+  mode?: string;
+  effort?: string;
+  provider?: string;
+  model?: string;
+  turns?: number;
+  startedAt?: number;
+}
+
 export class IpcClient {
   private static instance: IpcClient;
   private ipcRenderer: PreloadIpcRenderer;
@@ -2297,6 +2307,21 @@ export class IpcClient {
 
   public async openExternalUrl(url: string): Promise<void> {
     await this.ipcRenderer.invoke("open-external-url", url);
+  }
+
+  /** The session rating's shared quiet period, and ATLARIX_FORCE_RATING. */
+  public async getFeedbackState(): Promise<{ askedAt: number | null; force: boolean }> {
+    return this.ipcRenderer.invoke("feedback:state") as Promise<{ askedAt: number | null; force: boolean }>;
+  }
+
+  /** 1-3 answers, 0 dismisses; either way it is not asked again for a while. */
+  public async rateSession(rating: number, session: FeedbackSessionInfo): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("feedback:rate", { rating, session }) as Promise<{ ok: boolean }>;
+  }
+
+  /** `/feedback`, or the text after a rating. */
+  public async sendFeedback(text: string, session: FeedbackSessionInfo): Promise<{ ok: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("feedback:send", { text, session }) as Promise<{ ok: boolean; error?: string }>;
   }
 
   public async getDiscordInviteInfo(): Promise<DiscordInviteInfoResult> {

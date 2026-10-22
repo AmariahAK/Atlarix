@@ -24,6 +24,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import { extractPlanChecklistTitle, parsePlanChecklist, plainStepText, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
 import type { SessionMcpServer } from "@/ipc/utils/mcp_manager";
+import type { FeedbackSession } from "@/main/lib/session-feedback";
 import type { AgentSession, ModelChoice, SessionState, WorkMode } from "../agent/session";
 import { promptInput } from "./content";
 import {
@@ -162,6 +163,10 @@ class Thread {
   private replayAll = false;
   /** The editor's own MCP servers for this session, listed by /mcp (QA #9). */
   editorMcpServers: SessionMcpServer[] = [];
+  /** When this chat was opened here: the session length a rating sends. */
+  readonly openedAt = Date.now();
+  /** The session rating was asked in this chat (answered or dismissed): once a session. */
+  ratingAsked = false;
 
   constructor(
     readonly id: string,
@@ -678,6 +683,12 @@ class Thread {
     const errorBefore = this.session.state.lastError;
     const slash = /^\/(\w+)\s*$/.exec(text);
     const skill = this.skillFor(text);
+    // `/feedback [1|2|3] [text]`: to Atlarix, never to the model.
+    const feedbackCmd = /^\/feedback(?:\s+([\s\S]*))?$/i.exec(text.trim());
+    if (feedbackCmd) {
+      await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: await this.feedbackCommand(feedbackCmd[1] ?? "") } });
+      return { stopReason: "end_turn" };
+    }
     // `/mcp add` with nothing after it: say what it takes, rather than sending it to the model.
     if (/^\/mcp\s+add\s*$/i.test(text)) {
       await this.send({
@@ -914,6 +925,38 @@ class Thread {
   }
 
   /** `/effort` lists this model's levels; `/effort <level>` sets one (as the picker's Effort). */
+  /** What a rating or /feedback says about this chat: never a prompt or code. */
+  async feedbackSession(): Promise<FeedbackSession> {
+    const thinking = (await this.options().catch(() => [])).find((o) => o.id === "thinking") as { currentValue?: unknown } | undefined;
+    return {
+      mode: this.session.state.mode,
+      ...(thinking?.currentValue ? { effort: String(thinking.currentValue) } : {}),
+      provider: this.session.model?.provider,
+      model: this.session.model?.name,
+      turns: this.session.myMessages().length,
+      startedAt: this.openedAt,
+    };
+  }
+
+  async feedbackCommand(rest: string): Promise<string> {
+    const { parseFeedbackCommand, FEEDBACK_THANKS, FEEDBACK_FAILED } = await import("@/lib/feedback/session-rating");
+    const { sendSessionFeedback, noteRatingAsked } = await import("@/main/lib/session-feedback");
+    const { rating, body } = parseFeedbackCommand(rest);
+    if (!rating && !body) {
+      return "Tell us what to improve: `/feedback` and your words. Put 1, 2 or 3 first to rate this chat too (1 bad, 2 fine, 3 good).";
+    }
+    const about = await this.feedbackSession();
+    if (rating) {
+      this.ratingAsked = true;
+      noteRatingAsked();
+      await sendSessionFeedback({ kind: "rating", rating }, about);
+    }
+    if (!body) return FEEDBACK_THANKS;
+    const sent = await sendSessionFeedback({ kind: "text", body }, about);
+    // Typed text is never dropped quietly: it is repeated, to copy and send again.
+    return sent.ok ? FEEDBACK_THANKS : `${FEEDBACK_FAILED} What you wrote: "${body}"`;
+  }
+
   private async effortCommand(arg: string | undefined): Promise<string> {
     const option = (await this.options()).find((o) => o.id === "thinking") as
       | { currentValue: unknown; options: Array<{ value: string; description?: string | null }> }
@@ -936,7 +979,7 @@ class Thread {
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "build"];
+const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "feedback", "build"];
 
 function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
   return {
@@ -954,6 +997,7 @@ function commandsUpdate(planReady: boolean, skills: Array<{ name: string; descri
       { name: "automations", description: "Scheduled and triggered tasks in this folder; run one, or turn it on or off." },
       { name: "handoff", description: "Continue this chat in the Atlarix app." },
       { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },
+      { name: "feedback", description: "Tell us what to improve; 1, 2 or 3 first also rates this chat.", input: { hint: "1|2|3 (optional), then what to improve" } },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),
       ...skills.map((s) => ({ name: s.name, description: `Skill: ${s.description || s.name}`, input: { hint: "what to do (optional)" } })),
     ],
@@ -1318,6 +1362,46 @@ export class AcpAgent {
 
     tasks(sessionId: string, action: "list" | "output" | "stop", id?: string): Promise<Record<string, unknown>> {
     return this.thread(sessionId).tasks(action, id);
+  }
+
+  /**
+   * The session rating, for an editor that draws its own card (the VS Code
+   * panel): whether to ask now (lib/feedback/session-rating.ts), and the answer.
+   * Other editors have `/feedback` only: an unprompted question would have to be
+   * text in the agent's reply, saved in the chat and read by the model.
+   */
+  async ratingDue(sessionId: string): Promise<{ ask: boolean }> {
+    const t = this.threads.get(sessionId);
+    if (!t) return { ask: false };
+    const { shouldAskRating } = await import("@/lib/feedback/session-rating");
+    const { ratingAskedAt, forceRating } = await import("@/main/lib/session-feedback");
+    return {
+      ask:
+        !t.session.state.busy &&
+        shouldAskRating({
+          turns: t.session.myMessages().length,
+          ratedAt: ratingAskedAt(),
+          now: Date.now(),
+          askedThisSession: t.ratingAsked,
+          force: forceRating(),
+        }),
+    };
+  }
+
+  /** 1-3 answers, 0 dismisses; either way it is not asked again for a while. */
+  async rate(sessionId: string, rating: number): Promise<{ ok: boolean }> {
+    const t = this.thread(sessionId);
+    const { sendSessionFeedback, noteRatingAsked } = await import("@/main/lib/session-feedback");
+    t.ratingAsked = true;
+    noteRatingAsked();
+    if (rating !== 1 && rating !== 2 && rating !== 3) return { ok: true };
+    return sendSessionFeedback({ kind: "rating", rating }, await t.feedbackSession());
+  }
+
+  async feedback(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+    const t = this.thread(sessionId);
+    const { sendSessionFeedback } = await import("@/main/lib/session-feedback");
+    return sendSessionFeedback({ kind: "text", body: String(text ?? "") }, await t.feedbackSession());
   }
 
   async recap(sessionId: string): Promise<{ text: string | null }> {

@@ -6,6 +6,8 @@
  * Receives all state as props or from atoms directly.
  */
 
+import { openFeedbackFor } from "@/components/chat/SessionRatingCard";
+import { parseFeedbackCommand } from "@/lib/feedback/session-rating";
 import { useRef, useEffect, useCallback, useState, useMemo } from "react";
 import type { StreamThreadItem } from "@/lib/chat/stream-thread";
 import { useAtomValue, useSetAtom, getDefaultStore } from "jotai";
@@ -790,6 +792,12 @@ export function SimpleInlineChat({
           // /compact is a command, not a message (QA #16), as in the CLI.
           if (prompt.trim() === "/compact" && !attachments?.length) {
             void runCompact();
+            return;
+          }
+          // /feedback [1|2|3] [text]: to Atlarix, never to the model.
+          const feedback = /^\/feedback(?:\s+([\s\S]*))?$/i.exec(prompt.trim());
+          if (feedback && !attachments?.length) {
+            openFeedbackFor(chatId, parseFeedbackCommand(feedback[1] ?? ""));
             return;
           }
           // /fork [name]: a copy of this session as saved now, opened beside it.

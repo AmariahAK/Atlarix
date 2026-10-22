@@ -104,7 +104,15 @@ import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
 import { SessionHeader, type AccountKind } from "./Header";
 import { gitBranch } from "./git-branch";
-import { RATING_CHANCE, RATINGS, shouldAskRating } from "./session-rating";
+import {
+  FEEDBACK_FAILED,
+  FEEDBACK_QUESTION,
+  FEEDBACK_THANKS,
+  parseFeedbackCommand,
+  RATING_QUESTION,
+  RATING_SENDS,
+  shouldAskRating,
+} from "@/lib/feedback/session-rating";
 import { PlanPanel, type PinnedPlan, type PlanScroll } from "./PlanPanel";
 import { Transcript } from "./Transcript";
 import { recapDecision, type RecapClock } from "@/lib/recap/rules";
@@ -151,8 +159,6 @@ export interface AppProps {
   autoUpdate?: (notify: (e: UpdateEvent) => void) => void;
   /** Opens a link in the browser. Tests pass a recorder: a test must never open the user's browser. */
   openUrl?: (url: string) => void;
-  /** How likely this session is to ask for a rating (session-rating.ts); tests pass 1. */
-  ratingChance?: number;
 }
 
 export interface ModelSource {
@@ -423,7 +429,6 @@ export function App({
   launch,
   autoUpdate,
   openUrl,
-  ratingChance = RATING_CHANCE,
 }: AppProps) {
   const [state, setState] = useState<SessionState>(session.state);
   const [expanded, setExpanded] = useState(false);
@@ -746,14 +751,17 @@ export function App({
     setDeferred(rest);
     runCommandRef.current?.(next!.name, next!.rest);
   }, [state.busy, deferred]);
-  // The optional session rating (session-rating.ts): asked once, rarely.
+  // The optional session rating (lib/feedback/session-rating.ts): once a
+  // session, after a few turns, and then "what should we improve?".
   const [turnsDone, setTurnsDone] = useState(0);
-  const [consent, setConsent] = useState<"opted_in" | "opted_out" | "unset" | null>(null);
-  const ratingSampled = useRef(Math.random() < ratingChance);
+  const sessionStartedAt = useRef(Date.now());
+  const [ratedAt, setRatedAt] = useState<number | undefined | null>(null);
   const [ratingDone, setRatingDone] = useState(false);
+  /** The next line typed goes to /feedback, not the model (after a rating, or a bare /feedback). */
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   useEffect(() => {
-    if (!services) return; // the real settings load lazily; a fake decides in tests
-    void services.analytics.consent().then(setConsent, () => {});
+    if (!services?.feedback) return; // without it (test fakes) nothing is asked
+    void services.feedback.askedAt().then(setRatedAt, () => setRatedAt(undefined));
   }, [services]);
   // The header's plan label. Network-backed, so it fills in after the first paint.
   useEffect(() => {
@@ -761,26 +769,59 @@ export function App({
     void services.account.kind().then(setAccountKind, () => {});
   }, [services]);
   const askRating =
-    !ratingDone &&
+    !!services?.feedback &&
+    ratedAt !== null &&
     !state.busy &&
     !host.open &&
     !draft &&
-    shouldAskRating({ consent, turns: turnsDone, ratedAt: cliState.ratedAt, now: Date.now(), sampled: ratingSampled.current });
+    !feedbackOpen &&
+    shouldAskRating({
+      turns: turnsDone,
+      ratedAt,
+      now: Date.now(),
+      askedThisSession: ratingDone,
+      force: services.feedback.force(),
+    });
+  /** What the rating and /feedback say about this session: never a prompt or code. */
+  const feedbackSession = () => ({
+    mode: state.mode,
+    effort: live.current.effortSel.effort || undefined,
+    provider: session.model?.provider,
+    model: session.model?.name,
+    turns: turnsDone,
+    startedAt: sessionStartedAt.current,
+  });
   const answerRating = (key: "0" | "1" | "2" | "3") => {
     setRatingDone(true);
-    const next = { ...live.current.cliState, ratedAt: Date.now() };
-    live.current.cliState = next;
-    setCliState(next);
-    models?.save({ ...next, ...live.current.effortSel });
+    setRatedAt(Date.now());
+    void services?.feedback?.noteAsked();
     if (key === "0") return;
-    svc().analytics.track("cli_session_rating", {
-      rating: RATINGS[key],
-      mode: state.mode,
-      model: modelLabel,
-      turns: turnsDone,
-      version,
-    });
-    flash("Thanks. That helps us make Atlarix better.");
+    void services?.feedback?.send({ kind: "rating", rating: Number(key) as 1 | 2 | 3 }, feedbackSession());
+    setFeedbackOpen(true);
+  };
+  const sendFeedback = (answer: { rating?: 1 | 2 | 3; body?: string }) => {
+    const fb = services?.feedback;
+    if (!fb) return flash(FEEDBACK_FAILED);
+    if (answer.rating) {
+      setRatingDone(true);
+      setRatedAt(Date.now());
+      void fb.noteAsked();
+      void fb.send({ kind: "rating", rating: answer.rating }, feedbackSession());
+    }
+    if (!answer.body) return flash(FEEDBACK_THANKS);
+    const body = answer.body;
+    void fb.send({ kind: "text", body }, feedbackSession()).then(
+      (r) => {
+        if (r.ok) return flash(FEEDBACK_THANKS);
+        // Typed text is never dropped quietly: it goes back in the box.
+        composer.current?.setText(`/feedback ${body}`);
+        flash(FEEDBACK_FAILED, 6000, "error");
+      },
+      () => {
+        composer.current?.setText(`/feedback ${body}`);
+        flash(FEEDBACK_FAILED, 6000, "error");
+      },
+    );
   };
   const wasBusy = useRef(false);
   useEffect(() => {
@@ -1166,6 +1207,11 @@ export function App({
     composer.current?.clear();
     const ctx = screen();
     switch (name) {
+      case "/feedback": {
+        const parsed = parseFeedbackCommand(rest);
+        if (!parsed.rating && !parsed.body) return setFeedbackOpen(true);
+        return sendFeedback(parsed);
+      }
       case "/resume":
         return openResume(ctx);
       case "/compact":
@@ -1508,6 +1554,10 @@ export function App({
       setTimeout(() => setQuitArmed(false), 2000);
       return;
     }
+    if (feedbackOpen && key.name === "escape" && !draft) {
+      key.preventDefault();
+      return setFeedbackOpen(false);
+    }
     if (askRating && !key.ctrl && !key.meta && ["0", "1", "2", "3"].includes(key.name ?? "")) {
       key.preventDefault();
       return answerRating(key.name as "0" | "1" | "2" | "3");
@@ -1587,6 +1637,11 @@ export function App({
   });
 
   const onSubmit = (s: { prompt: string; display: string; images: Array<{ path: string; mime: string; label: string }> }) => {
+    if (feedbackOpen && s.display.trim() && !s.display.trim().startsWith("/")) {
+      setFeedbackOpen(false);
+      composer.current?.clear();
+      return sendFeedback({ body: s.display.trim() });
+    }
     const command = parseCommandLine(s.display);
     if (command) {
       remember(s.display);
@@ -1836,9 +1891,13 @@ export function App({
           <text>
             <span fg={color.accent}>{"● "}</span>
             <span fg={color.white}>
-              <b>How is Atlarix doing this session?</b>
+              <b>{RATING_QUESTION}</b>
             </span>
             <span fg={color.faint}>{" (optional)"}</span>
+          </text>
+          <text>
+            {"  "}
+            <span fg={color.faint}>{RATING_SENDS}</span>
           </text>
           <text>
             {"  "}
@@ -1852,6 +1911,16 @@ export function App({
             <span fg={color.textDim}>{": Dismiss"}</span>
           </text>
         </box>
+      ) : null}
+
+      {feedbackOpen ? (
+        <text flexShrink={0} marginBottom={1}>
+          <span fg={color.accent}>{"● "}</span>
+          <span fg={color.white}>
+            <b>{FEEDBACK_QUESTION}</b>
+          </span>
+          <span fg={color.faint}>{" (optional) · type it and press enter · esc skips"}</span>
+        </text>
       ) : null}
 
       <Composer

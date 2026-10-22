@@ -317,6 +317,10 @@ const validInvokeChannels = [
   "tour:set-state",
   // Community (Discord)
   "discord:get-invite-info",
+  // The session rating and /feedback (lib/feedback/session-rating.ts).
+  "feedback:state",
+  "feedback:rate",
+  "feedback:send",
   // Auto-updater
   "update:defer", // write defer flag to userData; install on next cold start
   "update:install-now", // quit and install downloaded update immediately
