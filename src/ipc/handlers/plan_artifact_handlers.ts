@@ -42,8 +42,12 @@ function broadcastPlanEvent(
 }
 
 /** A plan's new text, as plans:update writes and announces it (also another session's update, item 11). */
-export async function updatePlanAndAnnounce(planId: string, content: string): Promise<PlanArtifactPayload | null> {
-  const row = await withPlanArtifactLock(planId, () => updatePlanArtifactContent(planId, content));
+export async function updatePlanAndAnnounce(
+  planId: string,
+  content: string,
+  title?: string,
+): Promise<PlanArtifactPayload | null> {
+  const row = await withPlanArtifactLock(planId, () => updatePlanArtifactContent(planId, content, title));
   if (!row) return null;
   const payload = toPayload(row);
   broadcastPlanEvent("plan:artifact-updated", payload);

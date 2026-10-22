@@ -106,6 +106,15 @@ export function parsePlanAction(s: unknown): PeerPlanAction | null {
   return t === "approve" || t === "reject" || t === "update" ? t : null;
 }
 
+/**
+ * A replacing plan's title: its first heading, when it starts with one. Else
+ * the old title stays (QA, ai-95: the card kept the old title over new text).
+ */
+export function planTitleOf(text: string): string | undefined {
+  const m = /^\s*#{1,3}\s+(.+?)\s*#*\s*$/m.exec(text.trimStart().split("\n")[0] ?? "");
+  return m?.[1]?.trim().slice(0, 120) || undefined;
+}
+
 /** "Plan approved by Rix. Building it." */
 export function planNotice(action: PeerPlanAction, sender: string): string {
   const by = sender.trim() || "another session";

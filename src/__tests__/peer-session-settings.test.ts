@@ -18,7 +18,15 @@ import {
   startPeerInbox,
   type PeerHost,
 } from "@/lib/peers/peers";
-import { matchModel, MODEL_LIST_MAX, modelNames, parseMode, settingsNotice, shortModelList } from "@/lib/peers/session-settings";
+import {
+  matchModel,
+  MODEL_LIST_MAX,
+  modelNames,
+  parseMode,
+  planTitleOf,
+  settingsNotice,
+  shortModelList,
+} from "@/lib/peers/session-settings";
 
 describe("the rules", () => {
   it("takes a mode by the name people see or its id", () => {
@@ -192,6 +200,14 @@ describe("an app chat's line carries the app's model (QA, ai-b8)", () => {
     } finally {
       setDefaultModelLabel(() => undefined);
     }
+  });
+});
+
+describe("a replacing plan's title (QA, ai-95)", () => {
+  it("its first heading, else none (the old one stays)", () => {
+    expect(planTitleOf("# Add logout\n- [ ] x")).toBe("Add logout");
+    expect(planTitleOf("\n## Split the login page ##\n- [ ] y")).toBe("Split the login page");
+    expect(planTitleOf("- [ ] only steps\n# Later heading")).toBeUndefined();
   });
 });
 

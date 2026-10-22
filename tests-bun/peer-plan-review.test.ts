@@ -92,6 +92,9 @@ describe("a session answers another's plan", () => {
     expect(upd.success).toBe(true);
     expect(upd.text).toContain("Plan updated by Rix. It's waiting for approval.");
     expect((await plans.getPlanArtifact(p.id))).toMatchObject({ planStatus: "plan", content: "- [ ] Add the login page\n- [ ] Add a logout" });
+    expect((await plans.getPlanArtifact(p.id))?.title).toBe("Login page");
+    await run("send_message", { to: "Guard", plan: "update", plan_text: "# Login and logout\n- [ ] Add the login page\n- [ ] Add a logout", ...as });
+    expect((await plans.getPlanArtifact(p.id))).toMatchObject({ title: "Login and logout", planStatus: "plan" });
 
     // Reject: kept, and why arrives.
     const rej = await run("send_message", { to: "Guard", plan: "reject", message: "Split logout out.", ...as });

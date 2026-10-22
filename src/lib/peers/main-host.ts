@@ -152,7 +152,8 @@ async function applyPeerSettings(
       mode = "build";
       startTurn = (await import("@/lib/work-mode")).BUILD_FROM_PLAN_PROMPT;
     } else if (plan.action === "update") {
-      await handlers.updatePlanAndAnnounce(plan.id, set.planText!.trim());
+      const text = set.planText!.trim();
+      await handlers.updatePlanAndAnnounce(plan.id, text, s.planTitleOf(text));
     }
   }
   if (mode && row) {
