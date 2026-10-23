@@ -75,6 +75,13 @@ export interface StreamTurnContext {
    * about this model, not a transient.
    */
   forcedToolChoiceRejected: boolean;
+  /**
+   * Computer use: the model this turn sent the provider's own computer tool
+   * for (null when it sent none), and whether the provider refused it. Refused → the round retries at once with our own
+   * `computer` tool and the rest of the turn keeps it (lib/computer/lane.ts).
+   */
+  nativeComputerSent: { provider?: string; name?: string } | null;
+  nativeComputerRejected: boolean;
 
   // ── delegation (sub-agent) bookkeeping ───────────────────────────────────
   delegatedAgentsThisTurn: string[];
@@ -116,6 +123,8 @@ export function createStreamTurnContext(): StreamTurnContext {
     deliveredInterjections: null,
     carriedInterjections: null,
     forcedToolChoiceRejected: false,
+    nativeComputerSent: null,
+    nativeComputerRejected: false,
     delegatedAgentsThisTurn: [],
     delegationsStartedThisTurn: 0,
     inFlightDelegationKeys: new Set<string>(),

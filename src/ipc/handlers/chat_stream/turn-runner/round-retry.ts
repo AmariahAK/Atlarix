@@ -10,6 +10,7 @@
  */
 
 import { noteTurn } from "@/lib/analytics/turn-stats";
+import { rememberNativeRejected } from "@/lib/computer/lane";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import type { ModelMessage } from "ai";
@@ -24,6 +25,7 @@ import {
   RECONNECT_DELAYS_MS,
   isNetworkStreamError,
   isForcedToolChoiceRejection,
+  isNativeComputerToolRejection,
   jitteredDelay,
   retryAfterMs,
   NetworkStreamDisconnectedError,
@@ -326,6 +328,26 @@ export async function runStreamRoundWithEmptyOutputRetry(
           message: "forced_tool_choice_rejected → injection fallback",
           level: "warning",
         });
+        fullResponse = initialFullResponse;
+        continue;
+      }
+
+      // The provider refused its own computer tool's version (Claude 5.5 on the
+      // Anthropic API takes only the newer toolset). Same shape as above: change
+      // the request, not the timing. Our own `computer` tool replaces it for the
+      // rest of the turn, and the model is remembered so the next turn never
+      // sends the native tool again. The user loses nothing.
+      const computerRefusal =
+        bundle?.getRecordedNativeComputerRejection?.() ??
+        (isNativeComputerToolRejection(err) ? err : null);
+      if (ctx.nativeComputerSent && !ctx.nativeComputerRejected && computerRefusal != null) {
+        ctx.nativeComputerRejected = true;
+        rememberNativeRejected(ctx.nativeComputerSent);
+        logger.warn(
+          `[stream] Provider refused its own computer tool — retrying with ours: ${
+            computerRefusal instanceof Error ? computerRefusal.message : String(computerRefusal)
+          }`,
+        );
         fullResponse = initialFullResponse;
         continue;
       }

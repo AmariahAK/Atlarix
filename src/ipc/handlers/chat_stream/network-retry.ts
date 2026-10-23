@@ -191,6 +191,22 @@ export function isForcedToolChoiceRejection(err: unknown): boolean {
   );
 }
 
+/**
+ * A provider refusing the computer tool VERSION we declared (Claude 5.5 on the
+ * Anthropic API: "does not support tool types: computer_20251124"). Only
+ * consulted on a turn that sent a native computer tool. Keyed on the tool type
+ * name in a deterministic 4xx, as above, not on one vendor's sentence.
+ */
+export function isNativeComputerToolRejection(err: unknown): boolean {
+  if (!err) return false;
+  const code = errorStatusCode(err) ?? errorStatusCode((err as { error?: unknown })?.error);
+  if (code != null && (code < 400 || code >= 500)) return false;
+  const e = err as { message?: unknown; responseBody?: unknown; error?: { message?: unknown; responseBody?: unknown } };
+  return [e?.message, e?.responseBody, e?.error?.message, e?.error?.responseBody].some(
+    (p) => typeof p === "string" && /\bcomputer(_\d{8}|_toolset)?\b/i.test(p) && /tool/i.test(p),
+  );
+}
+
 /** HTTP status code from an APICallError-shaped error, if present. */
 export function errorStatusCode(err: unknown): number | undefined {
   const s = (err as { statusCode?: unknown })?.statusCode;

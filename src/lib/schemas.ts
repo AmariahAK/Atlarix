@@ -487,6 +487,12 @@ export const UserSettingsSchema = z.object({
   /** Optional per-provider token budget cap (e.g. { openai: 32000 }) to control costs */
   tokenBudgetOverrides: z.record(z.string(), z.number()).optional(),
 
+  /**
+   * Computer use: the models (`provider/name`) allowed to see and control the
+   * screen. Off for every model until the user switches one on.
+   */
+  computerUseModels: z.array(z.string()).optional(),
+
   /** After autonomous task_complete: parallel reviewer + debugger on files written. */
   buildVerification: z
     .object({

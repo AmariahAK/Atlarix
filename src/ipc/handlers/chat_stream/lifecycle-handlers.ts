@@ -9,7 +9,7 @@
  */
 
 import { recordSnapshotTurnEnd } from "@/lib/snapshot/snapshot-manager";
-import { ipcMain } from "electron";
+import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import type { ChatResponseEnd } from "@/ipc/ipc_types";
@@ -30,6 +30,81 @@ import {
 
 const logger = log.scope("chat_stream_handlers");
 
+/**
+ * Stop a chat's turn exactly as the Stop button does. Also used where the stop
+ * does not come from the renderer: computer use (the user took the mouse, or
+ * pressed the app's stop shortcut).
+ */
+export function cancelChatStream(chatId: number, sender: IpcMainInvokeEvent["sender"]): void {
+  // Latch the stop HERE, in main, not only in the renderer that pressed it.
+  // The end event below goes to `sender` alone, so any other window kept
+  // its own "not stopped" view of this chat and would happily wake it when a
+  // background job reported in — restarting the agent the user had just stopped.
+  // Released when the user next sends something with real content.
+  markChatUserStopped(chatId);
+
+  const abortController = activeStreams.get(chatId);
+
+  if (abortController) {
+    // Abort the stream. WITH A REASON: a reason-less abort rejects detached SDK
+    // promises as a bare AbortError, which the process-level net cannot tell from a
+    // real fault — so pressing Stop filed Sentry errors.
+    abortController.abort(streamStopAbortReason(USER_CANCEL_STREAM_STOP));
+    activeStreams.delete(chatId);
+    logger.log(`Aborted stream for chat ${chatId}`);
+  } else {
+    logger.warn(`No active stream found for chat ${chatId}`);
+  }
+
+  // Fix 4: aborting the model stream doesn't stop a blocking foreground
+  // run_command or running scout sub-agents — terminate them too so "stop"
+  // actually stops the work (and stops spending tokens).
+  const killed = killForegroundCommandsForChat(chatId);
+  const subagentsCancelled = cancelAllSubagentTasksForChat(chatId);
+  // Record how the stopped turn left its files at the moment of Stop, not
+  // only when it has unwound (ensureTerminal, from the turn's `finally`): a
+  // turn stuck unwinding (a hung tool) would leave stop-then-revert
+  // unchecked meanwhile. A write still in flight lands after this and reads
+  // as a change since, so it is kept: the safe way round.
+  const stoppedTurnId = streamTurnIdByChatId.get(chatId);
+  if (stoppedTurnId) void recordSnapshotTurnEnd(stoppedTurnId);
+  if (killed > 0 || subagentsCancelled > 0) {
+    logger.log(
+      `[chat:cancel] Stopped ${killed} command(s) + ${subagentsCancelled} sub-agent(s) for chat ${chatId}`,
+    );
+  }
+
+  // Send the end event to the renderer.
+  //
+  // `userCancelled` is what stops this end from re-launching the work. The renderer
+  // auto-wakes a fresh turn whenever a background command or sub-agent still has a
+  // pending result, and we only killed FOREGROUND commands above — so that condition
+  // is routinely true here. Any pending results are deliberately KEPT: background work
+  // finishes quietly and `takePendingBackgroundCommandResults` /
+  // `takePendingSubagentResults` drain it into the user's NEXT turn, which is
+  // wake-independent. So nothing is lost by not waking.
+  safeSend(sender, "chat:response:end", {
+    chatId,
+    updatedFiles: false,
+    hadToolCallsOrPermissions: false,
+    userCancelled: true,
+    // Report the stopped turn's snapshot id so Revert is OFFERED. The writes it
+    // already made are on disk (the interceptor captures pre-write bytes at write
+    // time); only the renderer's knowledge of the id was missing, and without it the
+    // affordance is hidden on precisely the turn the user stopped for making a bad
+    // edit. `updatedFiles: false` above is about the *file-tree refresh*, not about
+    // whether anything was written.
+    ...(streamTurnIdByChatId.get(chatId)
+      ? { snapshotTurnId: streamTurnIdByChatId.get(chatId) }
+      : {}),
+  } satisfies ChatResponseEnd);
+
+  // Clean up uploads state for this chat
+  try {
+    FileUploadsState.getInstance().clear(chatId);
+  } catch {}
+}
+
 /** Register cancel/abort/reconnect/edit-message. `chatStreamHandler` is the live
  * chat:stream handler (reconnect re-dispatches the cached request through it). */
 export function registerLifecycleHandlers(
@@ -37,74 +112,7 @@ export function registerLifecycleHandlers(
 ): void {
   // Handler to cancel an ongoing stream
   ipcMain.handle("chat:cancel", async (event, chatId: number) => {
-    // Latch the stop HERE, in main, not only in the renderer that pressed it.
-    // The end event below goes to `event.sender` alone, so any other window kept
-    // its own "not stopped" view of this chat and would happily wake it when a
-    // background job reported in — restarting the agent the user had just stopped.
-    // Released when the user next sends something with real content.
-    markChatUserStopped(chatId);
-
-    const abortController = activeStreams.get(chatId);
-
-    if (abortController) {
-      // Abort the stream. WITH A REASON: a reason-less abort rejects detached SDK
-      // promises as a bare AbortError, which the process-level net cannot tell from a
-      // real fault — so pressing Stop filed Sentry errors.
-      abortController.abort(streamStopAbortReason(USER_CANCEL_STREAM_STOP));
-      activeStreams.delete(chatId);
-      logger.log(`Aborted stream for chat ${chatId}`);
-    } else {
-      logger.warn(`No active stream found for chat ${chatId}`);
-    }
-
-    // Fix 4: aborting the model stream doesn't stop a blocking foreground
-    // run_command or running scout sub-agents — terminate them too so "stop"
-    // actually stops the work (and stops spending tokens).
-    const killed = killForegroundCommandsForChat(chatId);
-    const subagentsCancelled = cancelAllSubagentTasksForChat(chatId);
-    // Record how the stopped turn left its files at the moment of Stop, not
-    // only when it has unwound (ensureTerminal, from the turn's `finally`): a
-    // turn stuck unwinding (a hung tool) would leave stop-then-revert
-    // unchecked meanwhile. A write still in flight lands after this and reads
-    // as a change since, so it is kept: the safe way round.
-    const stoppedTurnId = streamTurnIdByChatId.get(chatId);
-    if (stoppedTurnId) void recordSnapshotTurnEnd(stoppedTurnId);
-    if (killed > 0 || subagentsCancelled > 0) {
-      logger.log(
-        `[chat:cancel] Stopped ${killed} command(s) + ${subagentsCancelled} sub-agent(s) for chat ${chatId}`,
-      );
-    }
-
-    // Send the end event to the renderer.
-    //
-    // `userCancelled` is what stops this end from re-launching the work. The renderer
-    // auto-wakes a fresh turn whenever a background command or sub-agent still has a
-    // pending result, and we only killed FOREGROUND commands above — so that condition
-    // is routinely true here. Any pending results are deliberately KEPT: background work
-    // finishes quietly and `takePendingBackgroundCommandResults` /
-    // `takePendingSubagentResults` drain it into the user's NEXT turn, which is
-    // wake-independent. So nothing is lost by not waking.
-    safeSend(event.sender, "chat:response:end", {
-      chatId,
-      updatedFiles: false,
-      hadToolCallsOrPermissions: false,
-      userCancelled: true,
-      // Report the stopped turn's snapshot id so Revert is OFFERED. The writes it
-      // already made are on disk (the interceptor captures pre-write bytes at write
-      // time); only the renderer's knowledge of the id was missing, and without it the
-      // affordance is hidden on precisely the turn the user stopped for making a bad
-      // edit. `updatedFiles: false` above is about the *file-tree refresh*, not about
-      // whether anything was written.
-      ...(streamTurnIdByChatId.get(chatId)
-        ? { snapshotTurnId: streamTurnIdByChatId.get(chatId) }
-        : {}),
-    } satisfies ChatResponseEnd);
-
-    // Clean up uploads state for this chat
-    try {
-      FileUploadsState.getInstance().clear(chatId);
-    } catch {}
-
+    cancelChatStream(chatId, event.sender);
     return true;
   });
 
