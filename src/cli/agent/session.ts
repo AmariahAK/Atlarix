@@ -2107,6 +2107,11 @@ export class AgentSession extends EventEmitter {
         if (typeof p.streamId === "number" && p.streamId === this.endedStreamId) return;
         if (typeof p.streamId === "number") this.endedStreamId = p.streamId;
         this.lastEnd = p;
+        // A stop that started in main (computer use: the user took the mouse,
+        // or the app's stop shortcut) arrives only as this end. It is the same
+        // stop as Esc here: main saved the partial reply, and an editor must
+        // hear "cancelled", not a normal finish.
+        if (p.userCancelled === true) this.interruptRequested = true;
         this.update({
           sessionTokens: this.state.sessionTokens + (typeof p.turnTokens === "number" ? p.turnTokens : 0),
           cachedTokens: this.state.cachedTokens + (typeof p.turnCachedInputTokens === "number" ? p.turnCachedInputTokens : 0),
