@@ -163,9 +163,9 @@ export async function hasUsableProviderKey(
   // We require a non-empty (trimmed) value so an undecryptable→dropped key, or an
   // empty/whitespace value, correctly reads as "no key" and the Core fallback can
   // engage.
-  // An own-key cloud run's key (in memory only). Missing here, the gate below
+  // A key passed with --api-key-file (in memory only). Missing here, the gate below
   // called the run keyless and fell back to Core though getRegularModelClient
-  // would have used it (found by running the action's agent step for real).
+  // would have used it (found by running a headless run on a key file for real).
   if (getPinnedProviderKey(provider)) return true;
   // A model on the user's own machine (Ollama, LM Studio, or a custom provider
   // at a loopback address) needs no key: there is nobody to authenticate to.
@@ -278,7 +278,7 @@ async function getRegularModelClient(
   backupModelClients: ModelClient[];
 }> {
   // Get API key for the specific provider
-  // Priority: pinned (an own-key cloud run, in memory only) -> settings ->
+  // Priority: pinned (--api-key-file, in memory only) -> settings ->
   // database -> env (so UI/database key wins over .env)
   let apiKey =
     getPinnedProviderKey(model.provider) ??
