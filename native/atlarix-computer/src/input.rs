@@ -22,6 +22,8 @@ pub struct Session {
     pub space: Option<Space>,
     /// Where we last left the cursor, in input coordinates.
     last: Option<(i32, i32)>,
+    /// Where this op sent the cursor, if it moved it.
+    moved: Option<(i32, i32)>,
     took_control: bool,
     lock: Option<File>,
 }
@@ -125,8 +127,8 @@ impl Session {
         let Some((lx, ly)) = self.last else { return Ok(()) };
         // Where reading the cursor is impossible (some Wayland sessions), the
         // check cannot run; the host's own stop paths still work.
-        let Ok((x, y)) = self.enigo()?.location() else { return Ok(()) };
-        if (x - lx).abs() > TAKEOVER_PX || (y - ly).abs() > TAKEOVER_PX {
+        let Ok(now) = self.enigo()?.location() else { return Ok(()) };
+        if moved_by_user((lx, ly), now) {
             self.took_control = true;
             self.last = None;
             return Err(took_control());
@@ -134,13 +136,20 @@ impl Session {
         Ok(())
     }
 
+    /// Where we left the cursor: where we SENT it, not where it reads back.
+    /// A posted move lands asynchronously (macOS), so reading the cursor right
+    /// after it can return the position from before; the next check then saw
+    /// our own move as the user's (E3: a false takeover in 3 of 6 runs).
     fn remember_cursor(&mut self) {
-        self.last = self.enigo.as_ref().and_then(|e| e.location().ok());
+        let read = || self.enigo.as_ref().and_then(|e| e.location().ok());
+        self.last = next_last(self.moved.take(), self.last, read);
     }
 
     fn move_to(&mut self, req: &Value, kx: &str, ky: &str) -> Result<(), Fail> {
         let (x, y) = self.space()?.to_input(num(req, kx)?, num(req, ky)?)?;
-        self.enigo()?.move_mouse(x, y, Coordinate::Abs).map_err(input_fail)
+        self.enigo()?.move_mouse(x, y, Coordinate::Abs).map_err(input_fail)?;
+        self.moved = Some((x, y));
+        Ok(())
     }
 
     pub fn act(&mut self, op: &str, req: &Value) -> Reply {
@@ -151,6 +160,7 @@ impl Session {
             return Ok(json!({ "x": sx, "y": sy }));
         }
         self.check_takeover()?;
+        self.moved = None;
         match op {
             "move" => self.move_to(req, "x", "y")?,
             "click" => {
@@ -191,6 +201,7 @@ impl Session {
                     std::thread::sleep(Duration::from_millis(12));
                 }
                 e.button(Button::Left, Direction::Release).map_err(input_fail)?;
+                self.moved = Some((x1, y1));
             }
             "type" => {
                 let text = arg(req, "text").and_then(Value::as_str).ok_or_else(|| Fail::new("bad_request", "missing text"))?;
@@ -251,6 +262,22 @@ impl Session {
     }
 }
 
+/// The user's hand, not ours: the cursor is more than TAKEOVER_PX from where
+/// we left it.
+fn moved_by_user(left: (i32, i32), now: (i32, i32)) -> bool {
+    (now.0 - left.0).abs() > TAKEOVER_PX || (now.1 - left.1).abs() > TAKEOVER_PX
+}
+
+/// Our reference after an op: the target it moved to; else the previous one;
+/// else (nothing known yet, nothing in flight) the cursor as it reads now.
+fn next_last(
+    moved: Option<(i32, i32)>,
+    prev: Option<(i32, i32)>,
+    read: impl FnOnce() -> Option<(i32, i32)>,
+) -> Option<(i32, i32)> {
+    moved.or(prev).or_else(read)
+}
+
 fn took_control() -> Fail {
     Fail::new("user_took_control", "the user moved the mouse and took control of the screen")
 }
@@ -271,6 +298,31 @@ mod tests {
         a.release();
         assert!(b.lock_at(&path).is_ok(), "released lock is free");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// E3, replayed with ai-26's numbers: a 1280x800 screenshot over a
+    /// 1440x900-point display, move to (500,350), then a read-back that still
+    /// shows where the cursor was before the move.
+    #[test]
+    fn our_own_move_is_never_a_takeover_even_if_the_read_back_is_stale() {
+        let space = crate::capture::Space { mon_x: 0, mon_y: 0, mon_w: 1440, mon_h: 900, out_w: 1280, out_h: 800 };
+        let target = space.to_input(500.0, 350.0).ok().unwrap();
+        assert_eq!(target, (563, 394));
+        let stale_read = || Some((900, 120));
+        let left = next_last(Some(target), None, stale_read).unwrap();
+        assert_eq!(left, (563, 394), "the reference is where we sent it");
+        // The next op sees the cursor where the first move put it.
+        assert!(!moved_by_user(left, (563, 394)));
+        // The old code took the read-back as the reference and called this a takeover.
+        assert!(moved_by_user((900, 120), (563, 394)));
+    }
+
+    #[test]
+    fn a_real_hand_still_counts_and_ops_without_a_move_keep_the_reference() {
+        assert!(moved_by_user((563, 394), (40, 40)));
+        assert!(!moved_by_user((563, 394), (566, 390)), "a few pixels of rounding is not a hand");
+        assert_eq!(next_last(None, Some((10, 10)), || Some((99, 99))), Some((10, 10)));
+        assert_eq!(next_last(None, None, || Some((99, 99))), Some((99, 99)));
     }
 
     #[test]
