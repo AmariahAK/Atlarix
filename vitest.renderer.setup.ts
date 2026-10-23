@@ -12,6 +12,14 @@ afterEach(() => {
   cleanup();
 });
 
+// PostHog's session recorder: a large side-effect bundle posthog-client imports
+// at the top (the CSP blocks its CDN copy). Any component that reaches
+// useSettings loads it, and on a slow CI runner the load could still be running
+// when the test file's environment was torn down: 24 "EnvironmentTeardownError
+// … posthog-recorder.js" on dev a2bc57eb, all tests passing. No renderer test
+// records, so none loads it.
+vi.mock("posthog-js/dist/posthog-recorder", () => ({}));
+
 // xterm imports CSS + canvas APIs jsdom lacks; terminal views aren't under test.
 vi.mock("@/components/panels/XtermView", () => ({
   XtermView: () => null,
