@@ -189,11 +189,8 @@ describe("mode system consistency", () => {
   /**
    * An every-mode tool reaches every mode, EXCEPT where a mode subtracts it.
    *
-   * `MODE_EXCLUDED_TOOLS` has exactly one entry — the mobile pair, out of Plan.
-   * The pair was made every-mode on the argument that "what does the app look
-   * like on a phone" is a QUESTION, which is Explore's job; Plan writes down
-   * what should be done, and it is the mode with no budget headroom left once it
-   * gained run_command. The exclusion is REAL, not cosmetic: the tool is
+   * `MODE_EXCLUDED_TOOLS` has exactly one entry — transcribe_audio, out of
+   * Review. The exclusion is REAL, not cosmetic: the tool is
    * unreachable in that mode at the execute-time gate too, which is why this
    * asserts both halves rather than only the advertised list.
    *
@@ -215,15 +212,11 @@ describe("mode system consistency", () => {
     });
   }
 
-  it("every-mode subtractions: the mobile pair out of Plan, transcribe_audio out of Review", () => {
+  it("every-mode subtractions: transcribe_audio out of Review", () => {
     // Pinned so a future exclusion is a deliberate edit here rather than a
     // quiet erosion of what "every mode" means. Review's (2026-10-07): audio is
     // not part of reviewing code, and its schema pushed Review over budget.
-    expect(Object.keys(MODE_EXCLUDED_TOOLS).sort()).toEqual(["plan", "review"]);
-    expect([...(MODE_EXCLUDED_TOOLS.plan ?? [])].sort()).toEqual([
-      "mobile",
-      "mobile_inspect",
-    ]);
+    expect(Object.keys(MODE_EXCLUDED_TOOLS)).toEqual(["review"]);
     expect([...(MODE_EXCLUDED_TOOLS.review ?? [])]).toEqual([
       "transcribe_audio",
     ]);

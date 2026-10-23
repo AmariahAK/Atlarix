@@ -277,21 +277,25 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
 // 2026-10-21, owner-approved memory rework: the "Project memory" rules moved from
 // the guides/memory file into the cached header, +377 (build/debug) to +417 tokens
 // per mode, and the per-turn index section left the system block. Ceilings unchanged.
+// 15.11 (2026-10-23): the mobile pair was deleted. Measured before → after:
+// ask 9,000 → 8,497, plan 7,427 → 7,426 (it never had them), build 10,916 → 10,423
+// (33 → 31 tools), review 8,668 → 8,165, debug 11,169 → 10,676. Every ceiling except
+// Plan's came down 500 with it (TRAPS: a ceiling left high only loosens).
 const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
-  ask: { minTotal: 7_250, maxTotal: 9_200 },
+  ask: { minTotal: 7_250, maxTotal: 8_700 },
   plan: { minTotal: 5_900, maxTotal: 7_500 },
-  build: { minTotal: 8_850, maxTotal: 11_250 },
+  build: { minTotal: 8_850, maxTotal: 10_750 },
   // 11,400 → 11,500 on 2026-10-13, owner-approved: glob's `sort: "size"` option
   // (~45 tokens) put Review at 11,429. Paid for by raising this ceiling, NOT by
   // rewording shared tool text, which the app, CLI and editors all run on.
-  review: { minTotal: 6_950, maxTotal: 8_850 },
-  debug: { minTotal: 9_100, maxTotal: 11_550 },
+  review: { minTotal: 6_950, maxTotal: 8_350 },
+  debug: { minTotal: 9_100, maxTotal: 11_050 },
   // A NON-ENGLISH case, because every other case runs in English and the response
   // language block is emitted ONLY when the locale is not en-us. Without this the
   // suite would never see the instruction at all, its cost would be unmeasured,
   // and the feature could ship silently dead — the block could stop being emitted
   // and nothing here would notice.
-  "build-fr": { minTotal: 8_900, maxTotal: 11_300 },
+  "build-fr": { minTotal: 8_900, maxTotal: 10_800 },
 };
 
 const CASES = [

@@ -953,9 +953,9 @@ is _what happens when the list is incomplete_; the reasoning is in git and `DESI
   benign: the staged app's `postinstall` references a devDependency that is correctly absent, and
   the script's own `|| true` swallows it.)
 - **A tool result's field NAMES are a UI contract, not just data.** The browser expand card reads
-  `title` / `url` for its header and `content` / `note` for its body. `mobile_inspect` first
-  returned `summary` and `mobile` returned `detail` — both landed in `BROWSER_TEXT_TOOLS`, both
-  rendered as a bare "Done", and the model still saw everything, so nothing looked broken. Match
+  `title` / `url` for its header and `content` / `note` for its body. Two tools first returned
+  `summary` and `detail` — both landed in `BROWSER_TEXT_TOOLS`, both rendered as a bare "Done",
+  and the model still saw everything, so nothing looked broken. Match
   the existing field names instead of widening the renderer.
 - **`success: false` is not the same as "failed", and a generic fallback ASSERTS something
   untrue.** Two of the commonest results in a long session rendered as a red "Tool failed"
@@ -994,7 +994,7 @@ is _what happens when the list is incomplete_; the reasoning is in git and `DESI
 - **"Done" means a tool has no expand branch.** `tool_help` returns `{ tool, usage }` and the
   card reads `content`/`note`, so every reveal rendered as a bare "Done" — the tool whose
   entire purpose is to be READ was the one the UI hid. Third instance of this class this
-  release (see also the mobile pair). **A new tool needs a `tool-expand-view` branch or a
+  release. **A new tool needs a `tool-expand-view` branch or a
   result shaped like an existing one.**
 - **A computed label subject is silently DISCARDED without an `ARG_VERBS` entry.** Adding
   `tool_help` to `subjectFromArgs` changed nothing until the verb map had a row too, because
@@ -1029,151 +1029,22 @@ is _what happens when the list is incomplete_; the reasoning is in git and `DESI
   branch broke both evals, which looked like a regression and was the opposite. **When a change to
   a query breaks a test, check what shape the FIXTURE creates before assuming the change is wrong**
   — and verify a "no code path does X" claim by naming the writers, not by reasoning.
-- **The `simctl` `-` bug left a 2.8 MB file named `-` in the REPO ROOT.** Found during release
-  prep, one `git add -A` away from being committed. The live-iOS test ran with the repo as its
-  CWD, and `simctl io <id> screenshot -` writes a file literally called `-` there. The code is
-  fixed (temp file, then unlink), but check for it before any commit that follows a mobile test
-  run: `ls -- './-'`. A filename of `-` is also awkward to delete — `rm -f -- './-'`, since
-  plain `rm -- -` and `rm '-'` both fight the shell.
-- **iOS half VERIFIED on a live simulator 2026-09-02; ANDROID verified 2026-09-04** against a
-  real API 35 emulator — see the trap below, where the first command it issued turned out broken.
-  `mobile-live-ios.test.ts` runs against a booted simulator and `describe.skipIf`s itself when
-  there isn't one, so it stays in the suite. **It is the only thing that found any of these,
-  and the mocked suite was green throughout:**
-  - `simctl io <id> screenshot -` does NOT stream to stdout the way `adb exec-out screencap -p`
-    does. `simctl` treats `-` as a FILENAME: exit 0, "Wrote screenshot to: …/-", zero bytes on
-    stdout, and a junk file called `-` left in the working directory. Temp file now.
-  - `--predicate 'messageType >= "Default"'` matches **NOTHING** — 0 characters where the
-    unfiltered query returned 18.7 MB. Not an error, a silent zero: every iOS log read said
-    "No recent entries" regardless. Apple's log has no "warn"; the types are Default, Info,
-    Debug, Error, Fault, and the comparison operator does not work on that field. Equality now.
-  - Volume: a simulator's log is the WHOLE OS. 2 minutes filtered to errors is 3.2 MB, 30
-    seconds is 1.7 MB, and a `process` filter is **184 characters**. Hence the bounded window
-    and the `package` parameter.
-  - A live screenshot is 2.85 MB (~3.8 MB base64), so there is now a downscale AND a hard
-    refusal above 1.5 MB — the downscale needs Electron's `nativeImage`, and its fallback
-    would otherwise send the raw capture.
-- [x] **ANDROID VERIFIED 2026-09-04, against a real API 35 emulator — and it was BROKEN.**
-      Covered by the new `src/__tests__/mobile-live-android.test.ts` (
-      `describe.skipIf(!hasBootedDevice())` so it costs nothing without an SDK). Emulator installed
-      for the run and deleted immediately after.
-
-  **THE BUG: `adb shell uiautomator dump /dev/tty` RETURNS NO XML.** Exit code 0, and stdout is
-  exactly `UI hierchary dumped to: /dev/tty` — 32 characters, upstream's typo included, and not
-  one byte of a document. `adb shell` allocates a pty and the XML written to /dev/tty never
-  reaches adb's stdout stream. **The whole Android read path returned nothing, silently, since
-  v14.41.0.** Fix is one word: `shell` → **`exec-out`**, which takes the raw binary path and
-  returns 12,338 characters. One call site (`readHierarchy`), used by both the read and the
-  per-act ref resolution, so one fix covers both.
-
-  It is the **same silent zero** as `simctl io <id> screenshot -` writing a file named `-`: exit
-  0, a plausible message, nothing usable — and it survived a green mocked suite for the same
-  reason. That is now twice in one tool, on two platforms, from the same cause. **The rule has
-  earned promotion from "write a live test" to a design rule: a wrapper around an external CLI is
-  UNVERIFIED until it has run against that CLI, and the assertion that catches this class is
-  about the SHAPE of real output (a document containing nodes, PNG magic bytes, a non-zero
-  count), never about the arguments passed.**
-
-  What the run confirmed WORKS, once the dump is fixed: 14 elements parsed with correct centres
-  (centre, not corner); `mobile_inspect` returning 840 characters of text; `exec-out screencap
--p` genuinely streaming (1,374,951 bytes, PNG magic `89504e47`); **tapping a real element by
-  ref** (`m3` → "Tapped drag_layer"); a stale ref failing loudly with the re-read instruction
-  rather than acting on whatever now occupies the index; `settings get system show_touches`
-  returning the literal string `null` when unset, which is exactly what the restore path is
-  written to expect.
-
-  **THE SECOND BUG, found only because the checklist was finished: `action:"launch"` NEVER
-  WORKED on Android.** The recipe was `monkey -p <pkg> -c android.intent.category.LAUNCHER 1`,
-  which is the widely-copied one and is wrong: on API 35 monkey exits **251**, writes its
-  argument dump to **stderr**, and `topResumedActivity` never changes. `execFile` surfaced the
-  non-zero exit with monkey's own arg-echo, so the tool reported a baffling
-  `adb -s: args: [-p, com.android.settings, …]`. Fixed to resolve the component first —
-  `cmd package resolve-activity --brief <pkg>` (the launchable component is its LAST line;
-  earlier lines are match metadata) — then `am start -n <component>`, which exits 0 and really
-  does foreground the activity.
-
-  **The rest of the checklist, now actually run:** `type` into a real field ✓ · `swipe` ✓ ·
-  `key` back ✓ · `launch` ✓ (after the fix) · logs unfiltered (6,799 chars) and narrowed by
-  `package` (6,261) ✓ — note `-t N` bounds volume first, so the dramatic iOS-style reduction is
-  not visible and that is not a defect · the tap-feedback ROUND TRIP ✓: note emitted,
-  `show_touches` → `1`, and after `restoreTapFeedback()` the key is ABSENT again (reads `null`)
-  rather than holding the four-character string `"null"`.
-
-  **The OS sandbox DOES permit `adb`'s local socket — on macOS.** Through `sandbox-exec` in
-  read-only mode, `adb devices && adb shell getprop sys.boot_completed` returns
-  `emulator-5554 device` / `1`. Windows (Low IL) and Linux (Landlock) are still unverified for
-  this and need those machines.
-
-  **STILL not exercised:** iOS `launch` (needs a booted simulator — the Android branch changed,
-  the iOS `simctl launch` branch did not), and Windows/Linux sandbox reach for `adb`.
-
-- **A LESSON ABOUT `ToolRegistry.execute`'s ENVELOPE, because it made me accuse working code
-  twice.** A successful handler result is nested under `result` — but when the payload is large,
-  `guardToolCall` truncates it and `result` arrives as a **JSON string** alongside
-  `_truncatedOutput` / `_originalSize`. Reading `.content` off that string yields `undefined`,
-  which is indistinguishable from a tool that returned nothing: that is exactly how
-  `mode:"logs"` looked broken while it was returning 400 lines of real logcat. Any test driving
-  a tool through `execute` needs an unwrap that handles BOTH shapes.
-  The sibling trap in the same file: `runDeviceCli` returns both `stdout` (a UTF-8 string) and
-  `buffer`, and reading a PNG from `stdout` corrupts byte 0 (0x89 is not valid UTF-8), so the
-  magic-byte check fails on a perfectly good image. Two of my four "findings" were my own
-  harness. **A live test can produce false accusations as easily as a mock produces false
-  confidence — confirm the failure against the raw CLI before believing the wrapper is at
-  fault.**
-- **A test that reuses the implementation's own predicate cannot catch the predicate being
-  wrong.** `resolve-toolset-unattended.test.ts` asserted `!names.some(n => n.startsWith("browser_"))`
-  — the same expression as the filter it was testing. When `browser` lost its underscore the
-  filter stopped covering it and the test kept passing, VACUOUSLY. It now NAMES the five
-  view-driving tools, and has a positive control (attended runs DO get them) so
-  "dropped everywhere" cannot pass either. Verified by reverting the filter and watching three
-  tests fail.
-- **`vi.mock` cannot intercept a call made inside the same module.** `ensureTapFeedback` calls
-  `runDeviceCli` from within `device-tools.ts`, so the call is a lexical binding that never goes
-  through the module's exports — a spread-mock of the module leaves it untouched, and the test
-  observes nothing while looking like it works (empty `calls` array, four confusing failures).
-  Use an explicit seam (`setDeviceCliRunnerForTests`, same shape as
-  `setGlobalAtlarixDirForTests`) rather than restructuring production code around the mock.
-- **Two things the security review flagged as CONTEXT, not findings — both pre-existing, both
-  worth knowing.** (a) `pollMcp` (`automations/pollers/mcp.ts`) looks a server up by
-  `trigger.serverId` with **no workspace predicate**, and `upsertMcpConsentIfNeeded`
-  (`automations/service.ts`) grants `consent:"always"` for an arbitrary `serverId`. It is not
-  exploitable across workspaces today because the invocation still goes through `mcp_call` with
-  the automation's own `workspaceId` — the id is used only for the name lookup and the consent
-  row. Untouched by v14.41.0; tighten it when automations are next opened. (b) `forge.config.ts`
-  interpolates a lockfile `version` into `name@<value>` and `runNpmInstall` uses `shell: true`
-  on Windows, so a crafted `package-lock.json` could yield an unexpected package spec. Requires
-  write access to the lockfile, which already dictates tarball URLs and can carry `postinstall`
-  — so it grants nothing new. Belt-and-braces if ever wanted: reject a version not matching
-  `/^\d+\.\d+\.\d+[\w.+-]*$/` and resolve `npm.cmd` explicitly instead of `shell: true`.
-- **`RulesetDecision` is deny-only, and the permission gate's `??` composition DEPENDS on that.**
-  `evaluateRuleset` returns `{kind:"deny"} | null` — there is no allow decision — which is why
-  checking the as-called name and then the canonical name cannot fail open. **If an allow or ask
-  decision is ever added to the ruleset, revisit `tool-execute.ts`'s composition before doing
-  it**, because a non-null allow would short-circuit the canonical check.
-- **SECURITY REVIEW FINDING (fixed): the same value, three treatments.** `mode:"logs"`'s
-  `package` was interpolated into an iOS NSPredicate with no validation, while
-  `action:"launch"` validated the identical kind of value and the Android logs path quoted it.
-  `.split(".").pop()` is not a sanitiser — a dotless payload survives it whole — so
-  `x" OR message CONTAINS "password` widened a filter the tool still reported as app-scoped.
-  Validated once up front now. **When one untrusted value reaches several call sites, the risk
-  is the DIFFERENCE between their treatments**, because checking one site convinces you the
-  value is handled.
-- **`execFile` protects the local shell, not the far one.** `adb shell <args…>` joins its
-  arguments and runs them through `/system/bin/sh -c` on the DEVICE, so an argv array buys
-  nothing there: `input text "a; rm -rf /sdcard/x"` runs the `rm`. Quote for the device shell.
-  The reason it matters is not agent privilege (it has `run_command`) but that an agent types
-  what it READ — this is a prompt-injection path into a device shell.
+- **A wrapper around an external CLI is UNVERIFIED until it has run against that CLI.** The
+  deleted mobile tools (2026-09) shipped three silent zeros past a green mocked suite: `simctl io
+  <id> screenshot -` wrote a file literally named `-` (exit 0, nothing on stdout), `adb shell
+  uiautomator dump /dev/tty` returned a 32-character message and no XML (exit 0), and `monkey -p`
+  exited 251 on API 35 with its arg dump on stderr. Only live runs found them. The assertion that
+  catches this class is about the SHAPE of real output (a document with nodes, PNG magic bytes, a
+  non-zero count), never about the arguments passed.
 - **A prefix test is only as stable as the naming convention it assumes.** `resolve-toolset.ts`
   dropped UI-driving tools headless/unattended with `startsWith("browser_")`. Consolidating to a
   tool named plain `browser` made that FALSE, so the act tool was silently offered to headless
   benchmark runs with no window and to unattended automations nobody watches. The plan itself
   asserted this filter "keeps working automatically" — it did not. Now a named `DRIVES_A_VIEW`
-  predicate lists the tools, and `mobile_*` is in it for the same reason.
-- **`NEVER_TRIM` has a bar, and the alternative is usually better.** `mobile_inspect`'s
-  screenshot-is-a-last-resort wording mirrors `browser_inspect`'s, but that list is for prose
-  preventing an OBSERVED failure and no device has been driven yet. Instead the tool's DEFAULT
-  (no `mode`) is the cheap text read, and its first sentence — the only part a peripheral tool
-  binds — says so. Work with the reveal mechanism rather than exempting yourself from it.
+  predicate lists the tools.
+- **`NEVER_TRIM` has a bar, and the alternative is usually better.** That list is for prose
+  preventing an OBSERVED failure. Otherwise make the tool's DEFAULT the cheap path, and say so in
+  its first sentence — the only part a peripheral tool binds. Work with the reveal mechanism rather than exempting yourself from it.
 - **A ceiling left high is a ratchet that only loosens.** `prompt-budget.eval.test.ts`'s per-mode
   ceilings move DOWN with every prefix reduction, or the next accidental growth is free.
 - **A deleted UI control can make a threat model worse, not better.** `DESIGN_NOTES.md`'s

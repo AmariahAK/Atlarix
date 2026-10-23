@@ -162,16 +162,9 @@ export function resolveToolsetForSession(
    * to headless benchmark runs with no window and to unattended automations
    * nobody is watching. A prefix test is only as stable as the naming
    * convention it assumes; this names the tools.
-   *
-   * `mobile_*` is here for the same reason and not by prefix: a headless CLI
-   * has no emulator, and an unattended automation driving one is a UI surface
-   * with no observer.
    */
   const DRIVES_A_VIEW = (name: string) =>
-    name === "browser" ||
-    name.startsWith("browser_") ||
-    name === "mobile" ||
-    name.startsWith("mobile_");
+    name === "browser" || name.startsWith("browser_");
   // Unattended (automation) runs happen inside the real app — MCP servers,
   // web search, attachments all exist — so only human-handoff and UI-view
   // tools are dropped: ask_user would park the turn forever (no responder),

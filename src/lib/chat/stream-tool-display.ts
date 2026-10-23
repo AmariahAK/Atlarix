@@ -157,7 +157,7 @@ const EXPLANATION_FIELDS = [
   "loop_guidance",
   "summary",
   "reason",
-  // Used by the browser/mobile act tools and several others.
+  // Used by the browser act tool and several others.
   "detail",
   "note",
 ] as const;
