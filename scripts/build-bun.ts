@@ -20,6 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assetFiles, cliPlugin, root } from "./bun-cli-plugin";
+import { windowsExeMetadata } from "./lib/windows-exe-metadata";
 // Bun 1.3.8 crashed compiled binaries natively 30-60 s into a session (a
 // JavaScriptCore wasm compiler thread freeing memory twice). .bun-version pins
 // the release this binary is tested on; an older Bun must not build it.
@@ -132,6 +133,9 @@ const result = await Bun.build({
         compile: {
           outfile,
           ...(target ? { target: target as Bun.Build.Target } : {}),
+          // Atlarix's name, publisher, version and icon in the exe, not Bun's
+          // ("Bun" / "Oven" in SmartScreen and Task Manager: QA E6).
+          ...(targetsWindows ? { windows: windowsExeMetadata(version, root) } : {}),
           // The binary runs in whatever folder the user opens, often a clone
           // they have not read yet. Left on (Bun's default), it would run that
           // folder's bunfig.toml `preload` (its code, with the user's keys and

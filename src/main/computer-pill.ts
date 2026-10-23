@@ -44,6 +44,10 @@ export function createPill(onStop: () => void, shortcutLabel: string): BrowserWi
     hasShadow: false,
     show: false,
     alwaysOnTop: true,
+    // macOS: the pill is shown without focus, and a click into a window that
+    // was never key only activates it unless this is set, so the FIRST pill
+    // after launch ignored Stop (ai-44, A5: 3/3 fresh launches; later pills 4/4).
+    acceptFirstMouse: true,
     ...(process.platform === "darwin" ? { type: "panel" as const } : {}),
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false },
   });
