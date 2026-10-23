@@ -193,10 +193,14 @@ re-resolves the CLICKER's link, so a teammate in the same channel can neither st
 someone else's wallet nor merge someone else's PR. Model-written summaries are escaped before
 they reach Slack, so a summary cannot contain `<!channel>`.
 
-**Which model a run uses (owner decision 2026-10-03).** Paid Atlarix Auto by default, any paid
-Core tier, or the user's own API key (`byok`). The job carries the choice (`cloud_jobs.tier`), set
-when the run is started (the model picker on atlarix.dev, `[core-2]` / `[byok]` in Slack) and
-validated against the live Core lineup. The workflow file cannot change it.
+**Which model a run uses (owner decisions 2026-10-03, 2026-10-23).** The cloud agent is a paid
+feature: paid Atlarix Auto by default, or any paid Core tier, billed to the balance (PAYG or Pro).
+The job carries the choice (`cloud_jobs.tier`), set when the run is started (the model picker on
+atlarix.dev; Slack is always Auto) and validated against the live Core lineup. The workflow file
+cannot change it. Own-key cloud runs were removed on 2026-10-23: one Slack lookup of a repository's
+own-key setup that couldn't be read billed Auto in its place, the App's secret-writing permission
+was its riskiest, and none of the comparable agents take an own key in the cloud. Own keys and
+local models stay in the desktop app, the CLI and the editors.
 
 **Never free Auto.** Free Auto shares prompts with OpenAI, and a private repository's code is not the
 installer's to share. Long unattended runs are also exactly what free tokens get farmed for. The
@@ -204,18 +208,9 @@ proxy's `freeOffered` excludes the `cloud` caller by construction, and a cloud r
 while paid Auto is off gets 503 `cloud_requires_paid_auto`, never the free chain. Any other model
 takes the normal paid Core path, billed through `debit_wallet_cloud`.
 
-**Own-key runs are free, and the key never reaches the agent.** A `byok` claim gets no Core run
-token, so it cannot spend the wallet even by mistake. It is also exempt from the balance check: it
-costs Atlarix nothing, and paid models are where we earn. The key comes from the repository's
-`ATLARIX_PROVIDER_KEY` secret and is handled like the Core token:
-1. `run.mjs` deletes it from its own environment at start;
-2. it writes the key to a 0600 file;
-3. the CLI reads the file with `--api-key-file`, deletes it, and keeps the key in memory
-   (`pinned-provider-key.ts`).
-
-The key is never in `process.env` and never in `user-settings.json`, unlike `--api-key`, which
-stores it there. The agent's child environment also drops every `INPUT_*` and the runner's OIDC
-request credentials (`lib.mjs` `childEnv`).
+**The Core token never reaches the agent.** `run.mjs` writes the job's run token to a 0600 file,
+the CLI reads it with `--core-token-file` and deletes it, and the agent's child environment drops
+every `INPUT_*` and the runner's OIDC request credentials (`lib.mjs` `childEnv`).
 
 **Email sign-in lives on atlarix.dev.** Turnstile only renders on a hostname registered to its
 site key, so neither the Electron renderer nor an extension page can show it. The app and the
