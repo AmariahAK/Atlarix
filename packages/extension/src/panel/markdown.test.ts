@@ -410,3 +410,22 @@ describe("URLs with parentheses (QA E2)", () => {
     expect([...reply.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual([url]);
   });
 });
+
+describe("URLs in quotes or backticks (QA E5)", () => {
+  it("the closing quote is not part of the link, as in the CLI and ACP", () => {
+    const pre = document.createElement("pre");
+    linkifyText(
+      pre,
+      "'Local: http://localhost:5173/'\n\"url\": \"https://example.com/a\",\n`https://example.com/b`\nsee 'https://example.com/docs.'",
+    );
+    expect([...pre.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual([
+      "http://localhost:5173/",
+      "https://example.com/a",
+      "https://example.com/b",
+      "https://example.com/docs",
+    ]);
+    const reply = document.createElement("div");
+    renderMarkdown(reply, `It runs at 'http://localhost:5173/' now.`);
+    expect([...reply.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["http://localhost:5173/"]);
+  });
+});
