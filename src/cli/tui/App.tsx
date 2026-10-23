@@ -378,11 +378,12 @@ export function borderHints(o: {
     }
     return kept.join(" · ");
   };
+  const title = o.title ? oneLine(o.title, o.max != null && o.max < 90 ? 20 : 32) : null;
   if (o.busy) {
     const queued = o.queued ? "alt+↑ edit queued" : null;
-    return fit(["esc stop", "enter steer", "tab queue", queued, tasks], ["tab queue", "enter steer"]);
+    // The name stays while it works: that is when people switch tabs and come back.
+    return fit([title, "esc stop", "enter steer", "tab queue", queued, tasks], ["tab queue", "enter steer", title ?? ""]);
   }
-  const title = o.title ? oneLine(o.title, o.max != null && o.max < 90 ? 20 : 32) : null;
   if (o.narrow) return [title ?? o.place, tasks].filter(Boolean).join(" · ");
   const mcp = o.mcp ? `⊙ ${o.mcp} MCP` : null;
   // ctrl+o isn't here: each collapsed item says "(ctrl+o)" where it has more.

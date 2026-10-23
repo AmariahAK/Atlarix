@@ -24,6 +24,7 @@
  *    permission prompts still fire on the receiving side.
  */
 import * as fs from "node:fs";
+import { isPlaceholderTitle } from "@/lib/session-title/title-text";
 import * as net from "node:net";
 import * as os from "node:os";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -268,12 +269,7 @@ function refreshNames(d: Sqlite): void {
   }
 }
 
-/** A title the app gives a session before it has a real one. */
-export function isPlaceholderTitle(title: string): boolean {
-  return /^(untitled|new chat|new conversation)( session)?$/i.test(
-    title.trim(),
-  );
-}
+export { isPlaceholderTitle };
 
 /** Bring this process's session names up to date now (before a send, say). */
 export function refreshLocalNames(): void {

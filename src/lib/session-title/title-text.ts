@@ -195,3 +195,18 @@ export function deterministicTitle(firstUserText: string): string | null {
   if (!capped) return null;
   return capped.charAt(0).toUpperCase() + capped.slice(1);
 }
+
+/** A title the app gives a session before it has a real one. */
+export function isPlaceholderTitle(title: string): boolean {
+  return /^(untitled|new chat|new conversation)( session)?$/i.test(title.trim());
+}
+
+/**
+ * The name the chat header shows: the session's own title, never a placeholder
+ * or the workspace's name (a new chat's tab starts with that, and the header
+ * already says the workspace).
+ */
+export function chatHeaderTitle(tabTitle: string | undefined, workspaceName: string | undefined): string {
+  const t = tabTitle?.trim() ?? "";
+  return t && !isPlaceholderTitle(t) && t !== workspaceName?.trim() ? t : "";
+}

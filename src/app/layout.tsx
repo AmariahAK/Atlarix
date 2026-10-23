@@ -20,7 +20,8 @@ import { pendingSessionHandoffAtom } from "@/atoms/sessionAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import { useAppLocale } from "@/hooks/useAppLocale";
 import type { ZoomLevel } from "@/lib/schemas";
-import { activeChatIdAtom, isStreamingByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, isStreamingByIdAtom, openChatTabsAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { chatHeaderTitle } from "@/lib/session-title/title-text";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
@@ -69,6 +70,13 @@ function PersistentChatContainer() {
   const navigate = useNavigate();
   const [activeChatId, setActiveChatId] = useAtom(activeChatIdAtom);
   const currentApp = useAtomValue(currentAppAtom);
+  // What this chat is about, where the user is looking: the sidebar and the tab
+  // strip (hidden with one tab) were the only places it showed.
+  const openTabs = useAtomValue(openChatTabsAtom);
+  const sessionTitle = chatHeaderTitle(
+    openTabs.find((t) => t.chatId === activeChatId)?.title,
+    currentApp?.name,
+  );
   const {
     visible: rightPanelVisible,
     toggle: toggleRightPanel,
@@ -196,7 +204,11 @@ function PersistentChatContainer() {
             New chat
           </button>
           <div className="flex items-center gap-2 min-w-0">
-            <span className="font-medium">Atlarix</span>
+            {sessionTitle ? (
+              <span className="font-medium truncate max-w-[40ch]" title={sessionTitle} data-testid="chat-session-title">
+                {sessionTitle}
+              </span>
+            ) : null}
             {currentApp && (
               <span
                 className="text-xs text-muted-foreground font-normal truncate max-w-[220px] inline-flex items-center gap-1.5 min-w-0"
