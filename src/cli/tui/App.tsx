@@ -878,6 +878,27 @@ export function App({
   useEffect(() => {
     if (state.question) notify("Atlarix has a question for you");
   }, [state.question?.questionId]);
+  // Computer use takes the screen, so the terminal loses focus: say so once a
+  // turn, with how to stop it (the app shows a pill instead).
+  const computerNoted = useRef(false);
+  useEffect(() => {
+    if (!state.busy) computerNoted.current = false;
+  }, [state.busy]);
+  useEffect(() => {
+    let off = () => {};
+    void import("@/lib/tools/computer").then(({ computerActivity }) => {
+      // After an action, not before: the first one is often a screenshot with
+      // the terminal still focused, and notify() stays quiet while it is.
+      const onAction = () => {
+        if (computerNoted.current || terminalFocused.current) return;
+        computerNoted.current = true;
+        notify("Atlarix is controlling your screen. Move the mouse to stop.");
+      };
+      computerActivity.on("end", onAction);
+      off = () => computerActivity.off("end", onAction);
+    });
+    return () => off();
+  }, []);
 
   // The tab title pulses while Atlarix works (tab-title.ts).
   const waiting = state.approvals.length > 0 || state.question != null;
