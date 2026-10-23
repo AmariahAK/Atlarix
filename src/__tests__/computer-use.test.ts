@@ -32,6 +32,17 @@ const snapshot = (await import("@/lib/computer/computer-use-models.json")).defau
 
 afterAll(() => fs.rmSync(userData, { recursive: true, force: true }));
 
+/**
+ * The Anthropic API's real 400 for Claude Haiku 5.5 sent `computer_20251124`
+ * (captured 2026-10-23, request req_011CgK7hwAaJLZatGJqfftN3), in the shape the
+ * AI SDK's APICallError carries it.
+ */
+const ANTHROPIC_400 = Object.assign(new Error("'claude-haiku-5-5' does not support tool types: computer_20251124. Did you mean one of bash_20250124, bash_code_execution_20250825, browser_toolset_20260801, code_execution_20250522, code_execution_20250825, code_execution_20260120, code_execution_20260521, computer_toolset_20260801, memory_20250818, python_with_tools_code_execution_20250825, python_with_tools_code_execution_20260120, python_with_tools_code_execution_20260521, text_editor_20250728, text_editor_code_execution_20250825, tool_search_tool_bm25_20251119, tool_search_tool_regex_20251119, web_fetch_20250910, web_fetch_20260209, web_fetch_20260309, web_fetch_20260318, web_search_20250305, web_search_20260209, web_search_20260318?"), {
+  name: "AI_APICallError",
+  statusCode: 400,
+  responseBody: "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"'claude-haiku-5-5' does not support tool types: computer_20251124. Did you mean one of bash_20250124, bash_code_execution_20250825, browser_toolset_20260801, code_execution_20250522, code_execution_20250825, code_execution_20260120, code_execution_20260521, computer_toolset_20260801, memory_20250818, python_with_tools_code_execution_20250825, python_with_tools_code_execution_20260120, python_with_tools_code_execution_20260521, text_editor_20250728, text_editor_code_execution_20250825, tool_search_tool_bm25_20251119, tool_search_tool_regex_20251119, web_fetch_20250910, web_fetch_20260209, web_fetch_20260309, web_fetch_20260318, web_search_20250305, web_search_20260209, web_search_20260318?\"},\"request_id\":\"req_011CgK7hwAaJLZatGJqfftN3\"}",
+});
+
 function on(...keys: string[]) {
   settings.mockReturnValue({ computerUseModels: keys });
 }
@@ -173,11 +184,7 @@ describe("computerLane", () => {
 });
 
 describe("isNativeComputerToolRejection", () => {
-  /** The Anthropic API's 400 for Claude 5.5 given the 2025-11 tool version. */
-  const ANTHROPIC_55 = Object.assign(
-    new Error("'claude-haiku-5-5' does not support tool types: computer_20251124. Did you mean one of: computer_toolset_20260801?"),
-    { name: "AI_APICallError", statusCode: 400 },
-  );
+  const ANTHROPIC_55 = ANTHROPIC_400;
 
   it("recognises the refusal, at the top level and wrapped in the SDK's onError event", () => {
     expect(isNativeComputerToolRejection(ANTHROPIC_55)).toBe(true);
@@ -247,10 +254,6 @@ describe("a refused native tool never costs the turn", () => {
   });
 });
 
-const ANTHROPIC_400 = Object.assign(
-  new Error("'claude-haiku-5-5' does not support tool types: computer_20251124."),
-  { name: "AI_APICallError", statusCode: 400 },
-);
 
 describe("toolset", () => {
   it("offers computer only to a model it is switched on for, in Build, attended", async () => {
