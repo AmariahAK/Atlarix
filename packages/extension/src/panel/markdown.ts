@@ -306,7 +306,7 @@ function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
  * emphasis. Asterisks do not occur that way.
  */
 const INLINE =
-  /(`[^`]+`)|(\[[^\]\n]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?])/g;
+  /(`[^`]+`)|(\[[^\]\n]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\bhttps?:\/\/(?:[^\s<>()]|\([^\s<>()]*\))*(?:[^\s<>().,;:!?]|\([^\s<>()]*\)))/g;
 
 /** Where a `[text](url)` may point: never `javascript:`, `data:`, `vbscript:` or a relative path. */
 const SAFE_HREF = /^(?:https?:\/\/|mailto:)/i;
@@ -346,7 +346,8 @@ function appendInline(parent: HTMLElement, text: string): void {
 }
 
 /** A link that opens outside: its text is text, never markup. */
-const BARE_URL = /\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?]/g;
+// A balanced "(…)" belongs to the URL (Wikipedia, MDN); a ")" closing prose does not (QA E2).
+const BARE_URL = /\bhttps?:\/\/(?:[^\s<>()]|\([^\s<>()]*\))*(?:[^\s<>().,;:!?]|\([^\s<>()]*\))/g;
 
 /**
  * Plain text (command output, a failure line, a message) into `parent`, with

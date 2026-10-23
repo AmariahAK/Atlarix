@@ -395,3 +395,18 @@ describe("linkifyText: plain text with its URLs as links", () => {
     expect(pre.querySelector("b")).toBeNull();
   });
 });
+
+describe("URLs with parentheses (QA E2)", () => {
+  it("a balanced (…) belongs to the URL, in plain text and in a reply", () => {
+    const url = "https://en.wikipedia.org/wiki/Rust_(programming_language)";
+    const pre = document.createElement("pre");
+    linkifyText(pre, `Wiki ${url} and (https://github.com/acme/app/pull/7), done`);
+    expect([...pre.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual([
+      url,
+      "https://github.com/acme/app/pull/7",
+    ]);
+    const reply = document.createElement("div");
+    renderMarkdown(reply, `Read ${url}.`);
+    expect([...reply.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual([url]);
+  });
+});
