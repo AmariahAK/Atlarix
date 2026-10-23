@@ -50,7 +50,6 @@ import { buildQuestionCard } from "./question-card";
 import { formatInteractiveQaLine } from "@/lib/interactive-qa-format";
 import {
   canActOn,
-  pruneRevokedGrants,
   requestHostAccess,
   revokeHostAccess,
 } from "../permissions/host-access";
@@ -2413,14 +2412,8 @@ async function refreshDrawer(): Promise<void> {
  * build the prompt, and this joins them.
  */
 async function syncGrantsForTurn(): Promise<void> {
-  // PRUNE FIRST, so what gets published is a list Chrome has already agreed
-  // with rather than one we only believe. The user can drop a host from
-  // chrome://extensions without telling us, and a record that outlives the
-  // permission produces a read failing with a raw injection error instead of an
-  // honest "you took this back".
-  const known = (await listGrants()).map((g) => g.origin);
-  await pruneRevokedGrants(known);
-
+  // No prune against Chrome first: a site Chrome withholds keeps its grant
+  // (host-access.ts, QA A3). Only the website's revocations are applied.
   const { revoked } = await syncSiteGrants();
 
   // SAY SO. A revocation that takes effect in silence is indistinguishable from

@@ -1421,6 +1421,9 @@ async function listPeerSessionsTool(): Promise<ToolOutcome> {
  * approve it in the panel, every time. A page the agent read can talk the model
  * into wanting to message the CLI; it cannot press the button.
  */
+/** The step's label when nothing was sent: the panel's default reads "Sent a message" (QA). */
+const NOT_SENT = "Message not sent";
+
 async function sendToPeer(
   args: Record<string, unknown>,
   ctx: ToolContext,
@@ -1447,10 +1450,11 @@ async function sendToPeer(
         content:
           "Say which session with `to` (list_sessions shows them). No session " +
           "handed you a task in this conversation.",
+        label: NOT_SENT,
       };
     }
     const rows = await fetchPeerSessions();
-    if (typeof rows === "string") return { content: `Not sent: ${rows}.` };
+    if (typeof rows === "string") return { content: `Not sent: ${rows}.`, label: NOT_SENT };
     const matches = rows.filter(
       (r) =>
         r.sessionId.toLowerCase() === want ||
@@ -1460,11 +1464,13 @@ async function sendToPeer(
     if (matches.length === 0) {
       return {
         content: `No Atlarix session called "${args.to}". list_sessions shows the ones running.`,
+        label: NOT_SENT,
       };
     }
     if (matches.length > 1) {
       return {
         content: `Several sessions match "${args.to}": ${matches.map((m) => m.name).join(", ")}. Use the exact name.`,
+        label: NOT_SENT,
       };
     }
     target = matches[0]!;

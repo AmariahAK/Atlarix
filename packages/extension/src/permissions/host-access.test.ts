@@ -13,7 +13,6 @@ import {
   canActOn,
   hasHostAccess,
   matchPatternFor,
-  pruneRevokedGrants,
   requestHostAccess,
   revokeHostAccess,
 } from "./host-access";
@@ -256,30 +255,24 @@ describe("revokeHostAccess", () => {
   });
 });
 
-describe("pruneRevokedGrants", () => {
-  it("drops records Chrome no longer backs, and reports which", async () => {
-    narrowSiteAccess(fake);
-    await requestHostAccess("https://a.example.com/");
-    await requestHostAccess("https://b.example.com/");
-    fake.held.delete("https://a.example.com/*");
-
-    const dropped = await pruneRevokedGrants([
-      "https://a.example.com/",
-      "https://b.example.com/",
-    ]);
-
-    expect(dropped).toEqual(["https://a.example.com/"]);
-    await expect(isGranted("https://a.example.com/")).resolves.toBe(false);
-    await expect(isGranted("https://b.example.com/")).resolves.toBe(true);
+describe("Chrome withholding a site keeps its grant (QA A3)", () => {
+  it("nothing deletes a grant because Chrome stopped allowing the site", async () => {
+    // "On click" in chrome://extensions withholds every site at once; a prune
+    // against Chrome erased every grant the next turn.
+    const users = Object.entries(RAW).filter(
+      ([file, text]) => !file.endsWith(".test.ts") && /pruneRevokedGrants/.test(text),
+    );
+    expect(users.map(([f]) => f)).toEqual([]);
   });
 
-  it("drops nothing while the manifest's broad access is intact", async () => {
+  it("a withheld site's grant still counts once Chrome allows it again", async () => {
+    narrowSiteAccess(fake);
     await requestHostAccess("https://a.example.com/");
-
-    await expect(
-      pruneRevokedGrants(["https://a.example.com/"]),
-    ).resolves.toEqual([]);
+    fake.held.delete("https://a.example.com/*");
+    expect(await canActOn("https://a.example.com/")).toBe(false);
     await expect(isGranted("https://a.example.com/")).resolves.toBe(true);
+    fake.held.add("https://a.example.com/*");
+    expect(await canActOn("https://a.example.com/")).toBe(true);
   });
 });
 
