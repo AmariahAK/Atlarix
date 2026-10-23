@@ -25,8 +25,8 @@ import {
 } from "../../scripts/store-submit.mjs";
 
 describe("pendingSubmissionAction", () => {
-  it("reuses a draft, so what was set on it by hand survives", () => {
-    expect(pendingSubmissionAction("PendingCommit")).toBe("reuse");
+  it.each(["PendingCommit", "Canceled"])("reuses a draft (%s), so what was set on it by hand survives", (status) => {
+    expect(pendingSubmissionAction(status)).toBe("reuse");
   });
 
   it.each([
@@ -35,8 +35,7 @@ describe("pendingSubmissionAction", () => {
     "CertificationFailed",
     "ReleaseFailed",
     "PublishFailed",
-    "Canceled",
-  ])("replaces one that never started or failed (%s)", (status) => {
+  ])("replaces one that failed (%s)", (status) => {
     expect(pendingSubmissionAction(status)).toBe("replace");
   });
 
