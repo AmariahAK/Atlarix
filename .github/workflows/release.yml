@@ -80,7 +80,7 @@ env:
   NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
   # What native/atlarix-computer builds against on Linux: xcap's capture
   # (pipewire for Wayland's portal, xcb for X11; bindgen needs libclang).
-  CU_LINUX_DEPS: pkg-config libclang-dev libpipewire-0.3-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev libgbm-dev libegl-dev libwayland-dev libdbus-1-dev
+  CU_LINUX_DEPS: pkg-config libclang-dev libpipewire-0.3-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev libgbm-dev libegl-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
 
 jobs:
   quality:
