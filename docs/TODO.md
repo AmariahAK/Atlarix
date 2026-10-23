@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current version:** 15.10.0 (2026-10-21): project memory that recalls the right notes, live sessions and
+**Current version:** 15.10.0 (2026-10-21); 15.10.1 is merged but not yet released (see the 2026-10-23 handover): project memory that recalls the right notes, live sessions and
 `/fork` across app, CLI and editors, approvals that remember folder rules, compaction that works, a chat history
 that stays in the prompt cache, and per-surface usage data. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
@@ -16,9 +16,161 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-21
+**Last updated:** 2026-10-23
 
 ---
+
+## 🔨 Handover 2026-10-23 (ai-45) — 15.10.1 merged, NOT released; keys rotated; what is left
+
+The owner moved the 15.10.1 release and the video to another session ("push to dev, do not deploy"). Team notes:
+`~/.atlarix-e2e/team/STATUS.md` (newest at the bottom).
+
+### A. Release 15.10.1 (follow the runbook)
+
+- **State:** `main` @ 19d13c6f = `dev` 5fd99bbf. Version 15.10.1, `docs/CHANGELOG.md` `## [15.10.1]`, README,
+  models snapshot, extension version sync and i18n ratchet (274) are committed. **No tag.** The repo is private.
+- **CI:** the first main run (ee362503) failed on vitest unhandled rejections (an import cycle posthog-client ↔
+  useSettings); fixed in a101f3de. Check the main run on 19d13c6f is green, then flip public → tag `v15.10.1` →
+  watch the steps → verify Latest / `latest-mac.yml` / body / assets / npm / Homebrew / Open VSX / CWS → flip
+  private.
+- **QA:** PASS at 922d8e5d (Mac app + CLI + VS Code panel + Zed; Windows CLI + VS Code panel). a101f3de only
+  moves the consent check into `src/lib/analytics/telemetry-consent.ts`.
+- **Launchpad:** branch `release/15.10.1` (583858c) = Slack v1's own-key form (9f7693d, adds libsodium-wrappers)
+  + the 15.10.1 entry in `public/CHANGELOG.md` + version. Merge to main only after the app release publishes, then
+  `vercel deploy --prod --yes --scope amariah-kamaus-projects` and curl the live site.
+- **Then:** the 8 `.vsix` on the Desktop for the Marketplace upload, the MS Store submission.
+- **Item 10:** `proxy.fallbackUrl` in the hosted `core-models.json` stays empty until the AWS proxy copy (C) is live.
+
+### B. Railway breach rotation — DONE 2026-10-23; leftovers
+
+Rotated and deployed: proxy (57c91fb), reviewer (4326324), backup; old keys revoked at OpenAI, Kimi, Requesty,
+DeepSeek, Z.ai, Lemon Squeezy, Resend, Cloudflare R2 and both GitHub Apps; the old Supabase secret key deleted;
+the database password reset; GitHub, Slack and Lemon Squeezy webhook secrets changed; the Slack install's token
+re-encrypted under a new `SLACK_TOKEN_KEY`. Teleios Centre Kenya's Postgres was rotated by its own session.
+
+- **Discord:** `DISCORD_WEBHOOK_URL` and `CORE_ALERT_WEBHOOK_URL` (proxy and Supabase edge secrets) were in the
+  leak. Regenerate the webhooks in Discord, then update both places.
+- **VirusTotal:** `VIRUSTOTAL_API_KEY` (proxy, edge) can't be reset from its dashboard (free key). Rotate via the
+  account or accept the risk.
+- **Legacy Supabase JWT keys:** the `service_role` JWT was in Railway (removed there now) and is still valid. Edge
+  functions read `SUPABASE_SERVICE_ROLE_KEY`; move them to a `sb_secret_` key, then disable the legacy keys. The
+  2026-10-22 log audit found 0 uses.
+- **Old AWS keys:** `atlarix-proxy-runtime` …FOFY and `atlarix-reviewer-runtime` …GNQH are INACTIVE. Delete them
+  after a week with no errors.
+- **Stale secrets:** the Atlarix repo's Actions secret `OPENAI_API_KEY` is used by no workflow and held a revoked
+  key, so delete it. The proxy's `OPENROUTER_FREE_API_KEY` is a disabled, never-used OpenRouter key: remove it or
+  replace it.
+- **Proxy `/health` shows `commit: null`** because it was deployed with `railway up`. Deploy from git next time so
+  the SHA shows (the AWS uptime STALE check compares it).
+- **Where keys live now:** Supabase secret keys `railway_20261022` (proxy, reviewer), `aws_lambdas_20261022`
+  (usage-writer, daily-digest, comp-pro), `aws_proxy_copy_20261022` (for C), `edge_functions_20261023` (edge
+  `NEXT_PUBLIC_SUPABASE_SECRET_KEY`). Supabase Auth's SMTP password is the new Resend key. Before revoking any key,
+  check `supabase secrets list` and the auth SMTP config: the edge functions hold copies.
+
+### C. AWS relief (ai-c4) — live, and what is left
+
+- **Live:** the `atlarix-inbox` Lambda (with `inbox_writer`, INSERT only) and the reviewer's drain; the
+  `atlarix-uptime` watcher (every 5 min, emails atlarix-alarms); the three small Lambdas on their own Supabase key.
+  The reviewer logs `[trace]` lines; `scripts/aws/trace.sh <delivery key>` follows one delivery.
+- **Left:**
+  - the proxy copy `atlarix-proxy-failover` (us-east-1): build and deploy, prove `/health` + the debit dedupe, then
+    set item 10's `fallbackUrl`. Its own provider keys must be minted again: the overnight copies are deleted with
+    the scratchpad.
+  - switch the GitHub (both apps) and Slack webhook URLs to the inbox Lambda, then check one redelivery with
+    `trace.sh`.
+  - the backup on AWS: dry-run and apply `backup_reader` (+ the `backup.users_min` view), the rehearsal restore, 2
+    overlap nights, then the switch. Its new R2 token was minted (Object R&W on `atlarix-ledger-backups`) and must
+    be re-minted, as the copy is deleted.
+  - the STALE check needs the proxy's commit (B).
+
+### D. Slack v1 — live
+
+The reviewer runs it (4326324), and agent-action v1.3.0 is released with `v1` moved. Left: one live pass in real
+Slack (Chrome needs app.slack.com), and the paid Reviewer run from Slack (~5–20¢, unit-tested only).
+
+### E. Small
+
+- Notes from ai-95: `atlarix run` (headless) has no `list_sessions`/`send_message`.
+- `free-agent`'s `sessionRatingAt` was cleared so the rating card shows again.
+
+## 🎬 Rix News release video, revision 2 — paused 2026-10-23 (ai-5b); a new session finishes it
+
+The owner asked for a revised 15.10 "Rix News" video. They approved the script, the storyboard, the diorama look,
+our own plain "AWS" lettering and the 3D Rix ("i love it"; keep the 3D Rix for future videos). Storyboard:
+https://claude.ai/artifact/JGG3PdqzeY1WJpoUcpsEum (source in `storyboard/`). Plan:
+`~/.claude/plans/validated-snacking-summit.md`. Owner orders: never post; footage on RELEASED builds only;
+record on AWS Bedrock, Claude Haiku 4.5 (never Atlarix Auto); every heavy step under `heavy.sh`; video work comes
+after QA and releases.
+
+**Project:** `~/.atlarix-e2e/ai5b/rix-news/` (348 MB). **Don't delete it** until the video is delivered.
+Footage env is in `~/.atlarix-e2e/ai5b/` (`rel/` = 15.10.0 CLI, app, vsix; `ws/colony-api` = demo repo;
+`cli-state.json` = Bedrock Haiku pick; `bedrock.token` = minted key, chmod 600, never print it).
+
+### Done
+
+- **Voice:** all 31 lines are in `voice/wav/`, whisper-checked, with timings in `voice/words.json`. b1 and s10a
+  were re-voiced with seed 11 (the first takes are in `voice/old/`). "Rix" reads as "Ricks" in ASR, which is
+  the right sound.
+- **3D rig and scenes:**
+  - `scenes/rix3d.js` (gait, bob, props) and `scenes/_rix3d.py`;
+  - the new `scenes/scenes.py` (old one: `scenes_v1.py`) and `_news.py` (diorama: `studio`, `world`, `cam`);
+  - `check_speakers.cjs`, which passes 140/140 and was verified to fail on a hidden speaker;
+  - `peek.cjs`, `cutdown.py` (new 45 s order), and `rix3d.md`, the skill doc to copy.
+- **Footage F1 (live session), 2026-10-23 07:37:** the CLI starts the turn; `/handoff` makes the 15.10.0 app
+  follow it; VS Code opens it from Past chats, types "Also add a test.", then Stop.
+  - Raw files: `live/raw/f1_cli.cast`, `live/raw/f1_app/`, `live/raw/f1_vsc/`.
+  - The app recorder hung on stop, so `f1_app/frames.json` was rebuilt from the file mtimes.
+  - `app/rec_app.mjs` now has a 3 s stop timeout.
+
+### Left, in order
+
+1. **Rest of the footage slot** (agent@ profile, take the lock, about 20 min), from `live/`:
+   - `./slot.sh probe`, `app`, `vsc`, `panel`, `forkui`, `cli`, then `cleanup`;
+   - cleanup kills only my PIDs, restores `ATLARIX_BRIDGE_RELAY` in `~/.atlarix/chrome/host.env`, and deletes
+     the demo project's memory under `free-agent/atlarix-home/projects/`;
+   - `vsc/setup.sh` now launches `Contents/MacOS/Code`: the VS Code update renamed it from `Electron`;
+   - dismiss the app's two first-run popups (`button[aria-label=Dismiss]`) before recording;
+   - never use `atlarix run` on agent@ (bug A5 rewrites its settings).
+2. **Mask check for F1:** the app labels the replies and the model chip "Atlarix Auto", though the turn ran on
+   Haiku in the CLI. `mask.js` now hides that label in new takes, but F1 was recorded before the change. Either
+   crop it out of the card (`clipspec.json` `card_crop.app`) or redo F1 (`./slot.sh f1` with app + VS Code + the
+   panel up). Crop out VS Code's status bar too (it shows the model).
+3. **Clips:**
+   - render the casts with `live/render/rendercast.mjs` (DPR 1, masked);
+   - assemble the screencasts;
+   - write `live/clipspec.json` (card crops, plus monitor and after clips);
+   - run `live/cut_clips2.py`, then `build.py`, then `node check_speakers.cjs`.
+4. **Mix and render:** `mix.py` (-14 LUFS), then `render.sh` one scene at a time under the lock (`-w 1`; check
+   swap first), then `cutdown.py` for the 45 s cut.
+   - TTS and renders push swap hard: one Chatterbox line hit 10.6 GB.
+5. **Self-review:**
+   - a contact sheet;
+   - OCR for `/Users/`, versions and model names;
+   - whisper the final mix;
+   - the speaker check.
+6. **All-sessions review until everyone approves:**
+   - coordinator: story and the owner's notes;
+   - the release session: feature accuracy;
+   - app/CLI QA;
+   - IDE/ACP QA: editors and on-screen paths.
+7. **Deliver:**
+   - replace `~/Desktop/atlarix-15.10-release.mp4` and add `atlarix-15.10-release-45s.mp4` (the 45 s cut isn't
+     on the Desktop now);
+   - delete older versions;
+   - keep `atlarix-15.10-release-description.txt`;
+   - never post.
+8. **15.10.1 splice (after its release):** re-film on the RELEASED 15.10.1, then splice as extra plates and run
+   the review again.
+   - Item 9 "One session sets the others", lines on the storyboard. Notice: "◇ Mode set to Review by Rix. From
+     the next turn."
+   - Slack v1 (workspace and repo from the Slack session; mask the workspace name).
+   - The 15.10.1 headline: sessions steering sessions (mode/model/plan review), the 1–3 rating + /feedback,
+     Slack v1.
+9. **Wrap-up:**
+   - copy the rig, `_rix3d.py`, the new scenes, `cut_clips2.py` and `rix3d.md` into
+     `~/.claude/skills/famous-youtube-editor/references/examples/rix-news-release-pipeline/` (and `rix3d.md` into
+     `references/`), then update its README;
+   - delete the project, but keep `~/.local/share/rix-voices`.
 
 ## 🔨 Handover 2026-10-21 (night) — 15.10.0 released by ai-d1; what is left
 
@@ -90,12 +242,6 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
 
 ### C. AWS / proxy
 
-- **Railway security breach (2026-10-21, disclosed 20:44 UTC): rotate every Railway env var.** Railway says an
-  attacker read stored environment variables, some decrypted, aimed at AI inference providers
-  (blog.railway.com/p/security-disclosure-wednesday-october-21st). Covers projects Atlarix-Proxy, atlarix-reviewer
-  and atlarix-backup (DATABASE_URL = the Supabase DB password, R2 keys). Builds were still paused on 2026-10-22, so
-  new values can't load yet: mint new keys → set them in Railway → deploy once builds resume → revoke the old ones.
-  Also check each service's logs and the providers' usage for anything unusual.
 - **Shared free-tier state is ON** (`ATLARIX_SHARED_FREE_STATE=on` on Railway project Atlarix-Proxy, service
   `Atlarix`, set by the owner 2026-10-20 ~23:25 UTC). Counters live in DynamoDB `atlarix-proxy-counters`
   (eu-west-1, provisioned 20/20 = inside the always-free 25/25). **Live test passed 2026-10-20 23:34 UTC** (agent@
