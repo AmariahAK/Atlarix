@@ -53,6 +53,20 @@ let lastTurn: string | undefined;
 
 export const TOOK_CONTROL = "Stopped: the mouse moved, so Atlarix gave you back control.";
 
+/**
+ * A computer action that did not happen (another session holds the screen, a
+ * grant is missing, the user took the mouse) reaches the model as an ERROR
+ * result, so it is not read as a step that worked.
+ */
+export function computerFailureOutput(
+  toolName: string,
+  output: unknown,
+): { type: "error-text"; value: string } | undefined {
+  if (toolName !== "computer") return undefined;
+  const o = output as { success?: unknown; error?: unknown } | null;
+  return o && o.success === false && typeof o.error === "string" ? { type: "error-text", value: o.error } : undefined;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Stop pressed (or a takeover) while a step waits: main latches it per chat. */

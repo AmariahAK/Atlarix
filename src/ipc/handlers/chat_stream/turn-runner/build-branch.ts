@@ -99,6 +99,7 @@ import { getPlanCompletionFeedback } from "@/lib/tasks/plan-completion-gate";
 import { recordToolOnLedger } from "@/lib/tasks/task-ledger";
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
 import { cancelChatStream } from "@/ipc/handlers/chat_stream/lifecycle-handlers";
+import { computerFailureOutput } from "@/lib/tools/computer";
 import {
   describeToolForMode,
   parametersForMode,
@@ -365,6 +366,7 @@ export async function runBuildBranch(
       // v7: the callback receives an options OBJECT (toolCallId, input,
       // output) rather than the bare output. Only `output` is needed here.
       toModelOutput: ({ output }: { output: unknown }) =>
+        computerFailureOutput(toolName, output) ??
         buildToolModelOutput(toolName, output, {
           builtinProviderId: modelClient.builtinProviderId,
           modelApiId: resolveMediaModelId(effectiveModel),

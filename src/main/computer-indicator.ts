@@ -33,6 +33,8 @@ a{color:#151a17;background:#e8efe9;border-radius:16px;padding:6px 12px;text-deco
 </style><div class="pill"><span class="dot">●</span><span class="text">Controlling your screen</span><span class="key">${shortcutLabel}</span><a href="#stop">Stop</a></div>`;
 
 let win: BrowserWindow | null = null;
+
+const isStopLink = (url: string) => url.endsWith("#stop");
 let stopCurrent: (() => void) | undefined;
 let hideTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -65,12 +67,17 @@ function pill(): BrowserWindow {
   w.setContentProtection(true);
   w.setAlwaysOnTop(true, "screen-saver");
   w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  // Stop is a link to "#stop": an in-page navigation, so the pill needs no
-  // preload, no script and no IPC channel.
-  w.webContents.on("did-navigate-in-page", (_e, url) => {
-    if (url.endsWith("#stop")) stop();
+  // Stop is a link to "#stop", so the pill needs no preload, script or IPC
+  // channel. Electron 43 reports that same-page link through will-navigate,
+  // which cancels every navigation here: the stop has to be read off that
+  // event, or the cancel swallows it (A5: the link did nothing).
+  w.webContents.on("will-navigate", (e, url) => {
+    e.preventDefault();
+    if (isStopLink(url)) stop();
   });
-  w.webContents.on("will-navigate", (e) => e.preventDefault());
+  w.webContents.on("did-navigate-in-page", (_e, url) => {
+    if (isStopLink(url)) stop();
+  });
   void w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(PAGE)}`);
   win = w;
   return w;
