@@ -113,7 +113,10 @@ describe("computerLane", () => {
     __resetComputerLaneForTests();
     fs.rmSync(path.join(userData, "cache"), { recursive: true, force: true });
     __setCatalogIdsForTests(["claude-haiku-4-5", "gpt-6-sol", "gemini-2.5-computer-use-preview-10-2025"]);
-    rememberCustomProviderFormats([{ id: "custom::bedrock", apiFormat: "anthropic" }]);
+    rememberCustomProviderFormats([
+      { id: "custom::bedrock", apiFormat: "anthropic" },
+      { id: "custom::zai", apiFormat: "anthropic" },
+    ]);
     registerModelsDevVision([
       { providerId: "zai", modelId: "glm-vision", acceptsImages: true },
       { providerId: "zai", modelId: "glm-text", acceptsImages: false },
@@ -149,6 +152,14 @@ describe("computerLane", () => {
     expect(computerLane(m)).toBe("own");
     __resetComputerLaneForTests(); // a new process reads it back from disk
     expect(computerLane(m)).toBe("own");
+  });
+
+  it("checks the MODEL behind an Anthropic-format endpoint, not just the format (A1)", () => {
+    // Z.ai, MiniMax and Kimi serve text-only models in Anthropic's format.
+    const glm = { provider: "custom::zai", name: "zai.glm-4.7-flash" };
+    on("custom::zai/zai.glm-4.7-flash");
+    expect(computerUseIneligible(glm)).toBe("no-vision");
+    expect(computerLane(glm)).toBeNull();
   });
 
   it("says why a model can't have it, instead of hiding it", () => {

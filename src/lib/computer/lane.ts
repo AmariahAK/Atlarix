@@ -21,10 +21,7 @@ import {
   detectVisionCapability,
   providerSupportsToolMedia,
 } from "@/lib/routing/model-capability-profile";
-import {
-  anthropicFormatCapabilityId,
-  isCustomAnthropicFormat,
-} from "@/lib/routing/custom-provider-format";
+import { isCustomAnthropicFormat } from "@/lib/routing/custom-provider-format";
 import { hasNativeComputerTool } from "./catalog";
 import { computerUseKey } from "./eligibility";
 
@@ -57,11 +54,15 @@ function providerOf(m: ComputerModel): string | undefined {
   return m.builtinProviderId ?? m.provider;
 }
 
+/**
+ * The raw provider id, never mapped to "anthropic": an Anthropic-format
+ * endpoint can serve a text-only model (GLM on Z.ai's), and the vision gates
+ * recognise Claude behind those endpoints themselves (A1).
+ */
 export function computerUseIneligible(m: ComputerModel): Ineligible | null {
   const provider = providerOf(m);
-  const capabilityProvider = anthropicFormatCapabilityId(provider);
-  if (!detectVisionCapability(capabilityProvider, m.name)) return "no-vision";
-  if (!providerSupportsToolMedia(capabilityProvider, m.name)) return "no-tool-images";
+  if (!detectVisionCapability(provider, m.name)) return "no-vision";
+  if (!providerSupportsToolMedia(provider, m.name)) return "no-tool-images";
   return null;
 }
 
