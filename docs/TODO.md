@@ -38,6 +38,13 @@ The owner approved the scope 2026-10-23 and asked for a full release overnight. 
 
 ### B. Not verified (say so in any announcement)
 
+- **The pill's Stop link can miss on the FIRST computer-use run after the app starts** (A5, QA 3/3 with executor
+  clicks; later pills work). For a person this is redundant: reaching the pill moves the mouse, and moving it more
+  than 8 px already stops computer use. ⌃⌥Esc, in-app Stop and Esc also stop it. acceptFirstMouse (86c51361) didn't
+  fix it in ai-fc's real-click run; diagnostic notes in STATUS.md 2026-10-24. Fix in 15.11.1.
+- The Windows CLI's file metadata (Atlarix / Amariah Abishai / Atlarix CLI, a37e7e9e) is only written when Bun
+  compiles ON Windows, so it can only be seen in the CI-built release exe: check Properties → Details.
+
 - Computer use on **Linux** (X11/Wayland): built and type-checked in CI, never run live. Wayland has no test machine.
 - Computer use with a **real** model on the Mac: by rule only a scripted model drives the real keyboard/mouse here.
   The real-model runs happened in the Windows VM.
