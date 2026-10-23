@@ -886,7 +886,10 @@ export function App({
   }, [state.busy]);
   useEffect(() => {
     let off = () => {};
+    // Unmounted before the import resolved: never subscribe at all.
+    let gone = false;
     void import("@/lib/tools/computer").then(({ computerActivity }) => {
+      if (gone) return;
       // After an action, not before: the first one is often a screenshot with
       // the terminal still focused, and notify() stays quiet while it is.
       const onAction = () => {
@@ -897,7 +900,10 @@ export function App({
       computerActivity.on("end", onAction);
       off = () => computerActivity.off("end", onAction);
     });
-    return () => off();
+    return () => {
+      gone = true;
+      off();
+    };
   }, []);
 
   // The tab title pulses while Atlarix works (tab-title.ts).
