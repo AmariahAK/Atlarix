@@ -75,7 +75,6 @@ describe("bundled catalogs resolve", () => {
   it("resolves a NESTED key, which is the shape the failure hid in", () => {
     // A flat top-level key and a nested one fail together here, but nesting is what
     // every real catalog uses, so it is the case worth naming.
-    expect(tRaw("feature.automations", "tips")).toContain("schedule");
     expect(tRaw("help.title", "tips")).toBe("Keyboard shortcuts");
   });
 

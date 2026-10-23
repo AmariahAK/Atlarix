@@ -96,7 +96,6 @@ import {
 } from "../sessions/archive";
 import { deleteRemoteConversation, pushConversation } from "../sessions/sync";
 import { renderMarkdown } from "./markdown";
-import { mayRotate, nextTip } from "./composer-tips";
 import {
   answeredAskCalls,
   questionsFromArgs,
@@ -1550,8 +1549,7 @@ function renderConversation(history: CoreMessage[]): void {
 
     /*
      * STARTERS, because "what can it do" is not answerable from a blank box.
-     * The composer tip rotates through capabilities one at a time and a first
-     * run sees exactly one of them. These three are chosen to be the three
+     * These three are chosen to be the three
      * DIFFERENT things it does — read the page, act on it, reach past it —
      * rather than three phrasings of the first.
      *
@@ -2199,10 +2197,6 @@ async function send(peerTask?: string): Promise<void> {
     void nameConversation(model);
     noteTurnEnded();
     void refreshDrawer();
-    // BETWEEN turns, which is the only moment a placeholder may change without
-    // reading as a glitch. `mayRotate` holds it back if the user has already
-    // started typing their next message.
-    rotateTip();
     // AFTER the turn, never during one. A pull mid-turn could change a note the
     // model is reading, and the conflict sibling it may create would appear in
     // an index that was already built. Unawaited, like `pushConversation`: an
@@ -2231,23 +2225,6 @@ async function syncNotesAndReport(): Promise<void> {
       ? `"${conflicts[0]}" was also changed elsewhere — both versions are in your notes.`
       : `${conflicts.length} notes were also changed elsewhere — both versions of each are in your notes.`,
   );
-}
-
-/**
- * Advance the composer's tip, if now is a moment that may.
- *
- * Called from exactly one place — the end of a turn. A timer was the obvious
- * alternative and is worse: a string that changes while someone is reading it
- * looks broken, and there is no interval short enough to teach anything that is
- * not also long enough to interrupt.
- */
-function rotateTip(): void {
-  // `input` is nullable for the same reason every element handle here is: the
-  // panel document can be torn down mid-turn when the user closes it, and this
-  // runs from a `finally`.
-  if (!input) return;
-  if (!mayRotate({ value: input.value, running: running !== null })) return;
-  input.placeholder = nextTip(input.placeholder);
 }
 
 /**

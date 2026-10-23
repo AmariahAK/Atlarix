@@ -45,7 +45,6 @@ import { decodePasteBytes, type PasteEvent } from "@opentui/core";
 import { AUTO_CONSENT_MARKER } from "@/shared/billing_copy";
 import { COMMANDS, matchCommands, parseCommandLine } from "./commands";
 import { DialogHost, InputDialog, ListDialog, type Line, type ListItem } from "./dialogs";
-import { pickTip, type Tip } from "./tips";
 import { DialogOverlay, DialogPanel } from "./Dialog";
 import { Toast, type ToastState, type ToastVariant } from "./Toast";
 import type { UpdateEvent } from "../update";
@@ -320,16 +319,6 @@ function AgentRows({ rows, width, selected, main }: { rows: StripRow[]; width: n
   );
 }
 
-/** A tip: "tip" and the keys in the accent, then what they do. */
-function TipLine({ tip }: { tip: Tip }) {
-  return (
-    <text>
-      <span fg={color.faint}>{"  tip "}</span>
-      {tip.keys ? <span fg={color.accentSoft}>{tip.keys} </span> : null}
-      <span fg={color.muted}>{tip.text}</span>
-    </text>
-  );
-}
 
 /** Commands that change the conversation: typed mid-turn, they wait for it to end. */
 const AFTER_TURN = new Set(["/compact", "/new", "/resume", "/undo", "/import", "/fork"]);
@@ -920,15 +909,6 @@ export function App({
       else flash(`Couldn't update to v${e.version}: ${e.error}`, 10_000, "error");
     });
   }, []);
-
-  // One tip per turn, held still while it runs (tips.ts).
-  const turnCount = useRef(0);
-  const [tip, setTip] = useState<Tip>(() => pickTip(`welcome:${Date.now()}`));
-  useEffect(() => {
-    // Not "ctrl+t raises the effort" during a turn: the model may be
-    // thinking right there on screen (QA).
-    if (state.busy) setTip(pickTip(`${session.sessionId}:${++turnCount.current}:${Date.now()}`, ["ctrl+t"]));
-  }, [state.busy]);
 
   const approval = state.approvals[0] ?? null;
   const palette = useMemo(
@@ -1811,10 +1791,7 @@ export function App({
               mood={state.busy ? "working" : "rest"}
               hint={
                 state.cells.length === 0 && !state.busy ? (
-                  <>
-                    <text fg={color.muted}>Ask anything, e.g. “fix the failing test” · /commands · @ for files</text>
-                    <TipLine tip={tip} />
-                  </>
+                  <text fg={color.muted}>Ask anything, e.g. “fix the failing test” · /commands · @ for files</text>
                 ) : undefined
               }
             />
@@ -1861,7 +1838,6 @@ export function App({
       {working ? (
         <box flexDirection="column" flexShrink={0}>
           <WorkingLine activity={activity!} since={state.turnStartedAt} tokens={state.tokensThisTurn} cells={state.cells} />
-          {narrow ? null : <TipLine tip={tip} />}
         </box>
       ) : null}
       {updateNotice ? (
