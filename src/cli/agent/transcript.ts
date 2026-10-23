@@ -196,6 +196,7 @@ const VERBS: Record<string, string> = {
   relic: "Relic",
   read_attachment: "Read attachment",
   view_image: "View image",
+  computer: "Screen",
   transcribe_audio: "Transcribe",
   list_sessions: "Sessions",
   send_message: "Message",
@@ -230,6 +231,15 @@ export function toolTarget(toolName: string, args: unknown): string {
       return str(a.description) || str(a.agent) || str(a.subagent_type);
     case "browser":
       return [str(a.action), str(a.url)].filter(Boolean).join(" ");
+    case "computer": {
+      // "Screen  left click 640,400", "Screen  type "hello"": what it did on
+      // the screen. OpenAI's native tool sends a batch of `actions`.
+      if (Array.isArray(a.actions)) return a.actions.map((x) => str((x as { type?: unknown })?.type)).filter(Boolean).join(", ");
+      const what = str(a.action).replace(/_/g, " ");
+      const at = Array.isArray(a.coordinate) ? (a.coordinate as unknown[]).join(",") : "";
+      const text = str(a.text) ? `"${str(a.text).slice(0, 40)}"` : "";
+      return [what, at, text].filter(Boolean).join(" ");
+    }
     case "mcp_call":
       return [str(a.server), str(a.tool).replace(/[_-]+/g, " ")].filter(Boolean).join(" · ");
     case "mcp_servers": {

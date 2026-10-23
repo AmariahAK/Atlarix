@@ -343,3 +343,12 @@ require("readline").createInterface({ input: process.stdin }).on("line", (l) => 
     delete process.env.FAKE_TAKEOVER;
   });
 });
+
+describe("the CLI and ACP title of a computer action", () => {
+  it("names what it did on the screen, for both lanes' shapes", async () => {
+    const { toolTarget } = await import("@/cli/agent/transcript");
+    expect(toolTarget("computer", { action: "left_click", coordinate: [640, 400] })).toBe("left click 640,400");
+    expect(toolTarget("computer", { action: "type", text: "hello" })).toBe('type "hello"');
+    expect(toolTarget("computer", { actions: [{ type: "click" }, { type: "keypress" }] })).toBe("click, keypress");
+  });
+});
