@@ -205,7 +205,7 @@ async function main() {
     setPinnedCoreToken(fs.readFileSync(coreTokenFile, "utf8"));
     fs.rmSync(coreTokenFile, { force: true });
   }
-  // The user's own provider key (the cloud agent's own-key runs): the same
+  // The user's own provider key, passed as a file (the safe way in CI): the same
   // treatment as the Core token, pinned under the provider the run uses
   // (api-key-file.ts).
   const apiKeyFile = arg("api-key-file");

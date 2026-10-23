@@ -1297,6 +1297,7 @@ export class AcpAgent {
         if (send) m.captureSafe("session_opened", { how });
       })
       .catch(() => {});
+    void import("@/lib/analytics/account-context").then((m) => m.noteSessionAtStart()).catch(() => {});
   }
 
   /** A new session's first prompt: now it is one. */

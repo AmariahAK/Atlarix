@@ -117,4 +117,23 @@ describe("the CLI's crash reporter", () => {
     expect(await Sentry.flush(100)).toBe(false);
     expect(Date.now() - started).toBeLessThan(1000);
   });
+
+  it("carries the signed-in account's id, never anything else about them, and drops it at sign-out", async () => {
+    const id = "3f0c1b9e-5a2d-4c1e-9b7a-2d6e8f1a4c3b";
+    Sentry.setUser({ id });
+    Sentry.captureException(new Error("one"));
+    Sentry.setUser({ id: "someone@example.com" } as never);
+    Sentry.captureException(new Error("two"));
+    Sentry.setUser({ id, email: "someone@example.com" } as never);
+    Sentry.captureException(new Error("three"));
+    Sentry.setUser(null);
+    Sentry.captureException(new Error("four"));
+    await Sentry.flush(500);
+    expect(posts).toHaveLength(4);
+    expect(event(0).user).toEqual({ id });
+    expect(event(1).user).toBeUndefined();
+    expect(event(2).user).toEqual({ id });
+    expect(event(3).user).toBeUndefined();
+    expect(posts.map((p) => p.body).join("")).not.toContain("someone@example.com");
+  });
 });
