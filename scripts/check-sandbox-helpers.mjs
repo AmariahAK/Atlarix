@@ -70,6 +70,9 @@ const HELPERS = [
     name: "atlarix-computer",
     target: "x86_64-unknown-linux-gnu",
     dir: "native/atlarix-computer",
+    // Its capture crates build against the host's pipewire/xcb/wayland through
+    // pkg-config, which cannot cross-compile: only a Linux host can check it.
+    nativeOnly: "linux",
   },
   {
     name: "atlarix-computer",
@@ -110,6 +113,20 @@ for (const helper of HELPERS) {
   if (!fs.existsSync(manifest)) {
     console.error(`::error::[${TAG}] missing manifest: ${manifest}`);
     failed = true;
+    continue;
+  }
+  if (helper.nativeOnly && process.platform !== helper.nativeOnly) {
+    // Never a silent skip where it matters: CI must run this row on its own OS.
+    if (process.env.CI) {
+      console.error(
+        `::error::[${TAG}] ${helper.name} (${helper.target}) must be checked on ${helper.nativeOnly}, and CI ran this on ${process.platform}`,
+      );
+      failed = true;
+    } else {
+      console.log(
+        `[${TAG}] ${helper.name} ${helper.target}: skipped on ${process.platform}: needs the Linux capture libraries; CI (ubuntu) checks it`,
+      );
+    }
     continue;
   }
   if (!targets.includes(helper.target)) {
