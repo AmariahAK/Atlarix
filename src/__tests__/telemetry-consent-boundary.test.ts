@@ -143,7 +143,7 @@ describe("PostHog writes nothing to the device before consent", () => {
   });
 
   async function load(optedIn: boolean) {
-    vi.doMock("@/hooks/useSettings", () => ({
+    vi.doMock("@/lib/analytics/telemetry-consent", () => ({
       isTelemetryOptedIn: () => optedIn,
     }));
     return await import("@/lib/analytics/posthog-client");
@@ -199,7 +199,7 @@ describe("location for opted-in usage data", () => {
   afterEach(() => {
     vi.doUnmock("posthog-node");
     vi.doUnmock("posthog-js");
-    vi.doUnmock("@/hooks/useSettings");
+    vi.doUnmock("@/lib/analytics/telemetry-consent");
   });
 
   it("the desktop and CLI client asks PostHog for the location", async () => {
@@ -230,7 +230,7 @@ describe("location for opted-in usage data", () => {
     vi.doMock("posthog-js", () => ({
       default: { init, identify: vi.fn(), register: vi.fn(), startSessionRecording: vi.fn(), stopSessionRecording: vi.fn() },
     }));
-    vi.doMock("@/hooks/useSettings", () => ({ isTelemetryOptedIn: () => true }));
+    vi.doMock("@/lib/analytics/telemetry-consent", () => ({ isTelemetryOptedIn: () => true }));
     const m = await import("@/lib/analytics/posthog-client");
     m.setPostHogConfig("phc_key", "anon-1");
     m.ensurePostHogInitialized();

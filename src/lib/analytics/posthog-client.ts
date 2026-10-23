@@ -2,7 +2,9 @@ import posthog from "posthog-js";
 // The recorder, bundled: the window's CSP (`script-src 'self'`) blocks the copy
 // posthog-js would otherwise load from its CDN when recording starts (item 12).
 import "posthog-js/dist/posthog-recorder";
-import { isTelemetryOptedIn } from "@/hooks/useSettings";
+// Not from useSettings: that imports this module, and the cycle handed a
+// half-loaded copy of it to a second settings load (main CI, 15.10.1).
+import { isTelemetryOptedIn } from "@/lib/analytics/telemetry-consent";
 import { REPLAY_RECORDING_OPTIONS, REPLAY_SAMPLE_RATE, scrubReplayPaths } from "@/lib/analytics/replay";
 
 /**

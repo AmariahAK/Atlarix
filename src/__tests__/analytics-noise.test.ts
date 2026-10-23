@@ -70,7 +70,7 @@ describe("the app window's events", () => {
     vi.doMock("posthog-js", () => ({
       default: { init: () => ({}), identify: () => {}, register, startSessionRecording: () => {}, stopSessionRecording: () => {} },
     }));
-    vi.doMock("@/hooks/useSettings", () => ({ isTelemetryOptedIn: () => true }));
+    vi.doMock("@/lib/analytics/telemetry-consent", () => ({ isTelemetryOptedIn: () => true }));
     const { setPostHogConfig, ensurePostHogInitialized } = await import("@/lib/analytics/posthog-client");
     setPostHogConfig("phc_test", "anon-1", "15.9.9");
     ensurePostHogInitialized();
