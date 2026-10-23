@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { AtlarixAutoStatus } from "@/components/chat/AtlarixAutoStatus";
 import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
@@ -9,24 +8,19 @@ import { useContextReport } from "@/hooks/useContextReport";
 import { useAtomValue } from "jotai";
 import {
   pendingWorkspaceAppIdAtom,
-  selectedAppIdAtom,
   selectedWorkspaceInfoAtom,
 } from "@/atoms/appAtoms";
 import {
   getChatBoundAppId,
   resolveChatWorkspaceAppId,
 } from "@/lib/chat-workspace-binding";
-import { openWorkspaceFromDialog } from "@/lib/open-workspace";
-import { toast } from "sonner";
 import {
-  hasUserMessageForChatAtom,
   isStreamingForChatAtom,
   selectedChatIdAtom,
   liveTurnUsageByChatIdAtom,
   turnWorkModeByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { activeSessionWorkModeAtom } from "@/atoms/sessionAtoms";
-import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { ModelPicker } from "./ModelPicker";
 import type { WorkMode } from "@/lib/schemas";
 import {
@@ -48,17 +42,11 @@ function formatTokens(n: number): string {
 const NO_CHAT_ID = 0;
 
 export function ChatInputControls({ chatId }: { chatId?: number }) {
-  const appId = useAtomValue(selectedAppIdAtom);
   const pendingWorkspaceAppId = useAtomValue(pendingWorkspaceAppIdAtom);
   const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
-  const { apps, refreshApps } = useLoadApps();
+  const { apps } = useLoadApps();
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const threadChatId = chatId ?? selectedChatId;
-  // One chat's slice, as a boolean: reading the whole messages map re-rendered
-  // the composer controls on every streamed flush of every chat.
-  const hasUserMessageInThread = useAtomValue(
-    hasUserMessageForChatAtom(threadChatId ?? NO_CHAT_ID),
-  );
   const { settings } = useSettings();
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
   const { result: tokenResult } = useContextTokenCount(chatId ?? null);
@@ -167,34 +155,8 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
       ? `$${(creditBalance.balanceCents / 100).toFixed(2)}`
       : null;
 
-  const handleOpenWorkspace = useCallback(async () => {
-    try {
-      await openWorkspaceFromDialog({
-        apps,
-        refreshApps,
-        activeChatId: threadChatId,
-        hasUserMessageInThread,
-      });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Unknown error";
-      console.error("Open workspace failed:", error);
-      if (msg.includes("Workspace limit") || msg.includes("Upgrade")) {
-        alert(msg);
-      } else {
-        toast.error(`Could not add workspace: ${msg}`);
-      }
-    }
-  }, [apps, refreshApps, threadChatId, hasUserMessageInThread]);
-
   return (
     <div className="flex flex-col gap-1">
-      {!appId && !hasUserMessageInThread && (
-        <NoWorkspaceBanner
-          className="mb-1"
-          onOpenWorkspace={handleOpenWorkspace}
-        />
-      )}
-
       {/* Compact context line + non-clickable context usage bar */}
       <div
         className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-0.5 text-xs text-muted-foreground"
