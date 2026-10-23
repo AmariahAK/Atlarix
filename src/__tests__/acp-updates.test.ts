@@ -106,6 +106,14 @@ describe("diffUpdates", () => {
     expect((u as { content: unknown[] }).content).toEqual([{ type: "content", content: { type: "text", text: "exit 1" } }]);
   });
 
+  it("a step the user stopped says so, rather than failing with no reason", () => {
+    const [u] = diffUpdates(
+      [{ kind: "tool", id: "m:t:computer_3", tool: { id: "x", verb: "Screen", target: "wait", status: "interrupted" } }],
+      new Map(),
+    );
+    expect((u as { content: unknown[] }).content).toEqual([{ type: "content", content: { type: "text", text: "Stopped." } }]);
+  });
+
   it("the user's own messages only on replay (a live editor already shows them)", () => {
     const user: Cell = { kind: "user", id: "u:1", text: "fix it" };
     expect(diffUpdates([user], new Map())).toEqual([]);
