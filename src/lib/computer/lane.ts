@@ -26,6 +26,9 @@ import {
   isCustomAnthropicFormat,
 } from "@/lib/routing/custom-provider-format";
 import { hasNativeComputerTool } from "./catalog";
+import { computerUseKey } from "./eligibility";
+
+export { computerUseKey };
 
 export type ComputerLane = "native-anthropic" | "native-openai" | "own";
 
@@ -39,10 +42,6 @@ export type ComputerModel = {
 
 /** Why a model can't have computer use; null when it can. */
 export type Ineligible = "no-vision" | "no-tool-images";
-
-export function computerUseKey(m: ComputerModel): string {
-  return `${m.provider ?? ""}/${m.name ?? ""}`;
-}
 
 export function isComputerUseOn(m: ComputerModel): boolean {
   return (readSettings().computerUseModels ?? []).includes(computerUseKey(m));
@@ -64,13 +63,6 @@ export function computerUseIneligible(m: ComputerModel): Ineligible | null {
   if (!detectVisionCapability(capabilityProvider, m.name)) return "no-vision";
   if (!providerSupportsToolMedia(capabilityProvider, m.name)) return "no-tool-images";
   return null;
-}
-
-/** Plain words for the switch, so an ineligible model says why. */
-export function ineligibleReason(why: Ineligible): string {
-  return why === "no-vision"
-    ? "This model can't see images."
-    : "This connection can't send screenshots back to the model. An Anthropic-format connection can.";
 }
 
 // ─── Native tools a model's API refused ─────────────────────────────────────

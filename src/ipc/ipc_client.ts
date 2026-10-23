@@ -49,6 +49,7 @@ import type {
   PlanUpdatePayload,
   ListRepoSkillsResult,
   ChatTokenUsage,
+  ComputerUsePermissions,
 } from "./ipc_types";
 import type {
   AppSearchResult,
@@ -2606,6 +2607,16 @@ export class IpcClient {
 
   public async importExternalMcpServer(appId: number, key: string) {
     return this.ipcRenderer.invoke("mcp:import-external", { appId, key });
+  }
+
+  public async computerUsePermissions(
+    request?: "screen" | "accessibility",
+  ): Promise<ComputerUsePermissions> {
+    return this.ipcRenderer.invoke("computer-use:permissions", request);
+  }
+
+  public async relaunchForComputerUse(): Promise<void> {
+    await this.ipcRenderer.invoke("computer-use:relaunch");
   }
 
   public async updateMcpServer(params: McpServerUpdate) {

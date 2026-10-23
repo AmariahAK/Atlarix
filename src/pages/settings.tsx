@@ -40,6 +40,7 @@ import {
   Bell,
   Mic,
   TriangleAlert,
+  MousePointerClick,
 } from "lucide-react";
 
 /**
@@ -70,6 +71,7 @@ const SECTIONS = [
   { to: "/settings/search", label: "Search", icon: Search },
   { to: "/settings/notifications", label: "Notifications", icon: Bell },
   { to: "/settings/voice", label: "Voice input", icon: Mic },
+  { to: "/settings/computer-use", label: "Computer use", icon: MousePointerClick },
   { to: "/settings/danger", label: "Danger zone", icon: TriangleAlert },
 ] as const;
 
