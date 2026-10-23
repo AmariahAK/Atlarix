@@ -86,8 +86,8 @@ re-encrypted under a new `SLACK_TOKEN_KEY`. Teleios Centre Kenya's Postgres was 
     the new secrets (stored → claimed → done in ~1 s). The Reviewer App's webhook still points at
     `atlarix-reviewer-production.up.railway.app/webhooks/github`; its secret was missing until 2026-10-23 and is
     set again now. The owner does the App webhook change (a session's classifier refused it).
-  - **Backup on AWS:** the `atlarix-backup` Lambda has a since-revoked R2 token and a THROWAWAY `AGE_RECIPIENT`.
-    Set the real recipient and a new R2 token before any run. It has no schedule (`PREFIX=rehearsal`, no
+  - **Backup on AWS:** the `atlarix-backup` Lambda holds the R2 token `atlarix-ledger-backups-aws-2026-10-23` (still
+    active; only in its env) and a THROWAWAY `AGE_RECIPIENT`. Set the real recipient before any run. It has no schedule (`PREFIX=rehearsal`, no
     alerts), so it never runs by itself. Still to do: dry-run and apply `backup_reader` + `backup.users_min`, the
     rehearsal restore, 2 overlap nights, then the switch.
   - **STALE check** compares commits only when both are non-null. Set `ATLARIX_COMMIT=<sha>` on Railway at each
