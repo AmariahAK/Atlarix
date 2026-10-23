@@ -24,6 +24,7 @@ let tmp: string;
 let ws: string;
 let mem: string;
 const realHome = process.env.HOME;
+const realProfile = process.env.USERPROFILE;
 // chmod 000 means nothing to root, and Windows has no such mode.
 const canLock = process.platform !== "win32" && process.getuid?.() !== 0;
 
@@ -40,11 +41,15 @@ beforeAll(() => {
   fs.writeFileSync(path.join(mem, "note.md"), "# needle\n");
   fs.writeFileSync(path.join(mem, "notes", "deep.md"), "# deep\n");
   fs.writeFileSync(path.join(mem, ".drafts", "draft.md"), "# draft\n");
-  // `~` resolves through HOME (os.homedir()).
+  // `~` resolves through os.homedir(): HOME, and USERPROFILE on Windows,
+  // where HOME alone left `~` at the runner's real profile (release CI).
   process.env.HOME = tmp;
+  process.env.USERPROFILE = tmp;
 });
 afterAll(() => {
   process.env.HOME = realHome;
+  if (realProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = realProfile;
   for (const d of ["locked"]) {
     try {
       fs.chmodSync(path.join(tmp, "permws", d), 0o755);
@@ -81,6 +86,12 @@ describe("glob outside the workspace", () => {
   it("`~` is expanded in the path and in the pattern", async () => {
     expect(await run("glob", { pattern: "*.md", path: "~/.hidden/memory" })).toContain("note.md");
     expect(await run("glob", { pattern: "~/.hidden/memory/*.md" })).toContain("note.md");
+  });
+
+  it("a folder that is not there says so, not that the pattern failed", async () => {
+    const out = await run("glob", { pattern: "*.md", path: path.join(tmp, "no-such-folder") });
+    expect(out).toContain("No folder at");
+    expect(out).not.toContain("glob failed to run the pattern");
   });
 
   it("a root above a dot-folder sees inside it, and below the workspace-ignored names", async () => {

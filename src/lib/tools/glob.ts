@@ -231,6 +231,12 @@ ToolRegistry.register({
       if (!isUniversal) rgArgs.push("-g", effectivePattern);
       let matched: string[] = [];
       let unreadable: string[] = [];
+      // ripgrep runs IN the folder, so a missing one failed to start it, and the
+      // model was told its pattern was bad (Windows CI: `~` resolving elsewhere).
+      const isDir = await fsp.stat(fullPath).then((st) => st.isDirectory(), () => false);
+      if (!isDir) {
+        throw new Error(`No folder at ${toSlashes(fullPath)}: nothing to search there.`);
+      }
       try {
         const { stdout } = await execFileAsync(
           await resolveRipgrepPath(),
