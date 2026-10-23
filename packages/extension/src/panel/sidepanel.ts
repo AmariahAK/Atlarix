@@ -1903,10 +1903,16 @@ async function send(peerTask?: string): Promise<void> {
     // thing people close in confusion.
     void setGroupTitle(windowId, "Atlarix · working");
     const senders = peerSendersOf(messages);
+    // Unknown modalities are allowed to try; only a known "no" declines.
+    const canSeeImages = (() => {
+      const cap = capabilityOf(lineup.find((m) => m.id === model));
+      return cap.known ? cap.images : undefined;
+    })();
     const system = buildSystemPrompt({
       notes,
       skills,
       connectors: connectorNames,
+      canSeeImages,
       peerSenders: senders.length ? senders.map((s) => s.name) : null,
       activeTab: tab
         ? {
@@ -1980,11 +1986,7 @@ async function send(peerTask?: string): Promise<void> {
         sessionTitle: currentTitle,
         peerSenders: senders,
         subjectTabId: tab?.id ?? null,
-        canSeeImages: (() => {
-          const cap = capabilityOf(lineup.find((m) => m.id === model));
-          // Unknown modalities are allowed to try; only a known "no" declines.
-          return cap.known ? cap.images : undefined;
-        })(),
+        canSeeImages,
       },
       signal: controller.signal,
       events: {

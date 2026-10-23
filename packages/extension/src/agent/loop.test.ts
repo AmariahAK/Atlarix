@@ -673,3 +673,23 @@ describe("a screenshot reaches the model, never the transcript", () => {
     );
   });
 });
+
+describe("image tools follow the model", () => {
+  const names = (tools?: unknown[]) =>
+    (tools as Array<{ function: { name: string } }>).map((t) => t.function.name);
+
+  it("a model known not to take images is not offered screenshot", async () => {
+    const { stream, seen } = scriptedStream([textRound("ok")]);
+    await runTurn({ ...BASE, stream, tools: { ...BASE.tools, canSeeImages: false } });
+    expect(names(seen[0].tools)).not.toContain("screenshot");
+    expect(names(seen[0].tools)).toContain("read_page");
+  });
+
+  it("a vision model, or one whose modalities are unknown, still is", async () => {
+    for (const canSeeImages of [true, undefined]) {
+      const { stream, seen } = scriptedStream([textRound("ok")]);
+      await runTurn({ ...BASE, stream, tools: { ...BASE.tools, canSeeImages } });
+      expect(names(seen[0].tools)).toContain("screenshot");
+    }
+  });
+});

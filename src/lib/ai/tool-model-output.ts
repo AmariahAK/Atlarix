@@ -28,6 +28,7 @@ import {
   detectVisionCapability,
 } from "@/lib/routing/model-capability-profile";
 import { redactSecretsInText } from "@/lib/security/redact-secrets";
+import { untrustedImageNote } from "@/lib/streaming/untrusted-data";
 
 export { providerSupportsToolMedia };
 
@@ -40,6 +41,8 @@ interface ImageMedia {
   filename?: string;
   /** "file": an image file the agent opened itself (view_image), not a user attachment. */
   origin?: "file";
+  /** Where external content in the picture came from (`web:<origin>`, `screen`): it is untrusted. */
+  untrustedSource?: string;
 }
 
 /**
@@ -73,10 +76,21 @@ export function extractImageMedia(output: unknown): ImageMedia | null {
     filename:
       typeof candidate.filename === "string" ? candidate.filename : undefined,
     origin: candidate.origin === "file" ? "file" : undefined,
+    untrustedSource:
+      typeof candidate.untrustedSource === "string" && candidate.untrustedSource
+        ? candidate.untrustedSource
+        : undefined,
   };
 }
 
 function imageCaption(media: ImageMedia): string {
+  const caption = plainImageCaption(media);
+  return media.untrustedSource
+    ? `${caption} ${untrustedImageNote(media.untrustedSource)}`
+    : caption;
+}
+
+function plainImageCaption(media: ImageMedia): string {
   if (media.origin === "file") {
     return `Image file ${media.filename ?? "(unnamed)"}.${media.note ? ` ${media.note}` : ""}`;
   }

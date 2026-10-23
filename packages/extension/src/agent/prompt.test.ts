@@ -406,3 +406,16 @@ describe("what it says about not being able to see", () => {
     expect(p).not.toMatch(/almost never true/);
   });
 });
+
+describe("the screenshot paragraph follows the tool", () => {
+  it("is left out for a model known not to take images, and only then", () => {
+    const blind = buildSystemPrompt({ notes: null, canSeeImages: false });
+    expect(blind).not.toMatch(/screenshot/i);
+    expect(blind).toContain("press_key and hover");
+    for (const canSeeImages of [true, undefined]) {
+      expect(buildSystemPrompt({ notes: null, canSeeImages })).toContain(
+        "**screenshot shows how a page looks**",
+      );
+    }
+  });
+});

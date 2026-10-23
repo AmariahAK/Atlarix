@@ -79,9 +79,9 @@ describe("tool reveal tiering", () => {
     // know it should go read more first — it reads the short version, falls into
     // the lure, and tool_help is never called.
     //
-    // browser_inspect's wording was rewritten in v14.8.9 to route "what do you
-    // see" to a visual read and remove a "VISUAL confirmation" lure that caused
-    // an observed bug. It is peripheral by every other measure — long, and not a
+    // browser_inspect's wording was rewritten in v14.8.9 to remove a "VISUAL
+    // confirmation" lure that caused an observed bug, and in 15.11 to say when
+    // a screenshot helps instead of forbidding it. It is peripheral by every other measure — long, and not a
     // workhorse in any mode — and must still bind in full.
     for (const mode of ["ask", "plan", "build", "debug", "review"] as const) {
       expect(revealTierForMode("browser_inspect", LONG, mode)).toBe("core");
@@ -89,7 +89,7 @@ describe("tool reveal tiering", () => {
         meta("browser_inspect").description,
       );
     }
-    expect(meta("browser_inspect").description).toContain("what do you see");
+    expect(meta("browser_inspect").description).toContain("cheap way to see a page");
   });
 
   it("tool_help is core in every mode — the pointer must never dead-end", () => {

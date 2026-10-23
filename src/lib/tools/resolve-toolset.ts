@@ -21,6 +21,7 @@
  */
 
 import { ToolRegistry, type ToolMetadata } from "./registry";
+import { browserInspectWithoutScreenshot } from "./browser-screenshot-text";
 import { getPinnedCoreToken } from "@/lib/core/pinned-token";
 import {
   includeToolForSession,
@@ -191,11 +192,21 @@ export function resolveToolsetForSession(
             ),
         )
       : modeFiltered;
-  const tools = input.unattended
+  const afterUnattended = input.unattended
     ? afterHeadless.filter(
         (t) => !DRIVES_A_VIEW(t.name) && !UNATTENDED_DROP.has(t.name),
       )
     : afterHeadless;
+  // Image tools only for a model whose tool results can carry the image. Any
+  // other gets "this model cannot view images" back from a screenshot or an
+  // image file: a paid round trip for nothing, so they are not offered.
+  const tools = capabilityProfile.supportsToolMedia
+    ? afterUnattended
+    : afterUnattended
+        .filter((t) => t.name !== "view_image")
+        .map((t) =>
+          t.name === "browser_inspect" ? browserInspectWithoutScreenshot(t) : t,
+        );
 
   // Sub-agent (`task`) surface: available in EVERY mode (v13 — parallel
   // read-only scouts help build/debug too, matching Claude Code's Task tool).

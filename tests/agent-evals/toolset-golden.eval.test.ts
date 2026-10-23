@@ -54,6 +54,10 @@ function offeredToolNames(scenarioId: string): string[] {
 // but aliases are deliberately not advertised, so they must not appear here.
 // 15.11: the mobile pair (`mobile_inspect` + `mobile`) was deleted. A model
 // drives an emulator with run_command + view_image like any other CLI.
+// 15.11: image tools are offered only to a model whose tool results can carry
+// an image. This eval's model is an OpenAI-compatible custom endpoint, which
+// cannot, so `view_image` is absent and browser_inspect has no screenshot mode
+// here; resolve-toolset-vision.test.ts pins the vision surface.
 const GOLDEN = {
   ask: [
     "ask_user",
@@ -81,7 +85,6 @@ const GOLDEN = {
     "task",
     "tool_help",
     "transcribe_audio",
-    "view_image",
     "web_search",
   ],
   // Plan gained `run_command` + `background_jobs`; it lost `automations`,
@@ -113,7 +116,6 @@ const GOLDEN = {
     "task",
     "tool_help",
     "transcribe_audio",
-    "view_image",
     "web_search",
   ],
   // Review mirrors Explore minus `transcribe_audio` (MODE_EXCLUDED_TOOLS: it
@@ -142,7 +144,6 @@ const GOLDEN = {
     "subagents",
     "task",
     "tool_help",
-    "view_image",
     "web_search",
   ],
   build: [
@@ -177,7 +178,6 @@ const GOLDEN = {
     "task",
     "tool_help",
     "transcribe_audio",
-    "view_image",
     "web_search",
   ],
 } as const;

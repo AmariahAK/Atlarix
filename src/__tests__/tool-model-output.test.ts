@@ -22,7 +22,10 @@ const rawScreenshot = {
   origin: "https://example.com",
   mimeType: "image/png",
   data: FAKE_PNG_B64,
-  note: "Screenshot of untrusted page content from https://example.com.",
+  // The real browser_inspect shape (browser.ts): the untrusted marking rides
+  // `untrustedSource`, not the note.
+  note: "Screenshot of the tab in the user's own browser.",
+  untrustedSource: "web:https://example.com",
 };
 
 const envelopedScreenshot = {

@@ -72,6 +72,13 @@ export type ToolName = (typeof TOOL_NAMES)[number];
  * parameter nothing reads, and then blames the tool when the page was not
  * settled. Refusing the call is the faster lesson.
  */
+/** The tools for a turn: no `screenshot` for a model known not to take images. */
+export function toolSchemasFor(canSeeImages: boolean | undefined): ToolSchema[] {
+  return canSeeImages === false
+    ? TOOL_SCHEMAS.filter((t) => t.function.name !== "screenshot")
+    : TOOL_SCHEMAS;
+}
+
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     type: "function",

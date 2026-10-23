@@ -51,7 +51,7 @@ import {
   type ToolContext,
   type ToolOutcome,
 } from "../tools/dispatch";
-import { TOOL_SCHEMAS } from "../tools/schemas";
+import { toolSchemasFor } from "../tools/schemas";
 import type { MadeFile } from "../files/store";
 import { messageText } from "../context/budget";
 
@@ -59,7 +59,6 @@ import { messageText } from "../context/budget";
  * Characters of the tool schemas, which the provider counts as part of every
  * request. Computed once: the list does not change within a build.
  */
-const TOOL_SCHEMA_CHARS = JSON.stringify(TOOL_SCHEMAS).length;
 
 /** One message's text, for measuring what was actually sent. */
 const messageChars = (m: CoreMessage): number => messageText(m).length;
@@ -251,6 +250,8 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
   const stream = args.stream ?? streamTurn;
   const dispatch = args.dispatch ?? dispatchTool;
   const events = args.events ?? {};
+  const tools = toolSchemasFor(args.tools?.canSeeImages);
+  const toolSchemaChars = JSON.stringify(tools).length;
 
   const produced: CoreMessage[] = [];
   const history: CoreMessage[] = [
@@ -291,13 +292,13 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
       // character than it is.
       const sentMessageCount = history.length;
       const sentChars =
-        history.reduce((n, m) => n + messageChars(m), 0) + TOOL_SCHEMA_CHARS;
+        history.reduce((n, m) => n + messageChars(m), 0) + toolSchemaChars;
       try {
         for await (const event of stream(
           {
             model: args.model,
             messages: history,
-            tools: TOOL_SCHEMAS,
+            tools,
             signal: args.signal,
           },
           fetch,

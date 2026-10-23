@@ -163,11 +163,10 @@ describe("v14.8.8 — per-tool guidance rides the capability-gated tool schema",
     expect(runCmd).toContain("browser(");
     // Browser guidance is present because browser tools are in build mode.
     expect(descOf(req, "browser")).toBeTruthy();
-    // v14.8.9: browser_inspect steers "what do you see" → visual, screenshot is
-    // last resort, and the "VISUAL confirmation" lure is gone (the observed bug).
+    // v14.8.9 removed a "VISUAL confirmation" lure (the observed bug); 15.11
+    // replaced "LAST RESORT" with when a screenshot helps. Bound in full.
     const inspect = descOf(req, "browser_inspect")!;
-    expect(inspect).toContain("what do you see");
-    expect(inspect).toContain("LAST RESORT");
+    expect(inspect).toContain("cheap way to see a page");
     expect(inspect).not.toContain("VISUAL confirmation");
   }, 30_000);
 

@@ -152,9 +152,10 @@ const ALREADY_SHORT_CHARS = 400;
  * So a description that exists to STEER AWAY from a known failure mode is not
  * documentation, it is a correction, and it has to be in front of the model at
  * decision time. `browser_inspect` is the worked example: v14.8.9 rewrote it to
- * route "what do you see" to a visual read, make screenshots the last resort,
- * and remove a "VISUAL confirmation" lure that had caused an OBSERVED bug. Its
- * first sentence carries none of that, and
+ * remove a "VISUAL confirmation" lure that had caused an OBSERVED bug (every
+ * check went through a screenshot), and 15.11 replaced its "last resort"
+ * prohibition with when a screenshot helps and the visual read as the cheap way
+ * to look. Its first sentence carries none of that, and
  * `tests/agent-evals/capability-trim.eval.test.ts` correctly fails if it is
  * trimmed — which is how this entry came to exist.
  *
@@ -236,8 +237,9 @@ export function parametersForMode(
  * steer away from a known failure has to be in front of the model at decision
  * time, because a model about to make the mistake never thinks to call
  * `tool_help` first. `browser_inspect` is the worked example — its wording
- * routes "what do you see" to a visual read and removes a screenshot lure that
- * caused an observed bug, and none of that survives a first sentence.
+ * names the visual read as the cheap way to look and says when a screenshot
+ * helps, replacing a lure that caused an observed bug, and none of that
+ * survives a first sentence.
  *
  * None of that reasoning reaches its PARAMETER PROSE. Trimming a parameter's
  * description to its first sentence removes no correction — it keeps every
