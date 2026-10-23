@@ -352,3 +352,17 @@ describe("the CLI and ACP title of a computer action", () => {
     expect(toolTarget("computer", { actions: [{ type: "click" }, { type: "keypress" }] })).toBe("click, keypress");
   });
 });
+
+describe("what the model is told a screenshot is", () => {
+  it("calls a desktop screenshot the screen, not a browser page", async () => {
+    const { buildToolModelOutput } = await import("@/lib/ai/tool-model-output");
+    const out = buildToolModelOutput(
+      "computer",
+      { success: true, mimeType: "image/jpeg", data: "AAAA", width: 4, height: 3, untrustedSource: "screen" },
+      { builtinProviderId: "anthropic", modelApiId: "claude-haiku-4-5" },
+    ) as { type: string; value: Array<{ type: string; text?: string }> };
+    const caption = out.value.find((p) => p.type === "text")?.text ?? "";
+    expect(caption).toMatch(/^Image of the screen\./);
+    expect(caption).not.toMatch(/browser/);
+  });
+});
