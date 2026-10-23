@@ -32,9 +32,10 @@ The owner approved the scope 2026-10-23 and asked for a full release overnight. 
   uses them since the cloud agent went paid-only (reviewer ae7061c, agent-action v1.4.0). GitHub asks for sudo mode,
   so it's yours.
 - **VS Code Marketplace:** upload the 8 `.vsix` from the Desktop folder.
-- **Proxy failover:** the AWS copy runs the same commit as Railway (2f30852) but is OFF (no Supabase key since the
-  rotation). Mint a secret key, `scripts/aws/90-proxy-failover.sh --secrets < env.json`, prove /health + a debit, then
-  set `proxy.fallbackUrl` and add the copy to the uptime TARGETS.
+- **Proxy failover: LIVE 2026-10-24.** The AWS copy (us-east-1, commit 2f30852) has its own Supabase key
+  `aws_proxy_failover`. `proxy.fallbackUrl` is set in atlarix-releases core-models.json (477f0e4), and the uptime
+  watcher checks it (fde2b27). Clients fall back only on no connection / 502 / 503 / 504, never mid-stream. Not yet a
+  load-spreader: free-tier counters live in eu-west-1 DynamoDB, and two copies reopen the one-reserve-per-copy gap.
 
 ### A2. Found in the 15.11.0 artifact checks (ai-44)
 
@@ -463,6 +464,14 @@ The reasoning lives in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md); these are th
   unused, and Luna would reject audio anyway (`Audio input is not available.`). To offer it: route
   `purpose: transcribe` in the proxy to OpenAI's transcription endpoint, meter it, then declare
   audio for Auto.
+- **NEXT for the Auto router (owner, 2026-10-24): Pro only, and only if it's small.** Order:
+  1. Outcome logging for every paid Auto step: kept going, no retry, no model switch, tools didn't fail.
+  2. Two candidates in `shadow` (they log their pick next to the table's, they don't decide):
+     - option 5, the on-device contextual bandit (no model, a few KB);
+     - a cheap hosted classifier call (a Groq-hosted small model, or Claude Haiku) as the "model as router" baseline.
+     Hugging Face's RouteLLM routers (BERT / matrix factorisation, lm-sys/RouteLLM) are free but trained on
+     GPT-4 vs Mixtral, so they'd need retraining on our traffic first.
+  3. Compare cost + outcomes, then let the winner decide, for Pro only.
 - **Paid Auto: a router that picks the lane WITHIN a mode** (owner, 2026-10-04). Today the lane
   table picks by mode/purpose/image/escalation; the saving is "this build step is easy → GLM/Luna,
   this one is hard → Sol/Astra". Options, best fit first:
