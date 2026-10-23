@@ -337,10 +337,6 @@ export const UserSettingsSchema = z.object({
    */
   defaultMcpServers: z.array(z.string()).optional(),
   hasRunBefore: z.boolean().optional(),
-  // Activation-funnel markers (analytics): epoch ms of the first agent turn
-  // started / completed, so first_task_* events each fire exactly once.
-  firstTaskStartedAt: z.number().optional(),
-  firstTaskCompletedAt: z.number().optional(),
   /** When "How is Atlarix doing this session?" was last answered or dismissed,
    * on any surface: one quiet period for the app, the CLI and the editors. */
   sessionRatingAt: z.number().optional(),

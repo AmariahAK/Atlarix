@@ -53,7 +53,7 @@ const base = (over: Partial<Parameters<typeof trackTurnCompleted>[0]> = {}) => (
 beforeEach(() => {
   captured.length = 0;
   consent = "opted_in";
-  store = { firstTaskStartedAt: 1, firstTaskCompletedAt: 1 };
+  store = {};
   nextChat++;
 });
 
@@ -100,18 +100,6 @@ describe("core_plan", () => {
     trackTurnCompleted(base(), async () => ({ type: "cloud" }));
     await flush();
     expect(turns()[0]).not.toHaveProperty("core_plan");
-  });
-});
-
-describe("the funnel events", () => {
-  it("carry the model, provider type and plan", async () => {
-    store = {};
-    noteTurnAutoBilling(nextChat, "free");
-    trackTurnCompleted(base({ provider: "compass", model: "core-auto" }), async () => ({ type: "cloud" }));
-    await flush();
-    for (const e of ["first_task_started", "first_task_completed"]) {
-      expect(events(e)[0], e).toMatchObject({ model: "core-auto", provider_type: "compass", core_plan: "auto_free" });
-    }
   });
 });
 

@@ -46,7 +46,7 @@ const base = (over: Partial<Parameters<typeof trackTurnCompleted>[0]> = {}) => (
 beforeEach(() => {
   captured.length = 0;
   consent = "opted_in";
-  store = { firstTaskStartedAt: 1, firstTaskCompletedAt: 1 };
+  store = {};
   nextChat++;
 });
 
@@ -81,9 +81,6 @@ describe("turn_completed", () => {
     const [ta, tb] = turns();
     expect(ta).toMatchObject({ billing: "local", provider: "ollama" });
     expect(tb).toMatchObject({ billing: "core", provider: "compass" });
-    // The funnel event takes the turn's billing too (it used to read a global).
-    const funnel = captured.filter((c) => c.event === "task_completed").map((c) => c.properties.billing);
-    expect(funnel).toEqual(["local", "core"]);
   });
 
   it("a fallback to Core counts as Core", async () => {
@@ -145,7 +142,6 @@ describe("turn_completed", () => {
     trackTurnCompleted(base({ outputTokens: 0 }));
     await flush();
     expect(turns()[0]).toMatchObject({ outcome: "error", error_kind: "auth" });
-    expect(captured.some((c) => c.event === "task_completed")).toBe(false);
   });
 
   it("a turn that recovered keeps ok and says what it recovered from", async () => {
@@ -182,12 +178,13 @@ describe("turn_completed", () => {
     for (const s of ["SECRET-PROMPT", "/Users/", "@example.com", "Details:"]) expect(body).not.toContain(s);
   });
 
-  it("the old per-turn events are gone", async () => {
+  it("one event per turn: the old per-turn and funnel events are gone", async () => {
     expect("trackModelTurn" in analytics).toBe(false);
     expect("trackTaskCompleted" in analytics).toBe(false);
     trackTurnCompleted(base());
+    trackTurnCompleted(base());
     await flush();
-    expect(captured.map((c) => c.event)).not.toContain("model_turn");
+    expect(captured.map((c) => c.event)).toEqual(["turn_completed", "turn_completed"]);
   });
 
   it("billingOf: Core, own key, or a local model", () => {
