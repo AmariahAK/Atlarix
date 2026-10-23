@@ -319,6 +319,24 @@ describe("a missing grant travels OUT, because only the loop can ask", () => {
     });
   });
 
+  it("Chrome withholding a site we allow says so, instead of a grant card that changes nothing", async () => {
+    // "Allow on every site" on, and the user set Atlarix to "On click" here (QA, ai-44).
+    granted.clear();
+    storage.delete("atlarix.siteGrants.v1");
+    storage.set("atlarix.allSites.v1", true);
+    const out = await dispatchTool(call("read_page"), CTX);
+    expect(out.needsApproval).toBeUndefined();
+    expect(out.content).toContain("Chrome is blocking Atlarix from this site");
+    // The same for a site granted the usual way, then withheld in Chrome.
+    storage.delete("atlarix.allSites.v1");
+    storage.set("atlarix.siteGrants.v1", {
+      "https://example.test": { origin: "https://example.test", grantedAt: 1 },
+    });
+    const again = await dispatchTool(call("read_page"), CTX);
+    expect(again.needsApproval).toBeUndefined();
+    expect(again.content).toContain("Chrome is blocking Atlarix from this site");
+  });
+
   it("refuses a scheme no grant could ever cover, without asking", async () => {
     // `chrome://` has no origin `site-grants` will produce, so asking would
     // put a dialog in front of the user that cannot succeed.
@@ -350,6 +368,16 @@ describe("close_tab cannot touch the user's tabs", () => {
 });
 
 describe("open_tab", () => {
+  it("a site we allow but Chrome withholds: says Chrome is blocking, not that it will ask", async () => {
+    granted.clear(); // "On click" in chrome://extensions
+    storage.set("atlarix.siteGrants.v1", {
+      "https://other.test": { origin: "https://other.test", grantedAt: 1 },
+    });
+    const out = await dispatchTool(call("open_tab", { url: "https://other.test/x" }), CTX);
+    expect(out.content).toContain("Chrome is blocking Atlarix from it");
+    expect(out.content).not.toContain("will ask the user");
+  });
+
   it("opens in the background and says whether it can be read", async () => {
     granted.clear();
     const out = await dispatchTool(
@@ -587,6 +615,15 @@ describe("the always-ask classifier finally has a caller", () => {
       kind: "action",
       category: "credentials",
     });
+  });
+
+  it("still stops it with Allow on every site switched on", async () => {
+    // "Every site" widens where the agent may act, never what it may do there.
+    storage.set("atlarix.allSites.v1", true);
+    storage.delete("atlarix.siteGrants.v1");
+    injectResult = passwordField;
+    const out = await dispatchTool(call("fill", { ref: "e1", value: "hunter2" }), CTX);
+    expect(out.needsApproval).toMatchObject({ kind: "action", category: "credentials" });
   });
 
   it("NEVER puts the value into anything the user or a log will see", async () => {

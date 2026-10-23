@@ -1,7 +1,7 @@
 /**
- * QA (app) #28: the composer tip read "TIP ⌘N shortcuts.new-window" — the raw
- * key — because the new-window shortcut was advertised with no line in the
- * tips catalog. Every advertised shortcut has one.
+ * QA (app) #28: a shortcut line read "⌘N shortcuts.new-window" — the raw key —
+ * because the new-window shortcut was advertised with no line in the catalog.
+ * Every advertised shortcut has one (the keyboard shortcuts list reads it).
  */
 import { describe, it, expect } from "vitest";
 import { SHORTCUTS } from "@/lib/shortcuts";
@@ -15,11 +15,3 @@ describe("the tips catalog", () => {
   });
 });
 
-// QA (app) #38: the tip promised "Type / for commands", and "/" opened no menu.
-describe("the composer tips", () => {
-  it("promise only what the desktop composer does", () => {
-    const feature = (tips as { feature: Record<string, string> }).feature;
-    expect(feature.autocomplete).not.toMatch(/\/ for commands/);
-    expect(feature.autocomplete).toMatch(/\/compact/);
-  });
-});

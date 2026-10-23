@@ -17,7 +17,6 @@ import enApp from "./locales/en-us/app.json";
 import enChat from "./locales/en-us/chat.json";
 import enSettings from "./locales/en-us/settings.json";
 import enTools from "./locales/en-us/tools.json";
-import enOnboarding from "./locales/en-us/onboarding.json";
 import enPanels from "./locales/en-us/panels.json";
 import enMain from "./locales/en-us/main.json";
 import enTips from "./locales/en-us/tips.json";
@@ -34,7 +33,6 @@ export const NAMESPACES = [
   "chat",
   "settings",
   "tools",
-  "onboarding",
   "panels",
   "main",
   "tips",
@@ -47,7 +45,6 @@ export const EN_RESOURCES = {
   chat: enChat,
   settings: enSettings,
   tools: enTools,
-  onboarding: enOnboarding,
   panels: enPanels,
   main: enMain,
   tips: enTips,

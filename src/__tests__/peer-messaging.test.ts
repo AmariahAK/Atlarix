@@ -127,6 +127,21 @@ describe("peer messaging", () => {
   });
 });
 
+describe("a session this process stopped showing (QA A2)", () => {
+  it("is not sent: the receiver says it is not open, and nothing is queued", async () => {
+    noteLiveSession({ sessionId: "sess-left-0003", chatId: -9, name: "Greeting", workspace: "/w/b" });
+    const row = target("Greeting");
+    // The CLI forked (or resumed another, or /new): it shows the other session now.
+    forgetLiveSession("sess-left-0003");
+    const before = queued.length;
+    const r = await sendPeerMessage(row, from, "PING-TO-ORIGINAL");
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/not open there any more/);
+    expect(queued.length).toBe(before);
+    expect(woken).not.toContain(-9);
+  });
+});
+
 describe("the wrapped message", () => {
   it("cannot be closed early by its own body", () => {
     const wrapped = wrapPeerMessage(

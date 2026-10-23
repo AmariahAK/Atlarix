@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { AtlarixAutoStatus } from "@/components/chat/AtlarixAutoStatus";
 import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
@@ -9,24 +8,19 @@ import { useContextReport } from "@/hooks/useContextReport";
 import { useAtomValue } from "jotai";
 import {
   pendingWorkspaceAppIdAtom,
-  selectedAppIdAtom,
   selectedWorkspaceInfoAtom,
 } from "@/atoms/appAtoms";
 import {
   getChatBoundAppId,
   resolveChatWorkspaceAppId,
 } from "@/lib/chat-workspace-binding";
-import { openWorkspaceFromDialog } from "@/lib/open-workspace";
-import { toast } from "sonner";
 import {
-  hasUserMessageForChatAtom,
   isStreamingForChatAtom,
   selectedChatIdAtom,
   liveTurnUsageByChatIdAtom,
   turnWorkModeByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { activeSessionWorkModeAtom } from "@/atoms/sessionAtoms";
-import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { ModelPicker } from "./ModelPicker";
 import type { WorkMode } from "@/lib/schemas";
 import {
@@ -39,11 +33,6 @@ import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { useLoadApps } from "@/hooks/useLoadApps";
-import { useTranslation } from "react-i18next";
-import { Coachmark } from "@/components/ui/coachmark";
-import { useByokModelHint } from "@/hooks/useByokModelHint";
-import { useGuidedTour } from "@/hooks/useGuidedTour";
-import { GUIDED_TOUR_STEPS, chordForStep } from "@/lib/onboarding/guided-tour";
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
@@ -53,17 +42,11 @@ function formatTokens(n: number): string {
 const NO_CHAT_ID = 0;
 
 export function ChatInputControls({ chatId }: { chatId?: number }) {
-  const appId = useAtomValue(selectedAppIdAtom);
   const pendingWorkspaceAppId = useAtomValue(pendingWorkspaceAppIdAtom);
   const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
-  const { apps, refreshApps } = useLoadApps();
+  const { apps } = useLoadApps();
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const threadChatId = chatId ?? selectedChatId;
-  // One chat's slice, as a boolean: reading the whole messages map re-rendered
-  // the composer controls on every streamed flush of every chat.
-  const hasUserMessageInThread = useAtomValue(
-    hasUserMessageForChatAtom(threadChatId ?? NO_CHAT_ID),
-  );
   const { settings } = useSettings();
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
   const { result: tokenResult } = useContextTokenCount(chatId ?? null);
@@ -74,18 +57,6 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
   const contextReport = useContextReport(chatId ?? null);
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
   const creditBalance = useCreditBalance();
-  const { t: tOnboarding } = useTranslation("onboarding");
-  const { showByokHint, dismissByokHint, changeModelChord } =
-    useByokModelHint();
-  const tour = useGuidedTour();
-  /*
-   * The guided tour OUTRANKS the standalone BYOK hint on this anchor. Both point at
-   * the same control, and two coachmarks on one anchor would fight over the popover;
-   * the tour is the explicit, user-started thing, so it wins and the BYOK hint waits
-   * for a later session.
-   */
-  const modelTourActive = tour.isStepActive("model");
-  const workModeChord = chordForStep(GUIDED_TOUR_STEPS[0]);
 
   // ONE shared rule with the picker beside it (`resolveSelectedWorkMode`). This used
   // to resolve the global preference ALONE — left behind when sessions gained their
@@ -184,34 +155,8 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
       ? `$${(creditBalance.balanceCents / 100).toFixed(2)}`
       : null;
 
-  const handleOpenWorkspace = useCallback(async () => {
-    try {
-      await openWorkspaceFromDialog({
-        apps,
-        refreshApps,
-        activeChatId: threadChatId,
-        hasUserMessageInThread,
-      });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Unknown error";
-      console.error("Open workspace failed:", error);
-      if (msg.includes("Workspace limit") || msg.includes("Upgrade")) {
-        alert(msg);
-      } else {
-        toast.error(`Could not add workspace: ${msg}`);
-      }
-    }
-  }, [apps, refreshApps, threadChatId, hasUserMessageInThread]);
-
   return (
     <div className="flex flex-col gap-1">
-      {!appId && !hasUserMessageInThread && (
-        <NoWorkspaceBanner
-          className="mb-1"
-          onOpenWorkspace={handleOpenWorkspace}
-        />
-      )}
-
       {/* Compact context line + non-clickable context usage bar */}
       <div
         className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-0.5 text-xs text-muted-foreground"
@@ -269,64 +214,11 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
           shape of bug worth naming: a surface that exists in one layout and
           vanishes in another teaches people it does not exist at all.
         */}
-        <Coachmark
-          open={modelTourActive || showByokHint}
-          onDismiss={modelTourActive ? tour.end : dismissByokHint}
-          title={tOnboarding(
-            modelTourActive ? "tour.model.title" : "byokModel.title",
-          )}
-          body={tOnboarding(
-            modelTourActive ? "tour.model.body" : "byokModel.body",
-          )}
-          keys={changeModelChord}
-          actionLabel={tOnboarding("byokModel.action")}
-          stepIndex={
-            modelTourActive ? (tour.stepIndex ?? undefined) : undefined
-          }
-          stepCount={modelTourActive ? tour.stepCount : undefined}
-          onNext={modelTourActive ? tour.next : undefined}
-          nextLabel={tOnboarding("tour.next")}
-          skipLabel={tOnboarding("tour.skip")}
-          side="top"
-          align="end"
-          data-testid="byok-model-coachmark"
-        >
-          <span className="inline-flex" data-tour="tour-model-picker">
-            <ModelPicker
-              resetKey={threadChatId}
-              onOpened={() => {
-                // Opening the picker IS completing the tour step, and it is the
-                // hint's whole ask — both would otherwise paint underneath the
-                // popover they are pointing at.
-                dismissByokHint();
-                if (modelTourActive) tour.next();
-              }}
-            />
-          </span>
-        </Coachmark>
+        <ModelPicker resetKey={threadChatId} />
 
         <ChatConfigDropdown />
 
-        <Coachmark
-          open={tour.isStepActive("workModes")}
-          onDismiss={tour.end}
-          title={tOnboarding("tour.workModes.title")}
-          body={tOnboarding("tour.workModes.body")}
-          keys={workModeChord}
-          actionLabel={tOnboarding("tour.done")}
-          stepIndex={tour.stepIndex ?? undefined}
-          stepCount={tour.stepCount}
-          onNext={tour.next}
-          nextLabel={tOnboarding("tour.next")}
-          skipLabel={tOnboarding("tour.skip")}
-          side="top"
-          align="end"
-          data-testid="work-modes-coachmark"
-        >
-          <span className="inline-flex" data-tour="tour-ask-build">
-            <ChatIntentSelector />
-          </span>
-        </Coachmark>
+        <ChatIntentSelector />
       </div>
     </div>
   );

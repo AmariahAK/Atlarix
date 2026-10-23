@@ -106,6 +106,14 @@ describe("diffUpdates", () => {
     expect((u as { content: unknown[] }).content).toEqual([{ type: "content", content: { type: "text", text: "exit 1" } }]);
   });
 
+  it("a step the user stopped says so, rather than failing with no reason", () => {
+    const [u] = diffUpdates(
+      [{ kind: "tool", id: "m:t:computer_3", tool: { id: "x", verb: "Screen", target: "wait", status: "interrupted" } }],
+      new Map(),
+    );
+    expect((u as { content: unknown[] }).content).toEqual([{ type: "content", content: { type: "text", text: "Stopped." } }]);
+  });
+
   it("the user's own messages only on replay (a live editor already shows them)", () => {
     const user: Cell = { kind: "user", id: "u:1", text: "fix it" };
     expect(diffUpdates([user], new Map())).toEqual([]);
@@ -333,5 +341,32 @@ describe("a background sub-agent's report", () => {
     const meta = JSON.stringify(updates);
     expect(meta).toContain("The model provider returned no output (rate limited).");
     expect(meta).not.toContain("Background sub-agent started");
+  });
+});
+
+describe("links in command output", () => {
+  it("a dev server's URL rides as a resource_link the editor can open, beside the text", () => {
+    const [u] = diffUpdates(
+      [
+        {
+          kind: "tool",
+          id: "m:t:run_command_9",
+          tool: {
+            id: "y",
+            verb: "Run",
+            target: "npm run dev",
+            status: "success",
+            output: "VITE ready\n  Local:   http://localhost:5173/\n  Network: http://192.168.1.4:5173/.\n  Local:   http://localhost:5173/",
+          },
+        },
+      ],
+      new Map(),
+    );
+    const content = (u as { content: Array<{ content: { type: string; uri?: string } }> }).content;
+    expect(content[0]!.content.type).toBe("text");
+    expect(content.slice(1).map((c) => c.content)).toEqual([
+      { type: "resource_link", uri: "http://localhost:5173/", name: "http://localhost:5173/" },
+      { type: "resource_link", uri: "http://192.168.1.4:5173/", name: "http://192.168.1.4:5173/" },
+    ]);
   });
 });

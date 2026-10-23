@@ -207,6 +207,18 @@ $msix
 Add-AppxPackage $msix
 ```
 
+**Install from an interactive session, not over SSH.** Over SSH (session 0), `Add-AppxPackage` fails with
+"Failed to initialize PLM 0x80070005". Run it from the desktop, or from an Interactive scheduled task (2026-10-24).
+
+**Before starting the installed app, check who the Windows profile is signed in as.** The MSIX shares
+`%APPDATA%\Atlarix` with the Squirrel install, and a CI-built package has production Sentry/PostHog baked in. On a
+profile signed in as a real account, even opening the app sends that account's app-open events. For tests, use a
+fresh Windows user or move the profile aside first.
+
+**The browser bridge's 5 registry keys and its host manifest STAY after `Remove-AppxPackage`**, because they are
+deliberately unvirtualized. That's harmless: the host exits 0 when no relay runs. Every other HKCU write is
+virtualized and goes with the package.
+
 If `Add-AppxPackage` fails, the message is usually unhelpful. Get the real reason:
 
 ```powershell

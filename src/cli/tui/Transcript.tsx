@@ -31,6 +31,7 @@ import { useDiffSegments } from "./diff-highlight";
 import { oneLine, thoughtSummary } from "./format";
 import { Prose } from "./Prose";
 import { color, glyph } from "./theme";
+import { linkify, oneLineKeepingUrl } from "./links";
 
 const STATUS_ICON: Record<ToolLine["status"], { icon: string; fg: string }> = {
   running: { icon: glyph.tool.running, fg: color.code },
@@ -260,7 +261,8 @@ function ToolCell({
             <>
               {runLines.lines.map((line, i) => (
                 <text key={i} fg={color.muted}>
-                  {`  ${i === 0 ? glyph.result : " "} ${oneLine(line, width - 8) || " "}`}
+                  {`  ${i === 0 ? glyph.result : " "} `}
+                  {linkify(oneLineKeepingUrl(line, width - 8) || " ")}
                 </text>
               ))}
               {runLines.more > 0 ? (
@@ -277,7 +279,7 @@ function ToolCell({
       {!tool.diff && !expanded && tool.summary && !showRun && !(tool.progress && tool.status === "running") ? (
         <text fg={tool.status === "error" ? color.error : color.muted}>
           {`  ${glyph.result} `}
-          {oneLine(relativeTo(workspace, tool.summary), width - 8)}
+          {linkify(oneLineKeepingUrl(relativeTo(workspace, tool.summary), width - 8))}
         </text>
       ) : null}
       {!tool.diff && expanded && preview.lines.some((l) => l.trim()) ? (
@@ -293,7 +295,7 @@ function ToolCell({
               key={i}
               fg={tool.status === "error" ? color.error : color.muted}
             >
-              {line || " "}
+              {line ? linkify(line) : " "}
             </text>
           ))}
           {preview.more > 0 ? (

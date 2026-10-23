@@ -334,6 +334,30 @@ describe("several Atlarix processes at once (app, CLI, editors, headless)", () =
     expect(fs.existsSync(attachments)).toBe(false);
   });
 
+  it("the LAST Atlarix to exit leaves no directory of ours behind, the leases dir included (E4)", async () => {
+    // Windows piled these up per workspace in %TEMP%, empty.
+    const { registerTempLease, sweepTempOnQuit } = await import("@/main/temp-hygiene");
+    registerTempLease("acp");
+    mkdir(path.join("atlarix-scratch", "my-project-ab12"));
+    mkdir("atlarix-attachments");
+    await sweepTempOnQuit();
+    expect(fs.readdirSync(fakeTmp).filter((n) => n.startsWith("atlarix-"))).toEqual([]);
+  });
+
+  it("while another Atlarix runs, an EMPTY shared dir stays: it may be about to write there", async () => {
+    // Both writers create their dir once and remember it (attachments at module
+    // load, scratch per session); removing it under them breaks the next write.
+    const { registerTempLease, sweepTempOnQuit } = await import("@/main/temp-hygiene");
+    lease(livePid);
+    registerTempLease("acp");
+    const ws = mkdir(path.join("atlarix-scratch", "my-project-ab12"));
+    const attachments = mkdir("atlarix-attachments");
+    await sweepTempOnQuit();
+    expect(fs.existsSync(ws)).toBe(true);
+    expect(fs.existsSync(attachments)).toBe(true);
+    expect(fs.existsSync(path.join(fakeTmp, __testing.LEASES_DIR_NAME))).toBe(true);
+  });
+
   it("a process's own lease does not protect its dirs from its own exit sweep", async () => {
     const { registerTempLease, sweepTempOnQuit } = await import("@/main/temp-hygiene");
     registerTempLease("cli");

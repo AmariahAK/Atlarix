@@ -187,13 +187,6 @@ describe("a bare tool name that prefixes another", () => {
     expect(out).not.toContain("browser_inspect");
   });
 
-  it("strips the mobile pair too", () => {
-    const out = stripTextEmittedToolCallBlocks(
-      '<mobile_inspect>{"mode":"hierarchy"}</mobile_inspect>then<mobile>{"action":"tap","ref":"m1"}</mobile>',
-    );
-    expect(out.trim()).toBe("then");
-  });
-
   it("preserves prose that merely names a tool", () => {
     const prose = "Use the <browser> tool to drive the page.";
     expect(stripTextEmittedToolCallBlocks(prose)).toBe(prose);

@@ -23,9 +23,9 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
-  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  xmlns:virtualization="http://schemas.microsoft.com/appx/manifest/virtualization/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap3 desktop desktop6 rescap">
+  IgnorableNamespaces="uap uap3 desktop virtualization rescap">
 
   <Identity
     Name="AmariahAbishai.Atlarix"
@@ -43,10 +43,26 @@
       writes into a package-private hive that no browser can see. With
       virtualization on, the key src/lib/bridge/host-install.ts writes would be
       invisible and the agent would have no browser on the Store build. Needs
-      the unvirtualizedResources restricted capability declared below. Ignored
-      before Windows 10 1903, where the Store build has no bridge.
+      the unvirtualizedResources restricted capability declared below.
+
+      ONLY THESE FIVE KEYS (Windows 11 flexible virtualization). Every other
+      HKCU write stays in the package hive and is removed on uninstall. The
+      Store denied the capability twice (2026-09-28, 2026-10-07) while it was
+      desktop6:RegistryWriteVirtualization disabled, which unvirtualized ALL
+      of HKCU. There is deliberately no Windows 10 fallback: before Windows 11
+      these elements are ignored, the keys stay virtualized, and the Store
+      build has no browser bridge. The list must match windowsRegistryKeys()
+      in src/lib/bridge/host-install.ts (src/__tests__/msix-manifest.test.ts).
     -->
-    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+    <virtualization:RegistryWriteVirtualization>
+      <virtualization:ExcludedKeys>
+        <virtualization:ExcludedKey>HKEY_CURRENT_USER\Software\Google\Chrome\NativeMessagingHosts\dev.atlarix.bridge</virtualization:ExcludedKey>
+        <virtualization:ExcludedKey>HKEY_CURRENT_USER\Software\Chromium\NativeMessagingHosts\dev.atlarix.bridge</virtualization:ExcludedKey>
+        <virtualization:ExcludedKey>HKEY_CURRENT_USER\Software\Microsoft\Edge\NativeMessagingHosts\dev.atlarix.bridge</virtualization:ExcludedKey>
+        <virtualization:ExcludedKey>HKEY_CURRENT_USER\Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\dev.atlarix.bridge</virtualization:ExcludedKey>
+        <virtualization:ExcludedKey>HKEY_CURRENT_USER\Software\Vivaldi\NativeMessagingHosts\dev.atlarix.bridge</virtualization:ExcludedKey>
+      </virtualization:ExcludedKeys>
+    </virtualization:RegistryWriteVirtualization>
   </Properties>
 
   <Dependencies>
@@ -138,10 +154,11 @@
     -->
     <rescap:Capability Name="runFullTrust" />
     <!--
-      RESTRICTED as well. Required by RegistryWriteVirtualization disabled
-      above. Justification: Atlarix registers a Chrome native messaging host so
-      its agent can work in the user's own browser; browsers read that
-      registration from the real HKCU registry, never from a package hive.
+      RESTRICTED as well. Required by the ExcludedKeys above. Justification:
+      Atlarix registers a Chrome native messaging host so its agent can work in
+      the user's own browser; browsers read that registration from the real
+      HKCU registry, never from a package hive. The full case for the Store's
+      reviewers is build/msix/certification-notes.txt.
     -->
     <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>

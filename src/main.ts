@@ -65,6 +65,7 @@ import {
 import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
+import { DISCORD_INVITE_URL } from "./lib/community/discord";
 import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
 import fs from "fs";
 import os from "node:os";
@@ -1523,12 +1524,9 @@ function setMainApplicationMenu(): void {
       role: "help",
       submenu: [
         {
-          label: "Community",
-          click: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send("open-community-dialog");
-            }
-          },
+          // The Discord server itself, not a dialog about it (15.11).
+          label: "Community on Discord",
+          click: () => void shell.openExternal(DISCORD_INVITE_URL),
         },
       ],
     },
@@ -2139,17 +2137,6 @@ app.on("before-quit", (e) => {
         abortAllStreams();
       } catch (abortErr) {
         logger.warn("abortAllStreams on quit:", abortErr);
-      }
-      // v14.41: put the emulator's `show_touches` back if the mobile tools turned
-      // it on. A device that had tap circles off must not keep them after we quit.
-      // Lazily imported so a session that never touched a device never loads this.
-      try {
-        const { restoreTapFeedback } = await import(
-          "./lib/mobile/device-tools"
-        );
-        await restoreTapFeedback();
-      } catch (tapErr) {
-        logger.warn("restoreTapFeedback on quit:", tapErr);
       }
       // v12 3.7: drain tracked state-mutating background work (self-correction
       // dispatch, snapshot writes, usage records) before the process dies.

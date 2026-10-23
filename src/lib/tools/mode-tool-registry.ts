@@ -61,17 +61,6 @@ export const EVERY_MODE_TOOLS = [
   // lose a detail to a summary and must be able to read back behind the boundary.
   // Read-only, so it is safe on the Ask/Plan/Review surfaces.
   "session_search",
-  // v14.41: the mobile pair, EVERY mode — for the same reason `browser` is every
-  // mode. Neither touches the workspace: driving an emulator changes the state of
-  // a device, not the project, so Plan's filesystem-read-only rule is untouched.
-  // And the read half is the point in Explore: "what does the app look like on a
-  // phone" is a question, not a build step.
-  //
-  // The tokens are affordable because both are PERIPHERAL under tool-reveal, so
-  // every mode binds one sentence plus a `tool_help` pointer rather than the full
-  // description — which is why their first sentences carry the cheap default.
-  "mobile_inspect",
-  "mobile",
   // Looking at an image file is a read: every mode, Plan and Explore included
   // ("what does this screenshot show" is a question, not a build step).
   "view_image",
@@ -84,14 +73,8 @@ export const EVERY_MODE_TOOLS = [
 /**
  * Tools an otherwise-every-mode entry does NOT reach in a given mode.
  *
- * This exists for exactly one case and should stay that small. `mobile_inspect`
- * and `mobile` were made every-mode on the argument, recorded in
- * EVERY_MODE_TOOLS above, that "what does the app look like on a phone" is a
- * QUESTION rather than a build step. That argument is about Explore. Plan does
- * not answer questions about a running device; it writes down what should be
- * done, and it is the one mode with no budget headroom to spare — the pair is a
- * measured 471 tokens per mode (`prompt-budget.eval.test.ts`), and Plan is where
- * `run_command` now has to fit.
+ * This exists for one case and should stay that small: Review has no use for
+ * `transcribe_audio` (below).
  *
  * Anything excluded here is genuinely unreachable in that mode, including at the
  * execute-time gate, so add to it only when the mode truly has no use for the
@@ -100,7 +83,6 @@ export const EVERY_MODE_TOOLS = [
 export const MODE_EXCLUDED_TOOLS: Partial<
   Record<ModeRegistryKey, readonly string[]>
 > = {
-  plan: ["mobile", "mobile_inspect"],
   // Review reads and verifies code; transcribing audio is not part of that, and
   // its schema pushed Review over its prompt-budget ceiling (2026-10-07). It
   // stays in every other mode. `view_image` and the session pair stay here: a
@@ -207,7 +189,7 @@ const REVIEW_TOOLS = [
 
 /** Full per-mode allowlists (mode-specific tools ∪ every-mode tools). */
 const ASK_ALLOWLIST = withEveryModeTools(ASK_TOOLS);
-const PLAN_ALLOWLIST = withEveryModeTools(PLAN_TOOLS, MODE_EXCLUDED_TOOLS.plan);
+const PLAN_ALLOWLIST = withEveryModeTools(PLAN_TOOLS);
 const REVIEW_ALLOWLIST = withEveryModeTools(
   REVIEW_TOOLS,
   MODE_EXCLUDED_TOOLS.review,

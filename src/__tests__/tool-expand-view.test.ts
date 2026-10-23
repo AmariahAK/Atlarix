@@ -537,68 +537,6 @@ describe("buildToolExpandView — task (sub-agent delegation)", () => {
 });
 
 /**
- * v14.41: the mobile pair. Two of these sets are NAME-keyed, and the model-facing
- * image path is not — `extractImageMedia` gates on the SHAPE of the result, so a
- * PNG reaches the model with no wiring at all while the UI shows nothing. That
- * asymmetry is exactly how a screenshot card goes missing and no test notices.
- */
-describe("mobile tools render in the browser cards", () => {
-  it("a mobile screenshot gets the screenshot card, not a text dump", () => {
-    const raw = JSON.stringify({
-      success: true,
-      mimeType: "image/png",
-      // 1x1 transparent PNG.
-      data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
-      device: "Pixel 7",
-    });
-    const view = buildToolExpandView(
-      "mobile_inspect",
-      { mode: "screenshot" },
-      raw,
-      "done",
-    );
-    expect(view?.kind).toBe("browser_screenshot");
-    expect((view as { dataUrl?: string }).dataUrl).toMatch(
-      /^data:image\/png;base64,/,
-    );
-  });
-
-  it("a mobile hierarchy read falls through to the TEXT card", () => {
-    // The screenshot block guards on `payload.data`, so a non-image result from
-    // the same tool must not be swallowed by it.
-    const raw = JSON.stringify({
-      success: true,
-      device: "Pixel 7",
-      summary:
-        '3 element(s) on Pixel 7 (android). Act on any ref with mobile.\n[m1] Button "Continue"',
-    });
-    const view = buildToolExpandView("mobile_inspect", {}, raw, "done");
-    expect(view?.kind).not.toBe("browser_screenshot");
-    expect(JSON.stringify(view)).toContain("Continue");
-  });
-
-  it("the act tool renders too, rather than falling off the end", () => {
-    // `content` and `title`, not invented field names: the browser text card
-    // reads exactly those, so matching the contract is why no renderer change
-    // was needed for either mobile tool.
-    const raw = JSON.stringify({
-      success: true,
-      device: "Pixel 7",
-      title: "Pixel 7",
-      content: "Tapped Continue. Re-read the screen if this navigated.",
-    });
-    const view = buildToolExpandView(
-      "mobile",
-      { action: "tap", ref: "m1" },
-      raw,
-      "done",
-    );
-    expect(view).toBeTruthy();
-    expect(JSON.stringify(view)).toContain("Tapped Continue");
-  });
-});
-
-/**
  * `tool_help` — the fetch half of progressive tool reveal.
  *
  * Observed in the packaged app: every call rendered as a bare **"Done"**. It had

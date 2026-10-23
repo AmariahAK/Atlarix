@@ -36,7 +36,7 @@ import { detectImageMime } from "@/lib/file-content-type";
 
 /** Wider than this is downscaled (when Electron's nativeImage is available). */
 export const VIEW_IMAGE_MAX_WIDTH = 1280;
-/** Same hard limit as the emulator screenshot: past this it is an outage, not a payload. */
+/** Hard limit after any downscale: past this it is an outage, not a payload. */
 export const VIEW_IMAGE_MAX_BYTES = 1_500_000;
 
 /** Resolve a tool path the way read_file does, or throw a readable error. */

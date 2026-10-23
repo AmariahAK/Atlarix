@@ -66,18 +66,23 @@ describe("getActiveModeReanchor (#15 mode-transition re-anchor)", () => {
  * onto the browser tools themselves (progressive: present only when bound), so the
  * guarantee is asserted on `browser_inspect`'s description instead.
  */
-describe("browser_inspect — visual is the way to SEE; screenshot is last resort", () => {
+describe("browser_inspect — visual is the cheap way to see; screenshot when the pixels matter", () => {
   const desc = () => String(ToolRegistry.get("browser_inspect")!.description);
 
-  it("steers 'see the page' to the visual TEXT report, not a screenshot", () => {
+  it("names the visual TEXT report as the cheap way to see a page", () => {
     expect(desc()).toMatch(/"visual"/);
-    expect(desc()).toMatch(/PRIMARY way to SEE/i);
+    expect(desc()).toMatch(/cheap way to see a page/i);
   });
 
-  it("frames screenshot as a last resort, never for reading/finding/layout", () => {
-    expect(desc()).toMatch(/LAST RESORT/i);
-    // Must NOT tell the model to screenshot in order to "see" the page (the bug).
-    expect(desc()).not.toMatch(/screenshot[^.]*\bto SEE\b/i);
+  // 15.11, owner: visual guidance says WHEN looking helps ("prefer"), never
+  // "do not". The v14.8.9 bug was a "VISUAL confirmation" lure that sent every
+  // check through a screenshot; what replaces the prohibition is naming what a
+  // screenshot is FOR, and that the text report is the cheap way to look.
+  it("says when a screenshot helps, without prohibiting it", () => {
+    expect(desc()).toMatch(/"screenshot"[^.]*use it when you need to see/i);
+    expect(desc()).toMatch(/images, charts, icons or exact styling/);
+    expect(desc()).not.toMatch(/LAST RESORT|NEVER to answer/i);
+    expect(desc()).not.toContain("VISUAL confirmation");
   });
 
   it("still carries the guidance that BROWSER_NOTE used to hold", () => {

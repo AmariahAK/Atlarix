@@ -42,14 +42,6 @@ describe("one line", () => {
   });
 });
 
-describe("tips and border hints", () => {
-  it("a tip holds still for its key and names only terminal keys", async () => {
-    const { pickTip, TIPS } = await import("@/cli/tui/tips");
-    expect(pickTip("s1:3")).toBe(pickTip("s1:3"));
-    for (const t of TIPS) expect(`${t.keys ?? ""} ${t.text}`).not.toMatch(/Settings|⌘|Dictate|voice/i);
-  });
-});
-
 describe("separators", () => {
   it("a --- under a paragraph stays a separator, not a heading", () => {
     expect(prepareMarkdown("Some paragraph.\n---\nNext.")).toBe("Some paragraph.\n\n---\nNext.");
@@ -85,13 +77,6 @@ describe("a reply still streaming", () => {
   it("leaves a finished graph alone", () => {
     const done = 'Here:\n\n```graph\n{"nodes":[]}\n```\nAfter';
     expect(settleStreaming(done)).toBe(done);
-  });
-});
-
-describe("a tip during a turn", () => {
-  it("can leave out tips that would be beside the point", async () => {
-    const { pickTip } = await import("@/cli/tui/tips");
-    for (let i = 0; i < 200; i++) expect(pickTip(`s:${i}`, ["ctrl+t"]).keys).not.toBe("ctrl+t");
   });
 });
 

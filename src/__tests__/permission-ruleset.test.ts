@@ -156,24 +156,3 @@ describe("mergeRulesets (global ~/.atlarix layer, S16)", () => {
     ).toBeNull();
   });
 });
-
-describe("the mobile tools are deniable", () => {
-  it("a bare `mobile` rule denies the act tool", () => {
-    // Claimed in DESIGN_NOTES: the mobile tools `execFile` adb from the main
-    // process, so the OS command sandbox does NOT constrain them — the
-    // permission ruleset is what does. That claim needs a test, not a sentence.
-    const rs = compiled(["mobile"]);
-    expect(
-      evaluateRuleset(rs, "mobile", { action: "tap", ref: "m1" })?.kind,
-    ).toBe("deny");
-    // And the read half stays available, since `mobile_*` is a different name.
-    expect(evaluateRuleset(rs, "mobile_inspect", {})).toBeNull();
-  });
-
-  it("a `mobile_*` glob denies both", () => {
-    const rs = compiled(["mobile*"]);
-    expect(evaluateRuleset(rs, "mobile", {})?.kind).toBe("deny");
-    expect(evaluateRuleset(rs, "mobile_inspect", {})?.kind).toBe("deny");
-    expect(evaluateRuleset(rs, "read_file", { path: "a.ts" })).toBeNull();
-  });
-});

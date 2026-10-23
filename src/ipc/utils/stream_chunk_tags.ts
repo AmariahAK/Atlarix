@@ -578,6 +578,24 @@ export async function processStreamChunks({
         } else {
           chunk = `<atlarix-mcp-tool-result server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-result>\n`;
         }
+      } else if (part.type === "tool-error") {
+        // A call that never produced a result: a tool the model named that is
+        // not offered (an old chat remembering a deleted tool), or arguments
+        // that failed validation. It emitted nothing here, so its "running" tag
+        // was never closed and every surface finished it as a success (ai-26 E1).
+        const toolKey =
+          typeof part.toolName === "string" ? part.toolName : "tool";
+        const { serverName, toolName } = parseMcpToolKey(toolKey);
+        const raw = (part as { error?: unknown }).error;
+        const message = (raw instanceof Error ? raw.message : String(raw))
+          // The SDK appends every offered tool's name; the card needs the first part.
+          .replace(/\s*Available tools:[\s\S]*$/, "");
+        const content = escapeAtlarixTags(
+          JSON.stringify({ success: false, error: message }),
+        );
+        if (!serverName || serverName === toolName) {
+          chunk = `<atlarix-tool-result tool="${toolName}"${callAttr(part)} status="error">\n${content}\n</atlarix-tool-result>\n`;
+        }
       }
 
       if (!chunk) continue;

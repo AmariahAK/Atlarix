@@ -1,10 +1,13 @@
-Atlarix is a desktop AI coding workstation. It reads and edits the user's own source folders and runs their developer tools.
+Atlarix is a desktop AI coding workstation: it reads and edits the user's own source folders and runs their developer tools.
 
-Restricted capabilities:
-- runFullTrust: Atlarix is a packaged Win32 (Electron) app. It starts terminals (node-pty), git, ripgrep and package managers in the folder the user opens, and reads and writes those files.
-- unvirtualizedResources: Atlarix registers a Chrome native messaging host under HKCU so its optional browser extension can talk to the app. Browsers read that key from the real registry, never from a package hive, so registry write virtualization is disabled.
+runFullTrust: packaged Win32 (Electron) app. It starts terminals, git, ripgrep and package managers in the folder the user opens.
 
-How to test:
-1. Launch Atlarix and sign in with an email address, Google or GitHub (sign-in opens the browser). The account is free and needs no purchase.
-2. Open any folder and pick the "Atlarix Auto" model, which is free for a number of messages each day.
-3. Ask, for example, "list the files here and summarize the README". The app reads files, asks before running commands, and shows its work in the chat.
+unvirtualizedResources (reconsideration, new information):
+- Why: our optional browser extension lets the user's AI agent work in the user's own Chrome, Edge, Brave or Vivaldi. On Windows, Chromium finds a native messaging host only through HKCU\Software\<browser>\NativeMessagingHosts\<name>, read from the real registry. From a package hive no browser can see it.
+- Alternatives explored: a localhost port (any local process or web page could reach it; native messaging is the browser's own channel, limited to our extension); HKLM (needs admin, machine-wide); enterprise policy (managed PCs only); asking users to run a registry script (error-prone, same keys).
+- Least privilege: this package no longer disables registry virtualization. Using Windows 11 flexible virtualization it excludes exactly five keys, one per browser, each named HKCU\Software\<browser>\NativeMessagingHosts\dev.atlarix.bridge (Google\Chrome, Chromium, Microsoft\Edge, BraveSoftware\Brave-Browser, Vivaldi). Every other write stays virtualized. Each key's only value is the path to our host manifest in %USERPROFILE%\.atlarix\chrome.
+- Safeguards: the manifest allows only our extension's ID; the host only relays messages to the running Atlarix app for the same user; nothing is elevated; on Windows 10 nothing is unvirtualized.
+- Support: support@atlarix.dev, https://www.atlarix.dev
+- Assurance: the capability is used only to register this native messaging host, and writes only to the five keys above.
+
+How to test: launch Atlarix, sign in (free, email, Google or GitHub), open any folder, pick "Atlarix Auto" and ask "list the files here and summarize the README".

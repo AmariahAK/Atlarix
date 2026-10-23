@@ -243,11 +243,9 @@
           a list that now lives somewhere it can be read on any device, next to
           connectors, skills and memory.
 
-          The reconciliation did NOT move. `pruneRevokedGrants` and the push
-          still run on every drawer open -- see `refreshDrawer` -- because they
-          were never about rendering: one keeps our record honest against
-          Chrome, the other applies what was revoked on the website. Deleting
-          the markup and leaving those in place is the whole change.
+          The reconciliation did NOT move: the push still runs at the top of
+          every turn and applies what was revoked on the website. (Pruning
+          against Chrome is gone: a site Chrome withholds keeps its grant.)
 
           IMMEDIATE REVOCATION is now chrome://extensions, and the account page
           says so rather than pointing back here.
@@ -268,6 +266,14 @@
           nowhere else, so this is the whole of it — no server call, nothing
           left behind. Two clicks, because it cannot be undone.
         -->
+        <div class="drawer__group">
+          <h2 class="drawer__heading">Sites</h2>
+          <label class="drawer__toggle">
+            <input type="checkbox" id="all-sites-toggle" />
+            Allow on every site, without asking site by site
+          </label>
+        </div>
+
         <div class="drawer__group">
           <h2 class="drawer__heading">Session recap</h2>
           <label class="drawer__toggle">

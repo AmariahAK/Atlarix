@@ -11,7 +11,7 @@
  * `shortcuts.ts` recorded this honestly rather than hiding it: the row was
  * `status: "hidden"` with a note saying advertising it "would manufacture bug
  * reports". Mounting the dialog where every other global dialog already lives
- * (`app/layout.tsx`, beside `CommunityDialog`) is what lets that row be
+ * (`app/layout.tsx`) is what lets that row be
  * advertised instead of apologised for.
  */
 

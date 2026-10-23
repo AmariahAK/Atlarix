@@ -174,6 +174,22 @@ const EXPECTED_RESOURCES = [
     minBytes: 100_000,
     arch: true,
   },
+  {
+    // The computer-use executor. Required for the same reason as the relay:
+    // without it the per-model switch still turns on and every action fails
+    // with "atlarix-computer is missing", which nobody sees until they try.
+    name: "atlarix-computer",
+    platforms: ["darwin", "linux"],
+    minBytes: 200_000,
+    exec: true,
+    arch: true,
+  },
+  {
+    name: "atlarix-computer.exe",
+    platforms: ["win32"],
+    minBytes: 200_000,
+    arch: true,
+  },
 ];
 
 /** Where extraResource lands, which is platform-specific on darwin only. */

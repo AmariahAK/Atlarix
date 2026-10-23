@@ -66,6 +66,9 @@ const VERBS: Record<string, { one: string; many: (n: number) => string }> = {
   create_relic: { one: "Made a relic", many: (n) => `Made ${n} relics` },
   run_code: { one: "Ran code", many: (n) => `Ran code ${n} times` },
   send_message: { one: "Sent a message", many: (n) => `Sent ${n} messages` },
+  // Recorded instead of send_message when nothing went out (no bridge, no such
+  // session, refused): the line must not say "Sent" (QA).
+  send_message_unsent: { one: "Message not sent", many: (n) => `${n} messages not sent` },
   list_sessions: { one: "Listed your Atlarix sessions", many: (n) => `Listed sessions ${n} times` },
   read_attachment: {
     one: "Read an attachment",

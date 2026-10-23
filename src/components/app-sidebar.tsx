@@ -531,12 +531,6 @@ function AppIcons({
                 >
                   <Link
                     to={item.to}
-                    data-onboarding={
-                      item.title === "Settings" ? "settings-link" : undefined
-                    }
-                    data-tour={
-                      item.title === "Settings" ? "tour-extensions" : undefined
-                    }
                     className={`flex flex-col items-center justify-center gap-1 min-h-14 py-1.5 mb-2 rounded-2xl ${
                       isActive ? "bg-sidebar-accent" : ""
                     }`}

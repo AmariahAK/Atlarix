@@ -44,13 +44,12 @@ import { registerAuthHandlers } from "./handlers/auth_handlers";
 import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handlers";
 import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot_handlers";
 import { registerStreamHandlers } from "./handlers/stream_handlers";
-import { registerTourHandlers } from "./handlers/tour_handlers";
-import { registerCommunityHandlers } from "./handlers/community_handlers";
 import { registerCommandPermissionHandlers } from "./handlers/command_permission_handlers";
 import { registerFilePermissionHandlers } from "./handlers/file_permission_handlers";
 import { registerDoctorHandlers } from "./handlers/doctor_handlers";
 import { registerPlanArtifactHandlers } from "./handlers/plan_artifact_handlers";
 import { registerRelicHandlers } from "./handlers/relic_handlers";
+import { registerComputerUseHandlers } from "./handlers/computer_use_handlers";
 import { registerRemoteSshHandlers } from "../main/remote-ssh/remote_ssh_handlers";
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
 
@@ -100,10 +99,9 @@ export function registerIpcHandlers() {
   registerCodebaseSearchHandlers(); // Codebase semantic search
   registerWorkspaceSnapshotHandlers();
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
-  registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)
-  registerCommunityHandlers(); // Discord invite metadata for Community dialog
   registerPlanArtifactHandlers();
   registerRelicHandlers();
+  registerComputerUseHandlers();
   registerCommandPermissionHandlers();
   registerFilePermissionHandlers();
   registerDoctorHandlers();

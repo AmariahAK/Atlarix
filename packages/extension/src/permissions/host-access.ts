@@ -108,23 +108,14 @@ export async function canActOn(url: string): Promise<boolean> {
   return (await hasHostAccess(url)) && (await isGranted(url));
 }
 
-/**
- * Reconcile the record with what Chrome actually holds.
- *
- * Call on panel open. A grant the browser has dropped should stop appearing in
- * our own settings list — otherwise the user sees a site they believe is
- * approved and we know is not.
+/*
+ * NO PRUNE. A grant used to be deleted whenever Chrome stopped allowing its
+ * site. With http(s) host access REQUIRED, that only happens when the user
+ * narrows Site access in chrome://extensions ("On click"), which withholds
+ * every site at once: one turn in that mode erased every grant (QA A3). The
+ * grant is the user's intent and Chrome's setting is the boundary; `canActOn`
+ * already needs both, and dispatch says "Chrome is blocking" for the gap.
  */
-export async function pruneRevokedGrants(urls: string[]): Promise<string[]> {
-  const dropped: string[] = [];
-  for (const url of urls) {
-    if (!(await hasHostAccess(url))) {
-      await revokeSite(url);
-      dropped.push(url);
-    }
-  }
-  return dropped;
-}
 
 /**
  * THERE IS NO BLANKET "EVERY SITE" PATH HERE ANY MORE.

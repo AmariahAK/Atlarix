@@ -31,6 +31,8 @@
  * still in it. Not a plainer rendering of the content: a wrong one.
  */
 
+import { URL_IN_TEXT } from "@/lib/text/urls";
+
 /**
  * A numbered list item: `1.` or `1)`, optionally indented.
  *
@@ -305,8 +307,14 @@ function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
  * anything — and a pair of them in one line would swallow the middle into
  * emphasis. Asterisks do not occur that way.
  */
-const INLINE =
-  /(`[^`]+`)|(\[[^\]\n]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?])/g;
+// The bare-URL branch is the CLI's and ACP's own pattern (lib/text/urls), so a
+// URL in quotes or with a balanced "(…)" links the same everywhere (QA E2, E5).
+const INLINE = new RegExp(
+  String.raw`(\`[^\`]+\`)|(\[[^\]\n]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(` +
+    URL_IN_TEXT.source +
+    ")",
+  "g",
+);
 
 /** Where a `[text](url)` may point: never `javascript:`, `data:`, `vbscript:` or a relative path. */
 const SAFE_HREF = /^(?:https?:\/\/|mailto:)/i;
@@ -346,6 +354,25 @@ function appendInline(parent: HTMLElement, text: string): void {
 }
 
 /** A link that opens outside: its text is text, never markup. */
+// The same pattern as the CLI and ACP: a balanced "(…)" is the URL's; a ")"
+// closing prose, trailing punctuation and surrounding quotes are not (QA E2, E5).
+const BARE_URL = new RegExp(URL_IN_TEXT.source, "g");
+
+/**
+ * Plain text (command output, a failure line, a message) into `parent`, with
+ * every http(s) URL in it a link. Nothing else is interpreted: no markdown.
+ */
+export function linkifyText(parent: HTMLElement, text: string): void {
+  let last = 0;
+  for (const m of text.matchAll(BARE_URL)) {
+    const at = m.index ?? 0;
+    if (at > last) parent.append(document.createTextNode(text.slice(last, at)));
+    parent.append(anchor(m[0], m[0]));
+    last = at + m[0].length;
+  }
+  if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+}
+
 function anchor(href: string, text: string): HTMLAnchorElement {
   const el = document.createElement("a");
   el.href = href;

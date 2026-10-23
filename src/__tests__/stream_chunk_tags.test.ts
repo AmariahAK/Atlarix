@@ -623,3 +623,65 @@ describe("processStreamChunks + a provider error in the finish reason", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * ai-26 E1: a call that never produced a result (a tool the model named that is
+ * not offered, e.g. an old chat remembering a deleted tool) emitted only its
+ * "running" tag, so ACP, the CLI and the app finished it as a success while the
+ * model was told the tool does not exist.
+ */
+describe("processStreamChunks: a tool-error part", () => {
+  it("closes the call as an error, with the first part of the SDK's message", async () => {
+    async function* fullStream() {
+      yield { type: "tool-call", toolCallId: "tc-9", toolName: "mobile_inspect", input: {} } as never;
+      yield {
+        type: "tool-error",
+        toolCallId: "tc-9",
+        toolName: "mobile_inspect",
+        input: {},
+        error: new Error("Model tried to call unavailable tool 'mobile_inspect'. Available tools: read_file, grep."),
+      } as never;
+      yield { type: "text-delta", text: "ok" } as never;
+    }
+    const { fullResponse } = await processStreamChunks({
+      fullStream: fullStream() as unknown as Parameters<typeof processStreamChunks>[0]["fullStream"],
+      fullResponse: "",
+      abortController: new AbortController(),
+      chatId: -1,
+      processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+    });
+    expect(fullResponse).toContain('<atlarix-tool-result tool="mobile_inspect" call="tc-9" status="error">');
+    expect(fullResponse).toContain("unavailable tool 'mobile_inspect'");
+    expect(fullResponse).not.toContain("Available tools");
+  });
+});
+
+describe("an unknown tool, end to end: stream → CLI transcript → ACP", () => {
+  it("is shown as failed in the editor, not completed", async () => {
+    const { toCells } = await import("@/cli/agent/transcript");
+    const { diffUpdates } = await import("@/cli/acp/updates");
+    async function* fullStream() {
+      yield { type: "tool-call", toolCallId: "tc-1", toolName: "frobnicate", input: { x: 1 } } as never;
+      yield {
+        type: "tool-error",
+        toolCallId: "tc-1",
+        toolName: "frobnicate",
+        input: { x: 1 },
+        error: new Error("Model tried to call unavailable tool 'frobnicate'. Available tools: grep."),
+      } as never;
+      yield { type: "text-delta", text: "done" } as never;
+    }
+    const { fullResponse } = await processStreamChunks({
+      fullStream: fullStream() as unknown as Parameters<typeof processStreamChunks>[0]["fullStream"],
+      fullResponse: "",
+      abortController: new AbortController(),
+      chatId: -1,
+      processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+    });
+    const cells = toCells([{ id: 2, role: "assistant", content: fullResponse }]);
+    const updates = diffUpdates(cells, new Map()) as Array<{ sessionUpdate: string; status?: string }>;
+    const tool = updates.filter((u) => u.sessionUpdate.startsWith("tool_call"));
+    expect(tool.length).toBeGreaterThan(0);
+    expect(tool.at(-1)!.status).toBe("failed");
+  });
+});

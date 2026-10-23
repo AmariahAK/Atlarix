@@ -15,6 +15,8 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
+import { windowsRegistryKeys } from "@/lib/bridge/host-install";
+
 const TEMPLATE = path.join(
   process.cwd(),
   "build",
@@ -115,15 +117,23 @@ describe("AppxManifest template — declarations the runtime depends on", () => 
     expect(raw).toContain('<uap:Protocol Name="atlarix">');
   });
 
-  it("lets the Chrome bridge registry key reach the real registry", () => {
+  it("lets exactly the Chrome bridge registry keys reach the real registry", () => {
     // Chromium on Windows finds a native messaging host only via HKCU; with
     // MSIX registry virtualization on, the key is written to a package-private
-    // hive no browser reads. Both halves are needed: the property AND the
-    // restricted capability that permits it.
-    expect(raw).toMatch(
-      /<desktop6:RegistryWriteVirtualization>disabled<\/desktop6:RegistryWriteVirtualization>/,
+    // hive no browser reads. Both halves are needed: the excluded keys AND the
+    // restricted capability that permits them.
+    const excluded = [...raw.matchAll(/<virtualization:ExcludedKey>([^<]+)<\/virtualization:ExcludedKey>/g)].map(
+      (m) => m[1],
     );
+    expect(excluded).toEqual(windowsRegistryKeys().map((k: string) => k.replace(/^HKCU\\/, "HKEY_CURRENT_USER\\")));
     expect(raw).toMatch(/<rescap:Capability Name="unvirtualizedResources"\s*\/>/);
+  });
+
+  it("never unvirtualizes all of HKCU again", () => {
+    // The Store denied unvirtualizedResources twice (2026-09-28, 2026-10-07)
+    // while the package switched registry virtualization off wholesale.
+    expect(raw).not.toContain("RegistryWriteVirtualization>disabled");
+    expect(raw).not.toContain("FileSystemWriteVirtualization");
   });
 
   it("declares the atlarix.exe execution alias", () => {

@@ -1,8 +1,9 @@
 # Atlarix TODO
 
-**Current version:** 15.10.0 (2026-10-21): project memory that recalls the right notes, live sessions and
-`/fork` across app, CLI and editors, approvals that remember folder rules, compaction that works, a chat history
-that stays in the prompt cache, and per-surface usage data. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.11.0 (2026-10-24): computer use (vision, every surface), sessions that steer and read each
+other, clickable links, a harness that carries less (no mobile tools, no onboarding), the extension's "Allow on every
+site", and a paid-only cloud agent. 15.10.1 never shipped on its own; it is folded in. Narrative in
+[`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -16,9 +17,92 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-21
+**Last updated:** 2026-10-23
 
 ---
+
+## 🔨 Handover 2026-10-24 (ai-27) — 15.11.0 released overnight; what is left
+
+The owner approved the scope 2026-10-23 and asked for a full release overnight. Team notes:
+`~/.atlarix-e2e/team/STATUS.md` (newest at the bottom) and `~/.atlarix-e2e/team/MORNING-2026-10-24.md` (the owner's list).
+
+### A. Owner steps
+
+- **GitHub App "Atlarix Cloud Agent" → Permissions:** set Repository "Secrets" and "Variables" to "No access". Nothing
+  uses them since the cloud agent went paid-only (reviewer ae7061c, agent-action v1.4.0). GitHub asks for sudo mode,
+  so it's yours.
+- **VS Code Marketplace:** upload the 8 `.vsix` from the Desktop folder.
+- **Proxy failover:** the AWS copy runs the same commit as Railway (2f30852) but is OFF (no Supabase key since the
+  rotation). Mint a secret key, `scripts/aws/90-proxy-failover.sh --secrets < env.json`, prove /health + a debit, then
+  set `proxy.fallbackUrl` and add the copy to the uptime TARGETS.
+
+### B. Not verified (say so in any announcement)
+
+- **The pill's Stop link can miss on the FIRST computer-use run after the app starts** (A5, QA 3/3 with executor
+  clicks; later pills work). For a person it matters little: reaching the pill moves the mouse, and moving it more than
+  8 px means the next click or keystroke is refused and the turn ends (screenshots/waits can still finish first). ⌃⌥Esc, in-app Stop and Esc also stop it. acceptFirstMouse (86c51361) didn't
+  fix it in ai-fc's real-click run; diagnostic notes in STATUS.md 2026-10-24. Fix in 15.11.1.
+- The Windows CLI's file metadata (Atlarix / Amariah Abishai / Atlarix CLI, a37e7e9e) is only written when Bun
+  compiles ON Windows, so it can only be seen in the CI-built release exe: check Properties → Details.
+
+- Computer use on **Linux** (X11/Wayland): built and type-checked in CI, never run live. Wayland has no test machine.
+- Computer use with a **real** model on the Mac: by rule only a scripted model drives the real keyboard/mouse here.
+  The real-model runs happened in the Windows VM.
+- ⌃⌥Esc on the pill (unit-tested; QA can't send OS keys) and a real hand moving the mouse (scripted takeover proven).
+
+### C. Railway breach rotation — DONE 2026-10-23; leftovers
+
+Rotated and deployed: proxy (57c91fb), reviewer (4326324), backup; old keys revoked at OpenAI, Kimi, Requesty,
+DeepSeek, Z.ai, Lemon Squeezy, Resend, Cloudflare R2 and both GitHub Apps; the old Supabase secret key deleted;
+the database password reset; GitHub, Slack and Lemon Squeezy webhook secrets changed; the Slack install's token
+re-encrypted under a new `SLACK_TOKEN_KEY`. Teleios Centre Kenya's Postgres was rotated by its own session.
+
+- **Discord:** `DISCORD_WEBHOOK_URL` and `CORE_ALERT_WEBHOOK_URL` (proxy and Supabase edge secrets) were in the
+  leak. Regenerate the webhooks in Discord, then update both places.
+- **VirusTotal:** `VIRUSTOTAL_API_KEY` (proxy, edge) can't be reset from its dashboard (free key). Rotate via the
+  account or accept the risk.
+- **Legacy Supabase JWT keys:** the `service_role` JWT was in Railway (removed there now) and is still valid. Edge
+  functions read `SUPABASE_SERVICE_ROLE_KEY`; move them to a `sb_secret_` key, then disable the legacy keys. The
+  2026-10-22 log audit found 0 uses.
+- **Old AWS keys:** `atlarix-proxy-runtime` …FOFY and `atlarix-reviewer-runtime` …GNQH are INACTIVE. Delete them
+  after a week with no errors.
+- **Stale secrets:** the Atlarix repo's Actions secret `OPENAI_API_KEY` is used by no workflow and held a revoked
+  key, so delete it. The proxy's `OPENROUTER_FREE_API_KEY` is a disabled, never-used OpenRouter key: remove it or
+  replace it.
+- **Proxy `/health` shows `commit: null`** because it was deployed with `railway up`. Deploy from git next time so
+  the SHA shows (the AWS uptime STALE check compares it).
+- **Where keys live now:** Supabase secret keys `railway_20261022` (proxy, reviewer), `aws_lambdas_20261022`
+  (usage-writer, daily-digest, comp-pro), `edge_functions_20261023` (edge
+  `NEXT_PUBLIC_SUPABASE_SECRET_KEY`). Supabase Auth's SMTP password is the new Resend key. Before revoking any key,
+  check `supabase secrets list` and the auth SMTP config: the edge functions hold copies.
+
+### D. AWS relief (ai-c4) — live, and what is left
+
+- **Live:** the `atlarix-inbox` Lambda (with `inbox_writer`, INSERT only) and the reviewer's drain; the
+  `atlarix-uptime` watcher (every 5 min, emails atlarix-alarms); the three small Lambdas on their own Supabase key.
+  The reviewer logs `[trace]` lines; `scripts/aws/trace.sh <delivery key>` follows one delivery.
+- **Left:**
+  - **The proxy copy is DEPLOYED but must not be used yet:** `atlarix-proxy-failover` (us-east-1) @ 684dbd0
+    (= 57c91fb + the adapter; branch `ai-c4/aws-relief` in atlarix-proxy, not merged), at
+    https://gbo3uaoxtx2u7aub7npsbtzyua0dlqbi.lambda-url.us-east-1.on.aws/. `/health` and the debit dedupe are proven.
+    Its Supabase key was deleted, so it fails closed. Re-mint its keys (`scripts/aws/90-proxy-failover.sh
+    --secrets`) before setting item 10's `fallbackUrl`. Either keep its `aws-proxy-copy-2026-10-2x` provider keys
+    (OpenAI, Kimi, Requesty, DeepSeek, Z.ai; they live only in its env), or revoke them and re-mint. Merge
+    `ai-c4/aws-relief` into the proxy so Railway and the copy run ONE sha, and add the copy to the uptime TARGETS
+    in `60-lambdas.sh`. Client rule: fall back on connect failure, 502 or 503 only, never 504.
+  - **Webhook URL switch to the inbox** (https://l7k2phhezgchepvhsuuplipzre0uxubo.lambda-url.eu-west-1.on.aws):
+    `/github/reviewer`, `/github/agent`, `/slack/events`, `/slack/interactions`. The inbox passes end to end with
+    the new secrets (stored → claimed → done in ~1 s). The Reviewer App's webhook still points at
+    `atlarix-reviewer-production.up.railway.app/webhooks/github`; its secret was missing until 2026-10-23 and is
+    set again now. The owner does the App webhook change (a session's classifier refused it).
+  - **Backup on AWS:** the `atlarix-backup` Lambda holds the R2 token `atlarix-ledger-backups-aws-2026-10-23` (still
+    active; only in its env) and a THROWAWAY `AGE_RECIPIENT`. Set the real recipient before any run. It has no schedule (`PREFIX=rehearsal`, no
+    alerts), so it never runs by itself. Still to do: dry-run and apply `backup_reader` + `backup.users_min`, the
+    rehearsal restore, 2 overlap nights, then the switch.
+  - **STALE check** compares commits only when both are non-null. Set `ATLARIX_COMMIT=<sha>` on Railway at each
+    deploy (server.ts reads `RAILWAY_GIT_COMMIT_SHA ?? ATLARIX_COMMIT`).
+  - 8 proof rows (`ai-c4-proof-*`, `ai-c4-check-*`) in `public.inbox`: the drain's daily prune removes them after
+    7 days.
 
 ## 🔨 Handover 2026-10-21 (night) — 15.10.0 released by ai-d1; what is left
 
@@ -51,8 +135,7 @@ bottom) and `~/.atlarix-e2e/team/MORNING.md` (the owner's list).
   the CLI starts only appears after it's reopened; (c) `glob` (`Find *`) in the memory folder, under a hidden
   path (`~/.atlarix-e2e/…`), returned "no files" right after a note was written there — the glob may skip
   hidden-path dirs (ripgrep's hidden-file default?). Reproduce on a scratch profile first.
-- **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix, then the
-  Microsoft Store resubmission (`unvirtualizedResources` justification in the MSIX manifest comment). winget is
+- **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix. winget is
   still blocked on microsoft/winget-pkgs#446527.
 - **Owner decision:** should a scratch-profile CLI ever install Atlarix's Chrome native host into the real
   Chrome folders? It can today (pre-existing).
@@ -90,12 +173,6 @@ Keychain, service `atlarix-sandbox-agent`). Then check:
 
 ### C. AWS / proxy
 
-- **Railway security breach (2026-10-21, disclosed 20:44 UTC): rotate every Railway env var.** Railway says an
-  attacker read stored environment variables, some decrypted, aimed at AI inference providers
-  (blog.railway.com/p/security-disclosure-wednesday-october-21st). Covers projects Atlarix-Proxy, atlarix-reviewer
-  and atlarix-backup (DATABASE_URL = the Supabase DB password, R2 keys). Builds were still paused on 2026-10-22, so
-  new values can't load yet: mint new keys → set them in Railway → deploy once builds resume → revoke the old ones.
-  Also check each service's logs and the providers' usage for anything unusual.
 - **Shared free-tier state is ON** (`ATLARIX_SHARED_FREE_STATE=on` on Railway project Atlarix-Proxy, service
   `Atlarix`, set by the owner 2026-10-20 ~23:25 UTC). Counters live in DynamoDB `atlarix-proxy-counters`
   (eu-west-1, provisioned 20/20 = inside the always-free 25/25). **Live test passed 2026-10-20 23:34 UTC** (agent@
@@ -171,8 +248,17 @@ Bedrock's newest-model access (AWS Sales request 2026-10-18) is no longer needed
   (marketplace.visualstudio.com/manage/publishers/atlarix). The Marketplace is at 15.8.1; Open VSX
   is automatic (`VSCODE_AUTO_SUBMIT=true`). Move to `vsce publish --oidc` once Microsoft enables
   trusted publishing.
-- **Microsoft Store resubmission** needs the `unvirtualizedResources` justification (a restricted
-  capability Partner Center asks about; the text is in the MSIX manifest comment).
+- **Microsoft Store: nothing has published since 14.51.0 (2026-09-23).** Microsoft DENIED `unvirtualizedResources`
+  twice (reports 2026-09-28 and 2026-10-07, "10.6.3 Capabilities"): the package switched off registry
+  virtualization for all of HKCU, and the notes didn't justify it. Then 82a24426 replaced every submission still in
+  certification, so each release restarted the days-long review. Fixed on dev (2026-10-23, ai-27): the manifest
+  excludes only the five bridge keys (Windows 11 flexible virtualization; no Windows 10 fallback), the
+  certification notes answer every point of the report, and the script waits on a submission being processed or
+  certified instead of replacing it, and REUSES a draft (so hand edits on it survive). Done in Partner Center
+  2026-10-23: submission 32 (15.10.0, old manifest) certification CANCELLED on the owner's order, so it is a draft;
+  its Properties → Support info now has website `https://www.atlarix.dev` and contact `support@atlarix.dev`. Left:
+  - **The next Store submission must reuse draft 32** (the script does that now) and carry the fixed manifest. It
+    goes with the 15.11 release, unless the owner wants a Store-only build sooner.
 
 ## Waiting on someone else
 
@@ -194,6 +280,21 @@ Bedrock's newest-model access (AWS Sales request 2026-10-18) is no longer needed
   2026-10-04, since cleared).
 
 ## 🔭 Open — the queue
+
+### 0. Computer use: permission prompts that say "Atlarix" everywhere (owner, 2026-10-24: after 15.11)
+
+- **Mac:** the desktop app's prompt already says Atlarix. From the CLI and editors, macOS names the RESPONSIBLE app
+  (Terminal / iTerm / Visual Studio Code / Zed). Fix: ship `atlarix-computer` as its own small signed app bundle
+  ("Atlarix", fixed bundle id, Developer ID G2, a signature that never changes) and launch it so it is its own
+  responsible process. One grant then covers every surface and survives updates. Getting the identity wrong
+  re-asks for the grant after every update; that's why it isn't in 15.11 (ai-fc, 2026-10-23).
+- **Linux Wayland:** register Atlarix's app id (a `.desktop` file; the portal Registry for the CLI) so the
+  screen-share / remote-desktop dialog says Atlarix. Untested live (no Wayland machine here).
+- **Windows / Linux X11:** no OS prompt exists; add a one-time Atlarix "Allow Atlarix to control your screen?"
+  confirmation when the switch is first turned on.
+- **15.11 already ships:** the warning on every surface before macOS asks ("macOS will ask to let <app> record the
+  screen and control the computer. That's Atlarix's computer use.") + the responsible app's name in permission errors.
+
 
 ### 1. Chrome Web Store — the dashboard copy is behind the extension
 

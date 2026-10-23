@@ -22,6 +22,7 @@
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
+import { setTerminalHyperlinks } from "./links";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
 import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
 
@@ -44,7 +45,6 @@ import { decodePasteBytes, type PasteEvent } from "@opentui/core";
 import { AUTO_CONSENT_MARKER } from "@/shared/billing_copy";
 import { COMMANDS, matchCommands, parseCommandLine } from "./commands";
 import { DialogHost, InputDialog, ListDialog, type Line, type ListItem } from "./dialogs";
-import { pickTip, type Tip } from "./tips";
 import { DialogOverlay, DialogPanel } from "./Dialog";
 import { Toast, type ToastState, type ToastVariant } from "./Toast";
 import type { UpdateEvent } from "../update";
@@ -119,6 +119,7 @@ import {
 import { PlanPanel, type PinnedPlan, type PlanScroll } from "./PlanPanel";
 import { Transcript } from "./Transcript";
 import { recapDecision, type RecapClock } from "@/lib/recap/rules";
+import { ineligibleReason } from "@/lib/computer/eligibility";
 
 /** shift+tab order. The same five modes as the app, named the way the app names them. */
 const MODES: WorkMode[] = ["build", "ask", "plan", "debug", "review"];
@@ -319,16 +320,6 @@ function AgentRows({ rows, width, selected, main }: { rows: StripRow[]; width: n
   );
 }
 
-/** A tip: "tip" and the keys in the accent, then what they do. */
-function TipLine({ tip }: { tip: Tip }) {
-  return (
-    <text>
-      <span fg={color.faint}>{"  tip "}</span>
-      {tip.keys ? <span fg={color.accentSoft}>{tip.keys} </span> : null}
-      <span fg={color.muted}>{tip.text}</span>
-    </text>
-  );
-}
 
 /** Commands that change the conversation: typed mid-turn, they wait for it to end. */
 const AFTER_TURN = new Set(["/compact", "/new", "/resume", "/undo", "/import", "/fork"]);
@@ -377,11 +368,12 @@ export function borderHints(o: {
     }
     return kept.join(" · ");
   };
+  const title = o.title ? oneLine(o.title, o.max != null && o.max < 90 ? 20 : 32) : null;
   if (o.busy) {
     const queued = o.queued ? "alt+↑ edit queued" : null;
-    return fit(["esc stop", "enter steer", "tab queue", queued, tasks], ["tab queue", "enter steer"]);
+    // The name stays while it works: that is when people switch tabs and come back.
+    return fit([title, "esc stop", "enter steer", "tab queue", queued, tasks], ["tab queue", "enter steer", title ?? ""]);
   }
-  const title = o.title ? oneLine(o.title, o.max != null && o.max < 90 ? 20 : 32) : null;
   if (o.narrow) return [title ?? o.place, tasks].filter(Boolean).join(" · ");
   const mcp = o.mcp ? `⊙ ${o.mcp} MCP` : null;
   // ctrl+o isn't here: each collapsed item says "(ctrl+o)" where it has more.
@@ -491,6 +483,21 @@ export function App({
   const effortSuffix = effortNow && effortNow !== effortInfo.choices?.defaultLevel ? ` · ${effortNow}` : "";
   const composer = useRef<ComposerApi | null>(null);
   const renderer = useRenderer();
+  // Can this terminal click a link (OSC 8)? It answers a query after start-up;
+  // until then links also print their URL (links.tsx).
+  const [, setLinkable] = useState(false);
+  useEffect(() => {
+    const apply = () => {
+      const on = !!renderer.capabilities?.hyperlinks;
+      setTerminalHyperlinks(on);
+      setLinkable(on);
+    };
+    apply();
+    renderer.on("capabilities", apply);
+    return () => {
+      renderer.off("capabilities", apply);
+    };
+  }, [renderer]);
   // /undo and esc esc: the earlier message the next send replaces.
   const [edit, setEditState] = useState<PendingEdit | null>(null);
   const editRef = useRef<PendingEdit | null>(null);
@@ -871,6 +878,33 @@ export function App({
   useEffect(() => {
     if (state.question) notify("Atlarix has a question for you");
   }, [state.question?.questionId]);
+  // Computer use takes the screen, so the terminal loses focus: say so once a
+  // turn, with how to stop it (the app shows a pill instead).
+  const computerNoted = useRef(false);
+  useEffect(() => {
+    if (!state.busy) computerNoted.current = false;
+  }, [state.busy]);
+  useEffect(() => {
+    let off = () => {};
+    // Unmounted before the import resolved: never subscribe at all.
+    let gone = false;
+    void import("@/lib/tools/computer").then(({ computerActivity }) => {
+      if (gone) return;
+      // After an action, not before: the first one is often a screenshot with
+      // the terminal still focused, and notify() stays quiet while it is.
+      const onAction = () => {
+        if (computerNoted.current || terminalFocused.current) return;
+        computerNoted.current = true;
+        notify("Atlarix is controlling your screen. Move the mouse to stop.");
+      };
+      computerActivity.on("end", onAction);
+      off = () => computerActivity.off("end", onAction);
+    });
+    return () => {
+      gone = true;
+      off();
+    };
+  }, []);
 
   // The tab title pulses while Atlarix works (tab-title.ts).
   const waiting = state.approvals.length > 0 || state.question != null;
@@ -903,15 +937,6 @@ export function App({
       else flash(`Couldn't update to v${e.version}: ${e.error}`, 10_000, "error");
     });
   }, []);
-
-  // One tip per turn, held still while it runs (tips.ts).
-  const turnCount = useRef(0);
-  const [tip, setTip] = useState<Tip>(() => pickTip(`welcome:${Date.now()}`));
-  useEffect(() => {
-    // Not "ctrl+t raises the effort" during a turn: the model may be
-    // thinking right there on screen (QA).
-    if (state.busy) setTip(pickTip(`${session.sessionId}:${++turnCount.current}:${Date.now()}`, ["ctrl+t"]));
-  }, [state.busy]);
 
   const approval = state.approvals[0] ?? null;
   const palette = useMemo(
@@ -1093,6 +1118,25 @@ export function App({
         },
       }),
     );
+  };
+
+  /** /computer [on|off]: computer use for the current model (shared with the app). */
+  const openComputer = async (arg: string) => {
+    if (!models) return flash("Computer use isn't available here.", 3000);
+    const all = await models.load().catch(() => [] as ModelOption[]);
+    const ref = session.model ?? live.current.cliState.model;
+    const o = ref ? all.find((x) => x.provider === ref.provider && x.name === ref.name) : undefined;
+    if (!o) return flash("Pick a model with /model first.", 4000);
+    if (o.computerUse && o.computerUse !== "eligible") return flash(ineligibleReason(o.computerUse), 5000);
+    const lane = await import("@/lib/computer/lane");
+    const want = arg.trim().toLowerCase();
+    if (want === "on" || want === "off") {
+      lane.setComputerUse(o, want === "on");
+      if (want === "off") return flash(`Computer use off for ${o.label}.`, 3000);
+      const notice = await lane.computerUseGrantNotice();
+      return flash(`Computer use on for ${o.label}. Move the mouse to stop it.${notice ? ` ${notice}` : ""}`, notice ? 9000 : 5000, "success");
+    }
+    return flash(`Computer use is ${lane.isComputerUseOn(o) ? "on" : "off"} for ${o.label}: /computer on|off`, 4000);
   };
 
   /** ctrl+p: every command, searchable; enter runs it. */
@@ -1318,6 +1362,8 @@ export function App({
         return openAutomations(ctx);
       case "/mcp":
         return openMcp(ctx);
+      case "/computer":
+        return void openComputer(rest);
       case "/permissions":
         return openPermissions(ctx);
       case "/connect":
@@ -1794,10 +1840,7 @@ export function App({
               mood={state.busy ? "working" : "rest"}
               hint={
                 state.cells.length === 0 && !state.busy ? (
-                  <>
-                    <text fg={color.muted}>Ask anything, e.g. “fix the failing test” · /commands · @ for files</text>
-                    <TipLine tip={tip} />
-                  </>
+                  <text fg={color.muted}>Ask anything, e.g. “fix the failing test” · /commands · @ for files</text>
                 ) : undefined
               }
             />
@@ -1844,7 +1887,6 @@ export function App({
       {working ? (
         <box flexDirection="column" flexShrink={0}>
           <WorkingLine activity={activity!} since={state.turnStartedAt} tokens={state.tokensThisTurn} cells={state.cells} />
-          {narrow ? null : <TipLine tip={tip} />}
         </box>
       ) : null}
       {updateNotice ? (

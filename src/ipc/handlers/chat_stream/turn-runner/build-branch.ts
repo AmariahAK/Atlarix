@@ -98,6 +98,8 @@ import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
 import { getPlanCompletionFeedback } from "@/lib/tasks/plan-completion-gate";
 import { recordToolOnLedger } from "@/lib/tasks/task-ledger";
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
+import { cancelChatStream } from "@/ipc/handlers/chat_stream/lifecycle-handlers";
+import { computerFailureOutput } from "@/lib/tools/computer";
 import {
   describeToolForMode,
   parametersForMode,
@@ -364,6 +366,7 @@ export async function runBuildBranch(
       // v7: the callback receives an options OBJECT (toolCallId, input,
       // output) rather than the bare output. Only `output` is needed here.
       toModelOutput: ({ output }: { output: unknown }) =>
+        computerFailureOutput(toolName, output) ??
         buildToolModelOutput(toolName, output, {
           builtinProviderId: modelClient.builtinProviderId,
           modelApiId: resolveMediaModelId(effectiveModel),
@@ -615,6 +618,12 @@ export async function runBuildBranch(
             _chatSessionId: req.chatId,
             workspaceSessionId: req.workspaceSessionId ?? undefined,
           };
+          if (toolName === "computer") {
+            // A new turn resets the executor's "user took the mouse" check, and
+            // a takeover stops the turn exactly as the Stop button does.
+            executeArgs._turnId = streamTurnId;
+            executeArgs._stopTurn = () => cancelChatStream(req.chatId, event.sender);
+          }
           attachSearchRoutingActivity(executeArgs, event.sender, req.chatId);
           if (isStreamTool) {
             executeArgs.chatId = req.chatId;

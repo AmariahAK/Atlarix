@@ -40,9 +40,9 @@ import {
 } from "@/lib/browser/page-scripts";
 import type { ToolCall } from "../core/client";
 import type { MadeFile } from "../files/store";
-import { activeTab, runInPage } from "../page/inject";
-import { canActOn } from "../permissions/host-access";
-import { originOf } from "../permissions/site-grants";
+import { CHROME_BLOCKING_HELP, activeTab, runInPage } from "../page/inject";
+import { canActOn, hasHostAccess } from "../permissions/host-access";
+import { isGranted, originOf } from "../permissions/site-grants";
 import { adoptTab, isAgentTab, noteAgentClosingTab } from "../tabs/group";
 import {
   classifyAction,
@@ -411,6 +411,12 @@ async function requireAccess(url: string): Promise<ToolOutcome | null> {
     };
   }
   if (await canActOn(url)) return null;
+  // Allowed on our side (a grant, or "Allow on every site") but withheld by
+  // Chrome ("On click" in chrome://extensions): a grant card would ask for what
+  // is already given and change nothing. Say what does (QA, ai-44).
+  if ((await isGranted(url)) && !(await hasHostAccess(url))) {
+    return { content: CHROME_BLOCKING_HELP };
+  }
   return {
     content: `Waiting for the user to allow ${origin}.`,
     needsApproval: { kind: "host", url, origin },
@@ -703,6 +709,8 @@ async function openTab(
   const loaded = await waitForLoad(tab.id);
 
   const granted = await canActOn(raw);
+  // Allowed by us but withheld by Chrome: reading will not ask, it is blocked.
+  const blocked = !granted && (await isGranted(raw)) && !(await hasHostAccess(raw));
   // MARK IT NOW, not on the next tool call. The frame used to appear one tool
   // later — the tab opened, loaded, sat there looking ordinary, and only turned
   // green once something read it. The gap is exactly when a user glances over
@@ -716,7 +724,9 @@ async function openTab(
       `${adopted ? "It is in Atlarix's tab group." : "It could not be added to Atlarix's tab group."} ` +
       (granted
         ? "You may read it."
-        : `Reading it will ask the user to allow ${origin}.`),
+        : blocked
+          ? "Chrome is blocking Atlarix from it (the user's Site access setting); reading will not work until they change it."
+          : `Reading it will ask the user to allow ${origin}.`),
   };
 }
 
@@ -1415,6 +1425,14 @@ async function listPeerSessionsTool(): Promise<ToolOutcome> {
  * approve it in the panel, every time. A page the agent read can talk the model
  * into wanting to message the CLI; it cannot press the button.
  */
+/** The step's label when nothing was sent: the panel's default reads "Sent a message" (QA). */
+const NOT_SENT = "Message not sent";
+
+/** Did this send_message result deliver? Only a delivery says "Sent to …" (the panel's summary line). */
+export function peerMessageSent(content: string): boolean {
+  return content.startsWith("Sent to ");
+}
+
 async function sendToPeer(
   args: Record<string, unknown>,
   ctx: ToolContext,
@@ -1441,10 +1459,11 @@ async function sendToPeer(
         content:
           "Say which session with `to` (list_sessions shows them). No session " +
           "handed you a task in this conversation.",
+        label: NOT_SENT,
       };
     }
     const rows = await fetchPeerSessions();
-    if (typeof rows === "string") return { content: `Not sent: ${rows}.` };
+    if (typeof rows === "string") return { content: `Not sent: ${rows}.`, label: NOT_SENT };
     const matches = rows.filter(
       (r) =>
         r.sessionId.toLowerCase() === want ||
@@ -1454,11 +1473,13 @@ async function sendToPeer(
     if (matches.length === 0) {
       return {
         content: `No Atlarix session called "${args.to}". list_sessions shows the ones running.`,
+        label: NOT_SENT,
       };
     }
     if (matches.length > 1) {
       return {
         content: `Several sessions match "${args.to}": ${matches.map((m) => m.name).join(", ")}. Use the exact name.`,
+        label: NOT_SENT,
       };
     }
     target = matches[0]!;

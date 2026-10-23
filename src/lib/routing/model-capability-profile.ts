@@ -16,6 +16,10 @@
  */
 
 import { getCachedOpenRouterModelRow } from "./tier-context-limits";
+import {
+  anthropicCatalogModelId,
+  isCustomAnthropicFormat,
+} from "./custom-provider-format";
 
 export interface ModelCapabilityProfile {
   /** Max tools to OFFER per turn; null = no cap (full surface). */
@@ -50,6 +54,24 @@ const NATIVE_VISION_PROVIDERS: ReadonlySet<string> = new Set([
   "openai",
   "google",
 ]);
+
+/**
+ * Claude reached through Bedrock or through a provider the user added on the
+ * Anthropic format (Bedrock's /anthropic endpoint, gateways). Both APIs carry
+ * images in user messages AND tool results, but the provider id is not
+ * `anthropic`, so the native fast path missed them and a screenshot came back
+ * as "this model cannot view images". Keyed on the model being Claude: an
+ * Anthropic-format gateway can also serve a text-only model.
+ */
+function isClaudeOnAnImageApi(
+  builtinProviderId: string | undefined,
+  modelApiId: string | undefined,
+): boolean {
+  if (builtinProviderId !== "bedrock" && !isCustomAnthropicFormat(builtinProviderId)) {
+    return false;
+  }
+  return /^claude-/i.test(anthropicCatalogModelId(modelApiId ?? ""));
+}
 
 /**
  * There is deliberately NO native-provider fast path for PDF, unlike vision.
@@ -213,6 +235,7 @@ export function detectVisionCapability(
   if (builtinProviderId && NATIVE_VISION_PROVIDERS.has(builtinProviderId)) {
     return true;
   }
+  if (isClaudeOnAnImageApi(builtinProviderId, modelApiId)) return true;
   if (isAtlarixAutoMedia(builtinProviderId, modelApiId)) return true;
   const id = (modelApiId ?? "").trim();
   if (!id) return false;
@@ -286,6 +309,7 @@ export function providerSupportsToolMedia(
   if (builtinProviderId && NATIVE_VISION_PROVIDERS.has(builtinProviderId)) {
     return true;
   }
+  if (isClaudeOnAnImageApi(builtinProviderId, modelApiId)) return true;
   // The proxy lifts Auto's tool-result screenshots into a user message.
   if (isAtlarixAutoMedia(builtinProviderId, modelApiId)) return true;
   const id = (modelApiId ?? "").trim();

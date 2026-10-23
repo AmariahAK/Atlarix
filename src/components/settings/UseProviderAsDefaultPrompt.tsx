@@ -40,7 +40,7 @@ export function UseProviderAsDefaultPrompt({
   providerName: string;
   onDismiss: () => void;
 }) {
-  const { t } = useTranslation("onboarding");
+  const { t } = useTranslation("settings");
   const selectModel = useSelectModel();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
 

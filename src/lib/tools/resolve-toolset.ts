@@ -21,12 +21,14 @@
  */
 
 import { ToolRegistry, type ToolMetadata } from "./registry";
+import { browserInspectWithoutScreenshot } from "./browser-screenshot-text";
 import { getPinnedCoreToken } from "@/lib/core/pinned-token";
 import {
   includeToolForSession,
   type ModeRegistryKey,
 } from "./mode-tool-registry";
 import { isCoreTool, isWorkspaceIntegrationTool } from "./ToolManifest";
+import { computerLane } from "@/lib/computer/lane";
 import {
   getCapabilityProfile,
   type ModelCapabilityProfile,
@@ -162,16 +164,9 @@ export function resolveToolsetForSession(
    * to headless benchmark runs with no window and to unattended automations
    * nobody is watching. A prefix test is only as stable as the naming
    * convention it assumes; this names the tools.
-   *
-   * `mobile_*` is here for the same reason and not by prefix: a headless CLI
-   * has no emulator, and an unattended automation driving one is a UI surface
-   * with no observer.
    */
   const DRIVES_A_VIEW = (name: string) =>
-    name === "browser" ||
-    name.startsWith("browser_") ||
-    name === "mobile" ||
-    name.startsWith("mobile_");
+    name === "browser" || name.startsWith("browser_") || name === "computer";
   // Unattended (automation) runs happen inside the real app — MCP servers,
   // web search, attachments all exist — so only human-handoff and UI-view
   // tools are dropped: ask_user would park the turn forever (no responder),
@@ -198,11 +193,26 @@ export function resolveToolsetForSession(
             ),
         )
       : modeFiltered;
-  const tools = input.unattended
+  const afterUnattended = input.unattended
     ? afterHeadless.filter(
         (t) => !DRIVES_A_VIEW(t.name) && !UNATTENDED_DROP.has(t.name),
       )
     : afterHeadless;
+  // Image tools only for a model whose tool results can carry the image. Any
+  // other gets "this model cannot view images" back from a screenshot or an
+  // image file: a paid round trip for nothing, so they are not offered.
+  const imageGated = capabilityProfile.supportsToolMedia
+    ? afterUnattended
+    : afterUnattended
+        .filter((t) => t.name !== "view_image")
+        .map((t) =>
+          t.name === "browser_inspect" ? browserInspectWithoutScreenshot(t) : t,
+        );
+  // Computer use exists only for a model the user switched it on for, and
+  // only if that model can see the screenshots (lib/computer/lane.ts).
+  const tools = imageGated.filter(
+    (t) => t.name !== "computer" || computerLane(model) != null,
+  );
 
   // Sub-agent (`task`) surface: available in EVERY mode (v13 — parallel
   // read-only scouts help build/debug too, matching Claude Code's Task tool).

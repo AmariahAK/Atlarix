@@ -52,15 +52,12 @@ function offeredToolNames(scenarioId: string): string[] {
 // observed bug); `browser` acts, with navigate/find/click/fill/key/hover/
 // scroll/tabs/batch as an `action`. The retired names still RESOLVE as aliases,
 // but aliases are deliberately not advertised, so they must not appear here.
-// v14.41: `mobile_inspect` + `mobile` added to EVERY mode, for the same reason
-// `browser` is in every mode — neither touches the workspace (driving an
-// emulator changes a device's state, not the project), and "what does this look
-// like on a phone" is a question, not a build step. They were briefly
-// build/debug-only; that was the wrong cut.
-// Net for Build: 6 browser tools + 0 mobile → 2 browser + 2 mobile, i.e. a
-// SMALLER surface that can also see the app it is building. Both are peripheral
-// under tool-reveal in EVERY mode, so each binds one sentence plus a tool_help
-// pointer — which is why those first sentences carry the cheap default.
+// 15.11: the mobile pair (`mobile_inspect` + `mobile`) was deleted. A model
+// drives an emulator with run_command + view_image like any other CLI.
+// 15.11: image tools are offered only to a model whose tool results can carry
+// an image. This eval's model is an OpenAI-compatible custom endpoint, which
+// cannot, so `view_image` is absent and browser_inspect has no screenshot mode
+// here; resolve-toolset-vision.test.ts pins the vision surface.
 const GOLDEN = {
   ask: [
     "ask_user",
@@ -77,8 +74,6 @@ const GOLDEN = {
     "manage_mcp_server",
     "mcp_call",
     "mcp_servers",
-    "mobile",
-    "mobile_inspect",
     "read_attachment",
     "read_file",
     "read_url",
@@ -90,17 +85,15 @@ const GOLDEN = {
     "task",
     "tool_help",
     "transcribe_audio",
-    "view_image",
     "web_search",
   ],
   // Plan gained `run_command` + `background_jobs`; it lost `automations`,
-  // `manage_mcp_server`, the mobile pair and the two browser tools. A deliberate
+  // `manage_mcp_server` and the two browser tools. A deliberate
   // contract change: Plan could not check anything it planned against, and
   // everything it lost is an ACT or a look at something RUNNING — a plan
   // describes an act rather than performing one, and verification is Explore's
-  // job. `list_available_mcps` stays so Plan can still see what exists. The
-  // mobile pair is the only entry in MODE_EXCLUDED_TOOLS; see the budget eval's
-  // 2026-09-22 note for what each removal bought.
+  // job. `list_available_mcps` stays so Plan can still see what exists. See the
+  // budget eval's 2026-09-22 note for what each removal bought.
   plan: [
     "ask_user",
     "background_jobs",
@@ -123,7 +116,6 @@ const GOLDEN = {
     "task",
     "tool_help",
     "transcribe_audio",
-    "view_image",
     "web_search",
   ],
   // Review mirrors Explore minus `transcribe_audio` (MODE_EXCLUDED_TOOLS: it
@@ -142,8 +134,6 @@ const GOLDEN = {
     "list_sessions",
     "manage_mcp_server",
     "mcp_call",
-    "mobile",
-    "mobile_inspect",
     "read_attachment",
     "read_file",
     "read_url",
@@ -154,7 +144,6 @@ const GOLDEN = {
     "subagents",
     "task",
     "tool_help",
-    "view_image",
     "web_search",
   ],
   build: [
@@ -173,8 +162,6 @@ const GOLDEN = {
     "manage_mcp_server",
     "mcp_call",
     "mcp_servers",
-    "mobile",
-    "mobile_inspect",
     "plan",
     "proposals",
     "read_attachment",
@@ -191,7 +178,6 @@ const GOLDEN = {
     "task",
     "tool_help",
     "transcribe_audio",
-    "view_image",
     "web_search",
   ],
 } as const;

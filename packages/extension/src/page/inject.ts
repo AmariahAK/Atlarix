@@ -55,6 +55,14 @@ export class PageAccessError extends Error {
  *
  * Returns null for every other cause, so the caller keeps Chrome's own text.
  */
+/** What the model is told when Chrome itself withholds a site (also dispatch's site gate). */
+export const CHROME_BLOCKING_HELP =
+  "Chrome is blocking Atlarix from this site. This is not the site grant — " +
+  "it is the browser's own Site access setting, which only the user can " +
+  "change: chrome://extensions → Atlarix → Site access → On all sites. " +
+  "Nothing was read. Tell the user that, and do not retry until they say " +
+  "they have changed it.";
+
 function withheldHostHelp(message: string): string | null {
   const m = message.toLowerCase();
   const refused =
@@ -62,14 +70,7 @@ function withheldHostHelp(message: string): string | null {
     m.includes("cannot access contents of the page") ||
     (m.includes("extension manifest must request permission") &&
       m.includes("host"));
-  if (!refused) return null;
-  return (
-    "Chrome is blocking Atlarix from this site. This is not the site grant — " +
-    "it is the browser's own Site access setting, which only the user can " +
-    "change: chrome://extensions → Atlarix → Site access → On all sites. " +
-    "Nothing was read. Tell the user that, and do not retry until they say " +
-    "they have changed it."
-  );
+  return refused ? CHROME_BLOCKING_HELP : null;
 }
 
 /**

@@ -189,6 +189,7 @@ export class SubscriptionManager {
             .catch(() => {
               /* non-fatal */
             });
+          void import("./analytics/account-context").then((m) => m.noteSignedOut()).catch(() => {});
           logger.log("[SubscriptionManager] User signed out");
         }
       });
@@ -282,6 +283,8 @@ export class SubscriptionManager {
     } catch {
       /* non-fatal */
     }
+    // Crash reports' account id, and where this account signed in from.
+    void import("./analytics/account-context").then((m) => m.noteSignedIn(user.id)).catch(() => {});
 
     // Subscribe to realtime plan changes for instant Pro activation
     if (user.email) {

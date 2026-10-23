@@ -16,6 +16,8 @@ import {
   titleUserPrompt,
   TITLE_MAX_CHARS,
   TITLE_SYSTEM_PROMPT,
+  chatHeaderTitle,
+  isPlaceholderTitle,
 } from "@/lib/session-title/title-text";
 
 describe("the prompt", () => {
@@ -223,5 +225,16 @@ describe("titleSourceText", () => {
     );
     // Anything else: what you typed (the model text can hold whole attached files).
     expect(titleSourceText("explain this file", "explain this file\n<attached>…10k lines…</attached>")).toBe("explain this file");
+  });
+});
+
+describe("the chat header's name (15.11 session naming)", () => {
+  it("is the session's title, and nothing for a placeholder or the workspace's own name", () => {
+    expect(chatHeaderTitle("Login page", "shop")).toBe("Login page");
+    expect(chatHeaderTitle("  Untitled ", "shop")).toBe("");
+    expect(chatHeaderTitle("New chat", "shop")).toBe("");
+    expect(chatHeaderTitle("shop", "shop")).toBe("");
+    expect(chatHeaderTitle(undefined, "shop")).toBe("");
+    expect(isPlaceholderTitle("New conversation session")).toBe(true);
   });
 });

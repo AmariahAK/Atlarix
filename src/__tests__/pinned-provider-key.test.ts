@@ -1,5 +1,5 @@
 /**
- * An own-key cloud run's provider key (`atlarix --api-key-file`) is held in
+ * A provider key passed as a file (`atlarix --api-key-file`, e.g. in CI) is held in
  * memory and wins over settings and the environment, so the key the run was
  * given is the one used, without ever writing it to user-settings.json.
  */

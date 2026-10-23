@@ -14,9 +14,8 @@ import type { CoreSlotChange } from "@/lib/routing/core-slot-change";
  * per-turn cost can move several-fold (Astra is roughly five times Terra). This is
  * the one place that says so.
  *
- * BORROWS `LoadedSessionBanner`'s SHAPE, NOT ITS DISMISSAL. That banner's dismissal
- * is an in-memory jotai atom, which a reload clears — fine for "older messages are
- * not loaded", wrong for a once-ever notice that would then reappear forever. The
+ * DISMISSAL IS PERSISTED, NOT AN IN-MEMORY ATOM. A jotai atom is cleared by a
+ * reload, which would make a once-ever notice reappear forever. The
  * persistence here is the main-side baseline: acknowledging advances it, after which
  * the notice cannot fire again for that change. Deliberately NOT localStorage — the
  * tier→model truth lives in main, and a second store would be a second answer.

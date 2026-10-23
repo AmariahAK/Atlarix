@@ -32,6 +32,7 @@ import {
 } from "@/lib/routing/reasoning-detector";
 import { detectAudioCapability } from "@/lib/routing/model-capability-profile";
 import { rememberCustomProviderFormats } from "@/lib/routing/custom-provider-format";
+import { computerUseIneligible } from "@/lib/computer/lane";
 
 /** The models.dev `npm` value of the Anthropic Messages API (provider-sdk-factories). */
 const ANTHROPIC_NPM = "@ai-sdk/anthropic";
@@ -507,6 +508,10 @@ export function stampDeepThinkingSupport(
           name: model.apiName,
         }),
       ),
+      // Computer use: the switch shows for every model and says why it can't
+      // be turned on, rather than hiding (lib/computer/lane.ts).
+      computerUse:
+        computerUseIneligible({ provider: providerId, name: model.apiName }) ?? "eligible",
     }));
   }
   return modelsByProvider;

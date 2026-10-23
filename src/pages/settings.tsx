@@ -10,7 +10,6 @@ import { showSuccess, showError } from "@/lib/toast";
 // Hidden: ThinkingBudgetSelector, ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector
 import { useSettings } from "@/hooks/useSettings";
 import { useTranslation } from "react-i18next";
-import { writeHintState } from "@/lib/onboarding/hint-state";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -29,7 +28,6 @@ import { DiagnosticsPanel } from "@/components/settings/DiagnosticsPanel";
 import {
   Link,
   Outlet,
-  useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
@@ -42,6 +40,7 @@ import {
   Bell,
   Mic,
   TriangleAlert,
+  MousePointerClick,
 } from "lucide-react";
 
 /**
@@ -72,6 +71,7 @@ const SECTIONS = [
   { to: "/settings/search", label: "Search", icon: Search },
   { to: "/settings/notifications", label: "Notifications", icon: Bell },
   { to: "/settings/voice", label: "Voice input", icon: Mic },
+  { to: "/settings/computer-use", label: "Computer use", icon: MousePointerClick },
   { to: "/settings/danger", label: "Danger zone", icon: TriangleAlert },
 ] as const;
 
@@ -326,51 +326,12 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
   // moment they were added as literals.
   const { t } = useTranslation("settings");
   const analyticsOptedIn = settings?.telemetryConsent === "opted_in";
-  const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
-
-  /**
-   * v10: restart re-opens the first-run wizard (legacy overlay removed).
-   *
-   * IT USED TO SET `onboarding:set-completed(false)` AND THAT WAS BACKWARDS. The
-   * Supabase `onboarding_completed` column was the gate the old Shepherd tour waited
-   * on, so "Restart guide" restarted the wizard and simultaneously re-blocked the
-   * tour. The tour is gone now, but the write was still wrong in its own right: it
-   * claims to the server that a user who has been here for months has not onboarded.
-   *
-   * It also never cleared `userData/atlarix-tours.json`, which had NO reset path at
-   * all — so a dismissed one-time hint stayed dismissed forever and "restart" was a
-   * half-truth. Clearing it here is what makes the button mean what it says.
-   *
-   * THE TOAST IS NOT DECORATION. The wizard only opens for a signed-in session, and
-   * this button is reachable while signed out — in which case the restart is recorded
-   * and takes effect at the next sign-in, with nothing at all happening on screen
-   * right now. Silence there is indistinguishable from a broken button, which is
-   * exactly how this read when the gate was vetoing it.
-   */
-  const handleRestartOnboarding = async () => {
-    try {
-      localStorage.removeItem("atlarix.onboarding_skipped");
-      localStorage.removeItem("atlarix_onboarding_done");
-      await writeHintState({
-        firstRunCompleted: false,
-        firstRunStep: 0,
-        dismissedAt: null,
-        featureTours: {},
-      });
-    } catch {
-      // ignore
-    }
-    await updateSettings({ firstRunWizardCompleted: false });
-    showSuccess("Setup guide reset — it opens on the home screen.");
-    navigate({ to: "/" });
-  };
 
   return (
     <div
       id="general"
       className="bg-card rounded-xl shadow-sm p-6 border border-border"
-      data-onboarding="general-settings"
     >
       <h2 className="text-lg font-medium text-foreground mb-4">
         General Settings
@@ -478,15 +439,6 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
           </Select>
         </div>
         <CliLauncherSettings />
-        <div className="pt-4 border-t border-border mt-4">
-          <Button variant="outline" size="sm" onClick={handleRestartOnboarding}>
-            Restart onboarding guide
-          </Button>
-          <p className="text-xs text-muted-foreground mt-2">
-            Show the welcome guide again (workspaces, work modes, models, the
-            right panel).
-          </p>
-        </div>
       </div>
     </div>
   );

@@ -179,6 +179,7 @@ async function interactive(): Promise<void> {
   const { runTui } = await import("./tui/run");
   // Retention's daily signal, from the terminal too (once a day, shared with the app).
   void import("../main/lib/analytics").then((m) => m.trackActiveDay()).catch(() => {});
+  void import("../lib/analytics/account-context").then((m) => m.noteSessionAtStart()).catch(() => {});
   await runTui({
     session,
     version: VERSION,

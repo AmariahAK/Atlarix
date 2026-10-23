@@ -157,6 +157,8 @@ const validInvokeChannels = [
   "mcp:discover-external",
   "mcp:import-external",
   "mcp:update-server",
+  "computer-use:permissions",
+  "computer-use:relaunch",
   "mcp:delete-server",
   "mcp:list-tools",
   "mcp:test-connection",
@@ -311,12 +313,6 @@ const validInvokeChannels = [
   "auth:refresh-plan",
   "auth:manage-subscription",
   "auth:cancel-subscription",
-  "onboarding:get-completed",
-  "onboarding:set-completed",
-  "tour:get-state",
-  "tour:set-state",
-  // Community (Discord)
-  "discord:get-invite-info",
   // The session rating and /feedback (lib/feedback/session-rating.ts).
   "feedback:state",
   "feedback:rate",
@@ -418,8 +414,6 @@ const validReceiveChannels = [
   "automations:focus-feed", // main → renderer: OS-notification click → open the automations tab
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
-  // OAuth callback from main process
-  "open-community-dialog",
   // Auto-updater
   "update:downloading", // update is being fetched in background; payload: { version: string }
   "update:downloaded", // update ready to install; payload: { version: string }

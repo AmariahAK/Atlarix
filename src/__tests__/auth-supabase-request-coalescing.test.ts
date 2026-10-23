@@ -26,8 +26,6 @@ vi.mock("@/lib/auth/supabase-client", () => ({
   getSupabaseClient: () => ({ rpc }),
   getSession: () => session(),
   getSubscriptionDetails,
-  getOnboardingCompleted: () => true,
-  setOnboardingCompleted: () => {},
 }));
 
 vi.mock("@/lib/SubscriptionManager", () => ({

@@ -200,10 +200,6 @@ const BROWSER_TEXT_TOOLS = new Set([
   "browser_snapshot",
   "browser_click",
   "browser_fill",
-  // v14.41: the mobile pair reads and acts on an emulator. Its text results
-  // (hierarchy, logs, device list) render in the same card as the browser's.
-  "mobile_inspect",
-  "mobile",
 ]);
 // browser_inspect(mode:"screenshot") returns a PNG payload; the screenshot
 // block below guards on `payload.data`, so non-screenshot inspect results fall
@@ -215,7 +211,6 @@ const BROWSER_TEXT_TOOLS = new Set([
 const BROWSER_SCREENSHOT_TOOLS = new Set([
   "browser_inspect",
   "browser_screenshot",
-  "mobile_inspect",
 ]);
 const WEBMCP_LIST_TOOLS = new Set(["list_webmcp_tools"]);
 const WEBMCP_CALL_TOOLS = new Set(["call_webmcp_tool"]);

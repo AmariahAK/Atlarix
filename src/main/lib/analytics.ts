@@ -187,7 +187,7 @@ export function clearIdentifiedUser(): void {
 
 /**
  * Capture an event only if user has opted in. No-op otherwise.
- * Use for main-process events: app_opened, workspace_opened, task_completed, etc.
+ * Use for main-process events: app_opened, workspace_opened, turn_completed, etc.
  */
 export function capture(
   event: string,
@@ -282,11 +282,8 @@ export function captureSafe(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Activation funnel: app_opened → model_connected → first_task_started →
-// first_task_completed → task_completed (repeat). Each helper is fire-and-forget
-// and never throws. The first_* events fire exactly once via persisted markers;
-// nothing is recorded (and no marker is advanced) unless the user opted in, so
-// the funnel starts cleanly if consent is granted later.
+// Activation: app_opened → model_connected → turn_completed. Each helper is
+// fire-and-forget and never throws.
 // ────────────────────────────────────────────────────────────────────────────
 
 const connectedThisProcess = new Set<string>();
@@ -521,7 +518,6 @@ export function trackTurnCompleted(
         ...(reported ? { provider_type: reported.provider_type } : {}),
         ...(corePlan ? { core_plan: corePlan } : {}),
       };
-      const durationBucketValue = durationBucket(r.durationMs);
       captureSafe("turn_completed", {
         outcome,
         ...(errorKind ? { error_kind: errorKind } : {}),
@@ -540,7 +536,7 @@ export function trackTurnCompleted(
         changed,
         ...(changed.includes("mode") ? { prev_mode: modeName(prev?.mode) } : {}),
         ...(changed.includes("model") ? { prev_model: prev?.model } : {}),
-        duration_bucket: durationBucketValue,
+        duration_bucket: durationBucket(r.durationMs),
         turn_index_bucket: turnIndexBucket(n),
         resumed_session: n === 1 && r.hadHistory,
         ...stats.counts,
@@ -556,30 +552,6 @@ export function trackTurnCompleted(
             }
           : {}),
       });
-      // The old activation funnel, one more release (5673ba5a), now with THIS
-      // turn's billing. It used to read a global "last turn", which two turns
-      // running at once mixed up.
-      const funnel = {
-        ...(r.mode ? { mode: modeName(r.mode) } : {}),
-        ...(billing ? { billing, provider } : {}),
-        ...which,
-        ...(r.model ? { model: r.model } : {}),
-        ...(stats.loop ? { iterations: stats.loop.iterations, toolExecutions: stats.loop.tool_count } : {}),
-        duration_bucket: durationBucketValue,
-      };
-      const settings = readSettings();
-      if (!settings.firstTaskStartedAt) {
-        writeSettings({ firstTaskStartedAt: Date.now() });
-        captureSafe("first_task_started", funnel);
-      }
-      if (outcome === "ok") {
-        if (!settings.firstTaskCompletedAt) {
-          writeSettings({ firstTaskCompletedAt: Date.now() });
-          captureSafe("first_task_completed", funnel);
-        } else {
-          captureSafe("task_completed", funnel);
-        }
-      }
     })().catch(() => {});
   } catch {
     /* analytics must never break the turn */

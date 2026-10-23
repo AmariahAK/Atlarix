@@ -76,5 +76,23 @@
     "more": "More",
     "footnoteSince": "Stored only on this computer. Tokens, models, skills and MCP servers count from {{day}}.",
     "footnoteNext": "Stored only on this computer. Tokens, models, skills and MCP servers count from your next chat."
+  },
+  "byokDefault": {
+    "prompt": "Use {{provider}} for new chats?",
+    "detail": "Your key is saved, but new chats still use Atlarix Auto until you change the model.",
+    "confirm": "Use {{provider}}",
+    "dismiss": "Keep Atlarix Auto",
+    "willUse": "New chats would use {{model}}. Change it any time from the model picker.",
+    "done": "New chats will use {{model}}."
+  },
+  "computerUse": {
+    "label": "Computer use",
+    "description": "A model you switch on can see your screen and use the mouse and keyboard. It works on whatever is open, so close what you don't want it to touch. On Windows it types by pasting, then puts your clipboard back. Move the mouse to take control back.",
+    "screen": "Screen Recording",
+    "accessibility": "Accessibility",
+    "allowed": "Allowed",
+    "allow": "Allow",
+    "restartHint": "Allowed it in System Settings? Restart to apply.",
+    "restart": "Restart Atlarix"
   }
 }

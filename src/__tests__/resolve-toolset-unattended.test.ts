@@ -24,8 +24,6 @@ const DRIVES_A_VIEW = [
   "browser",
   "browser_inspect",
   "browser_test",
-  "mobile",
-  "mobile_inspect",
 ] as const;
 
 function resolve(
@@ -86,20 +84,16 @@ describe("resolveToolsetForSession unattended", () => {
     expect(attended).toContain("ask_user");
     expect(attended).toContain("read_url");
     // The positive control the prefix version could not express: the bare
-    // `browser` act tool and the mobile pair are present when someone IS
+    // `browser` act tool is present when someone IS
     // watching. Without this, "dropped everywhere" would also pass.
     expect(attended).toContain("browser");
     expect(attended).toContain("browser_inspect");
-    expect(attended).toContain("mobile");
-    expect(attended).toContain("mobile_inspect");
   });
 
   it("HEADLESS drops the view tools too — the npm CLI has no window", () => {
     // The Electron-free CLI (`npm i -g atlarix`, and the Harbor agent that wraps
     // it) has no WebContentsView, so offering the browser there is prefix cost
-    // for a tool that cannot run. The mobile pair goes with it: `adb` might well
-    // exist on a benchmark machine, but an emulator does not, and a headless run
-    // has nobody to look at one.
+    // for a tool that cannot run.
     const names = resolve("build", false, { headless: true });
     for (const tool of DRIVES_A_VIEW) {
       expect(names, `${tool} must not be offered headless`).not.toContain(tool);

@@ -51,6 +51,7 @@ export function assetFiles(target?: string): Record<string, string> {
     // (`npm pack @vscode/ripgrep-<os>-<arch>`) and point here.
     rg: process.env.ATLARIX_RG_PATH || ripgrepFor(target),
     ...relayFor(target),
+    ...computerFor(target),
     ...skillFiles(),
   };
 }
@@ -105,6 +106,27 @@ function relayFor(target?: string): { relay?: string } {
     process.platform === "win32" ? "atlarix-bridge.exe" : "atlarix-bridge",
   );
   return fs.existsSync(file) ? { relay: file } : {};
+}
+
+/**
+ * The computer-use executor (native/atlarix-computer), the same way as the
+ * relay: CI points ATLARIX_COMPUTER_PATH at the target's build; locally only
+ * this machine's. Without one, computer use in the CLI says it is unavailable.
+ */
+function computerFor(target?: string): { computer?: string } {
+  const override = process.env.ATLARIX_COMPUTER_PATH;
+  if (override) {
+    if (!fs.existsSync(override)) throw new Error(`ATLARIX_COMPUTER_PATH does not exist: ${override}`);
+    return { computer: override };
+  }
+  const host = `bun-${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+  if (target && target !== host) return {};
+  const file = path.join(
+    root,
+    "native/atlarix-computer/target/release",
+    process.platform === "win32" ? "atlarix-computer.exe" : "atlarix-computer",
+  );
+  return fs.existsSync(file) ? { computer: file } : {};
 }
 
 /**

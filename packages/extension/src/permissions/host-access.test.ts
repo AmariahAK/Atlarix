@@ -13,11 +13,12 @@ import {
   canActOn,
   hasHostAccess,
   matchPatternFor,
-  pruneRevokedGrants,
   requestHostAccess,
   revokeHostAccess,
 } from "./host-access";
-import { isGranted, listGrants } from "./site-grants";
+import { isGranted, listGrants, revokeAll, setAllSitesAllowed } from "./site-grants";
+
+const RAW = import.meta.glob("../**/*.ts", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 
 interface Fake {
   store: Map<string, unknown>;
@@ -254,30 +255,24 @@ describe("revokeHostAccess", () => {
   });
 });
 
-describe("pruneRevokedGrants", () => {
-  it("drops records Chrome no longer backs, and reports which", async () => {
-    narrowSiteAccess(fake);
-    await requestHostAccess("https://a.example.com/");
-    await requestHostAccess("https://b.example.com/");
-    fake.held.delete("https://a.example.com/*");
-
-    const dropped = await pruneRevokedGrants([
-      "https://a.example.com/",
-      "https://b.example.com/",
-    ]);
-
-    expect(dropped).toEqual(["https://a.example.com/"]);
-    await expect(isGranted("https://a.example.com/")).resolves.toBe(false);
-    await expect(isGranted("https://b.example.com/")).resolves.toBe(true);
+describe("Chrome withholding a site keeps its grant (QA A3)", () => {
+  it("nothing deletes a grant because Chrome stopped allowing the site", async () => {
+    // "On click" in chrome://extensions withholds every site at once; a prune
+    // against Chrome erased every grant the next turn.
+    const users = Object.entries(RAW).filter(
+      ([file, text]) => !file.endsWith(".test.ts") && /pruneRevokedGrants/.test(text),
+    );
+    expect(users.map(([f]) => f)).toEqual([]);
   });
 
-  it("drops nothing while the manifest's broad access is intact", async () => {
+  it("a withheld site's grant still counts once Chrome allows it again", async () => {
+    narrowSiteAccess(fake);
     await requestHostAccess("https://a.example.com/");
-
-    await expect(
-      pruneRevokedGrants(["https://a.example.com/"]),
-    ).resolves.toEqual([]);
+    fake.held.delete("https://a.example.com/*");
+    expect(await canActOn("https://a.example.com/")).toBe(false);
     await expect(isGranted("https://a.example.com/")).resolves.toBe(true);
+    fake.held.add("https://a.example.com/*");
+    expect(await canActOn("https://a.example.com/")).toBe(true);
   });
 });
 
@@ -297,3 +292,36 @@ describe("pruneRevokedGrants", () => {
  * assumes Chrome has to be asked for host access will fail instead of passing
  * against a world that no longer ships.
  */
+
+describe("Allow on every site (15.11)", () => {
+  it("on: a site never granted needs no card; off: it does again", async () => {
+    expect(await canActOn("https://never-asked.test/page")).toBe(false);
+    await setAllSitesAllowed(true);
+    expect(await canActOn("https://never-asked.test/page")).toBe(true);
+    await setAllSitesAllowed(false);
+    expect(await canActOn("https://never-asked.test/page")).toBe(false);
+  });
+
+  it("Chrome still wins: a site it withholds stays blocked with the switch on", async () => {
+    await setAllSitesAllowed(true);
+    fake.held.clear(); // the user set Atlarix to "On click" in chrome://extensions
+    expect(await canActOn("https://never-asked.test/page")).toBe(false);
+  });
+
+  it("never covers a page that cannot be granted, and Erase everything turns it off", async () => {
+    await setAllSitesAllowed(true);
+    expect(await isGranted("chrome://settings")).toBe(false);
+    expect(await isGranted("file:///etc/passwd")).toBe(false);
+    await revokeAll();
+    expect(await canActOn("https://never-asked.test/page")).toBe(false);
+  });
+
+  it("only the panel can switch it: no tool, bridge or worker code imports the setter", () => {
+    const users = Object.entries(RAW)
+      .filter(([file, text]) => !file.endsWith(".test.ts") && text.includes("setAllSitesAllowed"))
+      .map(([file]) => file)
+      .sort();
+    expect(users).toEqual(["../panel/sidepanel.ts", "./site-grants.ts"]);
+    expect(RAW["../panel/sidepanel.ts"]).toContain("setAllSitesAllowed(allSitesToggle.checked)");
+  });
+});

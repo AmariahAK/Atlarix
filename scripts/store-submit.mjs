@@ -50,28 +50,31 @@ function env(name) {
   return v;
 }
 
-// Statuses of a pending submission this release replaces. That includes one in
-// certification: the owner chose the newest release over letting a certification
-// finish (2026-10-18), which reverses 339ccb91 on purpose — back-to-back releases
-// can keep restarting certification, and the newest one is still what Store users
-// should get. Not here, so waited for: CommitStarted, PendingPublication and
-// Publishing (Microsoft answers 409 to a delete mid-operation, and a publishing
-// one reaches users within hours anyway), and any status this list doesn't know.
+// Statuses of a pending submission this release replaces: one that never started
+// or failed. A submission Microsoft is still processing or certifying is LEFT
+// ALONE, and this release skips the Store (re-run the Store step once it has
+// moved on). 2026-10-18 tried the opposite (newest release wins, 82a24426), and
+// the Store published nothing from 14.51.0 on: the restricted-capability review
+// takes days, and every release restarted it (15.9.0, 15.9.1, 15.9.2, 15.10.0
+// twice). Waited for: PreProcessing, Certification, Release, CommitStarted,
+// PendingPublication, Publishing, and any status this list doesn't know.
 const REPLACEABLE = new Set([
-  "PendingCommit",
   "CommitFailed",
-  "PreProcessing",
   "PreProcessingFailed",
-  "Certification",
   "CertificationFailed",
-  "Release",
   "ReleaseFailed",
   "PublishFailed",
   "Canceled",
 ]);
 
-/** @returns {"wait" | "replace"} */
+/**
+ * A draft (PendingCommit, e.g. a certification cancelled in Partner Center) is
+ * REUSED rather than replaced: a new submission clones the published one, so
+ * anything set by hand on the draft (support info, 2026-10-23) would be lost.
+ * @returns {"wait" | "replace" | "reuse"}
+ */
 export function pendingSubmissionAction(status) {
+  if (status === "PendingCommit") return "reuse";
   return REPLACEABLE.has(status) ? "replace" : "wait";
 }
 
@@ -162,8 +165,9 @@ export async function api(token, method, path, body, { fetchImpl = fetch, wait =
 }
 
 /**
- * Clear the one pending-submission slot for a new submission. Returns false
- * when it is still taken after waiting (this release then skips the Store).
+ * Clear the one pending-submission slot for a new submission. Returns true when
+ * it is free, a draft's id when that draft should be reused, and false when it
+ * is still taken after waiting (this release then skips the Store).
  */
 export async function clearPending(call, appId, { wait = sleep, waitMs = WAIT_MS, pollMs = POLL_MS } = {}) {
   const deadline = Date.now() + waitMs;
@@ -173,7 +177,12 @@ export async function clearPending(call, appId, { wait = sleep, waitMs = WAIT_MS
     if (!old) return true;
     const pending = await call("GET", `applications/${appId}/submissions/${old}`);
     const status = pending?.status;
-    if (pendingSubmissionAction(status) === "replace") {
+    const action = pendingSubmissionAction(status);
+    if (action === "reuse") {
+      console.log(`Reusing draft submission ${old}.`);
+      return old;
+    }
+    if (action === "replace") {
       console.log(`Deleting pending submission ${old} (${status})...`);
       try {
         await call("DELETE", `applications/${appId}/submissions/${old}`);
@@ -250,13 +259,20 @@ async function main() {
 
   // A product can have at most one pending submission.
   console.log("Checking for pending submissions...");
-  if (!(await clearPending(call, APP_ID))) return;
+  const slot = await clearPending(call, APP_ID);
+  if (slot === false) return;
 
-  // Create a new submission — Partner Center clones the published one, so all
-  // listing metadata, screenshots, age rating, and pricing carry forward.
-  console.log("Creating submission...");
-  const sub = await api(token, "POST", `applications/${APP_ID}/submissions`);
-  console.log(`Submission ${sub.id} created.`);
+  // A new submission clones the published one, so all listing metadata,
+  // screenshots, age rating, and pricing carry forward. A reused draft keeps
+  // whatever was set on it by hand as well.
+  let sub;
+  if (typeof slot === "string") {
+    sub = await api(token, "GET", `applications/${APP_ID}/submissions/${slot}`);
+  } else {
+    console.log("Creating submission...");
+    sub = await api(token, "POST", `applications/${APP_ID}/submissions`);
+    console.log(`Submission ${sub.id} created.`);
+  }
 
   // Replace packages: mark every existing one for deletion, add the new upload.
   for (const pkg of sub.applicationPackages || []) {

@@ -10,7 +10,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { renderMarkdown } from "./markdown";
+import { linkifyText, renderMarkdown } from "./markdown";
 
 let host: HTMLElement;
 beforeEach(() => {
@@ -381,5 +381,51 @@ describe("checklists", () => {
     renderMarkdown(el, "- [ ] Add it\n- [x] Agree the name");
     const items = [...el.querySelectorAll("li")].map((li) => li.textContent);
     expect(items).toEqual(["☐ Add it", "☑ Agree the name"]);
+  });
+});
+
+describe("linkifyText: plain text with its URLs as links", () => {
+  it("links http(s) only, leaves the rest as text, and keeps the sentence's full stop", () => {
+    const pre = document.createElement("pre");
+    linkifyText(pre, "  Local:   http://localhost:5173/.\n  javascript:alert(1) <b>x</b>");
+    const links = [...pre.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["http://localhost:5173/"]);
+    expect(links[0]!.rel).toBe("noopener noreferrer");
+    expect(pre.textContent).toBe("  Local:   http://localhost:5173/.\n  javascript:alert(1) <b>x</b>");
+    expect(pre.querySelector("b")).toBeNull();
+  });
+});
+
+describe("URLs with parentheses (QA E2)", () => {
+  it("a balanced (…) belongs to the URL, in plain text and in a reply", () => {
+    const url = "https://en.wikipedia.org/wiki/Rust_(programming_language)";
+    const pre = document.createElement("pre");
+    linkifyText(pre, `Wiki ${url} and (https://github.com/acme/app/pull/7), done`);
+    expect([...pre.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual([
+      url,
+      "https://github.com/acme/app/pull/7",
+    ]);
+    const reply = document.createElement("div");
+    renderMarkdown(reply, `Read ${url}.`);
+    expect([...reply.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual([url]);
+  });
+});
+
+describe("URLs in quotes or backticks (QA E5)", () => {
+  it("the closing quote is not part of the link, as in the CLI and ACP", () => {
+    const pre = document.createElement("pre");
+    linkifyText(
+      pre,
+      "'Local: http://localhost:5173/'\n\"url\": \"https://example.com/a\",\n`https://example.com/b`\nsee 'https://example.com/docs.'",
+    );
+    expect([...pre.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual([
+      "http://localhost:5173/",
+      "https://example.com/a",
+      "https://example.com/b",
+      "https://example.com/docs",
+    ]);
+    const reply = document.createElement("div");
+    renderMarkdown(reply, `It runs at 'http://localhost:5173/' now.`);
+    expect([...reply.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["http://localhost:5173/"]);
   });
 });

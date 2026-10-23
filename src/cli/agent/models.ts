@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { atlarixHomeDir } from "@/paths/atlarix-home";
 import type { EffortChoices } from "@/lib/routing/model-reasoning-profile";
+import type { ComputerUseEligibility } from "@/ipc/ipc_types";
 
 export interface ModelRef {
   provider: string;
@@ -27,6 +28,8 @@ export interface ModelOption extends ModelRef {
   effortChoices?: EffortChoices;
   /** Costs nothing (Atlarix Auto): the picker's "Free" badge. */
   free?: boolean;
+  /** Whether computer use can be switched on for this model, or why not. */
+  computerUse?: ComputerUseEligibility;
   /** "200K": the context window, for the picker's right column. */
   context?: string;
 }
@@ -74,6 +77,7 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
         detail: [provider === COMPASS ? (paidAuto ? "" : m.description) : providerName, ctx].filter(Boolean).join(" · "),
         deepThinking: Boolean((m as { supportsDeepThinking?: boolean }).supportsDeepThinking),
         effortChoices: (m as { effortChoices?: EffortChoices }).effortChoices,
+        computerUse: m.computerUse,
         free: provider === COMPASS && isCoreAutoTier(m.apiName) && !paidAuto,
         context: window ? `${formatWindow(window)}` : undefined,
       });

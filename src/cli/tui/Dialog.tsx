@@ -17,6 +17,7 @@ import { useEffect, useRef } from "react";
 import type { DialogView, Hint, Line, ListItem, Tone } from "./dialogs";
 import { Prose } from "./Prose";
 import { color } from "./theme";
+import { linkify } from "./links";
 
 const toneColor = (t: Tone | undefined): string =>
   t === "accent"
@@ -39,7 +40,7 @@ function Lines({ lines }: { lines: Line[] }) {
     <>
       {lines.map((l, i) => (
         <text key={i} fg={toneColor(l.tone)}>
-          {l.bold ? <b>{l.text || " "}</b> : l.text || " "}
+          {l.bold ? <b>{l.text || " "}</b> : l.text ? linkify(l.text) : " "}
         </text>
       ))}
     </>
@@ -120,7 +121,7 @@ function Body({ view, visible }: { view: DialogView; visible: number }) {
           </box>
         </>
       ) : null}
-      {view.notice ? <text fg={toneColor(view.notice.tone)}>{view.notice.text}</text> : null}
+      {view.notice ? <text fg={toneColor(view.notice.tone)}>{linkify(view.notice.text)}</text> : null}
     </>
   );
 }

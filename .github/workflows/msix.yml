@@ -349,6 +349,19 @@ jobs:
           }
           Write-Host "Built bridge relay: $exe"
 
+      - name: Build the computer-use executor (Rust)
+        shell: pwsh
+        run: |
+          # The fifth build path; same hard failure as the relay above.
+          $env:RUSTFLAGS = "-C target-feature=+crt-static"
+          cargo build --release --manifest-path native/atlarix-computer/Cargo.toml
+          $exe = "native/atlarix-computer/target/release/atlarix-computer.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "::error::atlarix-computer.exe failed to build — the MSIX would ship computer use that fails every action."
+            exit 1
+          }
+          Write-Host "Built computer-use executor: $exe"
+
       - name: Package (electron-forge)
         timeout-minutes: 55
         shell: pwsh

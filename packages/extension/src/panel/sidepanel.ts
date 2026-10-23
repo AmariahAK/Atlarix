@@ -50,11 +50,10 @@ import { buildQuestionCard } from "./question-card";
 import { formatInteractiveQaLine } from "@/lib/interactive-qa-format";
 import {
   canActOn,
-  pruneRevokedGrants,
   requestHostAccess,
   revokeHostAccess,
 } from "../permissions/host-access";
-import { listGrants, revokeAll } from "../permissions/site-grants";
+import { allSitesAllowed, listGrants, revokeAll, setAllSitesAllowed } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
 import { onGroupClosed, setGroupTitle } from "../tabs/group";
@@ -67,7 +66,7 @@ import {
   type ToolCall,
 } from "../core/client";
 import { runTurn } from "../agent/loop";
-import { clearDrivenTabs, type Approval } from "../tools/dispatch";
+import { clearDrivenTabs, peerMessageSent, type Approval } from "../tools/dispatch";
 import { buildSystemPrompt } from "../agent/prompt";
 import { StreamPacer } from "./stream-pacer";
 import { errorMessageNodes } from "./error-link";
@@ -96,7 +95,6 @@ import {
 } from "../sessions/archive";
 import { deleteRemoteConversation, pushConversation } from "../sessions/sync";
 import { renderMarkdown } from "./markdown";
-import { mayRotate, nextTip } from "./composer-tips";
 import {
   answeredAskCalls,
   questionsFromArgs,
@@ -1550,8 +1548,7 @@ function renderConversation(history: CoreMessage[]): void {
 
     /*
      * STARTERS, because "what can it do" is not answerable from a blank box.
-     * The composer tip rotates through capabilities one at a time and a first
-     * run sees exactly one of them. These three are chosen to be the three
+     * These three are chosen to be the three
      * DIFFERENT things it does — read the page, act on it, reach past it —
      * rather than three phrasings of the first.
      *
@@ -1688,7 +1685,16 @@ function renderConversation(history: CoreMessage[]): void {
       }
       const chip = toolChip(resolved);
       fillChip(chip, message.content);
-      restoreStep({ kind: "tool", name: resolved.function.name }, chip);
+      restoreStep(
+        {
+          kind: "tool",
+          name:
+            resolved.function.name === "send_message" && !peerMessageSent(message.content)
+              ? "send_message_unsent"
+              : resolved.function.name,
+        },
+        chip,
+      );
       // THE QUESTION IS RE-DERIVED, NOT STORED. `saveSession` already persists
       // the assistant message's `tool_calls`, so the arguments are here — which
       // is what lets a question survive the panel being closed and reopened,
@@ -1903,10 +1909,16 @@ async function send(peerTask?: string): Promise<void> {
     // thing people close in confusion.
     void setGroupTitle(windowId, "Atlarix · working");
     const senders = peerSendersOf(messages);
+    // Unknown modalities are allowed to try; only a known "no" declines.
+    const canSeeImages = (() => {
+      const cap = capabilityOf(lineup.find((m) => m.id === model));
+      return cap.known ? cap.images : undefined;
+    })();
     const system = buildSystemPrompt({
       notes,
       skills,
       connectors: connectorNames,
+      canSeeImages,
       peerSenders: senders.length ? senders.map((s) => s.name) : null,
       activeTab: tab
         ? {
@@ -1925,6 +1937,8 @@ async function send(peerTask?: string): Promise<void> {
     await compactIfNeeded(model, systemPromptTokens, controller.signal);
 
     const chips = new Map<string, HTMLDetailsElement>();
+    // Each call's step, so its outcome can relabel it (an unsent message is not "Sent").
+    const stepFor = new Map<string, { kind: "tool"; name: string }>();
 
     /**
      * The activity card currently collecting steps.
@@ -1980,11 +1994,7 @@ async function send(peerTask?: string): Promise<void> {
         sessionTitle: currentTitle,
         peerSenders: senders,
         subjectTabId: tab?.id ?? null,
-        canSeeImages: (() => {
-          const cap = capabilityOf(lineup.find((m) => m.id === model));
-          // Unknown modalities are allowed to try; only a known "no" declines.
-          return cap.known ? cap.images : undefined;
-        })(),
+        canSeeImages,
       },
       signal: controller.signal,
       events: {
@@ -2027,7 +2037,9 @@ async function send(peerTask?: string): Promise<void> {
           bubble = null;
           const chip = toolChip(call);
           chips.set(call.id, chip);
-          stepInto({ kind: "tool", name: call.function.name }, chip);
+          const step = { kind: "tool" as const, name: call.function.name };
+          stepFor.set(call.id, step);
+          stepInto(step, chip);
         },
         onRound() {
           // Every round after the first waits on the model again, so the
@@ -2084,6 +2096,8 @@ async function send(peerTask?: string): Promise<void> {
         onToolResult(call, content, label, relic, files) {
           const chip = chips.get(call.id);
           if (chip) fillChip(chip, content, label);
+          const step = stepFor.get(call.id);
+          if (step && step.name === "send_message" && !peerMessageSent(content)) step.name = "send_message_unsent";
           // A RELIC IS NOT A STEP. It is a thing the user now has, so it gets a
           // card in the transcript rather than a line inside the collapsed
           // activity card — the same reasoning that keeps `ask_user` out of the
@@ -2197,10 +2211,6 @@ async function send(peerTask?: string): Promise<void> {
     void nameConversation(model);
     noteTurnEnded();
     void refreshDrawer();
-    // BETWEEN turns, which is the only moment a placeholder may change without
-    // reading as a glitch. `mayRotate` holds it back if the user has already
-    // started typing their next message.
-    rotateTip();
     // AFTER the turn, never during one. A pull mid-turn could change a note the
     // model is reading, and the conflict sibling it may create would appear in
     // an index that was already built. Unawaited, like `pushConversation`: an
@@ -2229,23 +2239,6 @@ async function syncNotesAndReport(): Promise<void> {
       ? `"${conflicts[0]}" was also changed elsewhere — both versions are in your notes.`
       : `${conflicts.length} notes were also changed elsewhere — both versions of each are in your notes.`,
   );
-}
-
-/**
- * Advance the composer's tip, if now is a moment that may.
- *
- * Called from exactly one place — the end of a turn. A timer was the obvious
- * alternative and is worse: a string that changes while someone is reading it
- * looks broken, and there is no interval short enough to teach anything that is
- * not also long enough to interrupt.
- */
-function rotateTip(): void {
-  // `input` is nullable for the same reason every element handle here is: the
-  // panel document can be torn down mid-turn when the user closes it, and this
-  // runs from a `finally`.
-  if (!input) return;
-  if (!mayRotate({ value: input.value, running: running !== null })) return;
-  input.placeholder = nextTip(input.placeholder);
 }
 
 /**
@@ -2434,14 +2427,8 @@ async function refreshDrawer(): Promise<void> {
  * build the prompt, and this joins them.
  */
 async function syncGrantsForTurn(): Promise<void> {
-  // PRUNE FIRST, so what gets published is a list Chrome has already agreed
-  // with rather than one we only believe. The user can drop a host from
-  // chrome://extensions without telling us, and a record that outlives the
-  // permission produces a read failing with a raw injection error instead of an
-  // honest "you took this back".
-  const known = (await listGrants()).map((g) => g.origin);
-  await pruneRevokedGrants(known);
-
+  // No prune against Chrome first: a site Chrome withholds keeps its grant
+  // (host-access.ts, QA A3). Only the website's revocations are applied.
   const { revoked } = await syncSiteGrants();
 
   // SAY SO. A revocation that takes effect in silence is indistinguishable from
@@ -2989,6 +2976,7 @@ eraseButton?.addEventListener("click", () => {
     for (const grant of await listGrants())
       await revokeHostAccess(grant.origin);
     await revokeAll();
+    if (allSitesToggle) allSitesToggle.checked = false;
     // And the account's copy of them. `syncSiteGrants` publishes whatever is
     // left, which is now nothing, and the server drops the rows -- the same
     // "erase means erase" rule the conversations below are held to. Without
@@ -3046,6 +3034,17 @@ signOutButton?.addEventListener("click", () => {
 // line says where the conversation stands. Written while you're away, shown,
 // never saved. On by default; the drawer turns it off (this browser only).
 // ---------------------------------------------------------------------------
+
+// "Allow on every site": a click here is the only way it changes (site-grants.ts).
+const allSitesToggle = el<HTMLInputElement>("all-sites-toggle");
+void allSitesAllowed()
+  .then((on) => {
+    if (allSitesToggle) allSitesToggle.checked = on;
+  })
+  .catch(() => {});
+allSitesToggle?.addEventListener("change", () => {
+  void setAllSitesAllowed(allSitesToggle.checked).catch(() => {});
+});
 
 const RECAP_KEY = "atlarix.sessionRecap";
 let recapOn = true;

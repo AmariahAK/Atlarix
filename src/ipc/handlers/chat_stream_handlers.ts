@@ -2536,6 +2536,10 @@ export function registerChatStreamHandlers() {
             },
             providerOf,
           );
+          // How it ended, for another session's list_sessions `result_of`.
+          void import("@/lib/peers/peers")
+            .then((m) => m.noteTurnEnded(req.chatId, ended, turnStartedAt))
+            .catch(() => {});
         }
         // Finalize any browser/preview session recordings captured this turn and
         // hand the renderer a reference to play them back (proof of work).

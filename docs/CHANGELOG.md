@@ -3,13 +3,25 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.10.1] (2026-10-23) — sessions that steer each other, a 1–3 rating with /feedback everywhere, and glob/grep that find everything
+## [15.11.0] (2026-10-24) — computer use, sessions that steer and read each other, and a harness that carries less
+
+**Computer use.** Atlarix can now see your screen and use the mouse and keyboard, on macOS, Windows and Linux (X11 and Wayland; Wayland is untested on real hardware). Models with their own computer tool use it; any other model that takes images gets Atlarix's own `computer` tool; text-only models get neither. It is **off by default** and switched on per model: in Settings → Computer use, the chat's model menu, `/computer` in the CLI, the VS Code panel's settings and the session options in ACP editors. A model that can't use it shows why instead of a switch. There are no approval cards for clicks or typing: it's your decision when you switch it on. It is offered in Build and Debug only, and only one session controls the screen at a time. While it runs, the app shows a "Controlling your screen" pill (hidden from the model's own screenshots) with Stop and ⌃⌥Esc, and the CLI posts a notification; in editors each action is a step in the chat and the editor's Stop stops it. **Moving the mouse stops it on every surface:** its next click or keystroke is refused and the turn ends, so nothing lands against you (Esc and ⌃⌥Esc stop it at once). It works on whatever is open on your screen, so close what you don't want it to touch. On macOS it needs Screen Recording and Accessibility once; Atlarix says which app macOS will name (Atlarix, or the terminal or editor it runs in) before the prompt appears. On Windows, typed text is pasted and your clipboard is put back, kept out of clipboard history.
 
 **Sessions steering sessions.** One session can now set another session's mode and model (from the providers you have set up), and review another session's plan: approve it (it starts building, exactly as if you clicked Build), reject it with a reason (it re-plans), or replace it. The target shows a line saying who changed what ("Plan approved by Rix. Building it."), in the app, the CLI, VS Code and Zed; a change is refused while that session is mid-turn. `list_sessions` shows each session's model and any plan waiting for approval, and long model lists are shortened.
 
 **How is Atlarix doing?** After six turns, every surface asks once per session to rate it 1–3 (bad, fine, good), and `/feedback` sends a note any time, in the app, the CLI, VS Code and any ACP editor. Nothing is sent unless you answer; signed out, the answer goes without an account; it never reaches the model. The "where did you hear about Atlarix" and PeerPush asks are gone, and VS Code no longer asks for a Marketplace rating.
 
-**Session names follow you.** `/undo` to the first message, or a first message from another session, names the session everywhere; the VS Code tab and sidebar header show the chat's name, and the app's sidebar and tabs pick up a rename made in the CLI within a second.
+**Sessions read each other's results.** `list_sessions` with `result_of` shows another session's latest finished turn: how it ended (with the error kind if it failed), its reply (long replies are cut, with how to ask for the rest) and the files it changed, or "still working" with its last result. A session you forked away from no longer shows as reachable, and a message to a session that isn't open any more says it wasn't sent.
+
+**Session names follow you.** `/undo` to the first message, or a first message from another session, names the session everywhere; the app's chat header shows the session's name; the CLI keeps the name in view while a turn runs; the VS Code tab and sidebar header show the chat's name, and a rename in the CLI reaches the app within a second.
+
+**Clickable links.** URLs are clickable in the CLI (terminal hyperlinks, with the address shown where the terminal can't link), in run_command output, notices and dialogs; ACP editors get each URL in command output as a link; the VS Code panel links command output, failed steps and messages from other sessions. Only http(s) links are made clickable.
+
+**A harness that carries less.** The mobile tools are gone: a model drives an emulator or simulator with `run_command` and `view_image`. The first-run wizard, guided tour and coachmarks are gone (the analytics choice still comes first). Image tools are offered only to models that can see images, and the browser tool now says when a screenshot helps instead of forbidding it. Rotating tips are gone from the app, CLI and extension; Help → Community opens Discord directly; and a long session's "older messages not loaded" notice is one quiet line.
+
+**Chrome extension.** "Allow on every site" (account drawer → Sites, off by default) lets Atlarix work on any site without asking site by site; password fills, connectors and other always-ask actions still ask. A site you've limited in Chrome's own site access now says "Chrome is blocking Atlarix" instead of asking again, and keeps your Atlarix grant for when Chrome allows it.
+
+**The cloud agent is a paid feature.** Cloud runs, from Slack or atlarix.dev, use Atlarix's models only (paid Atlarix Auto or a paid Core model) and are billed to your Atlarix balance; the own-key option is gone. Use your own key in the app, the CLI or your editor.
 
 **glob and grep find everything.** A folder outside the workspace keeps its own ignore rules (not the workspace's), `~` paths work, an unreadable folder no longer ends the search, anchored ignore rules apply, a single file given by absolute path matches, and paths read with `/` on Windows too.
 
@@ -17,7 +29,9 @@
 
 **Headless and the CLI.** `atlarix run` accepts `--api-key-file` with `--provider-url`, says how to pass a key a remote endpoint needs instead of falling back to Core, never rewrites the profile's settings, and an unattended run is never left waiting on a sandbox card.
 
-**Smaller fixes.** The app falls back to a second Core proxy when the first can't be reached; with analytics on, a share of app sessions are recorded as layout and clicks only, every word and input masked; a test profile no longer rewrites the browser's native-host files; ratings and analytics carry the right app version.
+**Smaller fixes.** The app falls back to a second Core proxy when the first can't be reached; with analytics on, a share of app sessions are recorded as layout and clicks only, every word and input masked; a test profile no longer rewrites the browser's native-host files; ratings and analytics carry the right app version; CLI notices show their whole text instead of one line; a session-title request that fails is no longer sent twice; screenshots carry an "untrusted content" note like every other page read; Claude through Bedrock or a custom Anthropic-format provider can see the images tools return; a sign-in on any surface records which surface, version and OS it came from; crash reports carry your account ID, never your email.
+
+**Microsoft Store.** The Store build asks for less: it writes only the browser bridge's own registry keys outside the package (Windows 11), instead of turning off registry isolation for the whole app.
 
 ## [15.10.0] (2026-10-21) — project memory that recalls, live sessions and /fork everywhere, safer approvals, and compaction that works
 

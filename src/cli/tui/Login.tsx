@@ -11,6 +11,7 @@ import { useRef, useState } from "react";
 import type { Line } from "./dialogs";
 import { Rix } from "./Rix";
 import { color } from "./theme";
+import { linkify } from "./links";
 
 export type SignInMethod = "browser" | "code";
 
@@ -101,7 +102,7 @@ export function LoginScreen({
             <box flexDirection="column">
               {lines.map((l, i) => (
                 <text key={i} fg={TONE[l.tone ?? "text"] ?? color.text}>
-                  {l.bold ? <b>{l.text}</b> : l.text}
+                  {l.bold ? <b>{l.text}</b> : linkify(l.text)}
                 </text>
               ))}
             </box>

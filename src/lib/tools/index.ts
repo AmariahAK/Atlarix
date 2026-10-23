@@ -29,11 +29,11 @@ import "./workspace";
 import "./plan";
 import "./automations"; // v14.27 agent-visible standing automations
 import "./browser"; // agent browser tools — the user's Chrome via the extension (v14.52)
-import "./mobile"; // v14.41 emulator/simulator read + act (Build/Debug only)
 import "./tool-help"; // v14.34 full usage for tools bound with a one-line summary
 import "./sessions"; // v14.39 read behind the compaction boundary
 import "./media"; // view_image, transcribe_audio
 import "./peers"; // list and message the user's other Atlarix sessions
+import "./computer"; // see the screen, use mouse + keyboard (per-model switch, off by default)
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

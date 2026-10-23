@@ -560,6 +560,17 @@ export interface LanguageModelProvider {
   type: "custom" | "local" | "cloud";
 }
 
+/** The macOS grants computer use needs; "unsupported" where the OS asks for none. */
+export type ComputerUsePermissions =
+  | {
+      screen: "granted" | "denied" | "unsupported";
+      accessibility: "granted" | "denied" | "unsupported";
+    }
+  | { error: string };
+
+/** `eligible`, or why computer use can't be switched on (lib/computer/lane.ts). */
+export type ComputerUseEligibility = "eligible" | "no-vision" | "no-tool-images" | "no-executor";
+
 /** The wire formats a provider the user added can speak. */
 export type CustomApiFormat = "openai" | "anthropic";
 /** How an Anthropic-format endpoint takes the key: Anthropic's own header, or a Bearer token (Bedrock). */
@@ -601,6 +612,11 @@ export type LanguageModel =
        * paid Auto's low / medium / max). Resolved in MAIN, like the two above.
        */
       effortChoices?: EffortChoices;
+      /**
+       * Whether computer use can be switched on for this model, or why not.
+       * Resolved in MAIN, like the two above (lib/computer/lane.ts).
+       */
+      computerUse?: ComputerUseEligibility;
       type: "custom";
     }
   | {
@@ -622,6 +638,8 @@ export type LanguageModel =
       supportsAudioInput?: boolean;
       /** See the `custom` variant above — resolved in main, never in the renderer. */
       effortChoices?: EffortChoices;
+      /** See the `custom` variant above — resolved in main, never in the renderer. */
+      computerUse?: ComputerUseEligibility;
       type: "local" | "cloud";
     };
 
@@ -893,17 +911,6 @@ export interface SelectNodeFolderResult {
   canceled?: boolean;
   selectedPath: string | null;
 }
-
-/** Discord invite API (main process) — metadata for Community dialog. */
-export type DiscordInviteInfoResult =
-  | {
-      ok: true;
-      name: string;
-      description: string | null;
-      memberCount?: number;
-      presenceCount?: number;
-    }
-  | { ok: false };
 
 /** One aggregated row of the edit-stats rollup. */
 export interface EditStatsBucket {

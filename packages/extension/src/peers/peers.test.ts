@@ -124,6 +124,18 @@ describe("send_message", () => {
     expect(sent).toEqual([]);
   });
 
+  it("nothing sent (no desktop bridge): the step says so, not \"Sent a message\"", async () => {
+    const { dispatchTool } = await import("../tools/dispatch");
+    sendReply = { ok: false, error: "not connected to the Atlarix app" };
+    const out = await dispatchTool(call({ message: "done", to: "release notes" }), ctx([]));
+    expect(out.content).toMatch(/^Not sent: not connected/);
+    expect(out.label).toBe("Message not sent");
+    // The collapsed summary line decides by this, live and on reopening.
+    const { peerMessageSent } = await import("../tools/dispatch");
+    expect(peerMessageSent(out.content)).toBe(false);
+    expect(peerMessageSent("Sent to release notes. A reply, if it sends one, arrives here as a new message.")).toBe(true);
+  });
+
   it("starting a conversation with the user's CLI waits for their approval, then sends", async () => {
     const { dispatchTool } = await import("../tools/dispatch");
     const sessions = [{ sessionId: CLI.sessionId, name: "release notes", surface: "cli", workspace: "atlarix", busy: false }];

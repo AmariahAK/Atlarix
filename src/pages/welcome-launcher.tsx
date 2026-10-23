@@ -296,7 +296,6 @@ export default function WelcomeLauncher() {
         <Button
           variant="outline"
           className="h-auto py-4 flex flex-col gap-2 hover:bg-muted hover:text-foreground"
-          data-onboarding="welcome-open-folder"
           onClick={() =>
             void (async () => {
               try {

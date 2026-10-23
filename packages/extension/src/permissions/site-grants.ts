@@ -28,6 +28,33 @@ import { api } from "../shared/browser-api";
 /** Where grants live inside `storage.sync`. */
 const STORAGE_KEY = "atlarix.siteGrants.v1";
 
+/**
+ * "Allow on every site" (owner, 2026-10-23): every http(s) origin counts as
+ * granted, so no per-site card. Still only half of `canActOn`: a site Chrome
+ * withholds ("On click", a removed host) stays blocked, and the always-ask set
+ * still asks. `storage.local`, not `.sync`: switching it on in one browser must
+ * not widen the agent's reach on the user's other machines (see above).
+ *
+ * WRITTEN ONLY BY THE PANEL'S SWITCH. No tool, bridge op or dispatch path
+ * imports `setAllSitesAllowed`, so the agent cannot widen its own reach;
+ * `site-grants.test.ts` checks that by reading the imports.
+ */
+const ALL_SITES_KEY = "atlarix.allSites.v1";
+
+export async function allSitesAllowed(): Promise<boolean> {
+  try {
+    const raw = await api().storage.local.get<Record<string, unknown>>(ALL_SITES_KEY);
+    return raw?.[ALL_SITES_KEY] === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function setAllSitesAllowed(on: boolean): Promise<void> {
+  if (on) await api().storage.local.set({ [ALL_SITES_KEY]: true });
+  else await api().storage.local.remove(ALL_SITES_KEY);
+}
+
 export interface SiteGrant {
   /** Serialized origin: scheme + host + non-default port. The key. */
   origin: string;
@@ -107,6 +134,7 @@ async function writeAll(map: GrantMap): Promise<void> {
 export async function isGranted(url: string): Promise<boolean> {
   const origin = originOf(url);
   if (!origin) return false;
+  if (await allSitesAllowed()) return true;
   const all = await readAll();
   return Object.prototype.hasOwnProperty.call(all, origin);
 }
@@ -138,7 +166,8 @@ export async function listGrants(): Promise<SiteGrant[]> {
   return Object.values(all).sort((a, b) => b.grantedAt - a.grantedAt);
 }
 
-/** Revoke everything. The "start over" button. */
+/** Revoke everything, "every site" included. The "start over" button. */
 export async function revokeAll(): Promise<void> {
   await api().storage.sync.remove(STORAGE_KEY);
+  await setAllSitesAllowed(false);
 }

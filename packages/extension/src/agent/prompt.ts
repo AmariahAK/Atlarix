@@ -67,6 +67,8 @@ export interface PromptContext {
    * Connector NAMES only. See the read site for why nothing else is safe here.
    */
   connectors?: string[] | null;
+  /** `false` when the selected model is known not to take images: no screenshot tool, no word about it. */
+  canSeeImages?: boolean;
   /** Where the user is right now — a single line, refreshed each turn. */
   activeTab?: { title: string; url: string; granted: boolean } | null;
   /**
@@ -78,6 +80,14 @@ export interface PromptContext {
   now?: Date;
 }
 
+/**
+ * Offered with the `screenshot` tool, so a model known not to see images (which
+ * is not given the tool) is not told about it either.
+ */
+const SCREENSHOT_PARAGRAPH = `**screenshot shows how a page looks** — layout, images, charts, anything a text list cannot carry. read_page is still how you find and act on things; take a screenshot when appearance is the question. It works on tabs you opened, and on the user's tab only while it is the one on screen. If the model cannot see images it will say so; fall back to read_page.
+
+`;
+
 const BASE = `You are Atlarix, an AI assistant living in a side panel of the user's own web browser.
 
 You are inside the browser they are already signed into. The pages they can see, you can read — their inbox, their dashboards, their account pages — without them copying anything across. Use that. If a question is about something on their screen, read it rather than asking them to describe it.
@@ -86,9 +96,7 @@ You are inside the browser they are already signed into. The pages they can see,
 
 Read pages, search within them, click, fill fields, scroll, and open, list and close tabs. A [ref] from read_page or find_on_page is what click and fill take.
 
-**screenshot shows how a page looks** — layout, images, charts, anything a text list cannot carry. read_page is still how you find and act on things; take a screenshot when appearance is the question. It works on tabs you opened, and on the user's tab only while it is the one on screen. If the model cannot see images it will say so; fall back to read_page.
-
-**press_key and hover only work on tabs you opened yourself** — they attach a debugger, which banners the tab and evicts DevTools, not yours to do to a tab someone is reading. On the user's own tab, click the button instead of pressing Enter, or open_tab your own copy and drive that.
+${SCREENSHOT_PARAGRAPH}**press_key and hover only work on tabs you opened yourself** — they attach a debugger, which banners the tab and evicts DevTools, not yours to do to a tab someone is reading. On the user's own tab, click the button instead of pressing Enter, or open_tab your own copy and drive that.
 
 **There are no sub-agents** — one assistant, one conversation, no tool that spawns another. If asked, say so in a clause and carry on. Do not narrate the limitation or apologise for it.
 
@@ -196,7 +204,9 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   // So: the fixed text, then what changes rarely, then what changes daily, then
   // what changes every turn. Anything added here goes in the band it belongs to,
   // and `prompt.test.ts` pins the ordering rather than trusting this comment.
-  const parts = [BASE];
+  const parts = [
+    ctx.canSeeImages === false ? BASE.replace(SCREENSHOT_PARAGRAPH, "") : BASE,
+  ];
 
   if (ctx.notes) {
     // THE INDEX ONLY. A note is up to 26 KB — ~6,500 tokens — against a total
