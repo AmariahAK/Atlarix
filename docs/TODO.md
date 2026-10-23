@@ -84,6 +84,12 @@ re-encrypted under a new `SLACK_TOKEN_KEY`. Teleios Centre Kenya's Postgres was 
     be re-minted, as the copy is deleted.
   - the STALE check needs the proxy's commit (B).
 
+- **Migrations applied to prod but not in this repo:** `inbox_writer_role` and `inbox_claim` (ai-c4, via the
+  Supabase MCP). Pull them with `supabase migration fetch` or `list_migrations` and commit them under
+  `supabase/migrations/`.
+- **The Windows VM** still holds QA leftovers in `C:\axq\b8` (exe, scripts, trajectories; no keys). Clear them on
+  the next boot.
+
 ### D. Slack v1 — live
 
 The reviewer runs it (4326324), and agent-action v1.3.0 is released with `v1` moved. Left: one live pass in real
