@@ -13,6 +13,8 @@ use std::time::Duration;
 /// as the user's hand. Some platforms round our own moves by a pixel or two.
 const TAKEOVER_PX: i32 = 8;
 const DRAG_STEPS: i32 = 12;
+/// Between typed characters (see "type").
+const TYPE_GAP_MS: u64 = 8;
 
 #[derive(Default)]
 pub struct Session {
@@ -192,7 +194,15 @@ impl Session {
             }
             "type" => {
                 let text = arg(req, "text").and_then(Value::as_str).ok_or_else(|| Fail::new("bad_request", "missing text"))?;
-                self.enigo()?.text(text).map_err(input_fail)?;
+                // One character at a time. Seen live on Windows (a VM): a whole
+                // string in one input batch came out as "eeeeeeeeeeee", the
+                // right count of wrong letters. Slower by a few ms a character.
+                let e = self.enigo()?;
+                let mut buf = [0u8; 4];
+                for ch in text.chars() {
+                    e.text(ch.encode_utf8(&mut buf)).map_err(input_fail)?;
+                    std::thread::sleep(Duration::from_millis(TYPE_GAP_MS));
+                }
             }
             "key" => {
                 let spec = arg(req, "combo").and_then(Value::as_str).ok_or_else(|| Fail::new("bad_request", "missing combo"))?;

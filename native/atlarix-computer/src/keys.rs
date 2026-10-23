@@ -9,6 +9,17 @@ pub struct Combo {
     pub key: Key,
 }
 
+/// xdotool names one side of a modifier ("Super_L", "Control_R"); either
+/// side is the same key to us. Expects a normalised name ("superl").
+fn sided_modifier(norm: &str) -> Option<Key> {
+    let base = norm.strip_suffix('l').or_else(|| norm.strip_suffix('r'))?;
+    modifier(base)
+}
+
+fn norm(token: &str) -> String {
+    token.to_ascii_lowercase().chars().filter(|c| *c != '_' && *c != '-').collect()
+}
+
 fn modifier(name: &str) -> Option<Key> {
     Some(match name {
         "ctrl" | "control" | "ctl" => Key::Control,
@@ -71,8 +82,11 @@ fn key(token: &str) -> Result<Key, String> {
         // is the A key; shift is the model's to send.
         return Ok(Key::Unicode(c.to_ascii_lowercase()));
     }
-    let norm: String = token.to_ascii_lowercase().chars().filter(|c| *c != '_' && *c != '-').collect();
-    named(&norm).or_else(|| modifier(&norm)).ok_or_else(|| format!("unknown key: {token}"))
+    let n = norm(token);
+    named(&n)
+        .or_else(|| modifier(&n))
+        .or_else(|| sided_modifier(&n))
+        .ok_or_else(|| format!("unknown key: {token}"))
 }
 
 /// Parse "ctrl+a Delete" into two combos. "+" alone is the plus key.
@@ -85,8 +99,8 @@ pub fn parse(spec: &str) -> Result<Vec<Combo>, String> {
         };
         let mut combo_mods = Vec::new();
         for m in mods {
-            let norm = m.to_ascii_lowercase();
-            combo_mods.push(modifier(&norm).ok_or_else(|| format!("unknown modifier: {m}"))?);
+            let n = norm(m);
+            combo_mods.push(modifier(&n).or_else(|| sided_modifier(&n)).ok_or_else(|| format!("unknown modifier: {m}"))?);
         }
         out.push(Combo { mods: combo_mods, key: key(last)? });
     }
@@ -118,6 +132,15 @@ mod tests {
         assert_eq!(parse("cmd+shift+T").unwrap()[0], Combo { mods: vec![Key::Meta, Key::Shift], key: Key::Unicode('t') });
         assert_eq!(parse("KP_Enter").unwrap()[0].key, Key::Return);
         assert_eq!(parse("+").unwrap()[0].key, Key::Unicode('+'));
+    }
+
+    #[test]
+    fn takes_either_side_of_a_modifier() {
+        // Seen live on Windows: a model pressed "Super_L" for the Windows key.
+        assert_eq!(parse("Super_L").unwrap()[0].key, Key::Meta);
+        assert_eq!(parse("Control_R+c").unwrap()[0], Combo { mods: vec![Key::Control], key: Key::Unicode('c') });
+        assert_eq!(parse("Shift_L+Tab").unwrap()[0], Combo { mods: vec![Key::Shift], key: Key::Tab });
+        assert!(parse("Nope_L").is_err());
     }
 
     #[test]
