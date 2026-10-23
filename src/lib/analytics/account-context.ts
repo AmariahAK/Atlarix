@@ -62,6 +62,21 @@ export async function noteSignedIn(userId: string): Promise<void> {
   }
 }
 
+/**
+ * The terminal and the editors: no SubscriptionManager runs there, so they
+ * call this when a session starts (and after a sign-in) with whatever account
+ * is stored. Signed out: nothing.
+ */
+export async function noteSessionAtStart(): Promise<void> {
+  try {
+    const { getSession } = await import("@/lib/auth/supabase-client");
+    const id = (await getSession())?.user?.id;
+    if (id) await noteSignedIn(id);
+  } catch {
+    /* never in the way of starting */
+  }
+}
+
 export async function noteSignedOut(): Promise<void> {
   try {
     (await sentrySetUser())(null);

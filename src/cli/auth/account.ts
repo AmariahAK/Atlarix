@@ -24,6 +24,8 @@ export async function acceptSession(t: Tokens): Promise<string> {
   // Funnel: Core is usable from this terminal or editor now (the desktop counts its own sign-in).
   const { trackModelConnected } = await import("@/main/lib/analytics");
   await trackModelConnected({ type: "core", provider: "compass" });
+  const { noteSignedIn } = await import("@/lib/analytics/account-context");
+  await noteSignedIn(data.user.id);
   return data.user.email;
 }
 

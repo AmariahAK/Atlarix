@@ -6,7 +6,10 @@
  */
 import os from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __setAccountContextForTests, noteSignedIn, noteSignedOut } from "@/lib/analytics/account-context";
+import { __setAccountContextForTests, noteSessionAtStart, noteSignedIn, noteSignedOut } from "@/lib/analytics/account-context";
+
+let stored: { user: { id: string } } | null = null;
+vi.mock("@/lib/auth/supabase-client", () => ({ getSession: async () => stored }));
 
 const ID = "3f0c1b9e-5a2d-4c1e-9b7a-2d6e8f1a4c3b";
 const setUser = vi.fn();
@@ -18,6 +21,7 @@ beforeEach(() => {
   __setAccountContextForTests({ setUser, record });
   delete process.env.ATLARIX_HOST_TELEMETRY;
   delete process.env.ATLARIX_REPORT_SURFACE;
+  stored = null;
 });
 afterEach(() => {
   __setAccountContextForTests(null);
@@ -59,5 +63,15 @@ describe("account context at sign-in", () => {
     await noteSignedIn(ID);
     await noteSignedOut();
     expect(setUser).toHaveBeenLastCalledWith(null);
+  });
+
+  it("the terminal and the editors record the stored account when a session starts, and nothing signed out", async () => {
+    process.env.ATLARIX_REPORT_SURFACE = "acp";
+    await noteSessionAtStart();
+    expect(record).not.toHaveBeenCalled();
+    stored = { user: { id: ID } };
+    await noteSessionAtStart();
+    expect(setUser).toHaveBeenCalledWith({ id: ID });
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ p_surface: "acp" }));
   });
 });
