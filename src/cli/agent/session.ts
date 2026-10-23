@@ -1509,6 +1509,11 @@ export class AgentSession extends EventEmitter {
     }));
     this.turnSeq++;
     this.lastTurnStopped = false;
+    // Loaded here, not at import: stream-state reads settings, which must not
+    // load before the data location is chosen.
+    if (!this.mainStopped) {
+      void import("@/ipc/handlers/chat_stream/stream-state").then((m) => (this.mainStopped = m.isChatUserStopped));
+    }
     // The last turn's error stays under that turn, not gone with the banner
     // (QA: "Couldn't reach…" vanished on the next send).
     if (this.state.lastError && this.lastTurnOwner) this.addTurnNotice(this.lastTurnOwner, "error", this.state.lastError);
@@ -1552,6 +1557,22 @@ export class AgentSession extends EventEmitter {
     }
   }
 
+  /**
+   * What a stop means here, wherever it started: Esc, or main (computer use's
+   * takeover, the app's stop shortcut), which arrives only as a userCancelled end.
+   */
+  private markStoppedByUser(): void {
+    this.interruptRequested = true;
+    // A job reporting in later must not restart what the user just stopped
+    // (after a takeover: must not grab the screen again).
+    this.userStopped = true;
+    // Sub-agents this stop cuts off end as stopped, not failed (QA #44).
+    for (const d of this.delegations.values()) if (d.status === "running") this.stoppedAgents.add(d);
+    // Anything queued for after this turn would otherwise start right away.
+    this.queue = [];
+    this.syncPending();
+  }
+
   /** Esc: stop the running turn. The session stays; the next message starts a new turn. */
   async interrupt(): Promise<void> {
     if (this.state.following && !this.state.busy) {
@@ -1559,14 +1580,7 @@ export class AgentSession extends EventEmitter {
       return;
     }
     if (!this.state.busy) return;
-    this.interruptRequested = true;
-    // A job reporting in later must not restart what the user just stopped.
-    this.userStopped = true;
-    // Sub-agents this stop cuts off end as stopped, not failed (QA #44).
-    for (const d of this.delegations.values()) if (d.status === "running") this.stoppedAgents.add(d);
-    // Anything queued for after this turn would otherwise start right away.
-    this.queue = [];
-    this.syncPending();
+    this.markStoppedByUser();
     try {
       await (await handler("chat:cancel"))({}, this.chatId);
     } catch {
@@ -2079,8 +2093,14 @@ export class AgentSession extends EventEmitter {
         if (p.status && p.status !== "running") void this.claimAutomationRuns();
         return;
       case "chat:response:error":
-        // A cancel reports itself as an error; it is not one.
+        // A cancel reports itself as an error; it is not one. Main latches a
+        // stop of its own (cancelChatStream) before that error can arrive, so
+        // a takeover's error is not "The turn failed" either.
         if (this.interruptRequested) return;
+        if (this.mainStopped?.(this.chatId)) {
+          this.markStoppedByUser();
+          return;
+        }
         this.update({ lastError: String(p.error ?? p.message ?? "The turn failed.") });
         return;
       case "chat:stream:disconnected":
@@ -2109,9 +2129,9 @@ export class AgentSession extends EventEmitter {
         this.lastEnd = p;
         // A stop that started in main (computer use: the user took the mouse,
         // or the app's stop shortcut) arrives only as this end. It is the same
-        // stop as Esc here: main saved the partial reply, and an editor must
-        // hear "cancelled", not a normal finish.
-        if (p.userCancelled === true) this.interruptRequested = true;
+        // stop as Esc: main saved the partial reply, an editor must hear
+        // "cancelled", and nothing may start the agent again by itself.
+        if (p.userCancelled === true && !this.interruptRequested) this.markStoppedByUser();
         this.update({
           sessionTokens: this.state.sessionTokens + (typeof p.turnTokens === "number" ? p.turnTokens : 0),
           cachedTokens: this.state.cachedTokens + (typeof p.turnCachedInputTokens === "number" ? p.turnCachedInputTokens : 0),
@@ -2230,6 +2250,8 @@ export class AgentSession extends EventEmitter {
   /** Bumped by every turn that starts: an older turn's ending must not touch a newer turn. */
   private turnSeq = 0;
   private lastTurnStopped = false;
+  /** Main's own stop latch (stream-state), loaded at the first turn. */
+  private mainStopped: ((chatId: number) => boolean) | null = null;
 
   /**
    * The turn that just ended was stopped (here, or from another surface, which
