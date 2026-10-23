@@ -191,9 +191,9 @@ export function windowsRegistryKeys(): string[] {
  *
  * `reg.exe` rather than a native module: no new dependency, and it is an
  * EXTERNAL process — in the MSIX build it writes through the package's
- * registry virtualization only if the manifest leaves it on, which is why the
- * package declares `desktop6:RegistryWriteVirtualization` disabled (see
- * build/msix/AppxManifest.template.xml).
+ * registry virtualization unless the key is excluded, which is why the
+ * package lists exactly `windowsRegistryKeys()` as `virtualization:ExcludedKey`
+ * (Windows 11; see build/msix/AppxManifest.template.xml).
  */
 export function regAddArgs(key: string, manifestPath: string): string[] {
   return ["add", key, "/ve", "/t", "REG_SZ", "/d", manifestPath, "/f"];

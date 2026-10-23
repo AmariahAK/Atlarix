@@ -215,8 +215,7 @@ bottom) and `~/.atlarix-e2e/team/MORNING.md` (the owner's list).
   the CLI starts only appears after it's reopened; (c) `glob` (`Find *`) in the memory folder, under a hidden
   path (`~/.atlarix-e2e/…`), returned "no files" right after a note was written there — the glob may skip
   hidden-path dirs (ripgrep's hidden-file default?). Reproduce on a scratch profile first.
-- **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix, then the
-  Microsoft Store resubmission (`unvirtualizedResources` justification in the MSIX manifest comment). winget is
+- **Store uploads by hand:** the 8 `.vsix` at marketplace.visualstudio.com/manage/publishers/atlarix. winget is
   still blocked on microsoft/winget-pkgs#446527.
 - **Owner decision:** should a scratch-profile CLI ever install Atlarix's Chrome native host into the real
   Chrome folders? It can today (pre-existing).
@@ -329,8 +328,17 @@ Bedrock's newest-model access (AWS Sales request 2026-10-18) is no longer needed
   (marketplace.visualstudio.com/manage/publishers/atlarix). The Marketplace is at 15.8.1; Open VSX
   is automatic (`VSCODE_AUTO_SUBMIT=true`). Move to `vsce publish --oidc` once Microsoft enables
   trusted publishing.
-- **Microsoft Store resubmission** needs the `unvirtualizedResources` justification (a restricted
-  capability Partner Center asks about; the text is in the MSIX manifest comment).
+- **Microsoft Store: nothing has published since 14.51.0 (2026-09-23).** Microsoft DENIED `unvirtualizedResources`
+  twice (reports 2026-09-28 and 2026-10-07, "10.6.3 Capabilities"): the package switched off registry
+  virtualization for all of HKCU, and the notes didn't justify it. Then 82a24426 replaced every submission still in
+  certification, so each release restarted the days-long review. Fixed on dev (2026-10-23, ai-27): the manifest
+  excludes only the five bridge keys (Windows 11 flexible virtualization; no Windows 10 fallback), the
+  certification notes answer every point of the report, and the script waits on a submission being processed or
+  certified instead of replacing it, and REUSES a draft (so hand edits on it survive). Done in Partner Center
+  2026-10-23: submission 32 (15.10.0, old manifest) certification CANCELLED on the owner's order, so it is a draft;
+  its Properties → Support info now has website `https://www.atlarix.dev` and contact `support@atlarix.dev`. Left:
+  - **The next Store submission must reuse draft 32** (the script does that now) and carry the fixed manifest. It
+    goes with the 15.11 release, unless the owner wants a Store-only build sooner.
 
 ## Waiting on someone else
 

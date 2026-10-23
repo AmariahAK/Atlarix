@@ -4,9 +4,10 @@
  * History: it used to delete whatever was pending, which cancelled certification on
  * every fast release (the Store sat on 14.51.0 from 2026-09-23 through 15.7.1), so
  * 339ccb91 made it leave a certifying submission alone and skip the release. Then the
- * opposite bit: 15.8.x never reached the Store while 15.7.1 certified. The owner chose
- * the newest release (2026-10-18), so a submission in certification is replaced again —
- * on purpose — and only one Microsoft is mid-commit or mid-publish is waited for.
+ * opposite bit: 15.8.x never reached the Store while 15.7.1 certified, and 82a24426
+ * (2026-10-18) replaced a submission in certification again. That restarted the
+ * days-long restricted-capability review on every release, so nothing published at
+ * all. A submission Microsoft is processing or certifying is waited for once more.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -24,15 +25,11 @@ import {
 } from "../../scripts/store-submit.mjs";
 
 describe("pendingSubmissionAction", () => {
-  it.each(["PreProcessing", "Certification", "Release"])(
-    "REPLACES a submission still being certified (%s): the newest release wins",
-    (status) => {
-      expect(pendingSubmissionAction(status)).toBe("replace");
-    },
-  );
+  it("reuses a draft, so what was set on it by hand survives", () => {
+    expect(pendingSubmissionAction("PendingCommit")).toBe("reuse");
+  });
 
   it.each([
-    "PendingCommit",
     "CommitFailed",
     "PreProcessingFailed",
     "CertificationFailed",
@@ -43,8 +40,17 @@ describe("pendingSubmissionAction", () => {
     expect(pendingSubmissionAction(status)).toBe("replace");
   });
 
-  it.each(["CommitStarted", "PendingPublication", "Publishing", "SomethingNew", undefined])(
-    "waits on one Microsoft is mid-operation on, or a status it doesn't know (%s)",
+  it.each([
+    "PreProcessing",
+    "Certification",
+    "Release",
+    "CommitStarted",
+    "PendingPublication",
+    "Publishing",
+    "SomethingNew",
+    undefined,
+  ])(
+    "waits on one Microsoft is processing or certifying, or a status it doesn't know (%s)",
     (status) => {
       expect(pendingSubmissionAction(status)).toBe("wait");
     },
@@ -104,14 +110,33 @@ const conflict = () => {
 const noWait = { wait: async () => {}, waitMs: 60_000, pollMs: 30_000 };
 
 describe("clearPending", () => {
-  it("deletes a submission in certification and goes ahead", async () => {
-    const s = store([
+  it("leaves a submission in certification alone and skips this release", async () => {
+    const certifying = [
       () => ({ pendingApplicationSubmission: { id: "s1" } }),
       () => ({ status: "Certification" }),
+    ];
+    const s = store([...certifying, ...certifying, ...certifying]);
+    expect(await clearPending(s.call, "APP", noWait)).toBe(false);
+    expect(s.log.some((l) => l.startsWith("DELETE"))).toBe(false);
+  });
+
+  it("deletes a failed submission and goes ahead", async () => {
+    const s = store([
+      () => ({ pendingApplicationSubmission: { id: "s1" } }),
+      () => ({ status: "CertificationFailed" }),
       () => null,
     ]);
     expect(await clearPending(s.call, "APP", noWait)).toBe(true);
     expect(s.log.at(-1)).toBe("DELETE applications/APP/submissions/s1");
+  });
+
+  it("hands back a draft to reuse instead of deleting it", async () => {
+    const s = store([
+      () => ({ pendingApplicationSubmission: { id: "s1" } }),
+      () => ({ status: "PendingCommit" }),
+    ]);
+    expect(await clearPending(s.call, "APP", noWait)).toBe("s1");
+    expect(s.log.some((l) => l.startsWith("DELETE"))).toBe(false);
   });
 
   it("goes ahead at once when nothing is pending", async () => {
@@ -122,7 +147,7 @@ describe("clearPending", () => {
   it("on a 409 looks again, and goes ahead once Microsoft has published it", async () => {
     const s = store([
       () => ({ pendingApplicationSubmission: { id: "s1" } }),
-      () => ({ status: "Release" }),
+      () => ({ status: "PublishFailed" }),
       conflict,
       () => ({}), // published meanwhile: the slot is free
     ]);
