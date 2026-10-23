@@ -43,6 +43,9 @@ export const BUILD_ONLY_TOOLS = [
   // A relic is written to the workspace (or published) — a write, so not on the
   // read-only Plan/Explore/Review surfaces.
   "relic",
+  // Clicking and typing on the user's screen acts, it does not read: never on the
+  // read-only surfaces. Also only for a model computer use is switched on for.
+  "computer",
 ] as const satisfies readonly string[];
 
 const BUILD_ONLY_SET = new Set<string>(BUILD_ONLY_TOOLS);

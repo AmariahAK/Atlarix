@@ -28,6 +28,7 @@ import {
   type ModeRegistryKey,
 } from "./mode-tool-registry";
 import { isCoreTool, isWorkspaceIntegrationTool } from "./ToolManifest";
+import { computerLane } from "@/lib/computer/lane";
 import {
   getCapabilityProfile,
   type ModelCapabilityProfile,
@@ -165,7 +166,7 @@ export function resolveToolsetForSession(
    * convention it assumes; this names the tools.
    */
   const DRIVES_A_VIEW = (name: string) =>
-    name === "browser" || name.startsWith("browser_");
+    name === "browser" || name.startsWith("browser_") || name === "computer";
   // Unattended (automation) runs happen inside the real app — MCP servers,
   // web search, attachments all exist — so only human-handoff and UI-view
   // tools are dropped: ask_user would park the turn forever (no responder),
@@ -200,13 +201,18 @@ export function resolveToolsetForSession(
   // Image tools only for a model whose tool results can carry the image. Any
   // other gets "this model cannot view images" back from a screenshot or an
   // image file: a paid round trip for nothing, so they are not offered.
-  const tools = capabilityProfile.supportsToolMedia
+  const imageGated = capabilityProfile.supportsToolMedia
     ? afterUnattended
     : afterUnattended
         .filter((t) => t.name !== "view_image")
         .map((t) =>
           t.name === "browser_inspect" ? browserInspectWithoutScreenshot(t) : t,
         );
+  // Computer use exists only for a model the user switched it on for, and
+  // only if that model can see the screenshots (lib/computer/lane.ts).
+  const tools = imageGated.filter(
+    (t) => t.name !== "computer" || computerLane(model) != null,
+  );
 
   // Sub-agent (`task`) surface: available in EVERY mode (v13 — parallel
   // read-only scouts help build/debug too, matching Claude Code's Task tool).
