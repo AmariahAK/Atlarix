@@ -894,17 +894,6 @@ export interface SelectNodeFolderResult {
   selectedPath: string | null;
 }
 
-/** Discord invite API (main process) — metadata for Community dialog. */
-export type DiscordInviteInfoResult =
-  | {
-      ok: true;
-      name: string;
-      description: string | null;
-      memberCount?: number;
-      presenceCount?: number;
-    }
-  | { ok: false };
-
 /** One aggregated row of the edit-stats rollup. */
 export interface EditStatsBucket {
   linesAdded: number;

@@ -53,7 +53,6 @@ import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
 import { preloadSounds, setSoundPreferences } from "@/lib/sounds";
-import { CommunityDialog } from "@/components/CommunityDialog";
 import { GlobalAppSearch } from "@/components/GlobalAppSearch";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 import type { FileAttachment } from "@/ipc/ipc_types";
@@ -521,7 +520,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <AnalyticsConsentModal />
       <ThemeProvider>
         <DeepLinkProvider>
-          <CommunityDialog />
           {/* Cmd/Ctrl+K from anywhere — see GlobalAppSearch for why it cannot
               live inside AppList. */}
           <GlobalAppSearch />

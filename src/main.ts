@@ -65,6 +65,7 @@ import {
 import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
+import { DISCORD_INVITE_URL } from "./lib/community/discord";
 import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
 import fs from "fs";
 import os from "node:os";
@@ -1523,12 +1524,9 @@ function setMainApplicationMenu(): void {
       role: "help",
       submenu: [
         {
-          label: "Community",
-          click: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send("open-community-dialog");
-            }
-          },
+          // The Discord server itself, not a dialog about it (15.11).
+          label: "Community on Discord",
+          click: () => void shell.openExternal(DISCORD_INVITE_URL),
         },
       ],
     },

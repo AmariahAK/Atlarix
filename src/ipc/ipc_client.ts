@@ -46,7 +46,6 @@ import type {
   McpServerUpdate,
   CreateMcpServer,
   SelectNodeFolderResult,
-  DiscordInviteInfoResult,
   PlanUpdatePayload,
   ListRepoSkillsResult,
   ChatTokenUsage,
@@ -2343,12 +2342,6 @@ export class IpcClient {
   /** `/feedback`, or the text after a rating. */
   public async sendFeedback(text: string, session: FeedbackSessionInfo): Promise<{ ok: boolean; error?: string }> {
     return this.ipcRenderer.invoke("feedback:send", { text, session }) as Promise<{ ok: boolean; error?: string }>;
-  }
-
-  public async getDiscordInviteInfo(): Promise<DiscordInviteInfoResult> {
-    return this.ipcRenderer.invoke(
-      "discord:get-invite-info",
-    ) as Promise<DiscordInviteInfoResult>;
   }
 
   public async showItemInFolder(fullPath: string): Promise<void> {

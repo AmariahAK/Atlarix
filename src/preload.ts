@@ -311,8 +311,6 @@ const validInvokeChannels = [
   "auth:refresh-plan",
   "auth:manage-subscription",
   "auth:cancel-subscription",
-  // Community (Discord)
-  "discord:get-invite-info",
   // The session rating and /feedback (lib/feedback/session-rating.ts).
   "feedback:state",
   "feedback:rate",
@@ -414,8 +412,6 @@ const validReceiveChannels = [
   "automations:focus-feed", // main → renderer: OS-notification click → open the automations tab
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
-  // OAuth callback from main process
-  "open-community-dialog",
   // Auto-updater
   "update:downloading", // update is being fetched in background; payload: { version: string }
   "update:downloaded", // update ready to install; payload: { version: string }
