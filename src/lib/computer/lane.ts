@@ -118,12 +118,24 @@ export function computerLane(m: ComputerModel): ComputerLane | null {
  * prompt from an app you didn't expect reads as something recording you
  * (owner, 2026-10-23). Null when nothing is left to grant, or off macOS.
  */
+let bothGranted = false;
+/** ACP builds its options on every session/new and model switch: never stall it on the executor. */
+const NOTICE_WAIT_MS = 1500;
+
 export async function computerUseGrantNotice(): Promise<string | null> {
-  if (process.platform !== "darwin") return null;
+  if (process.platform !== "darwin" || bothGranted) return null;
   try {
     const { helperRequest } = await import("./helper");
-    const p = await helperRequest("permissions");
-    if (p.screen === "granted" && p.accessibility === "granted") return null;
+    const p = await Promise.race([
+      helperRequest("permissions"),
+      new Promise<null>((r) => setTimeout(() => r(null), NOTICE_WAIT_MS).unref?.()),
+    ]);
+    if (!p) return null;
+    if (p.screen === "granted" && p.accessibility === "granted") {
+      // Grants aren't taken back mid-session in practice: stop asking.
+      bothGranted = true;
+      return null;
+    }
     const app = typeof p.app === "string" && p.app ? p.app : "Atlarix";
     return `macOS will ask to let ${app} record the screen and control the computer. That's Atlarix's computer use.`;
   } catch {
@@ -133,4 +145,5 @@ export async function computerUseGrantNotice(): Promise<string | null> {
 
 export function __resetComputerLaneForTests(): void {
   rejected = null;
+  bothGranted = false;
 }
