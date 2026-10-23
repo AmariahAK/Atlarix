@@ -61,6 +61,8 @@ export interface LocalSession {
   surface?: Surface;
   /** The model it runs on, as people see it, for list_sessions (item 9). */
   model?: string;
+  /** How its latest turn here ended, for another session's `result_of`. */
+  lastTurn?: TurnRecord;
   /**
    * Hand the message on instead of queueing it in a chat here: a session this
    * process registers on behalf of something else (a browser behind the
@@ -71,6 +73,14 @@ export interface LocalSession {
     from: PeerFrame["from"],
     text: string,
   ) => Promise<{ ok: boolean; error?: string }>;
+}
+
+/** How a turn ended (lib/analytics/turn-end's outcome and error kind) and when. */
+export interface TurnRecord {
+  outcome: string;
+  errorKind?: string;
+  startedAt: number;
+  endedAt: number;
 }
 
 export interface PeerSessionRow {
@@ -222,6 +232,11 @@ function ensureTable(db: Sqlite): void {
   } catch {
     /* already there */
   }
+  try {
+    db.exec(`ALTER TABLE ${LIVE_SESSIONS_TABLE} ADD COLUMN last_turn TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    /* already there */
+  }
 }
 
 /**
@@ -287,8 +302,8 @@ function publish(): void {
     ).run(process.pid, host);
     const insert = d.prepare(
       `INSERT INTO ${LIVE_SESSIONS_TABLE}
-       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model, last_turn)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     // This process itself: how a handoff reaches "the app" with nothing open.
     insert.run(
@@ -303,6 +318,7 @@ function publish(): void {
       0,
       now,
       "[]",
+      "",
       "",
     );
     for (const s of local.values()) {
@@ -319,6 +335,7 @@ function publish(): void {
         now,
         JSON.stringify(s.aliases ?? []),
         s.model ?? (s.deliver ? "" : (defaultModelLabel() ?? "")),
+        s.lastTurn ? JSON.stringify(s.lastTurn) : "",
       );
     }
   } catch (e) {
@@ -402,7 +419,11 @@ export function noteLiveSession(s: LocalSession): void {
   }
   // The model, kept: registering again (a rename, a reload) dropped it, and it
   // may have been told before the session was registered at all (QA A11).
-  s = { ...s, model: s.model ?? prev?.model ?? modelsBeforeRegistration.get(s.sessionId) };
+  s = {
+    ...s,
+    model: s.model ?? prev?.model ?? modelsBeforeRegistration.get(s.sessionId),
+    lastTurn: s.lastTurn ?? prev?.lastTurn,
+  };
   modelsBeforeRegistration.delete(s.sessionId);
   local.set(s.sessionId, s);
   if (!prev || prev.name !== s.name || prev.chatId !== s.chatId || prev.model !== s.model) publish();
@@ -484,7 +505,8 @@ export async function receive(
   }
   if (f.type === "steer" || f.type === "stop") return control(f);
   let target = local.get(f.to);
-  if (!target || !hostImpl) return { ok: false, error: "no such session here" };
+  // Not "sent": nothing here shows it, so nothing would read it (QA A2).
+  if (!target || !hostImpl) return { ok: false, error: NOT_OPEN_HERE };
   if (hostImpl.inbound() === "refuse")
     return {
       ok: false,
@@ -628,11 +650,16 @@ async function control(f: PeerFrame): Promise<{ ok: boolean; error?: string }> {
 /** What `control` answers when the turn has already ended. */
 export const NOT_RUNNING = "not running";
 
+/** A session this process no longer shows (switched away from, or closed). */
+export const NOT_OPEN_HERE =
+  "that session is not open there any more; it is saved, and the user can reopen it (/resume or the app)";
+
 // ─── other sessions: list + send ─────────────────────────────────────────────
 
 interface Row {
   aliases?: string;
   model?: string;
+  last_turn?: string;
   session_id: string;
   pid: number;
   host: string;
@@ -879,6 +906,61 @@ export function sendPeerMessage(
     { type: "peer-message", token: row.token, to: row.session_id, id: randomUUID(), text, ...(set ? { set } : {}), from },
     "that session did not answer",
   );
+}
+
+/** A turn of a session this process runs ended: what another session's `result_of` reads. */
+export function noteTurnEnded(
+  chatId: number,
+  end: { outcome: string; errorKind?: string },
+  startedAt: number,
+): void {
+  for (const s of local.values()) {
+    if (s.deliver || s.chatId !== chatId) continue;
+    s.lastTurn = {
+      outcome: end.outcome,
+      ...(end.errorKind ? { errorKind: end.errorKind } : {}),
+      startedAt,
+      endedAt: Date.now(),
+    };
+  }
+  publish();
+}
+
+/** The turn record a live row carries, if its process noted one. */
+export function turnRecordOf(row: { last_turn?: string }): TurnRecord | null {
+  if (!row.last_turn) return null;
+  try {
+    const t = JSON.parse(row.last_turn) as TurnRecord;
+    return typeof t.outcome === "string" && typeof t.endedAt === "number" ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A session's latest reply as saved, from `since` (ms) when given. */
+export function latestReply(
+  sessionId: string,
+  since?: number,
+): { content: string; status: string; at: number; snapshotTurnId: string | null } | null {
+  const d = db();
+  if (!d) return null;
+  try {
+    const [r] = d
+      .prepare(
+        `SELECT content, status, created_at, snapshot_turn_id FROM session_messages
+         WHERE session_id = ? AND role = 'assistant' AND kind = 'message'
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      )
+      .all(sessionId) as Array<{ content: string; status: string; created_at: number; snapshot_turn_id: string | null }>;
+    if (!r) return null;
+    const at = r.created_at * 1000; // drizzle `timestamp` columns hold seconds
+    // A turn that failed before replying left no row: the one found is an
+    // earlier turn's, which is not this turn's reply.
+    if (since != null && at < since - 1000) return null;
+    return { content: r.content, status: r.status, at, snapshotTurnId: r.snapshot_turn_id };
+  } catch {
+    return null; // no session_messages here (tests)
+  }
 }
 
 /** The model a session of this process runs on, as people see it, for list_sessions (item 9). */

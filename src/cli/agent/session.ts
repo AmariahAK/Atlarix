@@ -495,8 +495,15 @@ export class AgentSession extends EventEmitter {
    * (ensureSession), so opening the CLI and leaving does not add an empty
    * session to the desktop app's list.
    */
-  async newSession(): Promise<void> {
+  async newSession(opts: { opening?: string } = {}): Promise<void> {
     clearAccountMcpServers();
+    // The session left is not shown here any more, so it must not stay reachable
+    // here: a message to it went to a chat nobody showed (QA A2, after /fork).
+    // Not the one being opened, which /resume has just registered.
+    const left = this.sessionId;
+    if (left && left !== opts.opening) {
+      void import("@/lib/peers/peers").then((m) => m.forgetLiveSession(left));
+    }
     this.sessionId = "";
     this.chatId = 0;
     this.messages = [];
@@ -577,7 +584,7 @@ export class AgentSession extends EventEmitter {
     const got = (await (await handler("sessions:get"))({}, sessionId)) as { session: SessionSummary; messages: SavedMessage[] };
     const rows = got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
     await (await handler("sessions:hydrate-transport"))({}, { chatId, sessionId, rows });
-    await this.newSession();
+    await this.newSession({ opening: sessionId });
     this.sessionId = sessionId;
     this.chatId = chatId;
     void this.reportModel();

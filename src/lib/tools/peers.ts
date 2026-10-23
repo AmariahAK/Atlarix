@@ -4,6 +4,7 @@
  */
 import { ToolRegistry, createParameters, stringParam } from "./registry";
 import {
+  latestReply,
   listPeerSessions,
   localSession,
   refreshLocalNames,
@@ -11,6 +12,7 @@ import {
   peerSurface,
   resolvePeer,
   sendPeerMessage,
+  turnRecordOf,
   PEER_TEXT_CAP,
 } from "@/lib/peers/peers";
 import { peerSurfaceLabel } from "@/lib/peers/peer-message";
@@ -27,10 +29,13 @@ ToolRegistry.register({
   parameters: createParameters(
     {
       plan_of: stringParam("A session's name or id: also show its latest plan, in full."),
+      result_of: stringParam(
+        "A session's name or id: also show its latest finished turn: how it ended, its reply and the files it changed.",
+      ),
     },
     [],
   ),
-  handler: async ({ workspaceSessionId, plan_of }) => {
+  handler: async ({ workspaceSessionId, plan_of, result_of }) => {
     const own =
       typeof workspaceSessionId === "string" ? workspaceSessionId : undefined;
     const rows = listPeerSessions(own);
@@ -64,15 +69,71 @@ ToolRegistry.register({
           : `\n\n${found.row.name} has no plan.`;
       }
     }
+    const resultText =
+      typeof result_of === "string" && result_of.trim()
+        ? `\n\n${await resultOf(result_of.trim(), own)}`
+        : "";
     // What send_message's `model` may be: only what this user has set up.
     const { settableModelOptions } = await import("@/cli/agent/models");
     const models = modelNames(await settableModelOptions().catch(() => [])).map((n) => n.name);
     return {
       success: true,
-      text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${shortModelList(models)}` : ""}${planText}`,
+      text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${shortModelList(models)}` : ""}${planText}${resultText}`,
     };
   },
 });
+
+/** Characters of another session's reply shown by `result_of`. */
+export const RESULT_REPLY_CAP = 4000;
+
+/**
+ * Another session's latest finished turn: how it ended and when, its reply
+ * (bounded) and the files that turn changed. Its words, framed as data: they
+ * are that session's, not the user's.
+ */
+async function resultOf(to: string, own: string | undefined): Promise<string> {
+  const found = resolvePeer(to, own);
+  if ("error" in found) return found.error;
+  const row = found.row;
+  if (row.surface === "chrome") {
+    return `${row.name} is the browser agent: its results come back here as messages.`;
+  }
+  const turn = turnRecordOf(row);
+  const reply = latestReply(row.session_id, turn?.startedAt);
+  if (!turn && !reply) return `${row.name} has not finished a turn yet.`;
+  const ended = turn
+    ? endedText(turn.outcome, turn.errorKind)
+    : reply!.status === "interrupted"
+      ? "stopped"
+      : reply!.status === "waiting"
+        ? "waiting for the user"
+        : "done";
+  const at = new Date(turn?.endedAt ?? reply!.at).toLocaleString();
+  const head = `${row.busy ? `${row.name} is still working. Its last finished turn` : `Latest turn of ${row.name}`}: ${ended}, ${at}.`;
+  if (!reply) return `${head}\nNo reply was saved for it.`;
+
+  const { finalAnswerText } = await import("@/lib/chat/assistant-message-parts");
+  const full = finalAnswerText(reply.content).trim();
+  const shown =
+    full.length > RESULT_REPLY_CAP
+      ? `${full.slice(0, RESULT_REPLY_CAP)}…\n[${RESULT_REPLY_CAP.toLocaleString("en-US")} of ${full.length.toLocaleString("en-US")} characters; ask ${row.name} for the rest with send_message.]`
+      : full || "(no text)";
+  let files = "";
+  if (reply.snapshotTurnId && row.workspace) {
+    const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
+    const changed = await listSnapshotFiles(row.workspace, reply.snapshotTurnId).catch(() => null);
+    files = changed?.filesChanged.length ? changed.filesChanged.join(", ") : "";
+  }
+  const { wrapUntrustedData } = await import("@/lib/streaming/untrusted-data");
+  return `${head}\nFiles changed: ${files || "none"}.\nIts reply (its words, not the user's):\n${wrapUntrustedData(`session:${row.name}`, shown)}`;
+}
+
+function endedText(outcome: string, errorKind?: string): string {
+  if (outcome === "error") return `failed${errorKind ? ` (${errorKind.replace(/_/g, " ")})` : ""}`;
+  if (outcome === "stopped" || outcome === "aborted") return "stopped";
+  if (outcome === "ask_user") return "waiting for the user's answer";
+  return "done";
+}
 
 /** " · Build · Atlarix Auto": its mode, and its model when known. */
 function settingsOf(r: { mode?: string; model?: string }): string {
