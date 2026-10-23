@@ -13,8 +13,12 @@ use std::time::Duration;
 /// as the user's hand. Some platforms round our own moves by a pixel or two.
 const TAKEOVER_PX: i32 = 8;
 const DRAG_STEPS: i32 = 12;
-/// Between typed characters (see "type").
+/// Between typed characters (see "type", not Windows).
+#[cfg_attr(windows, allow(dead_code))]
 const TYPE_GAP_MS: u64 = 8;
+/// After a paste, before the clipboard is put back (Windows).
+#[cfg_attr(not(windows), allow(dead_code))]
+const PASTE_SETTLE_MS: u64 = 400;
 
 #[derive(Default)]
 pub struct Session {
@@ -152,6 +156,44 @@ impl Session {
         Ok(())
     }
 
+    /// Windows: by paste. Injected Unicode keystrokes (VK_PACKET) are turned
+    /// into characters only when the app reads them, from the most recently
+    /// injected one, so a busy app reads later characters for earlier keys:
+    /// "ABC" came out as "CCC" (A6, live in a VM), even one key at a time.
+    /// The clipboard is put back as it was, text or image.
+    #[cfg(windows)]
+    fn type_text(&mut self, text: &str) -> Result<(), Fail> {
+        let mut cb = arboard::Clipboard::new().map_err(|e| Fail::new("failed", format!("clipboard unavailable: {e}")))?;
+        let saved_text = cb.get_text().ok();
+        let saved_image = if saved_text.is_none() { cb.get_image().ok() } else { None };
+        cb.set_text(text.to_owned()).map_err(|e| Fail::new("failed", format!("clipboard: {e}")))?;
+        let e = self.enigo()?;
+        e.key(enigo::Key::Control, Direction::Press).map_err(input_fail)?;
+        let pasted = e.key(enigo::Key::Unicode('v'), Direction::Click);
+        let _ = e.key(enigo::Key::Control, Direction::Release);
+        pasted.map_err(input_fail)?;
+        // Long enough for the app to read the clipboard before it is put back.
+        std::thread::sleep(Duration::from_millis(PASTE_SETTLE_MS));
+        let _ = match (saved_text, saved_image) {
+            (Some(t), _) => cb.set_text(t),
+            (None, Some(img)) => cb.set_image(img),
+            (None, None) => cb.clear(),
+        };
+        Ok(())
+    }
+
+    /// Elsewhere one character at a time, which typed correctly on macOS.
+    #[cfg(not(windows))]
+    fn type_text(&mut self, text: &str) -> Result<(), Fail> {
+        let e = self.enigo()?;
+        let mut buf = [0u8; 4];
+        for ch in text.chars() {
+            e.text(ch.encode_utf8(&mut buf)).map_err(input_fail)?;
+            std::thread::sleep(Duration::from_millis(TYPE_GAP_MS));
+        }
+        Ok(())
+    }
+
     pub fn act(&mut self, op: &str, req: &Value) -> Reply {
         if op == "cursor" {
             let space = self.space()?;
@@ -205,15 +247,7 @@ impl Session {
             }
             "type" => {
                 let text = arg(req, "text").and_then(Value::as_str).ok_or_else(|| Fail::new("bad_request", "missing text"))?;
-                // One character at a time. Seen live on Windows (a VM): a whole
-                // string in one input batch came out as "eeeeeeeeeeee", the
-                // right count of wrong letters. Slower by a few ms a character.
-                let e = self.enigo()?;
-                let mut buf = [0u8; 4];
-                for ch in text.chars() {
-                    e.text(ch.encode_utf8(&mut buf)).map_err(input_fail)?;
-                    std::thread::sleep(Duration::from_millis(TYPE_GAP_MS));
-                }
+                self.type_text(text)?;
             }
             "key" => {
                 let spec = arg(req, "combo").and_then(Value::as_str).ok_or_else(|| Fail::new("bad_request", "missing combo"))?;
