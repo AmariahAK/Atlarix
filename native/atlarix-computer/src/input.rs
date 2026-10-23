@@ -166,20 +166,25 @@ impl Session {
         let mut cb = arboard::Clipboard::new().map_err(|e| Fail::new("failed", format!("clipboard unavailable: {e}")))?;
         let saved_text = cb.get_text().ok();
         let saved_image = if saved_text.is_none() { cb.get_image().ok() } else { None };
-        cb.set_text(text.to_owned()).map_err(|e| Fail::new("failed", format!("clipboard: {e}")))?;
-        let e = self.enigo()?;
-        e.key(enigo::Key::Control, Direction::Press).map_err(input_fail)?;
-        let pasted = e.key(enigo::Key::Unicode('v'), Direction::Click);
-        let _ = e.key(enigo::Key::Control, Direction::Release);
-        pasted.map_err(input_fail)?;
+        set_private_text(&mut cb, text).map_err(|e| Fail::new("failed", format!("clipboard: {e}")))?;
+        let pasted = self.enigo().and_then(|e| {
+            e.key(enigo::Key::Control, Direction::Press).map_err(input_fail)?;
+            let r = e.key(enigo::Key::Unicode('v'), Direction::Click);
+            let _ = e.key(enigo::Key::Control, Direction::Release);
+            r.map_err(input_fail)
+        });
         // Long enough for the app to read the clipboard before it is put back.
         std::thread::sleep(Duration::from_millis(PASTE_SETTLE_MS));
-        let _ = match (saved_text, saved_image) {
-            (Some(t), _) => cb.set_text(t),
-            (None, Some(img)) => cb.set_image(img),
-            (None, None) => cb.clear(),
-        };
-        Ok(())
+        // Put the user's clipboard back whether or not the paste worked, but
+        // only if it still holds our text: a copy they made since stays.
+        if cb.get_text().ok().as_deref() == Some(text) {
+            let _ = match (saved_text, saved_image) {
+                (Some(t), _) => cb.set_text(t),
+                (None, Some(img)) => cb.set_image(img),
+                (None, None) => cb.clear(),
+            };
+        }
+        pasted
     }
 
     /// Elsewhere one character at a time, which typed correctly on macOS.
@@ -312,6 +317,15 @@ fn next_last(
     moved.or(prev).or_else(read)
 }
 
+/// What the model types is the user's (a username, a URL with a token): kept
+/// out of Windows clipboard history (Win+V), the cloud clipboard, and
+/// clipboard monitors.
+#[cfg(windows)]
+pub(crate) fn set_private_text(cb: &mut arboard::Clipboard, text: &str) -> Result<(), arboard::Error> {
+    use arboard::SetExtWindows;
+    cb.set().exclude_from_history().exclude_from_cloud().exclude_from_monitoring().text(text.to_owned())
+}
+
 fn took_control() -> Fail {
     Fail::new("user_took_control", "the user moved the mouse and took control of the screen")
 }
@@ -365,5 +379,27 @@ mod tests {
         assert_eq!(s.check_takeover().err().map(|f| f.code), Some("user_took_control"));
         s.reset();
         assert!(s.check_takeover().is_ok());
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use windows::core::HSTRING;
+    use windows::Win32::System::DataExchange::{IsClipboardFormatAvailable, RegisterClipboardFormatW};
+
+    fn on_clipboard(name: &str) -> bool {
+        let id = unsafe { RegisterClipboardFormatW(&HSTRING::from(name)) };
+        id != 0 && unsafe { IsClipboardFormatAvailable(id) }.is_ok()
+    }
+
+    #[test]
+    fn typed_text_stays_out_of_history_cloud_and_monitors() {
+        // A runner without a clipboard has nothing to prove here.
+        let Ok(mut cb) = arboard::Clipboard::new() else { return };
+        super::set_private_text(&mut cb, "atlarix clipboard test").expect("set");
+        for name in ["CanIncludeInClipboardHistory", "CanUploadToCloudClipboard", "ExcludeClipboardContentFromMonitorProcessing"] {
+            assert!(on_clipboard(name), "{name} must be on the clipboard with the typed text");
+        }
+        let _ = cb.clear();
     }
 }
