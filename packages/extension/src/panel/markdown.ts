@@ -346,6 +346,23 @@ function appendInline(parent: HTMLElement, text: string): void {
 }
 
 /** A link that opens outside: its text is text, never markup. */
+const BARE_URL = /\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?]/g;
+
+/**
+ * Plain text (command output, a failure line, a message) into `parent`, with
+ * every http(s) URL in it a link. Nothing else is interpreted: no markdown.
+ */
+export function linkifyText(parent: HTMLElement, text: string): void {
+  let last = 0;
+  for (const m of text.matchAll(BARE_URL)) {
+    const at = m.index ?? 0;
+    if (at > last) parent.append(document.createTextNode(text.slice(last, at)));
+    parent.append(anchor(m[0], m[0]));
+    last = at + m[0].length;
+  }
+  if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+}
+
 function anchor(href: string, text: string): HTMLAnchorElement {
   const el = document.createElement("a");
   el.href = href;

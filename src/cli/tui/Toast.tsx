@@ -5,6 +5,7 @@
  * left/right bars take the variant's colour.
  */
 import { color } from "./theme";
+import { linkify } from "./links";
 
 export type ToastVariant = "info" | "success" | "warn" | "error";
 
@@ -37,7 +38,7 @@ export function Toast({ toast, width }: { toast: ToastState; width: number }) {
       paddingBottom={1}
     >
       <text fg={toast.variant === "error" ? color.error : color.text} wrapMode="word">
-        {toast.message}
+        {linkify(toast.message)}
       </text>
     </box>
   );

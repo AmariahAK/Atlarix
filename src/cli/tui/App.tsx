@@ -22,6 +22,7 @@
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
+import { setTerminalHyperlinks } from "./links";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
 import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
 
@@ -491,6 +492,21 @@ export function App({
   const effortSuffix = effortNow && effortNow !== effortInfo.choices?.defaultLevel ? ` · ${effortNow}` : "";
   const composer = useRef<ComposerApi | null>(null);
   const renderer = useRenderer();
+  // Can this terminal click a link (OSC 8)? It answers a query after start-up;
+  // until then links also print their URL (links.tsx).
+  const [, setLinkable] = useState(false);
+  useEffect(() => {
+    const apply = () => {
+      const on = !!renderer.capabilities?.hyperlinks;
+      setTerminalHyperlinks(on);
+      setLinkable(on);
+    };
+    apply();
+    renderer.on("capabilities", apply);
+    return () => {
+      renderer.off("capabilities", apply);
+    };
+  }, [renderer]);
   // /undo and esc esc: the earlier message the next send replaces.
   const [edit, setEditState] = useState<PendingEdit | null>(null);
   const editRef = useRef<PendingEdit | null>(null);

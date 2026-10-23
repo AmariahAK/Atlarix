@@ -335,3 +335,30 @@ describe("a background sub-agent's report", () => {
     expect(meta).not.toContain("Background sub-agent started");
   });
 });
+
+describe("links in command output", () => {
+  it("a dev server's URL rides as a resource_link the editor can open, beside the text", () => {
+    const [u] = diffUpdates(
+      [
+        {
+          kind: "tool",
+          id: "m:t:run_command_9",
+          tool: {
+            id: "y",
+            verb: "Run",
+            target: "npm run dev",
+            status: "success",
+            output: "VITE ready\n  Local:   http://localhost:5173/\n  Network: http://192.168.1.4:5173/.\n  Local:   http://localhost:5173/",
+          },
+        },
+      ],
+      new Map(),
+    );
+    const content = (u as { content: Array<{ content: { type: string; uri?: string } }> }).content;
+    expect(content[0]!.content.type).toBe("text");
+    expect(content.slice(1).map((c) => c.content)).toEqual([
+      { type: "resource_link", uri: "http://localhost:5173/", name: "http://localhost:5173/" },
+      { type: "resource_link", uri: "http://192.168.1.4:5173/", name: "http://192.168.1.4:5173/" },
+    ]);
+  });
+});

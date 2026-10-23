@@ -22,6 +22,7 @@ import { useGrammar } from "./grammars";
 import { prepareMarkdown, settleStreaming } from "./markdown-prep";
 import { infoStringToFiletype } from "@opentui/core";
 import { color, syntax } from "./theme";
+import { Link } from "./links";
 
 /** ```ts, ```py, ```shell…: the short tags people write, as the grammar names. */
 export function fenceFiletype(lang: string | undefined): string | undefined {
@@ -99,10 +100,13 @@ function Inline({ tokens, fallback = "" }: { tokens?: Token[]; fallback?: string
       case "link": {
         const l = t as Tokens.Link;
         const label = inlineText(l.tokens, l.text);
-        return (
+        return l.href ? (
+          <span key={i}>
+            <Link href={l.href} label={label} />
+          </span>
+        ) : (
           <span key={i} fg={color.accent}>
             {label}
-            {l.href && l.href !== label && !l.href.startsWith("#") ? <span fg={color.muted}>{` (${l.href})`}</span> : null}
           </span>
         );
       }

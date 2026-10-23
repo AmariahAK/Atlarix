@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { lexer, type Tokens } from "marked";
 import { fenceFiletype, Prose, tableLines } from "../src/cli/tui/Prose";
+import { linkify, oneLineKeepingUrl, setTerminalHyperlinks } from "../src/cli/tui/links";
 
 let destroy: (() => void) | null = null;
 afterEach(() => {
@@ -79,5 +80,51 @@ describe("prose in the terminal", () => {
     expect(fenceFiletype("py")).toBe("python");
     expect(fenceFiletype("rust title=main.rs")).toBe("rust");
     expect(fenceFiletype(undefined)).toBeUndefined();
+  });
+});
+
+describe("links are clickable (OSC 8)", () => {
+  /** The text drawn, and which characters of it link where (the renderer's own hit test). */
+  async function linksIn(node: React.ReactNode, width = 80, height = 6) {
+    const setup = await testRender(node, { width, height });
+    destroy = () => setup.renderer.destroy();
+    await setup.renderOnce();
+    await setup.renderOnce();
+    const text = setup.captureCharFrame();
+    const rows = text.split("\n");
+    const r = setup.renderer as unknown as { getLinkAt(x: number, y: number): string | null };
+    const links = new Map<string, string>();
+    rows.forEach((row, y) => {
+      [...row].forEach((ch, x) => {
+        const url = r.getLinkAt(x, y);
+        if (url) links.set(url, (links.get(url) ?? "") + ch);
+      });
+    });
+    return { text, links };
+  }
+
+  it("a markdown link's label is a link, and its URL shows where the terminal cannot link", async () => {
+    setTerminalHyperlinks(false);
+    const a = await linksIn(<Prose text={"See [the docs](https://atlarix.dev/docs)."} width={80} plain />);
+    expect(a.links.get("https://atlarix.dev/docs")).toBe("the docs");
+    expect(a.text).toContain("(https://atlarix.dev/docs)");
+    setTerminalHyperlinks(true);
+    const b = await linksIn(<Prose text={"See [the docs](https://atlarix.dev/docs)."} width={80} plain />);
+    expect(b.links.get("https://atlarix.dev/docs")).toBe("the docs");
+    expect(b.text).not.toContain("(https://atlarix.dev/docs)");
+    setTerminalHyperlinks(false);
+  });
+
+  it("a bare URL in plain text (command output, a flash) is a link", async () => {
+    const f = await linksIn(<text>{linkify("  ➜  Local:   http://localhost:5173/ ready.")}</text>);
+    expect([...f.links.entries()]).toEqual([["http://localhost:5173/", "http://localhost:5173/"]]);
+  });
+
+  it("a cut line keeps its URL whole, and non-http stays text", () => {
+    const line = "  VITE v6.0.0  ready in 312 ms   ➜  Local:   http://localhost:5173/";
+    const cut = oneLineKeepingUrl(line, 40);
+    expect(cut.endsWith("http://localhost:5173/")).toBe(true);
+    expect(cut.length).toBeLessThanOrEqual(40);
+    expect(linkify("javascript:alert(1) and file:///etc/passwd")).toHaveLength(1);
   });
 });

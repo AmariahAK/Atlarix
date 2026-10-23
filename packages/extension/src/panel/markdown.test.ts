@@ -10,7 +10,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { renderMarkdown } from "./markdown";
+import { linkifyText, renderMarkdown } from "./markdown";
 
 let host: HTMLElement;
 beforeEach(() => {
@@ -381,5 +381,17 @@ describe("checklists", () => {
     renderMarkdown(el, "- [ ] Add it\n- [x] Agree the name");
     const items = [...el.querySelectorAll("li")].map((li) => li.textContent);
     expect(items).toEqual(["☐ Add it", "☑ Agree the name"]);
+  });
+});
+
+describe("linkifyText: plain text with its URLs as links", () => {
+  it("links http(s) only, leaves the rest as text, and keeps the sentence's full stop", () => {
+    const pre = document.createElement("pre");
+    linkifyText(pre, "  Local:   http://localhost:5173/.\n  javascript:alert(1) <b>x</b>");
+    const links = [...pre.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["http://localhost:5173/"]);
+    expect(links[0]!.rel).toBe("noopener noreferrer");
+    expect(pre.textContent).toBe("  Local:   http://localhost:5173/.\n  javascript:alert(1) <b>x</b>");
+    expect(pre.querySelector("b")).toBeNull();
   });
 });

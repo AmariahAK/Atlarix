@@ -10,6 +10,7 @@
 import type { SessionUpdate, ToolCallContent, ToolKind, ToolCallStatus } from "@agentclientprotocol/sdk";
 import type { Cell, EditDiff, ToolLine } from "../agent/transcript";
 import { glyph } from "../tui/glyphs";
+import { urlsIn } from "@/lib/text/urls";
 
 /**
  * What each cell looked like when last sent, keyed by kind AND id: one id can
@@ -138,6 +139,11 @@ function toolContent(t: ToolLine, name: string): ToolCallContent[] {
   if (name === "run_command" && t.summary === "started in the background") return [text("Started in the background.")];
   const body = t.status === "error" || t.status === "interrupted" ? (t.error ?? t.output) : t.output;
   if (body?.trim()) out.push(text(body));
+  // A dev server's address and the like, as links the editor can open: command
+  // output is plain text, and an editor shows it verbatim.
+  if (name === "run_command" && body) {
+    for (const uri of urlsIn(body)) out.push({ type: "content", content: { type: "resource_link", uri, name: uri } });
+  }
   return out;
 }
 

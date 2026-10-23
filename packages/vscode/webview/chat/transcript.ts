@@ -6,7 +6,7 @@
  * question cards.
  */
 import type { ToolCallContent, ToolCallUpdate } from "@agentclientprotocol/sdk";
-import { renderMarkdown } from "../../../extension/src/panel/markdown";
+import { linkifyText, renderMarkdown } from "../../../extension/src/panel/markdown";
 import type { ContextItem } from "../../src/protocol";
 import { diffRows } from "../logic";
 import { post, rpc } from "../rpc";
@@ -395,12 +395,15 @@ function commandCard(title: string, output: string, status: string): HTMLElement
   card.append(head);
   const lines = output.replace(/\s+$/, "").split("\n");
   if (output.trim()) {
-    const pre = el("pre", "cmd-card__out", lines.slice(-12).join("\n"));
+    // A dev server's address in the output is a link (the CLI's OSC 8, ACP's resource_link).
+    const pre = el("pre", "cmd-card__out");
+    linkifyText(pre, lines.slice(-12).join("\n"));
     card.append(pre);
     if (lines.length > 12) {
       card.append(
         button(`Show all ${lines.length} lines`, "link small", (e) => {
-          pre.textContent = lines.join("\n");
+          pre.replaceChildren();
+          linkifyText(pre, lines.join("\n"));
           (e.currentTarget as HTMLElement).remove();
         }),
       );
@@ -526,7 +529,9 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     const scout = el("span", "scout");
     scout.innerHTML = rixGlyph(18);
     head.append(scout, el("strong", "", `Message from ${peer.from || "another session"}`));
-    d.append(head, el("div", "peer__text", text ?? ""));
+    const body = el("div", "peer__text");
+    linkifyText(body, text ?? "");
+    d.append(head, body);
     tools.set(t.toolCallId, d);
     log.append(d);
     return scrollDown();
@@ -567,7 +572,11 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
       // Why it failed, on a line of its own (the CLI's "╰ reason"); all of it on hover.
       node.title = text;
       const why = text.trim().split("\n").find((l) => l.trim()) ?? "";
-      if (why) node.append(el("span", "step__why", why.trim()));
+      if (why) {
+        const line = el("span", "step__why");
+        linkifyText(line, why.trim());
+        node.append(line);
+      }
     }
     // A step with nothing to name (internal bookkeeping) is a bare mark: hide it.
     node.classList.toggle("hidden", !title.trim());
