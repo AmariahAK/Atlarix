@@ -709,6 +709,8 @@ async function openTab(
   const loaded = await waitForLoad(tab.id);
 
   const granted = await canActOn(raw);
+  // Allowed by us but withheld by Chrome: reading will not ask, it is blocked.
+  const blocked = !granted && (await isGranted(raw)) && !(await hasHostAccess(raw));
   // MARK IT NOW, not on the next tool call. The frame used to appear one tool
   // later — the tab opened, loaded, sat there looking ordinary, and only turned
   // green once something read it. The gap is exactly when a user glances over
@@ -722,7 +724,9 @@ async function openTab(
       `${adopted ? "It is in Atlarix's tab group." : "It could not be added to Atlarix's tab group."} ` +
       (granted
         ? "You may read it."
-        : `Reading it will ask the user to allow ${origin}.`),
+        : blocked
+          ? "Chrome is blocking Atlarix from it (the user's Site access setting); reading will not work until they change it."
+          : `Reading it will ask the user to allow ${origin}.`),
   };
 }
 
@@ -1423,6 +1427,11 @@ async function listPeerSessionsTool(): Promise<ToolOutcome> {
  */
 /** The step's label when nothing was sent: the panel's default reads "Sent a message" (QA). */
 const NOT_SENT = "Message not sent";
+
+/** Did this send_message result deliver? Only a delivery says "Sent to …" (the panel's summary line). */
+export function peerMessageSent(content: string): boolean {
+  return content.startsWith("Sent to ");
+}
 
 async function sendToPeer(
   args: Record<string, unknown>,

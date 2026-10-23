@@ -137,3 +137,10 @@ describe("every tool has a verb", () => {
     ).toBe("Checked your connectors, Asked to use a connector");
   });
 });
+
+describe("a message that was not sent (QA)", () => {
+  it("is not summarised as sent", () => {
+    expect(summariseSteps([{ kind: "tool", name: "send_message_unsent" }])).toBe("Message not sent");
+    expect(summariseSteps([{ kind: "tool", name: "send_message" }])).toBe("Sent a message");
+  });
+});

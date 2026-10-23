@@ -66,7 +66,7 @@ import {
   type ToolCall,
 } from "../core/client";
 import { runTurn } from "../agent/loop";
-import { clearDrivenTabs, type Approval } from "../tools/dispatch";
+import { clearDrivenTabs, peerMessageSent, type Approval } from "../tools/dispatch";
 import { buildSystemPrompt } from "../agent/prompt";
 import { StreamPacer } from "./stream-pacer";
 import { errorMessageNodes } from "./error-link";
@@ -1685,7 +1685,16 @@ function renderConversation(history: CoreMessage[]): void {
       }
       const chip = toolChip(resolved);
       fillChip(chip, message.content);
-      restoreStep({ kind: "tool", name: resolved.function.name }, chip);
+      restoreStep(
+        {
+          kind: "tool",
+          name:
+            resolved.function.name === "send_message" && !peerMessageSent(message.content)
+              ? "send_message_unsent"
+              : resolved.function.name,
+        },
+        chip,
+      );
       // THE QUESTION IS RE-DERIVED, NOT STORED. `saveSession` already persists
       // the assistant message's `tool_calls`, so the arguments are here — which
       // is what lets a question survive the panel being closed and reopened,
@@ -1928,6 +1937,8 @@ async function send(peerTask?: string): Promise<void> {
     await compactIfNeeded(model, systemPromptTokens, controller.signal);
 
     const chips = new Map<string, HTMLDetailsElement>();
+    // Each call's step, so its outcome can relabel it (an unsent message is not "Sent").
+    const stepFor = new Map<string, { kind: "tool"; name: string }>();
 
     /**
      * The activity card currently collecting steps.
@@ -2026,7 +2037,9 @@ async function send(peerTask?: string): Promise<void> {
           bubble = null;
           const chip = toolChip(call);
           chips.set(call.id, chip);
-          stepInto({ kind: "tool", name: call.function.name }, chip);
+          const step = { kind: "tool" as const, name: call.function.name };
+          stepFor.set(call.id, step);
+          stepInto(step, chip);
         },
         onRound() {
           // Every round after the first waits on the model again, so the
@@ -2083,6 +2096,8 @@ async function send(peerTask?: string): Promise<void> {
         onToolResult(call, content, label, relic, files) {
           const chip = chips.get(call.id);
           if (chip) fillChip(chip, content, label);
+          const step = stepFor.get(call.id);
+          if (step && step.name === "send_message" && !peerMessageSent(content)) step.name = "send_message_unsent";
           // A RELIC IS NOT A STEP. It is a thing the user now has, so it gets a
           // card in the transcript rather than a line inside the collapsed
           // activity card — the same reasoning that keeps `ask_user` out of the

@@ -368,6 +368,16 @@ describe("close_tab cannot touch the user's tabs", () => {
 });
 
 describe("open_tab", () => {
+  it("a site we allow but Chrome withholds: says Chrome is blocking, not that it will ask", async () => {
+    granted.clear(); // "On click" in chrome://extensions
+    storage.set("atlarix.siteGrants.v1", {
+      "https://other.test": { origin: "https://other.test", grantedAt: 1 },
+    });
+    const out = await dispatchTool(call("open_tab", { url: "https://other.test/x" }), CTX);
+    expect(out.content).toContain("Chrome is blocking Atlarix from it");
+    expect(out.content).not.toContain("will ask the user");
+  });
+
   it("opens in the background and says whether it can be read", async () => {
     granted.clear();
     const out = await dispatchTool(
