@@ -27,6 +27,8 @@ export const state = {
   modelValue: "",
   /** The chosen model's effort levels (config id "thinking"); the default is marked "default". */
   thinking: null as { value: string; options: Array<{ value: string; name: string; description?: string | null }> } | null,
+  /** Computer use for the chat's model: on, or why it can't be (the agent's `computer_use` option). */
+  computerUse: null as { on: boolean; why: string | null } | null,
   commands: [] as Command[],
   settings: { attachOpenFile: true, ctrlEnterSends: false, notifyWhenNeeded: true } as HostSettings,
   providers: null as ProviderRow[] | null,
@@ -53,6 +55,7 @@ export function emit(topic: Topic): void {
 /** Mode, model and thinking from the agent's config options. */
 export function applyOptions(opts: SessionConfigOption[]): void {
   state.thinking = null;
+  state.computerUse = null;
   for (const o of opts) {
     if (o.type !== "select") continue;
     const groups = toGroups(o.options as Array<Group | { value: string; name: string }>);
@@ -62,6 +65,9 @@ export function applyOptions(opts: SessionConfigOption[]): void {
     } else if (o.id === "model") {
       state.modelGroups = groups;
       state.modelValue = String(o.currentValue);
+    } else if (o.id === "computer_use") {
+      const canTurnOn = groups.some((g) => g.options.some((x) => x.value === "on"));
+      state.computerUse = { on: o.currentValue === "on", why: canTurnOn ? null : (o.description ?? null) };
     } else if (o.id === "thinking") {
       state.thinking = { value: String(o.currentValue), options: groups.flatMap((g) => g.options) };
     }

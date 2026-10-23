@@ -10,6 +10,7 @@
  * 15.7: the Verified MCP servers are back here, to connect or switch one (owner).
  * 15.7.1: they are the user's defaults now (the Verified five until changed).
  * 2026-09-21: model section removed — see the note at the menu body.
+ * 15.11: computer use for the current model (same switch as Settings).
  */
 
 import { useSettings } from "@/hooks/useSettings";
@@ -34,7 +35,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { chosenLevel, effortSettingsPatch } from "@/lib/routing/model-reasoning-profile";
-import { SlidersHorizontal, Brain, Mic } from "lucide-react";
+import { SlidersHorizontal, Brain, Mic, MousePointerClick } from "lucide-react";
+import { computerUseKey, ineligibleReason } from "@/lib/computer/eligibility";
 import { DefaultMcpMenuSection } from "@/components/DefaultMcpMenuSection";
 import {
   Tooltip,
@@ -65,6 +67,18 @@ export function ChatConfigDropdown() {
         )?.effortChoices
       : undefined;
   const reasoningCapable = effortChoices != null;
+  const selectedRow =
+    settings?.selectedModel != null
+      ? modelsByProviders?.[settings.selectedModel.provider]?.find(
+          (m) => m.apiName === settings.selectedModel.name,
+        )
+      : undefined;
+  const computerKey = settings?.selectedModel
+    ? computerUseKey({ provider: settings.selectedModel.provider, name: settings.selectedModel.name })
+    : null;
+  const computerOn = settings?.computerUseModels ?? [];
+  const computerWhy =
+    selectedRow?.computerUse && selectedRow.computerUse !== "eligible" ? selectedRow.computerUse : null;
   const effortNow = effortChoices
     ? chosenLevel(effortChoices, settings?.effort, !!settings?.deepThinking && !settings?.effort)
     : undefined;
@@ -210,6 +224,33 @@ export function ChatConfigDropdown() {
           ) : null}
           {/* The user's default MCP servers: connect or switch one without leaving the chat. */}
           {reasoningCapable || VOICE_PROVIDERS.length > 0 ? <DropdownMenuSeparator /> : null}
+          {/* Computer use for THIS model: the same switch as Settings → Computer use. */}
+          {selectedRow && computerKey ? (
+            <>
+              <DropdownMenuCheckboxItem
+                checked={!computerWhy && computerOn.includes(computerKey)}
+                disabled={computerWhy != null}
+                onCheckedChange={(next) =>
+                  updateSettings({
+                    computerUseModels: next
+                      ? [...computerOn.filter((k) => k !== computerKey), computerKey]
+                      : computerOn.filter((k) => k !== computerKey),
+                  })
+                }
+                onSelect={(e) => e.preventDefault()}
+                data-testid="computer-use-toggle"
+              >
+                <MousePointerClick className="h-3.5 w-3.5" />
+                Computer use
+              </DropdownMenuCheckboxItem>
+              {computerWhy ? (
+                <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
+                  {ineligibleReason(computerWhy)}
+                </p>
+              ) : null}
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DefaultMcpMenuSection onLeave={() => setMenuOpen(false)} />
         </div>
       </DropdownMenuContent>

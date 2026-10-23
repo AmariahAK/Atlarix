@@ -27,6 +27,7 @@ import type { SessionMcpServer } from "@/ipc/utils/mcp_manager";
 import type { FeedbackSession } from "@/main/lib/session-feedback";
 import type { AgentSession, ModelChoice, SessionState, WorkMode } from "../agent/session";
 import { promptInput } from "./content";
+import { ineligibleReason } from "@/lib/computer/eligibility";
 import {
   approvalMode,
   approvalOptions,
@@ -70,6 +71,8 @@ export interface AcpDeps {
   rememberModel(ref: ModelChoice): void;
   /** /effort's level, as the TUI's /effort (the old deep-thinking switch kept in step). */
   setEffort?(patch: { effort: string; deepThinking: boolean }): void;
+  /** Computer use for a model: the same per-model switch as the app and the TUI's /computer. */
+  computerUse?: { isOn(m: ModelChoice): boolean; set(m: ModelChoice, on: boolean): void };
   /** This folder's stored sessions, newest first (the TUI's /resume list). */
   listSessions(cwd: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date | string }>>;
   /** Rename or delete a stored session (the editor's Past chats). */
@@ -1194,6 +1197,23 @@ export class AcpAgent {
         })),
       });
     }
+    // Computer use: shown for every model; one that can't have it says why.
+    if (opt && this.deps.computerUse) {
+      const why = opt.computerUse && opt.computerUse !== "eligible" ? opt.computerUse : null;
+      out.push({
+        id: "computer_use",
+        name: "Computer use",
+        type: "select",
+        currentValue: !why && this.deps.computerUse.isOn(opt) ? "on" : "off",
+        options: why
+          ? [{ value: "off", name: "Off" }]
+          : [
+              { value: "on", name: "On" },
+              { value: "off", name: "Off" },
+            ],
+        ...(why ? { description: ineligibleReason(why) } : {}),
+      });
+    }
     return out;
   }
 
@@ -1527,6 +1547,16 @@ export class AcpAgent {
       const choices = shown?.effortChoices;
       if (!choices) throw RequestError.invalidParams(undefined, "this model has no effort setting");
       this.deps.setEffort(effortSettingsPatch(choices, String(value)));
+    } else if (configId === "computer_use" && this.deps.computerUse) {
+      const { options, current } = await this.deps.models();
+      const want = t.session.model ?? current;
+      const shown = options.find((o) => want && o.provider === want.provider && o.name === want.name) ?? options[0];
+      if (!shown) throw RequestError.invalidParams(undefined, "pick a model first");
+      const on = String(value) === "on";
+      if (on && shown.computerUse && shown.computerUse !== "eligible") {
+        throw RequestError.invalidParams(undefined, ineligibleReason(shown.computerUse));
+      }
+      this.deps.computerUse.set(shown, on);
     } else throw RequestError.invalidParams(undefined, `unknown option ${configId}`);
     return this.configOptions(t);
   }
