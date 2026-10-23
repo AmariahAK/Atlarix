@@ -19,6 +19,9 @@ const TYPE_GAP_MS: u64 = 8;
 /// After a paste, before the clipboard is put back (Windows).
 #[cfg_attr(not(windows), allow(dead_code))]
 const PASTE_SETTLE_MS: u64 = 400;
+/// Waiting for a posted move to land: up to SETTLE_POLLS reads, SETTLE_POLL_MS apart.
+const SETTLE_POLLS: u32 = 50;
+const SETTLE_POLL_MS: u64 = 5;
 
 #[derive(Default)]
 pub struct Session {
@@ -151,7 +154,9 @@ impl Session {
 
     fn move_to(&mut self, req: &Value, kx: &str, ky: &str) -> Result<(), Fail> {
         let (x, y) = self.space()?.to_input(num(req, kx)?, num(req, ky)?)?;
-        self.enigo()?.move_mouse(x, y, Coordinate::Abs).map_err(input_fail)?;
+        let e = self.enigo()?;
+        e.move_mouse(x, y, Coordinate::Abs).map_err(input_fail)?;
+        settle_at((x, y), || e.location().ok(), pause);
         self.moved = Some((x, y));
         Ok(())
     }
@@ -239,6 +244,7 @@ impl Session {
                 let (x1, y1) = space.to_input(num(req, "to_x")?, num(req, "to_y")?)?;
                 let e = self.enigo()?;
                 e.move_mouse(x0, y0, Coordinate::Abs).map_err(input_fail)?;
+                settle_at((x0, y0), || e.location().ok(), pause);
                 e.button(Button::Left, Direction::Press).map_err(input_fail)?;
                 // Intermediate moves: many apps ignore a drag that teleports.
                 for i in 1..=DRAG_STEPS {
@@ -301,6 +307,28 @@ impl Session {
     }
 }
 
+/// Wait until the cursor reads back at `target`. A posted move lands
+/// asynchronously (macOS) and enigo posts a click at the cursor's CURRENT
+/// position, so a click sent straight after its move went where the cursor
+/// had been: the first pill's Stop "ignored" real clicks while later pills,
+/// with the cursor already resting there, worked (A5). The next takeover
+/// check also read the stale spot as the user's hand. Gives up quietly where
+/// the cursor can't be read (some Wayland) or never arrives.
+fn settle_at(target: (i32, i32), mut read: impl FnMut() -> Option<(i32, i32)>, mut wait: impl FnMut()) -> bool {
+    for _ in 0..SETTLE_POLLS {
+        match read() {
+            None => return false,
+            Some(p) if (p.0 - target.0).abs() <= 1 && (p.1 - target.1).abs() <= 1 => return true,
+            Some(_) => wait(),
+        }
+    }
+    false
+}
+
+fn pause() {
+    std::thread::sleep(Duration::from_millis(SETTLE_POLL_MS));
+}
+
 /// The user's hand, not ours: the cursor is more than TAKEOVER_PX from where
 /// we left it.
 fn moved_by_user(left: (i32, i32), now: (i32, i32)) -> bool {
@@ -332,6 +360,23 @@ fn took_control() -> Fail {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_click_waits_for_its_move_to_land() {
+        // The cursor reads the old spot twice, then the target.
+        let mut reads = vec![Some((10, 10)), Some((10, 10)), Some((500, 350))].into_iter();
+        let mut waits = 0;
+        assert!(settle_at((500, 350), || reads.next().flatten(), || waits += 1));
+        assert_eq!(waits, 2);
+    }
+
+    #[test]
+    fn settling_gives_up_without_failing() {
+        assert!(!settle_at((5, 5), || None, || panic!("no wait when the cursor can't be read")));
+        let mut waits = 0;
+        assert!(!settle_at((5, 5), || Some((0, 0)), || waits += 1));
+        assert_eq!(waits, SETTLE_POLLS);
+    }
+
     use super::*;
 
     #[test]
