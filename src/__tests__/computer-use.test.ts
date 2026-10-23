@@ -389,3 +389,14 @@ describe("what the model is told a screenshot is", () => {
     expect(caption).not.toMatch(/browser/);
   });
 });
+
+describe("a computer action that did not happen", () => {
+  it("reaches the model as an error, not a step that worked", async () => {
+    const { computerFailureOutput } = await import("@/lib/tools/computer");
+    const busy = { success: false, error: "another Atlarix session is controlling the screen" };
+    expect(computerFailureOutput("computer", busy)).toEqual({ type: "error-text", value: busy.error });
+    expect(computerFailureOutput("computer", { success: true, data: "AAAA" })).toBeUndefined();
+    // Other tools keep their own result shapes.
+    expect(computerFailureOutput("read_file", busy)).toBeUndefined();
+  });
+});
