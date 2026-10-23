@@ -157,6 +157,8 @@ const validInvokeChannels = [
   "mcp:discover-external",
   "mcp:import-external",
   "mcp:update-server",
+  "computer-use:permissions",
+  "computer-use:relaunch",
   "mcp:delete-server",
   "mcp:list-tools",
   "mcp:test-connection",

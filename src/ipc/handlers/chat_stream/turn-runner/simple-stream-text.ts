@@ -50,6 +50,7 @@ import { getMaxTokensWithFloor, getTemperature } from "@/ipc/utils/token_utils";
 import {
   isNetworkStreamError,
   isForcedToolChoiceRejection,
+  isNativeComputerToolRejection,
 } from "@/ipc/handlers/chat_stream/network-retry";
 import {
   currentPlanLedger,
@@ -110,6 +111,8 @@ import {
   modelFailureUserMessage,
 } from "@/shared/texts";
 import type { StreamTurnContext } from "@/ipc/handlers/chat_stream/turn-context";
+import { computerLane } from "@/lib/computer/lane";
+import { nativeComputerTool } from "@/lib/computer/native";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -431,6 +434,30 @@ export async function simpleStreamText(
     }
   }
 
+  // Computer use: the provider's own computer tool where it has one
+  // (lib/computer/lane.ts). Its execute and result are ours; only the schema
+  // changes. Once the provider refuses it this turn, ours stays (round-retry).
+  if (effectiveTools?.computer && !ctx.nativeComputerRejected) {
+    const model = {
+      provider: effectiveModel?.provider,
+      builtinProviderId: modelClient.builtinProviderId,
+      name: effectiveModel?.name,
+    };
+    const lane = computerLane(model);
+    if (lane && lane !== "own") {
+      try {
+        effectiveTools = {
+          ...effectiveTools,
+          computer: await nativeComputerTool(lane, effectiveTools.computer),
+        };
+        ctx.nativeComputerSent = model;
+      } catch (e) {
+        // The executor could not size the display: ours still works, and says why.
+        logger.warn("[computer] keeping our own computer tool", e);
+      }
+    }
+  }
+
   // R2: on an auto-wake continuation turn that has finished background /
   // sub-agent results (or a stall advisory) waiting, deliver them as a
   // REAL tool-result (persisted via native history) by adding an
@@ -548,6 +575,12 @@ export async function simpleStreamText(
    * (Sentry ATLARIX-2Y: Core's "Prompt exceeds max length", 84 events).
    */
   let recordedOverflow: unknown = null;
+  /**
+   * The provider refusing its own computer tool. Recorded for the same reason as
+   * the two above: a request-phase 4xx reaches round-retry only as the SDK's
+   * substitute "no output" error, so the original must be kept here.
+   */
+  let recordedNativeComputerRejection: unknown = null;
   /** Running per-tool token attribution for THIS turn's live meter. */
   const turnBuckets = {
     filesRead: 0,
@@ -1062,6 +1095,12 @@ export async function simpleStreamText(
         );
         return;
       }
+      // The provider refused its own computer tool; the round retries with ours.
+      if (ctx.nativeComputerSent && !ctx.nativeComputerRejected && isNativeComputerToolRejection(error)) {
+        recordedNativeComputerRejection = error;
+        logger.warn("[stream] onError: provider refused its computer tool (retrying with ours)", error);
+        return;
+      }
       // The SDK hands onError its event, `{ error }`; the provider's words are inside.
       const cause = (error as { error?: unknown } | null)?.error ?? error;
       if (isContextOverflowError(cause)) {
@@ -1240,6 +1279,8 @@ export async function simpleStreamText(
     getRecordedRefusal: (): unknown => recordedRefusal,
     /** A too-long request `onError` held back for the turn's compact-and-retry; see `recordedOverflow`. */
     getRecordedOverflow: (): unknown => recordedOverflow,
+    /** The provider refused its own computer tool; see `recordedNativeComputerRejection`. */
+    getRecordedNativeComputerRejection: (): unknown => recordedNativeComputerRejection,
   };
 }
 

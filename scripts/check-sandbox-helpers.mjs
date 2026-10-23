@@ -57,6 +57,25 @@ const HELPERS = [
     target: "x86_64-unknown-linux-gnu",
     dir: "native/atlarix-bridge",
   },
+  // The computer-use executor: its capture, input, DPI and permission code is
+  // per-OS (`#[cfg]` arms and per-target dependencies), so each OS is checked.
+  // Linux needs the pipewire/xcb headers xcap builds against (release.yml
+  // installs them in this job).
+  {
+    name: "atlarix-computer",
+    target: "x86_64-pc-windows-msvc",
+    dir: "native/atlarix-computer",
+  },
+  {
+    name: "atlarix-computer",
+    target: "x86_64-unknown-linux-gnu",
+    dir: "native/atlarix-computer",
+  },
+  {
+    name: "atlarix-computer",
+    target: "aarch64-apple-darwin",
+    dir: "native/atlarix-computer",
+  },
 ];
 
 function installedTargets() {

@@ -33,6 +33,7 @@ import "./tool-help"; // v14.34 full usage for tools bound with a one-line summa
 import "./sessions"; // v14.39 read behind the compaction boundary
 import "./media"; // view_image, transcribe_audio
 import "./peers"; // list and message the user's other Atlarix sessions
+import "./computer"; // see the screen, use mouse + keyboard (per-model switch, off by default)
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

@@ -98,7 +98,9 @@ function plainImageCaption(media: ImageMedia): string {
     ? `attached file ${media.filename}`
     : media.url
       ? `${media.url}${media.title ? ` (${media.title})` : ""}`
-      : "the open browser page";
+      : media.untrustedSource === "screen"
+        ? "the screen"
+        : "the open browser page";
   return `Image of ${where}.${media.note ? ` ${media.note}` : ""}`;
 }
 

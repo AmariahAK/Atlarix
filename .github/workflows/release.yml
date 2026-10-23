@@ -78,6 +78,9 @@ env:
   ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
   # Public npm only — lockfile must not contain CodeArtifact resolved URLs (see scripts/verify-npm-lock-registry.mjs).
   NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+  # What native/atlarix-computer builds against on Linux: xcap's capture
+  # (pipewire for Wayland's portal, xcb for X11; bindgen needs libclang).
+  CU_LINUX_DEPS: pkg-config libclang-dev libpipewire-0.3-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev libgbm-dev libegl-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
 
 jobs:
   quality:
@@ -143,6 +146,9 @@ jobs:
         run: |
           rustup target add x86_64-pc-windows-msvc
           rustup target add x86_64-unknown-linux-gnu
+          rustup target add aarch64-apple-darwin
+          # atlarix-computer's Linux check builds against the system capture libs.
+          sudo apt-get install -y $CU_LINUX_DEPS
 
       - name: Type check native helpers (cross-target)
         run: npm run check:sandbox
@@ -364,6 +370,26 @@ jobs:
           test -x native/atlarix-bridge/target/release/atlarix-bridge
           # Printed so the arch is in the log rather than inferred from a failure.
           file native/atlarix-bridge/target/release/atlarix-bridge
+
+      - name: Build the computer-use executor (Rust, ${{ matrix.arch }})
+        run: |
+          # Same arch rule as the relay above: the x64 leg cross-compiles.
+          case "${{ matrix.arch }}" in
+            arm64) TRIPLE=aarch64-apple-darwin ;;
+            x64)   TRIPLE=x86_64-apple-darwin ;;
+            *) echo "::error::unknown matrix arch ${{ matrix.arch }}"; exit 1 ;;
+          esac
+          rustup target add "$TRIPLE"
+          cargo test --release --manifest-path native/atlarix-computer/Cargo.toml
+          cargo build --release --target "$TRIPLE" \
+            --manifest-path native/atlarix-computer/Cargo.toml
+          mkdir -p native/atlarix-computer/target/release
+          cp "native/atlarix-computer/target/$TRIPLE/release/atlarix-computer" \
+             native/atlarix-computer/target/release/atlarix-computer
+          # Hard failure, like the relay: an absent executor is a switch that
+          # turns on and then fails every action.
+          test -x native/atlarix-computer/target/release/atlarix-computer
+          file native/atlarix-computer/target/release/atlarix-computer
 
       - name: Build for macOS (${{ matrix.arch }})
         run: |
@@ -647,6 +673,14 @@ jobs:
           cargo build --release --manifest-path native/atlarix-bridge/Cargo.toml
           test -x native/atlarix-bridge/target/release/atlarix-bridge
           file native/atlarix-bridge/target/release/atlarix-bridge
+
+      - name: Build the computer-use executor (Rust)
+        run: |
+          sudo apt-get install -y $CU_LINUX_DEPS
+          cargo test --release --manifest-path native/atlarix-computer/Cargo.toml
+          cargo build --release --manifest-path native/atlarix-computer/Cargo.toml
+          test -x native/atlarix-computer/target/release/atlarix-computer
+          file native/atlarix-computer/target/release/atlarix-computer
 
       - name: Upload Landlock helper for Windows builds
         uses: actions/upload-artifact@v4
@@ -935,6 +969,25 @@ jobs:
           }
           Write-Host "Built bridge relay: $exe"
 
+      - name: Build the computer-use executor (Rust)
+        shell: pwsh
+        run: |
+          # crt-static: without it the exe needs the VC++ redistributable.
+          $env:RUSTFLAGS = "-C target-feature=+crt-static"
+          cargo test --release --manifest-path native/atlarix-computer/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::atlarix-computer tests failed on Windows"; exit $LASTEXITCODE }
+          cargo build --release --manifest-path native/atlarix-computer/Cargo.toml
+          $exe = "native/atlarix-computer/target/release/atlarix-computer.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "::error::atlarix-computer.exe failed to build — computer use would switch on and then fail every action."
+            exit 1
+          }
+          if ($env:SM_CODE_SIGNING_CERT_SHA1_HASH) {
+            & signtool sign /sha1 $env:SM_CODE_SIGNING_CERT_SHA1_HASH /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 $exe
+            if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for the computer-use executor"; exit $LASTEXITCODE }
+          }
+          Write-Host "Built computer-use executor: $exe"
+
       - name: Build for Windows (package + installers)
         timeout-minutes: 55
         shell: pwsh
@@ -1187,6 +1240,7 @@ jobs:
     env:
       EXE: ${{ startsWith(matrix.target, 'windows') && 'atlarix.exe' || 'atlarix' }}
       RELAY: ${{ startsWith(matrix.target, 'windows') && 'atlarix-bridge.exe' || 'atlarix-bridge' }}
+      COMPUTER: ${{ startsWith(matrix.target, 'windows') && 'atlarix-computer.exe' || 'atlarix-computer' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -1222,6 +1276,19 @@ jobs:
           RELAY_PATH="native/atlarix-bridge/target/${{ matrix.rust }}/release/$RELAY"
           test -f "$RELAY_PATH"
           echo "ATLARIX_RELAY_PATH=$PWD/$RELAY_PATH" >> "$GITHUB_ENV"
+
+      # Not on musl: the executor links the desktop's capture libraries
+      # (pipewire, xcb), and a static musl binary is for machines with no
+      # desktop. There the CLI says computer use is unavailable.
+      - name: Build the computer-use executor for ${{ matrix.target }}
+        if: ${{ !matrix.musl }}
+        run: |
+          if [[ "${{ matrix.target }}" == linux* ]]; then sudo apt-get update && sudo apt-get install -y $CU_LINUX_DEPS; fi
+          if [[ "${{ matrix.target }}" == windows* ]]; then export RUSTFLAGS="-C target-feature=+crt-static"; fi
+          cargo build --release --target ${{ matrix.rust }} --manifest-path native/atlarix-computer/Cargo.toml
+          COMPUTER_PATH="native/atlarix-computer/target/${{ matrix.rust }}/release/$COMPUTER"
+          test -f "$COMPUTER_PATH"
+          echo "ATLARIX_COMPUTER_PATH=$PWD/$COMPUTER_PATH" >> "$GITHUB_ENV"
 
       - name: Build the CLI
         run: |

@@ -37,6 +37,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/automations", description: "Scheduled and triggered tasks for this folder", group: "work" },
   { name: "/mcp", description: "MCP servers for this folder: turn on/off, add, test", group: "tools" },
   { name: "/chrome", description: "The Chrome extension: connected, or how to connect it", group: "tools" },
+  { name: "/computer", description: "Let this model see your screen and use the mouse and keyboard: /computer on|off", group: "tools" },
   { name: "/permissions", description: "What Atlarix may do here without asking", group: "tools" },
   { name: "/connect", description: "Connect a provider (your own API key), Chrome or an MCP server", group: "account" },
   { name: "/billing", description: "Get Pro, or add credit and pay as you go", group: "account" },

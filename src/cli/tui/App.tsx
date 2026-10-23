@@ -119,6 +119,7 @@ import {
 import { PlanPanel, type PinnedPlan, type PlanScroll } from "./PlanPanel";
 import { Transcript } from "./Transcript";
 import { recapDecision, type RecapClock } from "@/lib/recap/rules";
+import { ineligibleReason } from "@/lib/computer/eligibility";
 
 /** shift+tab order. The same five modes as the app, named the way the app names them. */
 const MODES: WorkMode[] = ["build", "ask", "plan", "debug", "review"];
@@ -877,6 +878,33 @@ export function App({
   useEffect(() => {
     if (state.question) notify("Atlarix has a question for you");
   }, [state.question?.questionId]);
+  // Computer use takes the screen, so the terminal loses focus: say so once a
+  // turn, with how to stop it (the app shows a pill instead).
+  const computerNoted = useRef(false);
+  useEffect(() => {
+    if (!state.busy) computerNoted.current = false;
+  }, [state.busy]);
+  useEffect(() => {
+    let off = () => {};
+    // Unmounted before the import resolved: never subscribe at all.
+    let gone = false;
+    void import("@/lib/tools/computer").then(({ computerActivity }) => {
+      if (gone) return;
+      // After an action, not before: the first one is often a screenshot with
+      // the terminal still focused, and notify() stays quiet while it is.
+      const onAction = () => {
+        if (computerNoted.current || terminalFocused.current) return;
+        computerNoted.current = true;
+        notify("Atlarix is controlling your screen. Move the mouse to stop.");
+      };
+      computerActivity.on("end", onAction);
+      off = () => computerActivity.off("end", onAction);
+    });
+    return () => {
+      gone = true;
+      off();
+    };
+  }, []);
 
   // The tab title pulses while Atlarix works (tab-title.ts).
   const waiting = state.approvals.length > 0 || state.question != null;
@@ -1090,6 +1118,25 @@ export function App({
         },
       }),
     );
+  };
+
+  /** /computer [on|off]: computer use for the current model (shared with the app). */
+  const openComputer = async (arg: string) => {
+    if (!models) return flash("Computer use isn't available here.", 3000);
+    const all = await models.load().catch(() => [] as ModelOption[]);
+    const ref = session.model ?? live.current.cliState.model;
+    const o = ref ? all.find((x) => x.provider === ref.provider && x.name === ref.name) : undefined;
+    if (!o) return flash("Pick a model with /model first.", 4000);
+    if (o.computerUse && o.computerUse !== "eligible") return flash(ineligibleReason(o.computerUse), 5000);
+    const lane = await import("@/lib/computer/lane");
+    const want = arg.trim().toLowerCase();
+    if (want === "on" || want === "off") {
+      lane.setComputerUse(o, want === "on");
+      if (want === "off") return flash(`Computer use off for ${o.label}.`, 3000);
+      const notice = await lane.computerUseGrantNotice();
+      return flash(`Computer use on for ${o.label}. Move the mouse to stop it.${notice ? ` ${notice}` : ""}`, notice ? 9000 : 5000, "success");
+    }
+    return flash(`Computer use is ${lane.isComputerUseOn(o) ? "on" : "off"} for ${o.label}: /computer on|off`, 4000);
   };
 
   /** ctrl+p: every command, searchable; enter runs it. */
@@ -1315,6 +1362,8 @@ export function App({
         return openAutomations(ctx);
       case "/mcp":
         return openMcp(ctx);
+      case "/computer":
+        return void openComputer(rest);
       case "/permissions":
         return openPermissions(ctx);
       case "/connect":

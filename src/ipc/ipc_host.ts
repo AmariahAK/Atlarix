@@ -49,6 +49,7 @@ import { registerFilePermissionHandlers } from "./handlers/file_permission_handl
 import { registerDoctorHandlers } from "./handlers/doctor_handlers";
 import { registerPlanArtifactHandlers } from "./handlers/plan_artifact_handlers";
 import { registerRelicHandlers } from "./handlers/relic_handlers";
+import { registerComputerUseHandlers } from "./handlers/computer_use_handlers";
 import { registerRemoteSshHandlers } from "../main/remote-ssh/remote_ssh_handlers";
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
 
@@ -100,6 +101,7 @@ export function registerIpcHandlers() {
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
   registerPlanArtifactHandlers();
   registerRelicHandlers();
+  registerComputerUseHandlers();
   registerCommandPermissionHandlers();
   registerFilePermissionHandlers();
   registerDoctorHandlers();

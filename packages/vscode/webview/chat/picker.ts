@@ -9,7 +9,7 @@
 import { filterGroups } from "../logic";
 import { post, rpc } from "../rpc";
 import { rejectedProviders, state } from "../state";
-import { button, el, icon, segmented } from "../ui";
+import { button, el, icon, segmented, toggle } from "../ui";
 
 export const picker = el("div", "picker hidden");
 picker.setAttribute("role", "dialog");
@@ -121,6 +121,21 @@ function render(scrollToCurrent = false): void {
       }),
     );
     foot.append(t);
+  }
+  if (opts.full && state.computerUse) {
+    const cu = state.computerUse;
+    const r = el("div", "picker__thinking");
+    r.append(el("span", "muted grow", "Computer use"));
+    if (cu.why) r.append(el("span", "muted small", cu.why));
+    else
+      r.append(
+        toggle(cu.on, "Computer use", (on) => {
+          post({ type: "set-option", configId: "computer_use", value: on ? "on" : "off" });
+          if (state.computerUse) state.computerUse.on = on;
+        }),
+      );
+    foot.append(r);
+    if (cu.note) foot.append(el("div", "muted small", cu.note));
   }
   if (opts.full) {
     const connected = state.providers?.filter((p) => p.hasKey).length ?? 0;

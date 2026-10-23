@@ -127,6 +127,7 @@ userData/
 native/atlarix-sandbox/target/
 native/atlarix-sandbox-linux/target/
 native/atlarix-bridge/target/
+native/atlarix-computer/target/
 # On-device Model2Vec model (build artifact, fetched via npm run fetch-model2vec)
 assets/model2vec/
 
