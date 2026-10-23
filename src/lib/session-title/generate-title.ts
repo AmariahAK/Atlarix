@@ -154,6 +154,9 @@ export async function generateSessionTitle(
     try {
       result = await call(reasons);
     } catch (firstErr) {
+      // The retry only drops `reasoning: "none"`; without it, it is the same
+      // request again (two identical POSTs to a provider answering 400).
+      if (!reasons) throw firstErr;
       logger.warn("title: first attempt failed, retrying once", firstErr);
       result = await call(false);
     }
