@@ -19,12 +19,6 @@ export async function restoreAuthSessionOnStartup(): Promise<void> {}
 
 export function cancelPendingOAuthTimeout(): void {}
 
-export async function getOnboardingCompleted(): Promise<boolean> {
-  return true;
-}
-
-export async function setOnboardingCompleted(_value: boolean): Promise<void> {}
-
 export type OAuthProvider = "google" | "github";
 export type SignInMethod = OAuthProvider | "email";
 

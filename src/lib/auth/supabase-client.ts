@@ -662,7 +662,7 @@ export interface AtlarixUser {
 // every column they need: one in flight at a time, kept until something says the
 // row changed (owner, 2026-10-20) — sign-in and sign-out, the focus refresh
 // (SubscriptionManager.refreshPlanFromServer, which reads fresh and refills it),
-// and every write here (`invalidatePlanCaches`, `setOnboardingCompleted`). A few
+// and every write here (`invalidatePlanCaches`). A few
 // seconds' TTL made each later reader a read of its own.
 //
 // Each reader keeps its OWN query as the fallback when this one fails (a column
@@ -670,12 +670,11 @@ export interface AtlarixUser {
 // plan read — the rule the narrow queries below were written to keep.
 
 const USER_ROW_SELECT =
-  "id, email, plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id, lemon_variant_id, banned_at, onboarding_completed";
+  "id, email, plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id, lemon_variant_id, banned_at";
 
 type UserRow = PlanRowInput & {
   id: string;
   email?: string | null;
-  onboarding_completed?: boolean | null;
 };
 
 /** The row last read, under every key it answers to (the id and the email it was asked by or carries). */
@@ -743,12 +742,10 @@ async function ensureUserExists(user: User): Promise<void> {
         : (await supabase.from("users").select("id").eq("id", user.id).single()).data;
 
     if (!existingUser) {
-      // Create user record (onboarding_completed false for new users)
       const { error } = await supabase.from("users").insert({
         id: user.id,
         email: user.email,
         plan: "free",
-        onboarding_completed: false,
       });
       invalidateUserRow();
 
@@ -1078,62 +1075,6 @@ export async function getEffectiveTier(
   } catch (err) {
     logger.warn("[Supabase] getEffectiveTier exception:", err);
     return ownPlan || offlinePlanOr("free", userId);
-  }
-}
-
-/**
- * Get onboarding completed flag for a user (for first-run guided flow).
- * Returns false if no row or column missing.
- */
-export async function getOnboardingCompleted(userId: string): Promise<boolean> {
-  try {
-    const shared = await readUserRow({ id: userId });
-    if (shared !== undefined) return shared?.onboarding_completed === true;
-    const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-      .from("users")
-      .select("onboarding_completed")
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (error) {
-      logger.warn("[Supabase] getOnboardingCompleted error:", error.message);
-      return false;
-    }
-    return data?.onboarding_completed === true;
-  } catch (err) {
-    logger.warn("[Supabase] getOnboardingCompleted exception:", err);
-    return false;
-  }
-}
-
-/**
- * Set onboarding completed for a user.
- */
-export async function setOnboardingCompleted(
-  userId: string,
-  value: boolean,
-): Promise<void> {
-  try {
-    const supabase = getSupabaseClient();
-    const { error } = await supabase
-      .from("users")
-      .update({ onboarding_completed: value })
-      .eq("id", userId);
-    invalidateUserRow();
-
-    if (error) {
-      logger.error("[Supabase] setOnboardingCompleted error:", error.message);
-    } else {
-      logger.log(
-        "[Supabase] onboarding_completed set to",
-        value,
-        "for user",
-        userId,
-      );
-    }
-  } catch (err) {
-    logger.error("[Supabase] setOnboardingCompleted exception:", err);
   }
 }
 

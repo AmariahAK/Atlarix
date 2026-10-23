@@ -311,10 +311,6 @@ const validInvokeChannels = [
   "auth:refresh-plan",
   "auth:manage-subscription",
   "auth:cancel-subscription",
-  "onboarding:get-completed",
-  "onboarding:set-completed",
-  "tour:get-state",
-  "tour:set-state",
   // Community (Discord)
   "discord:get-invite-info",
   // The session rating and /feedback (lib/feedback/session-rating.ts).

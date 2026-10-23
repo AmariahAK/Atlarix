@@ -18,7 +18,6 @@ const ROW = {
   lemon_subscription_id: "sub_1",
   lemon_variant_id: "1226325",
   banned_at: null,
-  onboarding_completed: true,
 };
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -27,7 +26,7 @@ vi.mock("@supabase/supabase-js", () => ({
       select: (select: string) => ({
         eq: (by: string, value: string) => {
           queries.push({ select, by, value });
-          const combined = select.includes("onboarding_completed") && select.includes("banned_at");
+          const combined = select.startsWith("id, email,");
           const result = combined && failCombined ? { data: null, error: { message: "column does not exist" } } : { data: ROW, error: null };
           return { maybeSingle: async () => result, single: async () => result };
         },
@@ -52,17 +51,15 @@ beforeEach(() => {
 });
 
 describe("the account row, read once", () => {
-  it("the plan, ban flag, subscription details and onboarding flag share ONE query", async () => {
+  it("the plan, ban flag and subscription details share ONE query", async () => {
     await Promise.all([
       client.getUserPlan("u-1"),
       client.isUserBanned("u-1"),
-      client.getOnboardingCompleted("u-1"),
     ]);
     await client.getSubscriptionDetails("owner@example.test");
     await client.isUserBanned("u-1");
     expect(queries).toHaveLength(1);
     expect(await client.getUserPlan("u-1")).toBe("pro");
-    expect(await client.getOnboardingCompleted("u-1")).toBe(true);
     expect(await client.isUserBanned("u-1")).toBe(false);
   });
 
@@ -105,7 +102,7 @@ describe("the account row, read once", () => {
       for (let minute = 0; minute < 60; minute++) {
         await client.getUserPlan("u-1");
         await client.isUserBanned("u-1");
-        await client.getOnboardingCompleted("u-1");
+        await client.getSubscriptionDetails("owner@example.test");
         vi.advanceTimersByTime(60_000);
       }
     } finally {
@@ -119,6 +116,6 @@ describe("the account row, read once", () => {
     expect(await client.getUserPlan("u-1")).toBe("pro");
     expect(await client.isUserBanned("u-1")).toBe(false);
     // The fallbacks ran (narrow selects), not just the failed combined one.
-    expect(queries.some((q) => !q.select.includes("onboarding_completed"))).toBe(true);
+    expect(queries.some((q) => !q.select.startsWith("id, email,"))).toBe(true);
   });
 });

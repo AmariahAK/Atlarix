@@ -295,7 +295,7 @@ export function AppList({ show }: { show?: boolean }) {
                 <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   Sessions
                 </div>
-                <div data-onboarding="workspace-sessions">
+                <div>
                   <WorkspaceSessionList
                     workspaceId={openWorkspace.id}
                     activeSessionId={activeWorkspaceSessionId}

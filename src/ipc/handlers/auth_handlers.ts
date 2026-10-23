@@ -7,8 +7,6 @@
 import { ipcMain } from "electron";
 import { SubscriptionManager } from "../../lib/SubscriptionManager";
 import {
-  getOnboardingCompleted,
-  setOnboardingCompleted,
 } from "../../lib/auth/supabase-client";
 import log from "electron-log";
 import { db } from "@/db";
@@ -524,31 +522,6 @@ export function registerAuthHandlers() {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
       };
-    }
-  });
-
-  // Onboarding (first-run flow state in Supabase)
-  ipcMain.handle("onboarding:get-completed", async () => {
-    try {
-      const user = SubscriptionManager.getCurrentUser();
-      if (!user?.id) return { completed: true }; // Not logged in => no onboarding
-      const completed = await getOnboardingCompleted(user.id);
-      return { completed };
-    } catch (error) {
-      logger.error("[AuthHandlers] onboarding:get-completed error:", error);
-      return { completed: true }; // Fail open: skip onboarding on error
-    }
-  });
-
-  ipcMain.handle("onboarding:set-completed", async (_, value: boolean) => {
-    try {
-      const user = SubscriptionManager.getCurrentUser();
-      if (!user?.id) return { success: false };
-      await setOnboardingCompleted(user.id, value);
-      return { success: true };
-    } catch (error) {
-      logger.error("[AuthHandlers] onboarding:set-completed error:", error);
-      return { success: false };
     }
   });
 

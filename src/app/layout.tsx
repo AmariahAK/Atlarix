@@ -52,7 +52,6 @@ import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
 import { preloadSounds, setSoundPreferences } from "@/lib/sounds";
-import { FirstRunWizard } from "@/components/welcome/FirstRunWizard";
 import { CommunityDialog } from "@/components/CommunityDialog";
 import { GlobalAppSearch } from "@/components/GlobalAppSearch";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
@@ -510,8 +509,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <AnalyticsConsentModal />
       <ThemeProvider>
         <DeepLinkProvider>
-          {/* v10: first-run setup wizard replaces the legacy 5-step overlay. */}
-          <FirstRunWizard />
           <CommunityDialog />
           {/* Cmd/Ctrl+K from anywhere — see GlobalAppSearch for why it cannot
               live inside AppList. */}

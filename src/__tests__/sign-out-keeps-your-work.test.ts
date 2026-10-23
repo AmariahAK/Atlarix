@@ -22,8 +22,6 @@ vi.mock("@/lib/auth/supabase-client", () => ({
     status: "active",
     endsAt: null,
   })),
-  getOnboardingCompleted: () => true,
-  setOnboardingCompleted: () => {},
 }));
 
 vi.mock("@/lib/SubscriptionManager", () => ({

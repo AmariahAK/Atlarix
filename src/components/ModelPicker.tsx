@@ -9,8 +9,7 @@
  * model's NAME on screen. That is why people saved a BYOK key, saw their
  * models appear in a list, and went on spending Atlarix Core credit without a
  * single cue that anything was still pointed at Core; the app grew a persisted
- * one-time coachmark (`useByokModelHint`) to announce a fact the UI could have
- * simply shown.
+ * one-time coachmark to announce a fact the UI could have simply shown.
  *
  * So: the name is the button, it is always present, and it is the only route.
  * The config menu beside it kept reasoning and voice and gave up the model
@@ -102,13 +101,10 @@ export function chipModel(
 export function ModelPicker({
   className,
   resetKey,
-  onOpened,
 }: {
   className?: string;
   /** Usually the thread id — changing it closes the picker. */
   resetKey?: number | null;
-  /** Fired when the picker opens, for the coachmark/tour to stand down. */
-  onOpened?: () => void;
 }) {
   const { settings, updateSettings } = useSettings();
   const selectModel = useSelectModel();
@@ -358,7 +354,6 @@ export function ModelPicker({
         onOpenChange={(next) => {
           setOpen(next);
           if (!next) setLockedPick(false);
-          if (next) onOpened?.();
         }}
       >
         <PopoverTrigger asChild>

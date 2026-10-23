@@ -163,7 +163,6 @@ export function RightPanel() {
   return (
     <div
       ref={panelRef}
-      data-tour="tour-activity-panel"
       className={cn(
         "relative flex flex-col h-full bg-background border-l border-border flex-none z-10",
         !isDragging && "animate-slide-in-right",
@@ -178,12 +177,11 @@ export function RightPanel() {
         />
       )}
 
-      {/* Fix: Finding 2 — visible resize grip + discoverability (see layout onboarding highlight) */}
+      {/* Fix: Finding 2 — visible resize grip + discoverability */}
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
             <div
-              data-onboarding="panel-resize-grip"
               role="separator"
               aria-orientation="vertical"
               aria-label="Drag to resize panel"
