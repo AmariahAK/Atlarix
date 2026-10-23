@@ -64,16 +64,31 @@ describe("the pill's stops", () => {
     vi.useRealTimers();
   });
 
+  it("the Stop link is not a data: fragment, which Chromium blocks before any event (A5)", async () => {
+    const loaded: string[] = [];
+    const { BrowserWindow } = await import("electron");
+    const orig = BrowserWindow.prototype.loadURL;
+    BrowserWindow.prototype.loadURL = function (u: string) {
+      loaded.push(u);
+      return Promise.resolve();
+    } as never;
+    computerActivity.emit("start", { stop: vi.fn() });
+    BrowserWindow.prototype.loadURL = orig;
+    const page = decodeURIComponent(loaded.join(""));
+    expect(page).toContain('href="https://atlarix.invalid/stop"');
+    expect(page).not.toContain('href="#');
+  });
+
   it("Stop on the pill ends the turn, through the navigation Electron reports", () => {
     const stop = vi.fn();
     computerActivity.emit("start", { stop });
     const page = pages[pages.length - 1]!;
     const prevented = vi.fn();
-    page["will-navigate"]!({ preventDefault: prevented }, "data:text/html;charset=utf-8,x#stop");
-    expect(prevented).toHaveBeenCalled(); // never leaves the page
+    page["will-navigate"]!({ preventDefault: prevented }, "https://atlarix.invalid/stop");
+    expect(prevented).toHaveBeenCalled(); // never leaves the page, never fetched
     expect(stop).toHaveBeenCalledOnce();
-    // A late in-page event for the same click does not stop it twice.
-    page["did-navigate-in-page"]!({}, "data:text/html;charset=utf-8,x#stop");
+    // A second event for the same click does not stop it twice.
+    page["will-navigate"]!({ preventDefault: prevented }, "https://atlarix.invalid/stop");
     expect(stop).toHaveBeenCalledOnce();
   });
 
