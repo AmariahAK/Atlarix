@@ -334,6 +334,17 @@ require("readline").createInterface({ input: process.stdin }).on("line", (l) => 
     expect(ops()).toEqual(["reset", "type", "key", "screenshot"]);
   });
 
+  it("cuts a wait short when the turn is stopped", async () => {
+    delete process.env.FAKE_TAKEOVER;
+    const run = await tool();
+    const { markChatUserStopped, clearChatUserStopped } = await import("@/ipc/handlers/chat_stream/stream-state");
+    const t0 = Date.now();
+    setTimeout(() => markChatUserStopped(4242), 300);
+    await run({ action: "wait", duration: 10, _turnId: "turn-w", _chatSessionId: 4242 });
+    clearChatUserStopped(4242);
+    expect(Date.now() - t0).toBeLessThan(2500);
+  });
+
   it.skipIf(process.platform !== "darwin")("says which app macOS will name before it asks", async () => {
     await tool();
     const { computerUseGrantNotice } = await import("@/lib/computer/lane");
@@ -347,8 +358,11 @@ require("readline").createInterface({ input: process.stdin }).on("line", (l) => 
     const run = await tool();
     const stop = vi.fn();
     const out = await run({ action: "left_click", coordinate: [1, 2], _turnId: "turn-c", _stopTurn: stop });
+    // The reason is handed back first; the stop follows it (E3: no reason shown).
+    expect(out).toMatchObject({ success: false, error: "Stopped: the mouse moved, so Atlarix gave you back control." });
+    expect(stop).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 120));
     expect(stop).toHaveBeenCalledOnce();
-    expect(out).toMatchObject({ success: false });
     delete process.env.FAKE_TAKEOVER;
   });
 });

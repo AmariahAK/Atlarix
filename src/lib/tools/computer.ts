@@ -51,13 +51,34 @@ export const computerActivity = new EventEmitter();
 
 let lastTurn: string | undefined;
 
+export const TOOK_CONTROL = "Stopped: the mouse moved, so Atlarix gave you back control.";
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function run(steps: Step[]): Promise<Record<string, unknown> | undefined> {
+/** Stop pressed (or a takeover) while a step waits: main latches it per chat. */
+async function stopLatched(chatId: unknown): Promise<boolean> {
+  if (typeof chatId !== "number") return false;
+  const { isChatUserStopped } = await import("@/ipc/handlers/chat_stream/stream-state");
+  return isChatUserStopped(chatId);
+}
+
+/** A `wait` that Stop can cut short: a 30 s wait made Stop feel dead (ai-26). */
+async function stoppableSleep(ms: number, chatId: unknown): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (await stopLatched(chatId)) return true;
+    await sleep(Math.min(250, end - Date.now()));
+  }
+  return false;
+}
+
+async function run(steps: Step[], chatId: unknown): Promise<Record<string, unknown> | undefined> {
   let last: Record<string, unknown> | undefined;
   for (const s of steps) {
-    if ("sleepMs" in s) await sleep(s.sleepMs);
-    else last = await helperRequest(s.op, s.args);
+    if (await stopLatched(chatId)) break;
+    if ("sleepMs" in s) {
+      if (await stoppableSleep(s.sleepMs, chatId)) break;
+    } else last = await helperRequest(s.op, s.args);
   }
   return last;
 }
@@ -124,7 +145,7 @@ ToolRegistry.register({
       const steps = Array.isArray(args.actions)
         ? stepsForOpenAI(args.actions as OpenAIAction[])
         : stepsForAnthropic(args as unknown as AnthropicAction);
-      const last = await run(steps);
+      const last = await run(steps, args._chatSessionId);
       if (args.action === "cursor_position") {
         return { success: true, x: last?.x, y: last?.y };
       }
@@ -132,8 +153,10 @@ ToolRegistry.register({
       return await screenshot();
     } catch (err) {
       if (err instanceof HelperError && err.code === "user_took_control") {
-        stopTurn?.();
-        return { success: false, error: "The user took control of the screen, so the turn was stopped." };
+        // After this result is handed back, not before: stopping first dropped
+        // the result, and the editor showed a failed step with no reason (E3).
+        if (stopTurn) setTimeout(stopTurn, 50);
+        return { success: false, error: TOOK_CONTROL };
       }
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     } finally {
