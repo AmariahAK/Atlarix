@@ -73,22 +73,27 @@ re-encrypted under a new `SLACK_TOKEN_KEY`. Teleios Centre Kenya's Postgres was 
   `atlarix-uptime` watcher (every 5 min, emails atlarix-alarms); the three small Lambdas on their own Supabase key.
   The reviewer logs `[trace]` lines; `scripts/aws/trace.sh <delivery key>` follows one delivery.
 - **Left:**
-  - the proxy copy `atlarix-proxy-failover` (us-east-1): build and deploy, prove `/health` + the debit dedupe, then
-    set item 10's `fallbackUrl`. Its own provider keys must be minted again: the overnight copies were deleted with
-    the scratchpad. Revoke the unused `aws-proxy-copy-2026-10-2x` keys at OpenAI, Kimi, Requesty, DeepSeek and Z.ai
-    (the copy's Supabase key is already deleted), and the unused R2 token `atlarix-ledger-backups-aws-2026-10-23`.
-  - switch the GitHub (both apps) and Slack webhook URLs to the inbox Lambda, then check one redelivery with
-    `trace.sh`.
-  - the backup on AWS: dry-run and apply `backup_reader` (+ the `backup.users_min` view), the rehearsal restore, 2
-    overlap nights, then the switch. Its new R2 token was minted (Object R&W on `atlarix-ledger-backups`) and must
-    be re-minted, as the copy is deleted.
-  - the STALE check needs the proxy's commit (B).
-
-- **Migrations applied to prod but not in this repo:** `inbox_writer_role` and `inbox_claim` (ai-c4, via the
-  Supabase MCP). Pull them with `supabase migration fetch` or `list_migrations` and commit them under
-  `supabase/migrations/`.
-- **The Windows VM** still holds QA leftovers in `C:\axq\b8` (exe, scripts, trajectories; no keys). Clear them on
-  the next boot.
+  - **The proxy copy is DEPLOYED but must not be used yet:** `atlarix-proxy-failover` (us-east-1) @ 684dbd0
+    (= 57c91fb + the adapter; branch `ai-c4/aws-relief` in atlarix-proxy, not merged), at
+    https://gbo3uaoxtx2u7aub7npsbtzyua0dlqbi.lambda-url.us-east-1.on.aws/. `/health` and the debit dedupe are proven.
+    Its Supabase key was deleted, so it fails closed. Re-mint its keys (`scripts/aws/90-proxy-failover.sh
+    --secrets`) before setting item 10's `fallbackUrl`. Either keep its `aws-proxy-copy-2026-10-2x` provider keys
+    (OpenAI, Kimi, Requesty, DeepSeek, Z.ai; they live only in its env), or revoke them and re-mint. Merge
+    `ai-c4/aws-relief` into the proxy so Railway and the copy run ONE sha, and add the copy to the uptime TARGETS
+    in `60-lambdas.sh`. Client rule: fall back on connect failure, 502 or 503 only, never 504.
+  - **Webhook URL switch to the inbox** (https://l7k2phhezgchepvhsuuplipzre0uxubo.lambda-url.eu-west-1.on.aws):
+    `/github/reviewer`, `/github/agent`, `/slack/events`, `/slack/interactions`. The inbox passes end to end with
+    the new secrets (stored → claimed → done in ~1 s). The Reviewer App's webhook still points at
+    `atlarix-reviewer-production.up.railway.app/webhooks/github`; its secret was missing until 2026-10-23 and is
+    set again now. The owner does the App webhook change (a session's classifier refused it).
+  - **Backup on AWS:** the `atlarix-backup` Lambda has a since-revoked R2 token and a THROWAWAY `AGE_RECIPIENT`.
+    Set the real recipient and a new R2 token before any run. It has no schedule (`PREFIX=rehearsal`, no
+    alerts), so it never runs by itself. Still to do: dry-run and apply `backup_reader` + `backup.users_min`, the
+    rehearsal restore, 2 overlap nights, then the switch.
+  - **STALE check** compares commits only when both are non-null. Set `ATLARIX_COMMIT=<sha>` on Railway at each
+    deploy (server.ts reads `RAILWAY_GIT_COMMIT_SHA ?? ATLARIX_COMMIT`).
+  - 8 proof rows (`ai-c4-proof-*`, `ai-c4-check-*`) in `public.inbox`: the drain's daily prune removes them after
+    7 days.
 
 ### D. Slack v1 — live
 
