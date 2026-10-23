@@ -83,6 +83,7 @@ export function ChatConfigDropdown() {
     ? chosenLevel(effortChoices, settings?.effort, !!settings?.deepThinking && !settings?.effort)
     : undefined;
   const { t } = useTranslation("chat");
+  const { t: tSettings } = useTranslation("settings");
   const onAuto =
     settings?.selectedModel?.provider === COMPASS_PROVIDER_ID &&
     isCoreAutoTier(settings.selectedModel.name);
@@ -241,7 +242,7 @@ export function ChatConfigDropdown() {
                 data-testid="computer-use-toggle"
               >
                 <MousePointerClick className="h-3.5 w-3.5" />
-                Computer use
+                {tSettings("computerUse.label")}
               </DropdownMenuCheckboxItem>
               {computerWhy ? (
                 <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">

@@ -84,5 +84,15 @@
     "dismiss": "Keep Atlarix Auto",
     "willUse": "New chats would use {{model}}. Change it any time from the model picker.",
     "done": "New chats will use {{model}}."
+  },
+  "computerUse": {
+    "label": "Computer use",
+    "description": "A model you switch on can see your screen and use the mouse and keyboard. Move the mouse to take control back.",
+    "screen": "Screen Recording",
+    "accessibility": "Accessibility",
+    "allowed": "Allowed",
+    "allow": "Allow",
+    "restartHint": "Allowed it in System Settings? Restart to apply.",
+    "restart": "Restart Atlarix"
   }
 }

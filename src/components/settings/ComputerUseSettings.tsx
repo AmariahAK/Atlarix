@@ -4,6 +4,7 @@
  * grants that needs. A model that can't have it says why instead of vanishing.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { ComputerUsePermissions } from "@/ipc/ipc_types";
 import { useSettings } from "@/hooks/useSettings";
@@ -15,12 +16,10 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { computerUseKey, ineligibleReason } from "@/lib/computer/eligibility";
 
-const GRANTS = [
-  { key: "screen", label: "Screen Recording" },
-  { key: "accessibility", label: "Accessibility" },
-] as const;
+const GRANTS = ["screen", "accessibility"] as const;
 
 function Permissions() {
+  const { t } = useTranslation("settings");
   const [state, setState] = useState<ComputerUsePermissions | null>(null);
   const [asked, setAsked] = useState(false);
   const read = useCallback(async (request?: "screen" | "accessibility") => {
@@ -31,35 +30,33 @@ function Permissions() {
   }, [read]);
 
   if (!state || "error" in state || state.screen === "unsupported") return null;
-  const missing = GRANTS.filter((g) => state[g.key] !== "granted");
+  const missing = GRANTS.filter((g) => state[g] !== "granted");
   return (
     <div className="mb-6 space-y-3 max-w-md">
       {GRANTS.map((g) => (
-        <div key={g.key} className="flex items-center justify-between gap-4">
-          <span className="text-sm">{g.label}</span>
-          {state[g.key] === "granted" ? (
-            <span className="text-sm text-muted-foreground">Allowed</span>
+        <div key={g} className="flex items-center justify-between gap-4">
+          <span className="text-sm">{t(`computerUse.${g}`)}</span>
+          {state[g] === "granted" ? (
+            <span className="text-sm text-muted-foreground">{t("computerUse.allowed")}</span>
           ) : (
             <Button
               size="sm"
               variant="outline"
               onClick={() => {
                 setAsked(true);
-                void read(g.key);
+                void read(g);
               }}
             >
-              Allow
+              {t("computerUse.allow")}
             </Button>
           )}
         </div>
       ))}
       {asked && missing.length > 0 && (
         <div className="flex items-center justify-between gap-4">
-          <span className="text-xs text-muted-foreground">
-            Allowed it in System Settings? Restart to apply.
-          </span>
+          <span className="text-xs text-muted-foreground">{t("computerUse.restartHint")}</span>
           <Button size="sm" variant="outline" onClick={() => void IpcClient.getInstance().relaunchForComputerUse()}>
-            Restart Atlarix
+            {t("computerUse.restart")}
           </Button>
         </div>
       )}
@@ -68,6 +65,7 @@ function Permissions() {
 }
 
 export function ComputerUseSettings() {
+  const { t } = useTranslation("settings");
   const { settings, updateSettings } = useSettings();
   const { data: configured } = useConfiguredProviders();
   const { data: providers } = useLanguageModelProviders();
@@ -81,10 +79,8 @@ export function ComputerUseSettings() {
 
   return (
     <div id="computer-use" className="bg-card rounded-xl shadow-sm p-6 border border-border">
-      <h2 className="text-lg font-medium text-foreground mb-1">Computer use</h2>
-      <p className="text-sm text-muted-foreground mb-6 max-w-md">
-        A model you switch on can see your screen and use the mouse and keyboard. Move the mouse to take control back.
-      </p>
+      <h2 className="text-lg font-medium text-foreground mb-1">{t("computerUse.label")}</h2>
+      <p className="text-sm text-muted-foreground mb-6 max-w-md">{t("computerUse.description")}</p>
       <Permissions />
       <div className="space-y-6">
         {(configured ?? []).map((providerId) => {
