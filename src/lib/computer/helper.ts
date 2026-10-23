@@ -60,6 +60,21 @@ export async function resolveHelperPath(): Promise<string | null> {
   return fs.existsSync(dev) ? dev : null;
 }
 
+/**
+ * Whether this build carries the executor at all (sync, for the toolset gate):
+ * without one every action would fail with "missing", so the model is not
+ * offered the tool. Same places resolveHelperPath looks.
+ */
+export function helperPresent(): boolean {
+  const override = process.env.ATLARIX_COMPUTER_HELPER;
+  if (override && fs.existsSync(override)) return true;
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (resourcesPath && fs.existsSync(path.join(resourcesPath, NAME))) return true;
+  const embedded = process.env.ATLARIX_EMBEDDED_COMPUTER;
+  if (embedded) return true;
+  return fs.existsSync(path.join(process.cwd(), "native", "atlarix-computer", "target", "release", NAME));
+}
+
 type Pending = {
   resolve: (r: HelperReply) => void;
   reject: (e: Error) => void;

@@ -6,6 +6,7 @@
 import type { ComputerUseEligibility } from "@/ipc/ipc_types";
 
 export function ineligibleReason(why: Exclude<ComputerUseEligibility, "eligible">): string {
+  if (why === "no-executor") return "This build of Atlarix can't control the screen.";
   return why === "no-vision"
     ? "This model can't see images."
     : "This connection can't send screenshots back to the model. An Anthropic-format connection can.";

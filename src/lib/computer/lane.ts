@@ -23,6 +23,7 @@ import {
 } from "@/lib/routing/model-capability-profile";
 import { isCustomAnthropicFormat } from "@/lib/routing/custom-provider-format";
 import { hasNativeComputerTool } from "./catalog";
+import { helperPresent } from "./helper";
 import { computerUseKey } from "./eligibility";
 
 export { computerUseKey };
@@ -38,7 +39,7 @@ export type ComputerModel = {
 };
 
 /** Why a model can't have computer use; null when it can. */
-export type Ineligible = "no-vision" | "no-tool-images";
+export type Ineligible = "no-vision" | "no-tool-images" | "no-executor";
 
 export function isComputerUseOn(m: ComputerModel): boolean {
   return (readSettings().computerUseModels ?? []).includes(computerUseKey(m));
@@ -60,6 +61,7 @@ function providerOf(m: ComputerModel): string | undefined {
  * recognise Claude behind those endpoints themselves (A1).
  */
 export function computerUseIneligible(m: ComputerModel): Ineligible | null {
+  if (!helperPresent()) return "no-executor";
   const provider = providerOf(m);
   if (!detectVisionCapability(provider, m.name)) return "no-vision";
   if (!providerSupportsToolMedia(provider, m.name)) return "no-tool-images";
