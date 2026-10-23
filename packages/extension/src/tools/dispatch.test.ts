@@ -319,6 +319,24 @@ describe("a missing grant travels OUT, because only the loop can ask", () => {
     });
   });
 
+  it("Chrome withholding a site we allow says so, instead of a grant card that changes nothing", async () => {
+    // "Allow on every site" on, and the user set Atlarix to "On click" here (QA, ai-44).
+    granted.clear();
+    storage.delete("atlarix.siteGrants.v1");
+    storage.set("atlarix.allSites.v1", true);
+    const out = await dispatchTool(call("read_page"), CTX);
+    expect(out.needsApproval).toBeUndefined();
+    expect(out.content).toContain("Chrome is blocking Atlarix from this site");
+    // The same for a site granted the usual way, then withheld in Chrome.
+    storage.delete("atlarix.allSites.v1");
+    storage.set("atlarix.siteGrants.v1", {
+      "https://example.test": { origin: "https://example.test", grantedAt: 1 },
+    });
+    const again = await dispatchTool(call("read_page"), CTX);
+    expect(again.needsApproval).toBeUndefined();
+    expect(again.content).toContain("Chrome is blocking Atlarix from this site");
+  });
+
   it("refuses a scheme no grant could ever cover, without asking", async () => {
     // `chrome://` has no origin `site-grants` will produce, so asking would
     // put a dialog in front of the user that cannot succeed.

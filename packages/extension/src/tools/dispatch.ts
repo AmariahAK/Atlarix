@@ -40,9 +40,9 @@ import {
 } from "@/lib/browser/page-scripts";
 import type { ToolCall } from "../core/client";
 import type { MadeFile } from "../files/store";
-import { activeTab, runInPage } from "../page/inject";
-import { canActOn } from "../permissions/host-access";
-import { originOf } from "../permissions/site-grants";
+import { CHROME_BLOCKING_HELP, activeTab, runInPage } from "../page/inject";
+import { canActOn, hasHostAccess } from "../permissions/host-access";
+import { isGranted, originOf } from "../permissions/site-grants";
 import { adoptTab, isAgentTab, noteAgentClosingTab } from "../tabs/group";
 import {
   classifyAction,
@@ -411,6 +411,12 @@ async function requireAccess(url: string): Promise<ToolOutcome | null> {
     };
   }
   if (await canActOn(url)) return null;
+  // Allowed on our side (a grant, or "Allow on every site") but withheld by
+  // Chrome ("On click" in chrome://extensions): a grant card would ask for what
+  // is already given and change nothing. Say what does (QA, ai-44).
+  if ((await isGranted(url)) && !(await hasHostAccess(url))) {
+    return { content: CHROME_BLOCKING_HELP };
+  }
   return {
     content: `Waiting for the user to allow ${origin}.`,
     needsApproval: { kind: "host", url, origin },
