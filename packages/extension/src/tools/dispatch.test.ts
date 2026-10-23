@@ -589,6 +589,15 @@ describe("the always-ask classifier finally has a caller", () => {
     });
   });
 
+  it("still stops it with Allow on every site switched on", async () => {
+    // "Every site" widens where the agent may act, never what it may do there.
+    storage.set("atlarix.allSites.v1", true);
+    storage.delete("atlarix.siteGrants.v1");
+    injectResult = passwordField;
+    const out = await dispatchTool(call("fill", { ref: "e1", value: "hunter2" }), CTX);
+    expect(out.needsApproval).toMatchObject({ kind: "action", category: "credentials" });
+  });
+
   it("NEVER puts the value into anything the user or a log will see", async () => {
     // This string is rendered, and may be logged, on the path where the value
     // is a password. `always-ask.ts` builds its reason without it on purpose.

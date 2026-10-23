@@ -54,7 +54,7 @@ import {
   requestHostAccess,
   revokeHostAccess,
 } from "../permissions/host-access";
-import { listGrants, revokeAll } from "../permissions/site-grants";
+import { allSitesAllowed, listGrants, revokeAll, setAllSitesAllowed } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
 import { onGroupClosed, setGroupTitle } from "../tabs/group";
@@ -2991,6 +2991,7 @@ eraseButton?.addEventListener("click", () => {
     for (const grant of await listGrants())
       await revokeHostAccess(grant.origin);
     await revokeAll();
+    if (allSitesToggle) allSitesToggle.checked = false;
     // And the account's copy of them. `syncSiteGrants` publishes whatever is
     // left, which is now nothing, and the server drops the rows -- the same
     // "erase means erase" rule the conversations below are held to. Without
@@ -3048,6 +3049,17 @@ signOutButton?.addEventListener("click", () => {
 // line says where the conversation stands. Written while you're away, shown,
 // never saved. On by default; the drawer turns it off (this browser only).
 // ---------------------------------------------------------------------------
+
+// "Allow on every site": a click here is the only way it changes (site-grants.ts).
+const allSitesToggle = el<HTMLInputElement>("all-sites-toggle");
+void allSitesAllowed()
+  .then((on) => {
+    if (allSitesToggle) allSitesToggle.checked = on;
+  })
+  .catch(() => {});
+allSitesToggle?.addEventListener("change", () => {
+  void setAllSitesAllowed(allSitesToggle.checked).catch(() => {});
+});
 
 const RECAP_KEY = "atlarix.sessionRecap";
 let recapOn = true;

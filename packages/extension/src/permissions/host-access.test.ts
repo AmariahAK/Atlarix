@@ -17,7 +17,9 @@ import {
   requestHostAccess,
   revokeHostAccess,
 } from "./host-access";
-import { isGranted, listGrants } from "./site-grants";
+import { isGranted, listGrants, revokeAll, setAllSitesAllowed } from "./site-grants";
+
+const RAW = import.meta.glob("../**/*.ts", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 
 interface Fake {
   store: Map<string, unknown>;
@@ -297,3 +299,36 @@ describe("pruneRevokedGrants", () => {
  * assumes Chrome has to be asked for host access will fail instead of passing
  * against a world that no longer ships.
  */
+
+describe("Allow on every site (15.11)", () => {
+  it("on: a site never granted needs no card; off: it does again", async () => {
+    expect(await canActOn("https://never-asked.test/page")).toBe(false);
+    await setAllSitesAllowed(true);
+    expect(await canActOn("https://never-asked.test/page")).toBe(true);
+    await setAllSitesAllowed(false);
+    expect(await canActOn("https://never-asked.test/page")).toBe(false);
+  });
+
+  it("Chrome still wins: a site it withholds stays blocked with the switch on", async () => {
+    await setAllSitesAllowed(true);
+    fake.held.clear(); // the user set Atlarix to "On click" in chrome://extensions
+    expect(await canActOn("https://never-asked.test/page")).toBe(false);
+  });
+
+  it("never covers a page that cannot be granted, and Erase everything turns it off", async () => {
+    await setAllSitesAllowed(true);
+    expect(await isGranted("chrome://settings")).toBe(false);
+    expect(await isGranted("file:///etc/passwd")).toBe(false);
+    await revokeAll();
+    expect(await canActOn("https://never-asked.test/page")).toBe(false);
+  });
+
+  it("only the panel can switch it: no tool, bridge or worker code imports the setter", () => {
+    const users = Object.entries(RAW)
+      .filter(([file, text]) => !file.endsWith(".test.ts") && text.includes("setAllSitesAllowed"))
+      .map(([file]) => file)
+      .sort();
+    expect(users).toEqual(["../panel/sidepanel.ts", "./site-grants.ts"]);
+    expect(RAW["../panel/sidepanel.ts"]).toContain("setAllSitesAllowed(allSitesToggle.checked)");
+  });
+});
