@@ -79,3 +79,26 @@ describe("the line an answered approval leaves (shared with the editors)", () =>
     expect(approvalConfirmation(card({ action: "create" }, "automation_write"), "once")).toBeNull();
   });
 });
+
+describe("the folder in the confirmation line, on Windows (release CI)", () => {
+  const onWindows = <T>(fn: () => T): T => {
+    const real = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      return fn();
+    } finally {
+      Object.defineProperty(process, "platform", real);
+    }
+  };
+
+  it("a project folder reads with \"/\", as the rule is stored; a drive path keeps its own", () => {
+    expect(
+      onWindows(() => approvalConfirmation(card({ path: "src/app.ts", fileParentDir: "src" }, "edit_file"), "always_allow_directory")),
+    ).toBe("✓ You approved Atlarix to edit files in `src/` from now on");
+    expect(
+      onWindows(() =>
+        approvalConfirmation(card({ path: "C:/Users/Public/a.txt", fileParentDir: "C:/Users/Public" }, "edit_file"), "always_allow_directory"),
+      ),
+    ).toBe("✓ You approved Atlarix to edit files in `C:\\Users\\Public\\` from now on");
+  });
+});

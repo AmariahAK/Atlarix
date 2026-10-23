@@ -7,11 +7,10 @@
  *
  * Flow:
  *  1. Authenticate via Azure AD client credentials
- *  2. If a submission is pending, replace it — including one still in
- *     certification (owner, 2026-10-18: waiting meant a new release never
- *     reached the Store in time). Only one Microsoft is in the middle of
- *     committing or publishing is waited for, since Microsoft refuses to delete
- *     those (409); if it is still there after the wait, this release skips the Store
+ *  2. If a submission is pending: REUSE a draft (PendingCommit, or Canceled:
+ *     one whose certification was cancelled in Partner Center), replace one
+ *     that failed, and WAIT for one Microsoft is processing or certifying. If
+ *     it is still there after the wait, this release skips the Store
  *  3. Create a new submission (clones the published one — all listing info,
  *     screenshots, age rating, etc. carry forward automatically). A deleted
  *     submission can never be reused, so it is always a new one
@@ -64,17 +63,18 @@ const REPLACEABLE = new Set([
   "CertificationFailed",
   "ReleaseFailed",
   "PublishFailed",
-  "Canceled",
 ]);
 
 /**
- * A draft (PendingCommit, e.g. a certification cancelled in Partner Center) is
- * REUSED rather than replaced: a new submission clones the published one, so
- * anything set by hand on the draft (support info, 2026-10-23) would be lost.
+ * A draft is REUSED rather than replaced: a new submission clones the published
+ * one, so anything set by hand on the draft would be lost. That includes a
+ * submission whose certification was cancelled in Partner Center: the API
+ * reports it as "Canceled", not "PendingCommit", and 15.11.0 deleted one with
+ * the support info set on it (2026-10-24).
  * @returns {"wait" | "replace" | "reuse"}
  */
 export function pendingSubmissionAction(status) {
-  if (status === "PendingCommit") return "reuse";
+  if (status === "PendingCommit" || status === "Canceled") return "reuse";
   return REPLACEABLE.has(status) ? "replace" : "wait";
 }
 
