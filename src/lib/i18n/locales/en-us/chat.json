@@ -55,5 +55,8 @@
     "optional": "(optional)",
     "connected": "{{name}} is connected.",
     "signInFailed": "Couldn't sign in to {{name}}."
+  },
+  "loadedSession": {
+    "olderNotShown": "Older messages are saved but not shown."
   }
 }
