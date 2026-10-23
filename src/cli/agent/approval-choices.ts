@@ -100,7 +100,9 @@ export function approvalConfirmation(a: PendingApproval, mode: ApprovalChoice["m
     what = `write to ${code(p.deniedPath)} this time`;
   } else if (p.path) {
     const verb = p.type === "delete" ? "delete" : p.type === "create" ? "create" : "edit";
-    if (mode === "always_allow_directory" && p.fileParentDir) what = `edit files in ${code(nativeDir(p.fileParentDir))} from now on`;
+    // A project folder with "/" as the rule is stored and shown elsewhere; a
+    // drive path (C:\…) keeps its own (release CI, Windows: `src\`).
+    if (mode === "always_allow_directory" && p.fileParentDir) what = `edit files in ${code(nativeDir(p.fileParentDir, "linux"))} from now on`;
     else if (mode === "always_allow_file") what = `edit ${code(p.path)} from now on`;
     else what = `${verb} ${code(p.path)} this time`;
   }
