@@ -41,6 +41,9 @@ let sent = 0;
 const seen = new Set<string>();
 const inFlight = new Set<Promise<unknown>>();
 const tags: Record<string, string> = {};
+/** The signed-in account's id (a uuid), never its email or name. */
+let userId: string | null = null;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A DSN, or a stub on this machine for a live test (loopback only). */
 function resolveDsn(dsn: string | undefined): string | undefined {
@@ -151,6 +154,7 @@ function baseEvent(level: string): Event {
       ...tags,
     },
     contexts: { runtime: { name: process.versions.bun ? "bun" : "node", version: process.versions.bun ?? process.version } },
+    ...(userId ? { user: { id: userId } } : {}),
   };
 }
 
@@ -220,9 +224,12 @@ export function captureMessage(message: string, ctx?: unknown): string {
   }
 }
 
-// Breadcrumbs, users and context are not kept: less to scrub, nothing to leak.
+// Breadcrumbs and context are not kept: less to scrub, nothing to leak. Of a
+// user, only an account id is.
 export const addBreadcrumb = (): void => {};
-export const setUser = (): void => {};
+export function setUser(user: { id?: unknown } | null): void {
+  userId = typeof user?.id === "string" && UUID.test(user.id) ? user.id : null;
+}
 export const setContext = (): void => {};
 export function setTag(key: string, value: string): void {
   tags[key] = value;
@@ -248,6 +255,7 @@ export function __resetForTests(): void {
   sent = 0;
   seen.clear();
   inFlight.clear();
+  userId = null;
   for (const k of Object.keys(tags)) delete tags[k];
 }
 
