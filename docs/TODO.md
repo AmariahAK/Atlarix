@@ -36,6 +36,17 @@ The owner approved the scope 2026-10-23 and asked for a full release overnight. 
   rotation). Mint a secret key, `scripts/aws/90-proxy-failover.sh --secrets < env.json`, prove /health + a debit, then
   set `proxy.fallbackUrl` and add the copy to the uptime TARGETS.
 
+### A2. Found in the 15.11.0 artifact checks (ai-44)
+
+- **Intel Macs never auto-update** (pre-existing, same in v15.10.0): `latest-mac.yml` lists only the arm64 files, so
+  electron-updater on x64 has nothing to download and shows only the notify banner. Publish both architectures in
+  the mac manifest (or a separate `latest-mac-x64`/arch-aware feed).
+- **Windows CLI version resource:** Company/Product/Description/Version now say Atlarix, but bun still fills
+  LegalCopyright ("https://bun.com/docs/project/licensing"), InternalName "bun" and an empty OriginalFilename. Set
+  them if bun's compile options allow, else post-process the resource.
+- **Linux deb:** the computer-use executor needs libxkbcommon0 and libwayland-client0; `Depends` doesn't list them
+  (libgtk-3-0 pulls both on Debian/Ubuntu). List them explicitly.
+
 ### B. Not verified (say so in any announcement)
 
 - The Windows CLI's file metadata (Atlarix / Amariah Abishai / Atlarix CLI, a37e7e9e) is only written when Bun
