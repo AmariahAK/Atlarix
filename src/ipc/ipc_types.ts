@@ -569,7 +569,7 @@ export type ComputerUsePermissions =
   | { error: string };
 
 /** `eligible`, or why computer use can't be switched on (lib/computer/lane.ts). */
-export type ComputerUseEligibility = "eligible" | "no-vision" | "no-tool-images";
+export type ComputerUseEligibility = "eligible" | "no-vision" | "no-tool-images" | "no-executor";
 
 /** The wire formats a provider the user added can speak. */
 export type CustomApiFormat = "openai" | "anthropic";

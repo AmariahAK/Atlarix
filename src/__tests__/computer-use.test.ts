@@ -15,6 +15,9 @@ vi.mock("@/main/settings", () => ({ readSettings: settings, writeSettings: write
 vi.mock("../main/settings", () => ({ readSettings: settings, writeSettings: write }));
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "cu-test-"));
+// An executor "in the build", so eligibility is about the model (the
+// executor's own tests below point this at a fake one).
+process.env.ATLARIX_COMPUTER_HELPER = process.execPath;
 vi.mock("@/paths/paths", async (orig) => ({
   ...(await orig<object>()),
   getUserDataPath: () => userData,
@@ -171,6 +174,21 @@ describe("computerLane", () => {
     on("custom::zai/zai.glm-4.7-flash");
     expect(computerUseIneligible(glm)).toBe("no-vision");
     expect(computerLane(glm)).toBeNull();
+  });
+
+  it("offers nothing when the build carries no executor", () => {
+    const keep = process.env.ATLARIX_COMPUTER_HELPER;
+    process.env.ATLARIX_COMPUTER_HELPER = "/nonexistent/atlarix-computer";
+    const cwd = process.cwd();
+    process.chdir(os.tmpdir()); // no dev build there either
+    try {
+      on("anthropic/claude-haiku-4-5");
+      expect(computerUseIneligible({ provider: "anthropic", name: "claude-haiku-4-5" })).toBe("no-executor");
+      expect(computerLane({ provider: "anthropic", name: "claude-haiku-4-5" })).toBeNull();
+    } finally {
+      process.chdir(cwd);
+      process.env.ATLARIX_COMPUTER_HELPER = keep;
+    }
   });
 
   it("says why a model can't have it, instead of hiding it", () => {
@@ -395,6 +413,10 @@ describe("a computer action that did not happen", () => {
     const { computerFailureOutput } = await import("@/lib/tools/computer");
     const busy = { success: false, error: "another Atlarix session is controlling the screen" };
     expect(computerFailureOutput("computer", busy)).toEqual({ type: "error-text", value: busy.error });
+    // As it really arrives (A7): the build wrapper's JSON text of the registry envelope.
+    const asSent = JSON.stringify({ success: false, tool: "computer", error: busy.error, message: busy.error });
+    expect(computerFailureOutput("computer", asSent)).toEqual({ type: "error-text", value: busy.error });
+    expect(computerFailureOutput("computer", "not json")).toBeUndefined();
     expect(computerFailureOutput("computer", { success: true, data: "AAAA" })).toBeUndefined();
     // Other tools keep their own result shapes.
     expect(computerFailureOutput("read_file", busy)).toBeUndefined();

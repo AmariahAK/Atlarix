@@ -63,8 +63,18 @@ export function computerFailureOutput(
   output: unknown,
 ): { type: "error-text"; value: string } | undefined {
   if (toolName !== "computer") return undefined;
-  const o = output as { success?: unknown; error?: unknown } | null;
-  return o && o.success === false && typeof o.error === "string" ? { type: "error-text", value: o.error } : undefined;
+  // The build turn's wrapper hands every non-image result over as its JSON
+  // TEXT, so a failure arrives as a string here (A7: is_error stayed false).
+  let o: unknown = output;
+  if (typeof output === "string") {
+    try {
+      o = JSON.parse(output);
+    } catch {
+      return undefined;
+    }
+  }
+  const r = o as { success?: unknown; error?: unknown } | null;
+  return r && r.success === false && typeof r.error === "string" ? { type: "error-text", value: r.error } : undefined;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
