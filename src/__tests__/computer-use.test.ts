@@ -292,6 +292,7 @@ require("readline").createInterface({ input: process.stdin }).on("line", (l) => 
   fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(r) + "\\n");
   let out = { id: r.id, ok: true };
   if (r.op === "screenshot") Object.assign(out, { width: 4, height: 3, mime: "image/jpeg", data: "AAAA" });
+  if (r.op === "permissions") Object.assign(out, { screen: "denied", accessibility: "granted", app: "Terminal" });
   if (r.op === "click" && process.env.FAKE_TAKEOVER === "1")
     out = { id: r.id, ok: false, code: "user_took_control", error: "moved" };
   process.stdout.write(JSON.stringify(out) + "\\n");
@@ -331,6 +332,14 @@ require("readline").createInterface({ input: process.stdin }).on("line", (l) => 
     const run = await tool();
     await run({ actions: [{ type: "type", text: "hi" }, { type: "keypress", keys: ["ENTER"] }], _turnId: "turn-b" });
     expect(ops()).toEqual(["reset", "type", "key", "screenshot"]);
+  });
+
+  it.skipIf(process.platform !== "darwin")("says which app macOS will name before it asks", async () => {
+    await tool();
+    const { computerUseGrantNotice } = await import("@/lib/computer/lane");
+    expect(await computerUseGrantNotice()).toBe(
+      "macOS will ask to let Terminal record the screen and control the computer. That's Atlarix's computer use.",
+    );
   });
 
   it("stops the turn when the user takes the mouse", async () => {

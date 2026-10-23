@@ -112,6 +112,25 @@ export function computerLane(m: ComputerModel): ComputerLane | null {
   return "own";
 }
 
+/**
+ * Said BEFORE macOS asks: its prompt names the app Atlarix runs inside (the
+ * terminal for the CLI, the editor for ACP and VS Code), not Atlarix, and a
+ * prompt from an app you didn't expect reads as something recording you
+ * (owner, 2026-10-23). Null when nothing is left to grant, or off macOS.
+ */
+export async function computerUseGrantNotice(): Promise<string | null> {
+  if (process.platform !== "darwin") return null;
+  try {
+    const { helperRequest } = await import("./helper");
+    const p = await helperRequest("permissions");
+    if (p.screen === "granted" && p.accessibility === "granted") return null;
+    const app = typeof p.app === "string" && p.app ? p.app : "Atlarix";
+    return `macOS will ask to let ${app} record the screen and control the computer. That's Atlarix's computer use.`;
+  } catch {
+    return null;
+  }
+}
+
 export function __resetComputerLaneForTests(): void {
   rejected = null;
 }

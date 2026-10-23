@@ -28,7 +28,7 @@ export const state = {
   /** The chosen model's effort levels (config id "thinking"); the default is marked "default". */
   thinking: null as { value: string; options: Array<{ value: string; name: string; description?: string | null }> } | null,
   /** Computer use for the chat's model: on, or why it can't be (the agent's `computer_use` option). */
-  computerUse: null as { on: boolean; why: string | null } | null,
+  computerUse: null as { on: boolean; why: string | null; note: string | null } | null,
   commands: [] as Command[],
   settings: { attachOpenFile: true, ctrlEnterSends: false, notifyWhenNeeded: true } as HostSettings,
   providers: null as ProviderRow[] | null,
@@ -67,7 +67,12 @@ export function applyOptions(opts: SessionConfigOption[]): void {
       state.modelValue = String(o.currentValue);
     } else if (o.id === "computer_use") {
       const canTurnOn = groups.some((g) => g.options.some((x) => x.value === "on"));
-      state.computerUse = { on: o.currentValue === "on", why: canTurnOn ? null : (o.description ?? null) };
+      state.computerUse = {
+        on: o.currentValue === "on",
+        why: canTurnOn ? null : (o.description ?? null),
+        // Switched on with a macOS grant still to give: whose name the prompt carries.
+        note: canTurnOn ? (o.description ?? null) : null,
+      };
     } else if (o.id === "thinking") {
       state.thinking = { value: String(o.currentValue), options: groups.flatMap((g) => g.options) };
     }

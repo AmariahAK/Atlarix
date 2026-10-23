@@ -11,7 +11,7 @@
  *
  * Same data as the TUI: the desktop app's chats, settings, keys and sign-in.
  */
-import { isComputerUseOn, setComputerUse } from "@/lib/computer/lane";
+import { computerUseGrantNotice, isComputerUseOn, setComputerUse } from "@/lib/computer/lane";
 import * as acp from "@agentclientprotocol/sdk";
 import type { InitializeResponse } from "@agentclientprotocol/sdk";
 import { acpStdout } from "./stdio-guard";
@@ -719,6 +719,7 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
     computerUse: {
       isOn: (m) => isComputerUseOn(m),
       set: (m, on) => setComputerUse(m, on),
+      notice: () => computerUseGrantNotice(),
     },
     setEffort: (patch) => {
       setRuntimeSettingsOverride(patch);

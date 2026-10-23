@@ -51,7 +51,7 @@ fn button(req: &Value) -> Result<Button, Fail> {
 
 fn input_fail(e: impl std::fmt::Display) -> Fail {
     if cfg!(target_os = "macos") && !crate::permissions::accessibility_granted() {
-        return Fail::new("permission", "Accessibility is not allowed for this app (System Settings > Privacy & Security > Accessibility)");
+        return Fail::new("permission", crate::permissions::not_allowed("Accessibility"));
     }
     Fail::new("failed", format!("input failed: {e}"))
 }

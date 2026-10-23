@@ -72,7 +72,7 @@ export interface AcpDeps {
   /** /effort's level, as the TUI's /effort (the old deep-thinking switch kept in step). */
   setEffort?(patch: { effort: string; deepThinking: boolean }): void;
   /** Computer use for a model: the same per-model switch as the app and the TUI's /computer. */
-  computerUse?: { isOn(m: ModelChoice): boolean; set(m: ModelChoice, on: boolean): void };
+  computerUse?: { isOn(m: ModelChoice): boolean; set(m: ModelChoice, on: boolean): void; notice(): Promise<string | null> };
   /** This folder's stored sessions, newest first (the TUI's /resume list). */
   listSessions(cwd: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date | string }>>;
   /** Rename or delete a stored session (the editor's Past chats). */
@@ -1200,18 +1200,21 @@ export class AcpAgent {
     // Computer use: shown for every model; one that can't have it says why.
     if (opt && this.deps.computerUse) {
       const why = opt.computerUse && opt.computerUse !== "eligible" ? opt.computerUse : null;
+      const on = !why && this.deps.computerUse.isOn(opt);
+      // On, with a macOS grant still to give: say whose name the prompt will carry.
+      const notice = on ? await this.deps.computerUse.notice() : null;
       out.push({
         id: "computer_use",
         name: "Computer use",
         type: "select",
-        currentValue: !why && this.deps.computerUse.isOn(opt) ? "on" : "off",
+        currentValue: on ? "on" : "off",
         options: why
           ? [{ value: "off", name: "Off" }]
           : [
               { value: "on", name: "On" },
               { value: "off", name: "Off" },
             ],
-        ...(why ? { description: ineligibleReason(why) } : {}),
+        ...(why ? { description: ineligibleReason(why) } : notice ? { description: notice } : {}),
       });
     }
     return out;

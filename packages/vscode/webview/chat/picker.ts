@@ -135,6 +135,7 @@ function render(scrollToCurrent = false): void {
         }),
       );
     foot.append(r);
+    if (cu.note) foot.append(el("div", "muted small", cu.note));
   }
   if (opts.full) {
     const connected = state.providers?.filter((p) => p.hasKey).length ?? 0;

@@ -1132,9 +1132,9 @@ export function App({
     const want = arg.trim().toLowerCase();
     if (want === "on" || want === "off") {
       lane.setComputerUse(o, want === "on");
-      return want === "on"
-        ? flash(`Computer use on for ${o.label}. Move the mouse to stop it.`, 5000, "success")
-        : flash(`Computer use off for ${o.label}.`, 3000);
+      if (want === "off") return flash(`Computer use off for ${o.label}.`, 3000);
+      const notice = await lane.computerUseGrantNotice();
+      return flash(`Computer use on for ${o.label}. Move the mouse to stop it.${notice ? ` ${notice}` : ""}`, notice ? 9000 : 5000, "success");
     }
     return flash(`Computer use is ${lane.isComputerUseOn(o) ? "on" : "off"} for ${o.label}: /computer on|off`, 4000);
   };

@@ -75,7 +75,7 @@ fn geometry(m: &Monitor) -> Result<(i32, i32, u32, u32), Fail> {
 /// grant; say so, because the raw error does not.
 fn capture_fail(raw: &str) -> Fail {
     if cfg!(target_os = "macos") && !crate::permissions::screen_granted() {
-        return Fail::new("permission", "Screen Recording is not allowed for this app (System Settings > Privacy & Security > Screen Recording)");
+        return Fail::new("permission", crate::permissions::not_allowed("Screen Recording"));
     }
     Fail::new("failed", format!("screen capture failed: {raw}"))
 }
