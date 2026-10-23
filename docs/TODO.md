@@ -63,7 +63,7 @@ re-encrypted under a new `SLACK_TOKEN_KEY`. Teleios Centre Kenya's Postgres was 
 - **Proxy `/health` shows `commit: null`** because it was deployed with `railway up`. Deploy from git next time so
   the SHA shows (the AWS uptime STALE check compares it).
 - **Where keys live now:** Supabase secret keys `railway_20261022` (proxy, reviewer), `aws_lambdas_20261022`
-  (usage-writer, daily-digest, comp-pro), `aws_proxy_copy_20261022` (for C), `edge_functions_20261023` (edge
+  (usage-writer, daily-digest, comp-pro), `edge_functions_20261023` (edge
   `NEXT_PUBLIC_SUPABASE_SECRET_KEY`). Supabase Auth's SMTP password is the new Resend key. Before revoking any key,
   check `supabase secrets list` and the auth SMTP config: the edge functions hold copies.
 
@@ -74,8 +74,9 @@ re-encrypted under a new `SLACK_TOKEN_KEY`. Teleios Centre Kenya's Postgres was 
   The reviewer logs `[trace]` lines; `scripts/aws/trace.sh <delivery key>` follows one delivery.
 - **Left:**
   - the proxy copy `atlarix-proxy-failover` (us-east-1): build and deploy, prove `/health` + the debit dedupe, then
-    set item 10's `fallbackUrl`. Its own provider keys must be minted again: the overnight copies are deleted with
-    the scratchpad.
+    set item 10's `fallbackUrl`. Its own provider keys must be minted again: the overnight copies were deleted with
+    the scratchpad. Revoke the unused `aws-proxy-copy-2026-10-2x` keys at OpenAI, Kimi, Requesty, DeepSeek and Z.ai
+    (the copy's Supabase key is already deleted), and the unused R2 token `atlarix-ledger-backups-aws-2026-10-23`.
   - switch the GitHub (both apps) and Slack webhook URLs to the inbox Lambda, then check one redelivery with
     `trace.sh`.
   - the backup on AWS: dry-run and apply `backup_reader` (+ the `backup.users_min` view), the rehearsal restore, 2
