@@ -6,17 +6,9 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { type UserSettings } from "@/lib/schemas";
 import { usePostHog } from "posthog-js/react";
 import { useAppVersion } from "./useAppVersion";
+import { TELEMETRY_CONSENT_KEY } from "@/lib/analytics/telemetry-consent";
 
-// localStorage mirrors settings.json, which is the source of truth for consent.
-// The fork-era key names were unlinked on every settings load for many releases, so
-// that migration has already run everywhere; a stale one now simply reads as "no
-// consent", which fails closed.
-const TELEMETRY_CONSENT_KEY = "atlarixTelemetryConsent";
 const TELEMETRY_USER_ID_KEY = "atlarixTelemetryUserId";
-
-export function isTelemetryOptedIn() {
-  return window.localStorage.getItem(TELEMETRY_CONSENT_KEY) === "opted_in";
-}
 
 let isInitialLoad = false;
 

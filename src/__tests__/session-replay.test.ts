@@ -28,12 +28,12 @@ beforeEach(() => {
   consent = false;
   vi.doMock("posthog-js", () => ({ default: ph }));
   vi.doMock("posthog-js/dist/posthog-recorder", () => ({}));
-  vi.doMock("@/hooks/useSettings", () => ({ isTelemetryOptedIn: () => consent }));
+  vi.doMock("@/lib/analytics/telemetry-consent", () => ({ isTelemetryOptedIn: () => consent }));
 });
 afterEach(() => {
   vi.doUnmock("posthog-js");
   vi.doUnmock("posthog-js/dist/posthog-recorder");
-  vi.doUnmock("@/hooks/useSettings");
+  vi.doUnmock("@/lib/analytics/telemetry-consent");
 });
 
 const load = async (draw: number, rate?: number) => {
