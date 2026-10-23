@@ -160,6 +160,8 @@ ToolRegistry.register({
         ? stepsForOpenAI(args.actions as OpenAIAction[])
         : stepsForAnthropic(args as unknown as AnthropicAction);
       const last = await run(steps, args._chatSessionId);
+      // Stopped mid-action: nothing to look at, and the turn is ending.
+      if (await stopLatched(args._chatSessionId)) return { success: false, error: "Stopped." };
       if (args.action === "cursor_position") {
         return { success: true, x: last?.x, y: last?.y };
       }
