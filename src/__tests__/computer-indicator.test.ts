@@ -8,13 +8,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Handler = (...args: unknown[]) => void;
 const pages: Array<Record<string, Handler>> = [];
 const shortcuts = new Map<string, Handler>();
+const windowOptions: Array<Record<string, unknown>> = [];
 
 vi.mock("electron", () => {
   class BrowserWindow {
     webContents: { on: (ev: string, h: Handler) => void };
     private handlers: Record<string, Handler> = {};
     private visible = false;
-    constructor() {
+    constructor(opts: Record<string, unknown>) {
+      windowOptions.push(opts);
       const handlers = this.handlers;
       pages.push(handlers);
       this.webContents = { on: (ev, h) => void (handlers[ev] = h) };
@@ -90,6 +92,11 @@ describe("the pill's stops", () => {
     // A second event for the same click does not stop it twice.
     page["will-navigate"]!({ preventDefault: prevented }, "https://atlarix.invalid/stop");
     expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("takes the first click while unfocused, so the first pill's Stop is not lost (A5)", () => {
+    computerActivity.emit("start", { stop: vi.fn() });
+    expect(windowOptions.at(-1)).toMatchObject({ acceptFirstMouse: true });
   });
 
   it("other navigations are cancelled and stop nothing", () => {
