@@ -13,6 +13,8 @@ declare module "atlarix:assets" {
     rg?: string;
     /** The Chrome bridge relay, when built for this target. */
     relay?: string;
+    /** The computer-use executor, when built for this target. */
+    computer?: string;
     /** The bundled skills (src/skills), by their path under it: "modes/build-mode.md" → file. */
     skills?: Record<string, string>;
   };

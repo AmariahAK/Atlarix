@@ -397,6 +397,23 @@ const config: ForgeConfig = {
             ),
           ]
         : []),
+      // The computer-use executor (screenshots + mouse/keyboard), every
+      // platform. Inside the bundle so macOS attributes its Screen Recording
+      // and Accessibility grants to Atlarix. Resolves at runtime via
+      // process.resourcesPath — see src/lib/computer/helper.ts.
+      ...(fs.existsSync(
+        path.join(
+          __dirname,
+          `native/atlarix-computer/target/release/atlarix-computer${process.platform === "win32" ? ".exe" : ""}`,
+        ),
+      )
+        ? [
+            path.join(
+              __dirname,
+              `native/atlarix-computer/target/release/atlarix-computer${process.platform === "win32" ? ".exe" : ""}`,
+            ),
+          ]
+        : []),
       // Linux Landlock sandbox helper (cargo-built in CI; no code-signing needed).
       // Resolves at runtime via process.resourcesPath/atlarix-sandbox-linux
       // (see src/lib/sandbox/wrap-command.ts). Ships on Linux builds natively and

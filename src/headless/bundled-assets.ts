@@ -20,6 +20,7 @@ set("ATLARIX_MODELS_SNAPSHOT", assets.modelsSnapshot);
 set("ATLARIX_MCP_REGISTRY_SNAPSHOT", assets.mcpRegistrySnapshot);
 set("ATLARIX_EMBEDDED_RG", assets.rg);
 set("ATLARIX_EMBEDDED_RELAY", assets.relay);
+set("ATLARIX_EMBEDDED_COMPUTER", assets.computer);
 
 // The mode prompts, sub-agent prompts and guides. Read from `<cwd>/src/skills`
 // before, which only exists inside this repository. Written out when the skill
