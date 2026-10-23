@@ -242,6 +242,11 @@ export type SweepOptions = {
 };
 
 async function sweepTempDirs(opts: SweepOptions): Promise<number> {
+  return (await sweepTempDirsCounting(opts)).removed;
+}
+
+/** The sweep, and how many other Atlarix processes it found running. */
+async function sweepTempDirsCounting(opts: SweepOptions): Promise<{ removed: number; others: number }> {
   const root = os.tmpdir();
   const others = await otherLiveHolders();
   let removed = 0;
@@ -250,7 +255,7 @@ async function sweepTempDirs(opts: SweepOptions): Promise<number> {
     entries = await fsp.readdir(root, { withFileTypes: true });
   } catch (e) {
     logger.warn(`could not read ${root}: ${String(e)}`);
-    return 0;
+    return { removed: 0, others };
   }
 
   for (const entry of entries) {
@@ -280,7 +285,7 @@ async function sweepTempDirs(opts: SweepOptions): Promise<number> {
       logger.warn(`could not remove ${full}: ${String(e)}`);
     }
   }
-  return removed;
+  return { removed, others };
 }
 
 /**
@@ -292,8 +297,20 @@ async function sweepTempDirs(opts: SweepOptions): Promise<number> {
 export async function sweepTempOnQuit(): Promise<void> {
   // This process is done with them; another one still running keeps them.
   releaseTempLease();
-  const removed = await sweepTempDirs({ includeLive: true });
+  const { removed, others } = await sweepTempDirsCounting({ includeLive: true });
   if (removed > 0) logger.info(`removed ${removed} temp director(ies) on quit`);
+  // The last Atlarix out takes the leases dir too, or it stays behind empty
+  // (on Windows, in %TEMP% for good: E4). rmdir, never rm -r: a process
+  // registering its lease this instant makes it non-empty, and it then stays.
+  // Only here: while another Atlarix runs, its empty scratch or attachments
+  // dir may be about to take a write, so nothing empty is removed under it.
+  if (others === 0) {
+    try {
+      await fsp.rmdir(leasesDir());
+    } catch {
+      /* not empty (someone just started), or already gone */
+    }
+  }
 }
 
 /**

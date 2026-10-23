@@ -87,7 +87,7 @@
   },
   "computerUse": {
     "label": "Computer use",
-    "description": "A model you switch on can see your screen and use the mouse and keyboard. It works on whatever is open, so close what you don't want it to touch. Move the mouse to take control back.",
+    "description": "A model you switch on can see your screen and use the mouse and keyboard. It works on whatever is open, so close what you don't want it to touch. On Windows it types by pasting, then puts your clipboard back. Move the mouse to take control back.",
     "screen": "Screen Recording",
     "accessibility": "Accessibility",
     "allowed": "Allowed",
