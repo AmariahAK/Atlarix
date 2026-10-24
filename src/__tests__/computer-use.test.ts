@@ -190,6 +190,24 @@ describe("computerLane", () => {
     expect(computerLane(m)).toBe("own");
   });
 
+  it("without a list, steps down every version the SDK has, newest first, then our own tool", async () => {
+    const { anthropicComputerVersions } = await import("@/lib/computer/lane");
+    const m = { provider: "anthropic", name: "claude-haiku-4-5" };
+    on(`${m.provider}/${m.name}`);
+    fs.rmSync(path.join(userData, "cache", "computer-native-rejected.json"), { force: true });
+    __resetComputerLaneForTests();
+    const bare = Object.assign(new Error("tool type computer_x is not supported"), { statusCode: 400 });
+    const tried: string[] = [];
+    for (let v = anthropicComputerVersion(m); v; v = anthropicComputerVersion(m)) {
+      expect(computerLane(m)).toBe("native-anthropic");
+      tried.push(v);
+      rememberNativeRejected({ ...m, version: v }, bare);
+      expect(tried.length).toBeLessThanOrEqual(anthropicComputerVersions().length);
+    }
+    expect(tried).toEqual(["computer_20251124", "computer_20250124", "computer_20241022"]);
+    expect(computerLane(m)).toBe("own");
+  });
+
   it("gives our own tool at once when a refusal names no dated computer version (Claude 5.5)", () => {
     const m = { provider: "anthropic", name: "claude-haiku-5-5" };
     on("anthropic/claude-haiku-5-5");
@@ -318,6 +336,79 @@ describe("a refused native tool never costs the turn", () => {
     expect(runSimpleStream).toHaveBeenCalledTimes(2);
     expect(result.finishReason).toBe("stop");
     expect(computerLane({ provider: "anthropic", name: "claude-haiku-5-5" })).not.toBe("native-anthropic");
+  });
+
+  it("walks every version down to our own tool without spending the round's network retries", async () => {
+    const { runStreamRoundWithEmptyOutputRetry } = await import(
+      "@/ipc/handlers/chat_stream/turn-runner/round-retry"
+    );
+    const { createStreamTurnContext } = await import("@/ipc/handlers/chat_stream/turn-context");
+    const { isNetworkStreamError, RECONNECT_DELAYS_MS } = await import("@/ipc/handlers/chat_stream/network-retry");
+    const m = { provider: "anthropic", name: "claude-haiku-4-5" };
+    on(`${m.provider}/${m.name}`);
+    fs.rmSync(path.join(userData, "cache", "computer-native-rejected.json"), { force: true });
+    __resetComputerLaneForTests();
+    const ctx = createStreamTurnContext();
+    // A refusal with no list: each version is tried in turn.
+    const bare = Object.assign(new Error("tool type computer_x is not supported"), { statusCode: 400 });
+    const substitute = Object.assign(new Error("No output generated."), { name: "AI_NoOutputGeneratedError" });
+    const failing = (err: unknown, recorded?: unknown) => {
+      const r = {
+        // eslint-disable-next-line require-yield
+        fullStream: (async function* () {
+          throw err;
+        })(),
+        finishReason: Promise.reject(err),
+        getRecordedNativeComputerRejection: () => recorded,
+      };
+      r.finishReason.catch(() => {});
+      return r;
+    };
+    const blip = new TypeError("fetch failed");
+    expect(isNetworkStreamError(blip)).toBe(true);
+    const sent: Array<string | null> = [];
+    let calls = 0;
+    const runSimpleStream = vi.fn(async () => {
+      calls++;
+      // As simple-stream-text builds the round.
+      const version = ctx.nativeComputerRejected ? null : anthropicComputerVersion(m);
+      sent.push(version);
+      ctx.nativeComputerSent = version ? { ...m, version } : ctx.nativeComputerSent;
+      if (version) return failing(substitute, { error: bare });
+      // Then every network retry the round has, and an answer.
+      if (calls <= 3 + RECONNECT_DELAYS_MS.length) return failing(blip);
+      return {
+        fullStream: (async function* () {
+          yield { type: "text-delta", id: "t", text: "done" };
+        })(),
+        finishReason: Promise.resolve("stop"),
+      };
+    });
+
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const run = runStreamRoundWithEmptyOutputRetry(
+        ctx,
+        { event: { sender: { send() {}, isDestroyed: () => false } } as never },
+        {
+          runSimpleStream: runSimpleStream as never,
+          fullResponse: "",
+          abortController: new AbortController(),
+          chatId: 1,
+          processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+        },
+      );
+      let done = false;
+      void run.finally(() => (done = true)).catch(() => {});
+      for (let i = 0; i < 20 && !done; i++) await vi.advanceTimersByTimeAsync(15_000);
+      const result = await run;
+      expect(result.finishReason).toBe("stop");
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(sent.slice(0, 4)).toEqual(["computer_20251124", "computer_20250124", "computer_20241022", null]);
+    expect(ctx.nativeComputerRejected).toBe(true);
+    expect(computerLane(m)).toBe("own");
   });
 
   it("retries with the version the refusal named, and every later request sends it (15.11.0 Bedrock)", async () => {

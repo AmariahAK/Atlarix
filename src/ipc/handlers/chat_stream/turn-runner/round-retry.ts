@@ -105,7 +105,12 @@ export async function runStreamRoundWithEmptyOutputRetry(
   // same round but each is independently capped.
   const TOTAL_ATTEMPT_CAP =
     MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS + RECONNECT_DELAYS_MS.length + 1;
-  for (let loop = 0; loop < TOTAL_ATTEMPT_CAP; loop++) {
+  // Retries that change the request (a refused forced tool_choice, a refused
+  // computer tool version) are not attempts: each is bounded by its own
+  // condition, and spending the cap on them let a network blip in the same
+  // round fail the turn.
+  let requestChanges = 0;
+  for (let loop = 0; loop < TOTAL_ATTEMPT_CAP + requestChanges; loop++) {
     // Per-round abort controller: the stall watchdog aborts THIS, not
     // the shared turn controller — so a transient stall (common on
     // OpenRouter between steps) doesn't look like a user cancel and the
@@ -327,6 +332,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
       // sticky so a later round in this turn never re-forces it.
       if (isForcedToolChoiceRejection(err) && !ctx.forcedToolChoiceRejected) {
         ctx.forcedToolChoiceRejected = true;
+        requestChanges++;
         logger.warn(
           `[stream] Provider rejected the forced tool_choice — retrying with injected delivery: ${
             err instanceof Error ? err.message : String(err)
@@ -352,6 +358,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
         (isNativeComputerToolRejection(err) ? err : null);
       if (ctx.nativeComputerSent && !ctx.nativeComputerRejected && computerRefusal != null) {
         rememberNativeRejected(ctx.nativeComputerSent, computerRefusal);
+        requestChanges++;
         // Each refusal rules a version out, so this ends: at worst on our own tool.
         ctx.nativeComputerRejected = computerLane(ctx.nativeComputerSent) !== "native-anthropic";
         logger.warn(
