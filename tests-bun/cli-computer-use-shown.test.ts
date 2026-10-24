@@ -42,8 +42,16 @@ async function setup() {
   return { ...session, model, lane, switchOn };
 }
 
-const notices = (cells: ReadonlyArray<{ kind: string; text?: string; id: string }>) =>
-  cells.filter((c) => c.kind === "notice" && c.text?.includes("Computer use on"));
+type Cells = ReadonlyArray<{ kind: string; text?: string; id: string }>;
+const notices = (cells: Cells) => cells.filter((c) => c.kind === "notice" && c.text?.includes("Computer use on"));
+
+/** Right under the turn's own message, before its reply (it came after the reply's footer: QA, ai-44). */
+function expectUnderPrompt(cells: Cells, prompt: string) {
+  const at = cells.findIndex((c) => c.kind === "notice" && c.text?.includes("Computer use on"));
+  expect(cells[at - 1]).toMatchObject({ kind: "user", text: prompt });
+  const reply = cells.findIndex((c, i) => i > at && c.kind === "markdown");
+  expect(reply).toBeGreaterThan(at);
+}
 
 describe("computer use switched on outside the CLI", () => {
   it("already on when the CLI starts: its first turn says so (QA E8)", async () => {
@@ -55,6 +63,7 @@ describe("computer use switched on outside the CLI", () => {
     for (let i = 0; i < 100 && s.state.busy; i++) await wait(100);
     expect(s.state.computerUse).toBe(true);
     expect(notices(s.state.cells).length).toBe(1);
+    expectUnderPrompt(s.state.cells, "hi");
     switchOn(false);
   }, 60_000);
 
@@ -74,6 +83,7 @@ describe("computer use switched on outside the CLI", () => {
     for (let i = 0; i < 100 && s.state.busy; i++) await wait(100);
     expect(s.state.computerUse).toBe(true);
     expect(notices(s.state.cells).length).toBe(1);
+    expectUnderPrompt(s.state.cells, "and now?");
     switchOn(false);
   }, 60_000);
 });

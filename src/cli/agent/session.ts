@@ -267,7 +267,20 @@ let interjectionSeq = 0;
  * finished. `cellId` names a note that is not a wake: "approved:<op>", the line
  * an answered approval leaves (approvalConfirmation).
  */
-export type WakeNote = { id: string; afterCellId: string; afterMessageId: string; text: string; cellId?: string };
+export type WakeNote = {
+  id: string;
+  afterCellId: string;
+  afterMessageId: string;
+  text: string;
+  cellId?: string;
+  /**
+   * A note for the start of a turn: under that turn's message, which has no id
+   * yet when the turn starts. The message count then; the note is placed under
+   * the first user message after it (or after the last line before the turn,
+   * for a turn with none), and not drawn until the turn has a line.
+   */
+  underTurnFrom?: number;
+};
 
 /** Notes placed by placeWakeNotes: never the anchor for another one. */
 const isNoteCell = (id: string) => id.startsWith("wake:") || id.startsWith("approved:");
@@ -1578,10 +1591,13 @@ export class AgentSession extends EventEmitter {
     if (await this.refreshComputerUse(this.turnRanOn)) {
       // A wake note's own id ("wake:…"): editors show those as a finished
       // step, and dropped this line under any other (QA E8).
+      // Under the turn's own message, before its first step: it came after the
+      // reply and its footer, too late to say how to stop (QA, ai-44).
       this.wakeNotes.push({
         id: `computer-use:${this.turnSeq}`,
-        afterCellId: lastAnchorCell(this.state.cells),
-        afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
+        afterCellId: "",
+        afterMessageId: "",
+        underTurnFrom: this.messages.length,
         text: "◇ Computer use on. Move the mouse to stop it.",
       });
       this.update({ cells: this.cellsFor(true) });
@@ -1768,7 +1784,22 @@ export class AgentSession extends EventEmitter {
   private readonly wakeNotes: WakeNote[] = [];
 
   private placeWakeNotes(cells: Cell[]): Cell[] {
-    return this.wakeNotes.length ? placeWakeNotes(cells, this.wakeNotes) : cells;
+    if (!this.wakeNotes.length) return cells;
+    const notes: WakeNote[] = [];
+    for (const n of this.wakeNotes) {
+      if (n.underTurnFrom == null) {
+        notes.push(n);
+        continue;
+      }
+      const turn = this.messages.slice(n.underTurnFrom);
+      const user = turn.find((m) => m.role === "user");
+      if (user) notes.push({ ...n, afterCellId: `${String(user.id)}:u`, afterMessageId: String(user.id) });
+      else if (turn.length && n.underTurnFrom > 0) {
+        const before = String(this.messages[n.underTurnFrom - 1]!.id);
+        notes.push({ ...n, afterCellId: "", afterMessageId: before });
+      }
+    }
+    return placeWakeNotes(cells, notes);
   }
 
   /** Sub-agents started in this session, by delegation id (their work nests under the `task` line). */
