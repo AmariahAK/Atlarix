@@ -31,6 +31,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
+import { desktopNotificationsOn } from "@/lib/desktop-notifications";
 import { ScrollableTabNav } from "@/components/ScrollableTabNav";
 import {
   SlidersHorizontal,
@@ -568,7 +569,7 @@ function CliLauncherSettings() {
  * `AISettings` was SPLIT, then split again.
  *
  * One card called "AI Settings" carried four unrelated things — voice input,
- * build verification, notification sounds, and the model provider grid — in
+ * build verification, desktop notifications, and the model provider grid — in
  * that order. The provider grid, which is the first thing a new user needs,
  * was last, in a card whose name did not mention models.
  *
@@ -604,49 +605,17 @@ export function NotificationsSettings() {
 
       <div className="space-y-4">
         <div className="flex items-center justify-between max-w-md gap-4">
-          <Label htmlFor="notif-sound-enabled" className="text-sm">
-            Play a sound when Atlarix needs you (approval / questions)
+          <Label htmlFor="desktop-notifications" className="text-sm">
+            Desktop notifications when Atlarix needs you or finishes
           </Label>
           <Switch
-            id="notif-sound-enabled"
-            checked={settings?.notificationSound?.enabled !== false}
-            onCheckedChange={(checked) =>
-              updateSettings({
-                notificationSound: {
-                  ...settings?.notificationSound,
-                  enabled: checked,
-                },
-              })
-            }
+            id="desktop-notifications"
+            checked={desktopNotificationsOn(settings ?? {})}
+            onCheckedChange={(checked) => updateSettings({ desktopNotifications: checked })}
           />
         </div>
-        {settings?.notificationSound?.enabled !== false && (
-          <div className="flex items-center justify-between max-w-md gap-4">
-            <Label htmlFor="notif-sound-volume" className="text-sm">
-              Volume
-            </Label>
-            <input
-              id="notif-sound-volume"
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={settings?.notificationSound?.volume ?? 0.7}
-              onChange={(e) =>
-                updateSettings({
-                  notificationSound: {
-                    ...settings?.notificationSound,
-                    volume: Number(e.target.value),
-                  },
-                })
-              }
-              className="w-40 accent-primary"
-            />
-          </div>
-        )}
         <p className="text-xs text-muted-foreground max-w-md">
-          When the app is in the background, an OS notification is shown too
-          (respects your system Do Not Disturb).
+          Only while Atlarix is in the background. Do Not Disturb applies.
         </p>
       </div>
 

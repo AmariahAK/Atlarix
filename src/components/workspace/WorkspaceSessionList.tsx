@@ -432,7 +432,9 @@ export function WorkspaceSessionList({
     setPendingHandoff(null);
     void loadSessions()
       .then(() => handleSelectSession(pendingHandoff.sessionId))
-      .then(() => showInfo(pendingHandoff.note ?? "Continued from the terminal"));
+      .then(() => {
+        if (!pendingHandoff.quiet) showInfo(pendingHandoff.note ?? "Continued from the terminal");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingHandoff, workspaceId]);
 

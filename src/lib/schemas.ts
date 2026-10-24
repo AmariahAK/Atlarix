@@ -496,7 +496,18 @@ export const UserSettingsSchema = z.object({
     })
     .optional(),
 
-  /** F1: play a sound (+ OS notification when unfocused) when a turn waits on the user (approval / ask_user). */
+  /**
+   * Desktop notifications (the OS popup) when the app is in the background and
+   * a turn needs you or finishes. Unset: notificationSound's old switch decides
+   * (main/agent-notification.ts desktopNotificationsOn).
+   */
+  desktopNotifications: z.boolean().optional(),
+
+  /**
+   * Before 15.11.1: "play a sound when Atlarix needs you", which gated the
+   * desktop notifications too. The sounds are gone; read only so turning it off
+   * still means no popups.
+   */
   notificationSound: z
     .object({
       enabled: z.boolean().optional(),

@@ -61,9 +61,11 @@ export async function noteSessionOpen(
  * A handoff from the CLI: show `sessionId` in the app and carry on there. The
  * window already showing its workspace if there is one, else the front window;
  * the renderer selects the workspace and opens the session (layout.tsx).
+ * `quiet`: no "Continued from the terminal" line (a notification's click).
  */
-async function openSessionInApp(
+export async function openSessionInApp(
   sessionId: string,
+  opts: { quiet?: boolean } = {},
 ): Promise<{ ok: boolean; error?: string }> {
   const session = await db.query.chatSessions.findFirst({
     where: eq(chatSessions.id, sessionId),
@@ -75,7 +77,7 @@ async function openSessionInApp(
   const { getPrimaryWindow, sendToWorkspaceWindow } = await import(
     "@/main/workspace-window-manager"
   );
-  const payload = { sessionId, workspaceId: session.workspaceId };
+  const payload = { sessionId, workspaceId: session.workspaceId, ...(opts.quiet ? { quiet: true } : {}) };
   if (
     app?.path &&
     sendToWorkspaceWindow(app.path, "session:handoff-open", payload)
@@ -250,7 +252,7 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
         stop: (chatId) => {
           broadcastToAllWindows("chat:remote-stop", { chatId });
         },
-        ...(surface === "app" ? { openSession: openSessionInApp } : {}),
+        ...(surface === "app" ? { openSession: (id: string) => openSessionInApp(id) } : {}),
         applySettings: applyPeerSettings,
         inbound: () => {
           try {
