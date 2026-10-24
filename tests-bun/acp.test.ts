@@ -34,6 +34,7 @@ async function editor(
   script: Reply[],
   decide: Decide = () => ({ outcome: "selected", optionId: "once" }),
   clientCapabilities: acp.ClientCapabilities = {},
+  signedIn?: () => Promise<boolean>,
 ) {
   const llm = startFakeLlm(script);
   const { AgentSession, seedDevProvider, listFolderSessions, changeFolderSession } = await import("../src/cli/agent/session");
@@ -53,6 +54,7 @@ async function editor(
     rememberModel: () => {},
     listSessions: (cwd) => listFolderSessions(cwd),
     changeSession: (id, change) => changeFolderSession(id, change),
+    ...(signedIn ? { signedIn } : {}),
   });
   const updates: SessionNotification[] = [];
   const asked: RequestPermissionRequest[] = [];
@@ -90,11 +92,36 @@ async function editor(
 }
 
 describe("atlarix acp", () => {
+  it("signed out, the editor's sign-in comes first: session/new and session/load answer authRequired", async () => {
+    let signed = false;
+    const e = await editor([{ text: "Hello." }], undefined, {}, async () => signed);
+    const code = async (p: Promise<unknown>) => p.then(() => "ok", (err: { code?: number }) => err.code);
+    expect(await code(e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] }))).toBe(-32000);
+    expect(await code(e.conn.agent.request("session/load", { cwd: ws, sessionId: "x", mcpServers: [] }))).toBe(-32000);
+    signed = true;
+    const s = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    expect(s.sessionId).toBeTruthy();
+  });
+
   it("initializes as Atlarix with sign-in methods, and runs a text turn", async () => {
     const e = await editor([{ text: "Hello from Atlarix." }]);
     expect(e.init.agentInfo?.name).toBe("atlarix");
     expect(e.init.agentCapabilities?.loadSession).toBe(true);
-    expect(e.init.authMethods?.map((m) => m.id)).toEqual(["atlarix-browser", "atlarix-login"]);
+    // The app's ways in (GitHub, Google, Discord, email) and a code.
+    expect(e.init.authMethods?.map((m) => m.id)).toEqual([
+      "atlarix-github",
+      "atlarix-google",
+      "atlarix-discord",
+      "atlarix-email",
+      "atlarix-login-device",
+    ]);
+    expect(e.init.authMethods?.map((m) => m.name)).toEqual([
+      "Continue with GitHub",
+      "Continue with Google",
+      "Continue with Discord",
+      "Continue with email",
+      "Sign in with a code",
+    ]);
 
     const s = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
     expect(s.sessionId).toBeTruthy();

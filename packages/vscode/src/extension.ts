@@ -69,6 +69,7 @@ export function activate(context: vscode.ExtensionContext): void {
   let lastActive: Chat | null = null;
   /** The sign-in under way, and the page the CLI opened for it. */
   let signingIn: Promise<void> | null = null;
+  let signingInMethod: string | undefined;
   let signInUrl: string | null = null;
   const version = String(context.extension.packageJSON.version ?? "0.0.0");
 
@@ -230,21 +231,38 @@ export function activate(context: vscode.ExtensionContext): void {
     diffs,
     openInTab: (sessionId) => openTab(sessionId),
     showLog: () => log.show(),
-    signIn: async () => {
+    signIn: async (method, showCode) => {
       // One sign-in at a time: another click shows its page again. Each click
       // used to start its own, and an earlier page then led nowhere.
-      if (signingIn) {
-        if (signInUrl) void vscode.env.openExternal(vscode.Uri.parse(signInUrl));
-        return signingIn;
-      }
       const c = await connect();
       if (!c) return;
-      signingIn = Promise.resolve(
-        vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: "Signing in to Atlarix — finish in your browser…", cancellable: false },
-          () => c.authenticate(),
-        ),
-      ).then(() => undefined);
+      if (signingIn) {
+        // Back, then the code again: the agent hands out the SAME code while it
+        // lasts (the server allows only a few waiting per network).
+        if (method === "code" && signingInMethod === "code") {
+          showCode?.(await c.signInCode());
+          return signingIn;
+        }
+        if (method === signingInMethod) {
+          if (signInUrl) void vscode.env.openExternal(vscode.Uri.parse(signInUrl));
+          return signingIn;
+        }
+        // Another way in: start it. The earlier one ends on its own.
+      }
+      signingInMethod = method;
+      signingIn =
+        method === "code"
+          ? // The panel shows the code (SSH, remote windows): no browser here.
+            c.signInCode().then((d) => {
+              showCode?.(d);
+              return c.signInCodeDone().then(() => undefined);
+            })
+          : Promise.resolve(
+              vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: "Signing in to Atlarix — finish in your browser…", cancellable: false },
+                () => c.authenticate(method ? `atlarix-${method}` : undefined),
+              ),
+            ).then(() => undefined);
       // Only when the browser didn't come up (the agent on another machine, a
       // blocked opener): after a few seconds, offer to open the page from here.
       const fallback = setTimeout(() => {
@@ -253,12 +271,17 @@ export function activate(context: vscode.ExtensionContext): void {
           if (go && signInUrl) void vscode.env.openExternal(vscode.Uri.parse(signInUrl));
         });
       }, 20_000);
+      const mine = signingIn;
       try {
-        await signingIn;
+        await mine;
       } finally {
         clearTimeout(fallback);
-        signingIn = null;
-        signInUrl = null;
+        // A different way in may have started meanwhile: leave that one be.
+        if (signingIn === mine) {
+          signingIn = null;
+          signingInMethod = undefined;
+          signInUrl = null;
+        }
       }
     },
   };
