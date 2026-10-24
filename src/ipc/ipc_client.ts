@@ -1964,6 +1964,9 @@ export class IpcClient {
       id: string;
       workspaceId: number;
       title: string;
+      /** What it was stamped with (15.11.1). */
+      workMode?: import("@/lib/schemas").WorkMode | null;
+      model?: import("@/lib/session-choices").SessionModelChoice | null;
       createdAt: Date;
       updatedAt: Date;
     };
@@ -2179,6 +2182,19 @@ export class IpcClient {
     choice: import("@/lib/session-choices").SessionModelChoice,
   ) {
     return this.ipcRenderer.invoke("sessions:set-model", sessionId, choice);
+  }
+
+  /** Tell main which chat this window has in front (a model written here is that chat's). */
+  public async setFrontSession(sessionId: string | null) {
+    return this.ipcRenderer.invoke("sessions:set-front", sessionId);
+  }
+
+  /** The model main stored on this window's chat in front (after a model write here). */
+  public onSessionModel(
+    listener: (p: { sessionId: string; model: import("@/lib/session-choices").SessionModelChoice | null }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("session:model", (payload) => listener(payload as never));
+    return typeof off === "function" ? off : () => {};
   }
 
   /** Stamp the session's work mode: a pick made while it is on screen. Only this chat changes. */

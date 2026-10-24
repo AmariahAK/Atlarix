@@ -833,6 +833,39 @@ export async function startWorkspaceSession(
 }
 
 /**
+ * Store `choice` as the model (and effort) `sessionId` runs on, and return the
+ * row. A model given without an effort keeps this chat's level when the new
+ * model lists it too, else runs the model's own default (never translated), the
+ * rule `set-user-settings` applies to the app's default. `updatedAt` is left
+ * alone: choosing a model is not activity in the chat, and the list is ordered
+ * by activity. Only this row changes; other chats keep theirs (15.11.1).
+ */
+export async function stampSessionModel(sessionId: string, choice: SessionModelChoice): Promise<ChatSessionRow> {
+  let next = choice;
+  if (next.effort === undefined && next.deepThinking === undefined) {
+    const current = await db.query.chatSessions.findFirst({
+      where: eq(chatSessions.id, sessionId),
+      columns: { model: true },
+    });
+    const was = parseSessionModel(current?.model) ?? defaultSessionModel(readSettings());
+    const { effortAfterModelChange } = await import("@/lib/routing/model-reasoning-profile");
+    const { effortChoicesForModel } = await import("@/lib/routing/reasoning-detector");
+    const kept = effortAfterModelChange(effortChoicesForModel(next), was ?? {});
+    next = { ...next, effort: kept.effort, deepThinking: kept.deepThinking };
+  }
+  const [row] = await db
+    .update(chatSessions)
+    .set({ model: serializeSessionModel(next) })
+    .where(eq(chatSessions.id, sessionId))
+    .returning();
+  if (!row) throw new Error("Session not found");
+  // Other sessions see this chat's own model in list_sessions.
+  const { noteAppChatModel } = await import("@/lib/peers/main-host");
+  noteAppChatModel(sessionId, next);
+  return mapSession(row);
+}
+
+/**
  * What a new app chat starts with: the app's current model, effort and mode,
  * stamped on its row so a later pick in ANOTHER chat can't change it (15.11.1).
  * Nothing in the CLI and the editors, which keep their session's choices in
@@ -1318,8 +1351,7 @@ export function registerWorkspaceSessionHandlers(): void {
   /**
    * Stamp the model (and its effort) this session runs on: the user picked it
    * while this session was on screen. Only this row changes; other chats keep
-   * theirs. `updatedAt` is left alone: choosing a model is not activity in the
-   * chat, and the list is ordered by activity.
+   * theirs.
    */
   handle(
     "sessions:set-model",
@@ -1328,33 +1360,18 @@ export function registerWorkspaceSessionHandlers(): void {
       if (!parsed.success) {
         throw new Error(`Invalid model choice: ${JSON.stringify(choice)}`);
       }
-      let next = parsed.data;
-      // A model picked without an effort: this chat's level stays when the new
-      // model lists it too, else the model's own default (never translated), the
-      // rule `set-user-settings` applies to the app's default.
-      if (next.effort === undefined && next.deepThinking === undefined) {
-        const current = await db.query.chatSessions.findFirst({
-          where: eq(chatSessions.id, sessionId),
-          columns: { model: true },
-        });
-        const was = parseSessionModel(current?.model) ?? defaultSessionModel(readSettings());
-        const { effortAfterModelChange } = await import("@/lib/routing/model-reasoning-profile");
-        const { effortChoicesForModel } = await import("@/lib/routing/reasoning-detector");
-        const kept = effortAfterModelChange(effortChoicesForModel(next), was ?? {});
-        next = { ...next, effort: kept.effort, deepThinking: kept.deepThinking };
-      }
-      const [row] = await db
-        .update(chatSessions)
-        .set({ model: serializeSessionModel(next) })
-        .where(eq(chatSessions.id, sessionId))
-        .returning();
-      if (!row) throw new Error("Session not found");
-      // Other sessions see this chat's own model in list_sessions.
-      const { noteAppChatModel } = await import("@/lib/peers/main-host");
-      noteAppChatModel(sessionId, next);
-      return mapSession(row);
+      return stampSessionModel(sessionId, parsed.data);
     },
   );
+
+  /** The chat this window has in front, for `set-user-settings` (front-session.ts). */
+  handle("sessions:set-front", async (event, sessionId: string | null) => {
+    const { setFrontSession } = await import("@/main/front-session");
+    const id = event.sender.id;
+    setFrontSession(id, typeof sessionId === "string" && sessionId ? sessionId : null);
+    event.sender.once("destroyed", () => setFrontSession(id, null));
+    return { ok: true };
+  });
 
   handle("sessions:delete", async (_event, sessionId: string) => {
     const streamChatId = await deleteSessionAndTransport(sessionId);

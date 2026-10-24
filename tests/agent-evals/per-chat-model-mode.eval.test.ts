@@ -139,6 +139,39 @@ describe("per-chat model, effort and mode", () => {
     expect(reset.model.deepThinking).toBe(false);
   });
 
+  it("a model written from a window (any writer) becomes that window's chat in front's, and only its (QA check 6)", async () => {
+    const { registerSettingsHandlers } = await import("@/ipc/handlers/settings_handlers");
+    registerSettingsHandlers();
+    const sent: Array<[string, unknown]> = [];
+    const windowEvent = (id: number) => ({
+      sender: { id, once: () => {}, isDestroyed: () => false, send: (ch: string, p: unknown) => sent.push([ch, p]) },
+    });
+    const invoke = async (channel: string, event: unknown, ...args: unknown[]) =>
+      ((await getIpcHandler(channel)) as unknown as (e: unknown, ...a: unknown[]) => Promise<unknown>)(event, ...args);
+
+    writeTestSettings({ selectedModel: { name: ctx.modelName, provider: ctx.providerId }, effort: "", deepThinking: false });
+    const front = (await call("sessions:create", ctx.appId)) as { id: string };
+    const other = (await call("sessions:create", ctx.appId)) as { id: string };
+    await invoke("sessions:set-front", windowEvent(41), front.id);
+
+    // What ai-44's harness did: the app's model written straight to settings.
+    await invoke("set-user-settings", windowEvent(41), { selectedModel: { name: MODEL_B, provider: ctx.providerId } });
+    const listed = (await call("sessions:list", ctx.appId)) as Array<{ id: string; model: { name: string } | null }>;
+    expect(listed.find((r) => r.id === front.id)?.model?.name).toBe(MODEL_B);
+    expect(listed.find((r) => r.id === other.id)?.model?.name).toBe(ctx.modelName);
+    // The window hears what was stored, so its chip shows it.
+    expect(sent).toContainEqual(["session:model", expect.objectContaining({ sessionId: front.id })]);
+
+    // The turn agrees with the chip.
+    const body = await turnIn(await ctx.newChat(), front.id, "perchat-front-1");
+    expect(body.model).toBe(MODEL_B);
+
+    // Another window with no chat in front: only the default moves.
+    await invoke("set-user-settings", windowEvent(42), { selectedModel: { name: ctx.modelName, provider: ctx.providerId } });
+    const after = (await call("sessions:list", ctx.appId)) as Array<{ id: string; model: { name: string } | null }>;
+    expect(after.find((r) => r.id === front.id)?.model?.name).toBe(MODEL_B);
+  }, 120_000);
+
   it("refuses a model choice that is not one", async () => {
     const s = (await call("sessions:create", ctx.appId)) as { id: string };
     for (const junk of [null, {}, { provider: "", name: "x" }, { provider: "p" }, "model"]) {

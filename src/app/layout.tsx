@@ -55,7 +55,10 @@ import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
 import { GlobalAppSearch } from "@/components/GlobalAppSearch";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 import type { FileAttachment } from "@/ipc/ipc_types";
-import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
+import {
+  startNewWorkspaceConversation,
+  subscribeToFrontSessionModel,
+} from "@/lib/open-workspace-session";
 
 /**
  * PersistentChatContainer
@@ -316,6 +319,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // this keeps the sidebar and open tabs in step with them.
   useEffect(() => subscribeToSessionTitleUpdates(), []);
   useEffect(() => subscribeToPeerSessionSettings(), []);
+  useEffect(() => subscribeToFrontSessionModel(), []);
 
   // Home = "/". Show right panel on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/";

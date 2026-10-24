@@ -59,6 +59,8 @@ export function activateWorkspaceSession(
   const store = getDefaultStore();
   const switched = store.get(activeWorkspaceSessionIdAtom) !== sessionId;
   store.set(activeWorkspaceSessionIdAtom, sessionId);
+  // A model written from this window is this chat's from now on (front-session.ts).
+  if (switched) reportFrontSession(sessionId);
   if (workMode !== undefined) {
     store.set(activeSessionWorkModeAtom, workMode);
   }
@@ -69,6 +71,28 @@ export function activateWorkspaceSession(
     // none, a turn runs on this chat's stored model (main reads its row).
     store.set(activeSessionModelAtom, null);
   }
+}
+
+function reportFrontSession(sessionId: string): void {
+  try {
+    void IpcClient.getInstance()
+      .setFrontSession(sessionId)
+      .catch(() => {});
+  } catch {
+    /* no main to tell (tests) */
+  }
+}
+
+/**
+ * Once per window, at startup: the model main stored on this window's chat in
+ * front after a model write here (a pick, a Settings page), with the level it
+ * kept. Returns the unsubscribe.
+ */
+export function subscribeToFrontSessionModel(): () => void {
+  return IpcClient.getInstance().onSessionModel(({ sessionId, model }) => {
+    const store = getDefaultStore();
+    if (store.get(activeWorkspaceSessionIdAtom) === sessionId) store.set(activeSessionModelAtom, model);
+  });
 }
 
 /**
@@ -205,7 +229,7 @@ export async function startNewWorkspaceConversation(
     const name = options.workspaceName ?? app.name ?? "Workspace";
     const workspacePath = options.workspacePath ?? app.path ?? "";
 
-    const { sessionId, chatId } =
+    const { sessionId, chatId, session: started } =
       await ipc.startWorkspaceConversation(workspaceId);
     resetTerminalInstancesForNewChat();
     // Defensive: a brand-new conversation must never inherit stale per-chat
@@ -224,10 +248,10 @@ export async function startNewWorkspaceConversation(
       name,
       path: workspacePath,
     });
-    // A brand-new session was stamped with the app's defaults a moment ago, and
-    // `null` reads as exactly those; the session you were just in does not
-    // follow you into a fresh chat.
-    activateWorkspaceSession(sessionId, null, null);
+    // What the new session was stamped with, so its chip names what its turns
+    // run on even if the app's default moves later; the session you were just
+    // in does not follow you into a fresh chat.
+    activateWorkspaceSession(sessionId, started?.workMode ?? null, started?.model ?? null);
     store.set(loadedSessionResumeAtom, false);
     store.set(loadedSessionTruncatedAtom, false);
     store.set(sessionIdToChatIdAtom, (prev) => {
@@ -288,17 +312,22 @@ export type OpenWorkspaceFolderOptions = {
  * Untitled rows. The CLI path (`import_workspace_core.ts`) has always gone through
  * it; this makes the renderer agree instead of diverging.
  *
- * `workMode: null` is deliberate: the session was just stamped (or re-stamped,
- * when an empty one is reused) with the app's defaults, which is what `null`
- * reads as, and the previous session's mode must not carry into a brand-new one.
+ * The mode and model are the row's: the session was just stamped (or re-stamped,
+ * when an empty one is reused) with the app's defaults, and the previous
+ * session's must not carry into a brand-new one.
  */
 async function resolveSessionAndChat(
   workspaceAppId: number,
-): Promise<{ sessionId: string; chatId: number; workMode: WorkMode | null }> {
+): Promise<{
+  sessionId: string;
+  chatId: number;
+  workMode: WorkMode | null;
+  model: SessionModelChoice | null;
+}> {
   const ipc = IpcClient.getInstance();
   const store = getDefaultStore();
 
-  const { sessionId, chatId } =
+  const { sessionId, chatId, session } =
     await ipc.startWorkspaceConversation(workspaceAppId);
   store.set(sessionIdToChatIdAtom, (prev) => {
     const next = new Map(prev);
@@ -310,7 +339,7 @@ async function resolveSessionAndChat(
     next.set(chatId, sessionId);
     return next;
   });
-  return { sessionId, chatId, workMode: null };
+  return { sessionId, chatId, workMode: session?.workMode ?? null, model: session?.model ?? null };
 }
 
 export type OpenWorkspaceByAppIdOptions = {
@@ -343,7 +372,7 @@ export async function openWorkspaceByAppId(
     }
 
     const folderPath = options.folderPath?.trim() || app.path?.trim() || "";
-    const { sessionId, chatId, workMode } = await resolveSessionAndChat(appId);
+    const { sessionId, chatId, workMode, model } = await resolveSessionAndChat(appId);
 
     const store = getDefaultStore();
     attachWorkspaceToChat(chatId, appId, {
@@ -356,7 +385,7 @@ export async function openWorkspaceByAppId(
       name: app.name,
       path: folderPath || app.path || "",
     });
-    activateWorkspaceSession(sessionId, workMode, null);
+    activateWorkspaceSession(sessionId, workMode, model);
     store.set(loadedSessionResumeAtom, false);
     store.set(activeChatIdAtom, chatId);
     store.set(selectedChatIdAtom, chatId);
@@ -413,7 +442,7 @@ export async function openWorkspaceFolder(
     await IpcClient.getInstance().touchAppLastOpened(imported.appId);
 
     const app = await IpcClient.getInstance().getApp(imported.appId);
-    const { sessionId, chatId, workMode } = await resolveSessionAndChat(
+    const { sessionId, chatId, workMode, model } = await resolveSessionAndChat(
       imported.appId,
     );
 
@@ -422,7 +451,7 @@ export async function openWorkspaceFolder(
       name: app.name,
       path: app.path ?? folderPath,
     });
-    activateWorkspaceSession(sessionId, workMode, null);
+    activateWorkspaceSession(sessionId, workMode, model);
     store.set(loadedSessionResumeAtom, false);
     store.set(activeChatIdAtom, chatId);
     store.set(selectedChatIdAtom, chatId);
