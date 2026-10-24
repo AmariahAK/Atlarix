@@ -2638,13 +2638,22 @@ export async function seedDevProvider(opts: {
     api_format: opts.apiFormat === "anthropic" ? "anthropic" : null,
     auth_header: authHeader,
   };
+  // Named by its address: with a row per endpoint, two of them listed the same
+  // model twice under one name, in /model and in what sessions can set.
+  let host = opts.baseUrl;
+  try {
+    host = new URL(opts.baseUrl).host;
+  } catch {
+    /* not a URL: shown as given */
+  }
+  const name = `Your endpoint (${host})`;
   db.insert(schema.language_model_providers)
-    .values({ id, name: "Local endpoint (CLI dev)", api_base_url: opts.baseUrl, ...wire })
+    .values({ id, name, api_base_url: opts.baseUrl, ...wire })
     .onConflictDoUpdate({
       target: schema.language_model_providers.id,
       // The address is part of the row's identity (devProviderId): only how it
-      // takes the key can change.
-      set: { auth_header: wire.auth_header },
+      // takes the key, and the name made from the address, can change.
+      set: { name, auth_header: wire.auth_header },
     })
     .run();
   // No unique key to conflict on: onConflictDoNothing added the same row on
