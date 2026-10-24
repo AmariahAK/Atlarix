@@ -54,7 +54,9 @@ import type { LargeLanguageModel, WorkMode } from "@/lib/schemas";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
+import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
+import { useChatModel } from "@/hooks/useChatModel";
 import {
   Select,
   SelectContent,
@@ -130,12 +132,15 @@ function SimpleMessageImpl({
   const { settings, updateSettings } = useSettings();
   const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
+  const { data: providers } = useLanguageModelProviders();
   const appId = useAtomValue(selectedAppIdAtom);
   const currentApp = useAtomValue(currentAppAtom);
   const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const turnModels = useAtomValue(turnModelByAssistantMessageIdAtom);
   const chatId = chatIdProp ?? activeChatId;
+  // This chat's own model (15.11.1), for a reply that has no record yet.
+  const chatModel = useChatModel(chatId).model;
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   // W5 (v14.8.11): attachment stub tags stripped from the editable text —
@@ -211,16 +216,20 @@ function SimpleMessageImpl({
   if (peerSegments) return <PeerMessageCard segments={peerSegments} />;
 
   // The model THIS reply ran on (live: the session's record; reloaded: its
-  // display snapshot). The current model only for a reply that has neither,
-  // e.g. one still streaming (QA #49: every reply was relabelled on a switch).
+  // display snapshot). The current model only while it streams (QA #49: every
+  // reply was relabelled on a switch). A saved reply that recorded none shows
+  // no model rather than the picker's: a CLI reply read "Atlarix Auto" (15.11.0).
   const answeredWith =
     turnModels[message.id] ??
     parseDisplaySnapshot(message.displaySnapshot)?.model ??
-    settings?.selectedModel;
+    (isStreaming ? chatModel : undefined);
+  const answeredProvider = providers?.find((p) => p.id === answeredWith?.provider);
   const getModelDisplayName = () =>
     resolveModelDisplayLabel(answeredWith as LargeLanguageModel | undefined, {
       catalog: coreCatalog,
       modelsByProviders,
+      providerName: answeredProvider?.name,
+      customProvider: answeredProvider?.type === "custom",
     });
 
   return (
@@ -232,7 +241,7 @@ function SimpleMessageImpl({
         className={`group min-w-0 max-w-3xl ${isUser ? "ml-12" : "mr-12"}`}
       >
         {/* Model name header for assistant messages */}
-        {isAssistant && (
+        {isAssistant && answeredWith?.name && (
           <div className="flex items-center gap-2 flex-wrap mb-1.5 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <Bot className="h-3.5 w-3.5 shrink-0" />

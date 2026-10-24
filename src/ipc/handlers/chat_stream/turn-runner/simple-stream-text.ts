@@ -111,7 +111,7 @@ import {
   modelFailureUserMessage,
 } from "@/shared/texts";
 import type { StreamTurnContext } from "@/ipc/handlers/chat_stream/turn-context";
-import { computerLane } from "@/lib/computer/lane";
+import { anthropicComputerVersion, computerLane } from "@/lib/computer/lane";
 import { nativeComputerTool } from "@/lib/computer/native";
 
 const logger = log.scope("chat_stream_handlers");
@@ -445,12 +445,13 @@ export async function simpleStreamText(
     };
     const lane = computerLane(model);
     if (lane && lane !== "own") {
+      const version = lane === "native-anthropic" ? (anthropicComputerVersion(model) ?? undefined) : undefined;
       try {
         effectiveTools = {
           ...effectiveTools,
-          computer: await nativeComputerTool(lane, effectiveTools.computer),
+          computer: await nativeComputerTool(lane, effectiveTools.computer, version),
         };
-        ctx.nativeComputerSent = model;
+        ctx.nativeComputerSent = { ...model, version };
       } catch (e) {
         // The executor could not size the display: ours still works, and says why.
         logger.warn("[computer] keeping our own computer tool", e);
@@ -1095,10 +1096,11 @@ export async function simpleStreamText(
         );
         return;
       }
-      // The provider refused its own computer tool; the round retries with ours.
+      // The provider refused its own computer tool; the round retries with the
+      // version the refusal named, or with ours.
       if (ctx.nativeComputerSent && !ctx.nativeComputerRejected && isNativeComputerToolRejection(error)) {
         recordedNativeComputerRejection = error;
-        logger.warn("[stream] onError: provider refused its computer tool (retrying with ours)", error);
+        logger.warn("[stream] onError: provider refused its computer tool version (retrying)", error);
         return;
       }
       // The SDK hands onError its event, `{ error }`; the provider's words are inside.

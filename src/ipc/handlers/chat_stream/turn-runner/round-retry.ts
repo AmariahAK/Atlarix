@@ -10,7 +10,7 @@
  */
 
 import { noteTurn } from "@/lib/analytics/turn-stats";
-import { rememberNativeRejected } from "@/lib/computer/lane";
+import { computerLane, rememberNativeRejected } from "@/lib/computer/lane";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import type { ModelMessage } from "ai";
@@ -45,6 +45,15 @@ const isEmptyOutputStreamError = isNoUsableModelOutputError;
 
 export interface RoundRetryDeps {
   event: IpcMainInvokeEvent;
+}
+
+/**
+ * The provider's words. The refusal onError recorded is the SDK's `{ error }`
+ * event, which logged as "[object Object]" (15.11.0, ai-c8's log).
+ */
+function refusalMessage(refusal: unknown): string {
+  const e = (refusal as { error?: unknown } | null)?.error ?? refusal;
+  return e instanceof Error ? e.message : String(e);
 }
 
 export async function runStreamRoundWithEmptyOutputRetry(
@@ -96,7 +105,12 @@ export async function runStreamRoundWithEmptyOutputRetry(
   // same round but each is independently capped.
   const TOTAL_ATTEMPT_CAP =
     MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS + RECONNECT_DELAYS_MS.length + 1;
-  for (let loop = 0; loop < TOTAL_ATTEMPT_CAP; loop++) {
+  // Retries that change the request (a refused forced tool_choice, a refused
+  // computer tool version) are not attempts: each is bounded by its own
+  // condition, and spending the cap on them let a network blip in the same
+  // round fail the turn.
+  let requestChanges = 0;
+  for (let loop = 0; loop < TOTAL_ATTEMPT_CAP + requestChanges; loop++) {
     // Per-round abort controller: the stall watchdog aborts THIS, not
     // the shared turn controller — so a transient stall (common on
     // OpenRouter between steps) doesn't look like a user cancel and the
@@ -318,6 +332,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
       // sticky so a later round in this turn never re-forces it.
       if (isForcedToolChoiceRejection(err) && !ctx.forcedToolChoiceRejected) {
         ctx.forcedToolChoiceRejected = true;
+        requestChanges++;
         logger.warn(
           `[stream] Provider rejected the forced tool_choice — retrying with injected delivery: ${
             err instanceof Error ? err.message : String(err)
@@ -332,21 +347,24 @@ export async function runStreamRoundWithEmptyOutputRetry(
         continue;
       }
 
-      // The provider refused its own computer tool's version (Claude 5.5 on the
-      // Anthropic API takes only the newer toolset). Same shape as above: change
-      // the request, not the timing. Our own `computer` tool replaces it for the
-      // rest of the turn, and the model is remembered so the next turn never
-      // sends the native tool again. The user loses nothing.
+      // The provider refused its own computer tool's version (Claude Haiku 4.5 on
+      // Bedrock takes computer_20250124; Claude 5.5 on the Anthropic API only the
+      // newer toolset). Same shape as above: change the request, not the timing.
+      // The refusal is remembered for the model (lane.ts), so the retry, and every
+      // request after it, sends the version it named, or our own `computer` tool
+      // when none will do. The user loses nothing, and pays the refusal once.
       const computerRefusal =
         bundle?.getRecordedNativeComputerRejection?.() ??
         (isNativeComputerToolRejection(err) ? err : null);
       if (ctx.nativeComputerSent && !ctx.nativeComputerRejected && computerRefusal != null) {
-        ctx.nativeComputerRejected = true;
-        rememberNativeRejected(ctx.nativeComputerSent);
+        rememberNativeRejected(ctx.nativeComputerSent, computerRefusal);
+        requestChanges++;
+        // Each refusal rules a version out, so this ends: at worst on our own tool.
+        ctx.nativeComputerRejected = computerLane(ctx.nativeComputerSent) !== "native-anthropic";
         logger.warn(
-          `[stream] Provider refused its own computer tool — retrying with ours: ${
-            computerRefusal instanceof Error ? computerRefusal.message : String(computerRefusal)
-          }`,
+          `[stream] Provider refused its computer tool version — retrying with ${
+            ctx.nativeComputerRejected ? "ours" : "the version it named"
+          }: ${refusalMessage(computerRefusal)}`,
         );
         fullResponse = initialFullResponse;
         continue;

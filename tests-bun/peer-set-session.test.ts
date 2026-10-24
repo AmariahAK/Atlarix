@@ -62,11 +62,20 @@ describe("a session sets another's mode and model", () => {
     // Signed out: Atlarix Core's models are in the catalogue but cannot run (QA A10).
     const core = all.filter((o) => o.provider === "compass");
     expect(core.length).toBeGreaterThan(0);
-    const label = all.find((o) => o.provider !== "compass")!.label;
+    // The sessions' own model, by the name list_sessions gives it: other files
+    // in the run add endpoints of their own, and a label two share is shown as
+    // "label (provider)".
+    const { modelNames } = await import("../src/lib/peers/session-settings");
+    const mine = modelNames(all.filter((o) => o.provider !== "compass")).find(
+      (n) => n.option.provider === model.provider && n.option.name === model.name,
+    )!;
+    // A session's line says the model's own label; setting one takes its listed name.
+    const label = mine.name;
+    const shownLabel = mine.option.label;
 
     // Each line says the model it runs on, before anyone set one (QA A11).
     const before = await run("list_sessions", { workspaceSessionId: coord.sessionId });
-    expect(before.text).toMatch(new RegExp(`Guard \\(id [^)]*· Build · ${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`));
+    expect(before.text).toMatch(new RegExp(`Guard \\(id [^)]*· Build · ${shownLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`));
     for (const o of core) expect(before.text).not.toContain(o.label);
     const coreSet = await run("send_message", { to: guard.sessionId, model: core[0]!.label, workspaceSessionId: coord.sessionId });
     expect(coreSet.success).toBe(false);
@@ -78,7 +87,7 @@ describe("a session sets another's mode and model", () => {
 
     for (let i = 0; i < 50 && guard.state.mode !== "review"; i++) await wait(100);
     expect(guard.state.mode).toBe("review");
-    expect(guard.model?.name).toBe(all.find((o) => o.provider !== "compass")!.name);
+    expect(guard.model).toMatchObject({ provider: model.provider, name: model.name });
     expect(JSON.stringify(guard.state.cells)).toContain("Mode set to Review");
 
     const { db } = await import("../src/db");
@@ -86,10 +95,19 @@ describe("a session sets another's mode and model", () => {
     const { eq } = await import("drizzle-orm");
     const row = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, guard.sessionId) });
     expect(row?.workMode).toBe("review");
+    // Stored as that session's own model (15.11.1), and only that session's.
+    const setTo = all.find((o) => o.provider !== "compass")!;
+    expect(JSON.parse(row?.model ?? "null")).toMatchObject({ provider: setTo.provider, name: setTo.name });
+    const coordRow = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, coord.sessionId) });
+    expect(coordRow?.workMode).not.toBe("review");
 
     const list = await run("list_sessions", { workspaceSessionId: coord.sessionId });
-    expect(list.text).toMatch(/Guard \(id [^)]*· Review · /);
-    expect(list.text).toContain(`Models you can set: ${label}`);
+    // Guard's own line says both changes, the model by the name it was set by.
+    // (Not the "Models you can set" list: it names the first 25, and the whole
+    // bun run shares one database.)
+    expect(list.text).toMatch(
+      new RegExp(`Guard \\(id [^)]*· Review · ${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`),
+    );
 
     const refused = await run("send_message", { to: guard.sessionId, model: "GPT-6 Astra", workspaceSessionId: coord.sessionId });
     expect(refused.success).toBe(false);

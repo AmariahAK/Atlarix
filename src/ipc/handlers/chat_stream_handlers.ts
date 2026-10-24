@@ -340,6 +340,13 @@ export function registerChatStreamHandlers() {
     const abortController = new AbortController();
     activeStreams.set(req.chatId, abortController);
     resetTurnState(req.chatId);
+    // The chat's own model, effort and mode when the request doesn't name them
+    // (15.11.1: per chat, never the app-wide pick). Before lastStreamRequest, so
+    // sub-agents and compaction read the same model as the turn.
+    {
+      const { fillTurnChoicesFromSession } = await import("@/main/turn-session-choices");
+      await fillTurnChoicesFromSession(req);
+    }
     // FIX 4: remember this request so the renderer's [Reconnect] button can
     // re-dispatch the exact same turn via `chat:stream:reconnect`.
     lastStreamRequest.set(req.chatId, req);
@@ -995,6 +1002,16 @@ export function registerChatStreamHandlers() {
             ...settingsPatchForWorkMode(req.workModeOverride),
           };
         }
+        // The chat's own effort (it travels with the chat's model): the turn reads
+        // this snapshot, never the app's global, so another chat's /effort can't
+        // change it (15.11.1).
+        if (req.effortOverride) {
+          settings = {
+            ...settings,
+            effort: req.effortOverride.effort,
+            deepThinking: req.effortOverride.deepThinking,
+          };
+        }
 
         // Add a placeholder assistant message immediately
         // For ephemeral chats, we'll use a placeholder ID
@@ -1145,22 +1162,7 @@ export function registerChatStreamHandlers() {
             provider: effectiveModel.provider,
             model: effectiveModel.name,
             effort: settings.effort || undefined,
-            fellBackToCore: initialModelClientBundle.fellBackToCore,
           });
-          // Surface the no-key → Atlarix Core fallback so the user knows their
-          // selected model isn't what answered (and how to switch back).
-          if (initialModelClientBundle.fellBackToCore) {
-            safeSend(event.sender, "chat:activity", {
-              id: `core-fallback-${req.chatId}`,
-              type: "model_selection",
-              label: "Using Atlarix Core",
-              detail:
-                "Your selected model has no API key — add one in Settings to use it.",
-              status: "done",
-              timestamp: Date.now(),
-              chatId: req.chatId,
-            });
-          }
           // Native extended-thinking/reasoning turns on whenever the selected
           // model + gateway support it (the fast/balanced/thinking tiers are gone;
           // a model now delivers its full capability).

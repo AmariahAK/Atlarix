@@ -6,8 +6,7 @@
  * they are no longer shown here. The picker is the five work modes only.
  */
 
-import { useEffect, useState } from "react";
-import { useSettings } from "@/hooks/useSettings";
+import { useState } from "react";
 import { useAtomValue } from "jotai";
 import {
   selectedChatIdAtom,
@@ -82,7 +81,6 @@ const WORK_MODES: {
 export function ChatIntentSelector() {
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const workspaceAppId = resolveChatWorkspaceAppId(selectedChatId);
-  const { settings, updateSettings } = useSettings();
 
   const [showFirstTime, setShowFirstTime] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -100,27 +98,9 @@ export function ChatIntentSelector() {
   /** Chat-only (no workspace): read-only chrome — Ask only. */
   const isReadOnlyChatChrome = workspaceAppId == null;
 
-  useEffect(() => {
-    if (!isReadOnlyChatChrome) return;
-    if (
-      settings?.selectedChatMode !== "ask" ||
-      settings?.workModePreference !== "ask" ||
-      settings?.intentMode !== "ask"
-    ) {
-      updateSettings({
-        selectedChatMode: "ask",
-        intentMode: "ask", // clear any legacy Auto state
-        workModePreference: "ask",
-      });
-    }
-  }, [
-    isReadOnlyChatChrome,
-    workspaceAppId,
-    selectedChatId,
-    settings?.selectedChatMode,
-    settings?.workModePreference,
-    updateSettings,
-  ]);
+  // No longer forces the app's settings to Ask while such a chat is shown: that
+  // changed the mode every OTHER chat started with. Its turns are sent as Ask
+  // instead (useStreamChat), 15.11.1.
 
   const noWorkspace = workspaceAppId == null;
 

@@ -10,8 +10,9 @@ import {
  *
  * The unit tests cover precedence (session beats global). What they cannot cover
  * is the part that only exists once there is a table: that the column round-trips,
- * that a session starts with NO mode rather than a defaulted one, and that a
- * junk mode is refused before it reaches the DB. A stored mode decides whether a
+ * that a session starts with the app's current mode (15.11.1: stamped, so a pick
+ * in another chat can't change it), and that a junk mode is refused before it
+ * reaches the DB. A stored mode decides whether a
  * turn may write to the workspace, so an unvalidated string landing in that
  * column is a permission bug, not a data-quality one.
  */
@@ -34,16 +35,15 @@ afterAll(async () => {
 });
 
 describe("sessions:set-work-mode", () => {
-  it("starts with no stored mode, then keeps what is set", async () => {
+  it("starts with the app's mode, then keeps what is set", async () => {
     const created = (await call("sessions:create", ctx.appId)) as {
       id: string;
       workMode: string | null;
     };
 
-    // NULL, not a default. A new session resolves from the global preference
-    // until someone deliberately picks a mode in it — the same rule that keeps
-    // every session written before this column behaving as it always did.
-    expect(created.workMode).toBeNull();
+    // Stamped with what the app would run now (the default settings: Explore),
+    // so a later pick in ANOTHER chat can't change this one (15.11.1).
+    expect(created.workMode).toBe("ask");
 
     const updated = (await call(
       "sessions:set-work-mode",
@@ -101,7 +101,7 @@ describe("sessions:set-work-mode", () => {
       id: string;
       workMode: string | null;
     }>;
-    expect(listed.find((s) => s.id === created.id)?.workMode).toBeNull();
+    expect(listed.find((s) => s.id === created.id)?.workMode).toBe("ask");
   });
 
   it("reports a missing session instead of silently doing nothing", async () => {

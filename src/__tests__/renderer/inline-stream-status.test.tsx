@@ -12,6 +12,7 @@ import {
   emptyToolIndicatorState,
 } from "@/atoms/chatAtoms";
 import { activityStreamItemsAtom } from "@/atoms/sourceAtoms";
+import { permissionQueueAtom, type QueuedOperation } from "@/atoms/permissionQueueAtom";
 import { makeFakeIpc, renderWithProviders } from "./helpers";
 
 const fakeIpc = makeFakeIpc();
@@ -37,6 +38,25 @@ describe("InlineStreamStatus", () => {
     store.set(toolIndicatorAtom, emptyToolIndicatorState());
     store.set(isStreamingByIdAtom, new Map([[CHAT_ID, true]]));
     store.set(activityStreamItemsAtom, []);
+    store.set(permissionQueueAtom, new Map());
+  });
+
+  it("counts only this chat's waiting approvals (15.11.1 QA: another chat's card made it '2 approvals')", () => {
+    const card = (id: string, chatId: number): [string, QueuedOperation] => [
+      id,
+      { id, chatId, operation: "edit_file", path: `${id}.ts`, status: "pending", timestamp: 1 },
+    ];
+    const { store } = renderWithProviders(<InlineStreamStatus chatId={CHAT_ID} active />);
+    act(() => {
+      store.set(permissionQueueAtom, new Map([card("mine", CHAT_ID), card("elsewhere", CHAT_ID + 1)]));
+    });
+    expect(screen.getByText(/Waiting for you/)).toBeInTheDocument();
+    expect(screen.queryByText("2 approvals")).not.toBeInTheDocument();
+    // Only another chat waiting: this one is not.
+    act(() => {
+      store.set(permissionQueueAtom, new Map([card("elsewhere", CHAT_ID + 1)]));
+    });
+    expect(screen.queryByText(/Waiting for you/)).not.toBeInTheDocument();
   });
 
   it("shows the looping compass + idle work-mode label while streaming", () => {

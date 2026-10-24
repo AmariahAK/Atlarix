@@ -27,6 +27,7 @@ import { renderMcp } from "./views/mcp";
 import type { Nav, View } from "./views/nav";
 import { renderProvider } from "./views/provider";
 import { renderSettings } from "./views/settings";
+import { renderSignIn, type SignInView } from "./views/sign-in";
 
 // --- Layout ---------------------------------------------------------------------
 
@@ -63,7 +64,9 @@ const chat = el("div", "chat");
 chat.append(taskCard, T.log);
 const page = el("div", "page hidden");
 const toastSlot = el("div", "toast-slot");
-app.append(nav, notice, chat, C.composer, page, picker, toastSlot);
+// Signed out, this is the whole panel (style.css hides the rest).
+const signInScreen = el("div", "signin-screen");
+app.append(nav, notice, chat, C.composer, page, picker, signInScreen, toastSlot);
 // What is still running sits just above the message box, where you are looking.
 C.composer.prepend(tasksBar);
 
@@ -140,6 +143,27 @@ async function showHome(): Promise<void> {
     sec.append(b);
   }
   home.append(sec);
+}
+
+// --- Sign-in first --------------------------------------------------------------------
+
+function showSignIn(view: SignInView): void {
+  app.classList.add("signed-out");
+  closePicker();
+  renderSignIn(signInScreen, view, {
+    choose: (id) => {
+      post({ type: "sign-in", method: id });
+      // The code comes back in a moment (sign-in-code); a browser way waits there.
+      if (id !== "code") showSignIn({ kind: "browser" });
+    },
+    back: () => showSignIn({ kind: "choices" }),
+    openUrl: (url) => post({ type: "open-url", url }),
+  });
+}
+
+function hideSignIn(): void {
+  app.classList.remove("signed-out");
+  signInScreen.textContent = "";
 }
 
 // --- Notices and toasts ----------------------------------------------------------------
@@ -256,13 +280,21 @@ onHost((m: HostMessage) => {
         // ~40s of an unchanging line looked stuck, QA).
         slowStart = setTimeout(() => setNotice("Starting Atlarix… The first start on this computer can take up to a minute."), 6_000);
       } else if (m.status === "ready") setNotice(null);
-      else if (m.status === "signed-out") setNotice("Sign in to Atlarix to start.", [["Sign in", () => post({ type: "sign-in" })]]);
+      else if (m.status === "signed-out") setNotice(null);
+      if (m.status === "signed-out") showSignIn({ kind: "choices" });
+      else if (m.status === "ready") hideSignIn();
       else if (m.status === "no-folder") setNotice("Open a folder to work in, then start a chat.");
       else setNotice(`Atlarix couldn't start: ${m.detail ?? "unknown error"}`, [["Show log", () => post({ type: "show-log" })], ["Retry", () => (C.expectSession(), post({ type: "new-chat" }))]]);
       // Signed out or back in while Account is open: draw it again. It kept
       // your email and credit after Sign out, so it looked like nothing
       // happened (owner).
       if ((m.status === "signed-out" || m.status === "ready") && stack.at(-1)?.name === "account") void renderAccount(page, navApi);
+      return;
+    case "sign-in-code":
+      showSignIn({ kind: "code", userCode: m.userCode, verificationUri: m.verificationUri, expiresInS: m.expiresInS });
+      return;
+    case "sign-in-failed":
+      showSignIn({ kind: "choices", error: m.message });
       return;
     case "session":
       if (m.replay || m.sessionId !== state.sessionId) {

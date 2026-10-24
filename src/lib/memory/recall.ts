@@ -117,15 +117,8 @@ export async function selectRelevantMemories(args: {
 
     const settings = readSettings();
     const model = await resolveTitleModel(settings, args.turnModel);
-    const { modelClient, fellBackToCore } = await getModelClient(
-      model,
-      settings,
-      { purpose: "memory" },
-    );
-    if (fellBackToCore && model.provider !== "compass") {
-      logger.info("recall: provider has no key and fell back to Core — skipped");
-      return [];
-    }
+    // No key for the provider: getModelClient throws, and recall is skipped below.
+    const { modelClient } = await getModelClient(model, settings, { purpose: "memory" });
     const result = await generateText({
       model: modelClient.model,
       system: RECALL_SYSTEM_PROMPT,

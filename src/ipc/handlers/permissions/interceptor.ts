@@ -8,6 +8,7 @@
  */
 
 import { noteTurn } from "@/lib/analytics/turn-stats";
+import { createHash } from "node:crypto";
 import * as fs from "fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "path";
@@ -167,6 +168,18 @@ export function _resetRevertNeedsGitNoticeForTests(): void {
 export class PermissionInterceptor extends EventEmitter {
   /** Map of operation ID to pending permission request */
   private pendingOperations: Map<string, BufferedOperation> = new Map();
+
+  /**
+   * Changes the user DENIED this turn, by `changeKey`. The model routed a
+   * denied edit through a writer sub-agent and accepted its proposal (15.11.0,
+   * filming); the same change is now refused for the rest of the turn without
+   * a card. Owner: that exact change only; a different edit asks normally.
+   * Per turn because the interceptor is: a new message starts empty.
+   */
+  private deniedChanges = new Set<string>();
+
+  /** Set by `endTurn`: nothing this turn asked for may be approved any more. */
+  private turnEnded = false;
 
   /** Map of operation ID to pending approval promise */
   private pendingApprovals: Map<string, PendingApproval> = new Map();
@@ -427,15 +440,78 @@ export class PermissionInterceptor extends EventEmitter {
    * One-way: there is no un-set, because the turn ending is the un-set.
    */
   approveRestOfTurn(): void {
+    // A card left on screen after Stop: its turn is over, and a yes now must not
+    // reach anything (15.11.0: the orphan bar's "Allow all this turn").
+    if (this.turnEnded) {
+      logger.log(`[approveRestOfTurn] chat ${this.activeChatId}: that turn has ended; nothing to approve`);
+      return;
+    }
     this.turnBlanketApproved = true;
     logger.log(
       `[approveRestOfTurn] chat ${this.activeChatId}: approvals suppressed for the rest of this turn`,
     );
   }
 
+  /**
+   * One file change, whoever proposes it: the file (resolved, so `./a.js` and
+   * its absolute path are one) and the content it would end with, line endings
+   * aside. Whole-file writes are `edit_file` too, so an edit and a rewrite that
+   * end alike are the same change.
+   */
+  private changeKey(request: PermissionRequest): string | null {
+    const op = request.operation;
+    if (op !== "edit_file" && op !== "delete_file") return null;
+    const preview = request.preview as (FileOperationPreview & { content?: unknown }) | null;
+    if (!preview?.path) return null;
+    const abs = path.resolve(
+      path.isAbsolute(preview.path) ? preview.path : path.join(this.workspacePath ?? "", preview.path),
+    );
+    const body = op === "delete_file" ? "" : String(preview.content ?? "").replace(/\r\n/g, "\n");
+    const digest = createHash("sha256").update(body).digest("hex");
+    return `${op === "delete_file" ? "delete" : "write"}\0${abs}\0${digest}`;
+  }
+
+  /** The user already denied exactly this change in this turn. */
+  isDeniedChange(request: PermissionRequest): boolean {
+    const key = this.changeKey(request);
+    return key !== null && this.deniedChanges.has(key);
+  }
+
+  /**
+   * The turn is over (stopped, or ended with a card still open). Every card
+   * still waiting is withdrawn: marked not approved, so a late yes ("Allow all
+   * this turn" on the orphan bar, or the card itself) runs nothing, and
+   * reported `cancelled` so every surface takes its card down. Before 15.11.1 a
+   * Stop left them pending: the bar stayed, in every chat, and its "Allow all"
+   * could still apply the stopped edit.
+   */
+  endTurn(): void {
+    this.turnEnded = true;
+    for (const [operationId, operation] of this.pendingOperations) {
+      if (operation.status !== "pending") continue;
+      operation.status = "rejected";
+      this.resolveApproval(operationId, false);
+      this.emitStatus(operationId, "cancelled");
+    }
+  }
+
   /** Whether the rest-of-turn blanket is active (for logging / tests). */
   isTurnBlanketApproved(): boolean {
     return this.turnBlanketApproved;
+  }
+
+  /**
+   * What a guessed edit's "always ask" gives way to (owner, 15.11.1): the user's
+   * "Allow all this turn", which covers every edit the turn makes after it, and
+   * the agent-memory folder, which is the agent's own notepad and never asks.
+   */
+  overridesEditReview(request: PermissionRequest): boolean {
+    if (this.turnBlanketApproved) return true;
+    if (request.operation !== "edit_file" || !this.memoryDir) return false;
+    const p = (request.preview as FileOperationPreview | null)?.path;
+    if (!p) return false;
+    const abs = path.isAbsolute(p) ? p : path.resolve(this.workspacePath ?? "", p);
+    return isAutoWritablePath(path.resolve(abs), this.memoryDir, null);
   }
 
   /**
@@ -543,7 +619,7 @@ export class PermissionInterceptor extends EventEmitter {
    */
   private emitStatus(
     operationId: string,
-    status: "pending" | "queued" | "running" | "completed" | "failed",
+    status: "pending" | "queued" | "running" | "completed" | "failed" | "cancelled",
     progress?: number,
     duration?: number,
     error?: string,
@@ -1344,6 +1420,8 @@ export class PermissionInterceptor extends EventEmitter {
     this.resolveApproval(operationId, false);
 
     operation.status = "rejected";
+    const denied = this.changeKey(operation.request);
+    if (denied) this.deniedChanges.add(denied);
     logger.log(
       `[rejectOperation] Rejected ${operationId}: ${operation.request.operation}`,
     );

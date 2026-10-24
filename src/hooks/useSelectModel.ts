@@ -21,6 +21,7 @@
 
 import { getDefaultStore } from "jotai";
 import { activeChatIdAtom, peerModelByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeSessionModelAtom, activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -35,9 +36,24 @@ export function useSelectModel(): (model: LargeLanguageModel) => Promise<void> {
 
   return useCallback(
     async (model: LargeLanguageModel) => {
+      const store = getDefaultStore();
+      // The chat in front runs on it from now on, and only that chat (15.11.1):
+      // main stores it on that chat's row as it writes the app's selection (the
+      // default a NEW chat starts with), and answers with the level it kept
+      // (`session:model`). Optimistic here, keeping the chat's effort until
+      // then, because the chip must not lag the click.
+      if (store.get(activeWorkspaceSessionIdAtom)) {
+        const was = store.get(activeSessionModelAtom);
+        store.set(activeSessionModelAtom, {
+          provider: model.provider,
+          name: model.name,
+          ...(model.customModelId != null ? { customModelId: model.customModelId } : {}),
+          ...(was?.effort ? { effort: was.effort } : {}),
+          ...(was?.deepThinking !== undefined ? { deepThinking: was.deepThinking } : {}),
+        });
+      }
       await updateSettings({ selectedModel: model });
       // Your own pick ends one another session set for the chat in front of you (item 9).
-      const store = getDefaultStore();
       const here = [store.get(selectedChatIdAtom), store.get(activeChatIdAtom)];
       store.set(peerModelByChatIdAtom, (prev) => {
         if (!here.some((id) => id != null && prev.has(id))) return prev;

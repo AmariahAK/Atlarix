@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "15.11.0",
+  "version": "15.11.1",
   "private": true,
   "description": "The private AI workstation for engineering teams — your code stays on your machine, with managed Atlarix Core models, any-model BYOK across 145+ providers, and local execution.",
   "main": ".vite/build/main.js",
@@ -53,6 +53,7 @@
     "prettier": "npx prettier --write .",
     "presubmit": "npm run prettier:check && npm run lint",
     "test": "vitest run",
+    "test:bun": "bun test --isolate",
     "audit:tools": "vitest run src/__tests__/tool-registry-audit.test.ts",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",

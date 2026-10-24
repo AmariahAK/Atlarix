@@ -76,7 +76,7 @@ function revealApprovals(chatId: number): void {
 
 export function PendingApprovalsBar({ chatId }: { chatId: number }) {
   const queue = useAtomValue(permissionQueueAtom);
-  const pending = getOperationsByStatus(queue, "pending");
+  const pending = getOperationsByStatus(queue, "pending", chatId);
 
   if (pending.length === 0) return null;
 

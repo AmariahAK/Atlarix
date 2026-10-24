@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { rixSvg } from "@/lib/rix/rix-svg";
+import type { BrowserProvider } from "./sign-in-choices";
 
 export const SIGN_IN_PAGE = "https://atlarix.dev/auth/app";
 
@@ -34,6 +35,8 @@ export interface BrowserSignInOptions {
   timeoutMs?: number;
   /** Where the user goes back to, for the browser's page: "the terminal" (default), "your editor". */
   returnTo?: string;
+  /** The way in the person already chose; the page starts it instead of asking again. */
+  provider?: BrowserProvider;
 }
 
 /**
@@ -185,6 +188,7 @@ export async function signInWithBrowser(opts: BrowserSignInOptions): Promise<str
       page.searchParams.set("client", "cli");
       page.searchParams.set("port", String(port));
       page.searchParams.set("state", state);
+      if (opts.provider) page.searchParams.set("provider", opts.provider);
       opts.openUrl(page.toString());
     });
     server.on("error", (e) => finish(e));

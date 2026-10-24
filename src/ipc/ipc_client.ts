@@ -1832,6 +1832,8 @@ export class IpcClient {
       };
       /** Resend/edit: work mode for this turn only. */
       workModeOverride?: import("@/lib/schemas").WorkMode;
+      /** The chat's own effort for its model (15.11.1). */
+      effortOverride?: { effort: string; deepThinking: boolean };
       /** "Try with a stronger model" (paid Atlarix Auto). */
       escalate?: boolean;
     },
@@ -1851,6 +1853,7 @@ export class IpcClient {
       workspaceSessionId,
       prefillTaskLedger,
       workModeOverride,
+      effortOverride,
       escalate,
       displayPrompt,
       pasteAttachments,
@@ -1881,6 +1884,7 @@ export class IpcClient {
               workspaceSessionId: workspaceSessionId ?? undefined,
               prefillTaskLedger: prefillTaskLedger ?? undefined,
               workModeOverride: workModeOverride ?? undefined,
+              effortOverride: effortOverride ?? undefined,
               escalate: escalate || undefined,
             })
             .then((res) => this.endStreamDispatch(chatId, res))
@@ -1916,6 +1920,7 @@ export class IpcClient {
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger: prefillTaskLedger ?? undefined,
           workModeOverride: workModeOverride ?? undefined,
+              effortOverride: effortOverride ?? undefined,
           escalate: escalate || undefined,
         })
         .then((res) => this.endStreamDispatch(chatId, res))
@@ -1959,6 +1964,9 @@ export class IpcClient {
       id: string;
       workspaceId: number;
       title: string;
+      /** What it was stamped with (15.11.1). */
+      workMode?: import("@/lib/schemas").WorkMode | null;
+      model?: import("@/lib/session-choices").SessionModelChoice | null;
       createdAt: Date;
       updatedAt: Date;
     };
@@ -2166,10 +2174,30 @@ export class IpcClient {
   }
 
   /**
-   * Stamp the session's work mode. Call this only on a DELIBERATE pick while the
-   * session is active — never on open, or a session written before the column
-   * existed would silently acquire whatever the global preference happened to be.
+   * Stamp the model (with its effort) this session runs on: a pick made while it
+   * is on screen. Only this chat changes (15.11.1).
    */
+  public async setWorkspaceSessionModel(
+    sessionId: string,
+    choice: import("@/lib/session-choices").SessionModelChoice,
+  ) {
+    return this.ipcRenderer.invoke("sessions:set-model", sessionId, choice);
+  }
+
+  /** Tell main which chat this window has in front (a model written here is that chat's). */
+  public async setFrontSession(sessionId: string | null) {
+    return this.ipcRenderer.invoke("sessions:set-front", sessionId);
+  }
+
+  /** The model main stored on this window's chat in front (after a model write here). */
+  public onSessionModel(
+    listener: (p: { sessionId: string; model: import("@/lib/session-choices").SessionModelChoice | null }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("session:model", (payload) => listener(payload as never));
+    return typeof off === "function" ? off : () => {};
+  }
+
+  /** Stamp the session's work mode: a pick made while it is on screen. Only this chat changes. */
   public async setWorkspaceSessionWorkMode(
     sessionId: string,
     workMode: import("@/lib/schemas").WorkMode,
@@ -2914,9 +2942,9 @@ export class IpcClient {
     });
   }
 
-  /** Fire the "done responding" desktop notification (main shows it only when unfocused). */
-  public notifyTurnDone(waitingOnUser: boolean) {
-    this.ipcRenderer.invoke("notify:turn-done", { waitingOnUser });
+  /** A turn ended: main shows the "done responding" notification if no window is focused. */
+  public notifyTurnDone(waitingOnUser: boolean, chatId?: number) {
+    this.ipcRenderer.invoke("notify:turn-done", { waitingOnUser, chatId });
   }
 
   // Get proposal details
@@ -3146,12 +3174,13 @@ export class IpcClient {
 
   /** The CLI handed a session to the app (`/handoff app`): open it here. */
   public onSessionHandoff(
-    handler: (payload: { sessionId: string; workspaceId: number }) => void,
+    /** `quiet`: opened from a notification, so no "continued from" line. */
+    handler: (payload: { sessionId: string; workspaceId: number; quiet?: boolean }) => void,
   ): () => void {
     const listener = (...args: unknown[]) => {
       const payload = args.find(
         (a) => a && typeof a === "object" && "sessionId" in (a as object),
-      ) as { sessionId: string; workspaceId: number } | undefined;
+      ) as { sessionId: string; workspaceId: number; quiet?: boolean } | undefined;
       if (payload) handler(payload);
     };
     this.ipcRenderer.on("session:handoff-open", listener);

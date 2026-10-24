@@ -1,10 +1,12 @@
 /** @jsxImportSource @opentui/react */
 /**
- * The first screen when nobody is signed in: Rix, a welcome, and the two ways
- * in, as Claude Code and Codex open (owner, 2026-10-17: a bare "Sign in to
- * start. Opening your browser…" line that opened a browser by itself "would
- * seem like a bug"). The sign-in itself is the same as `atlarix login`; this is
- * only how it is offered. Pure, so a test can drive it (tests-bun/cli-login.test.tsx).
+ * The first screen when nobody is signed in: Rix, a welcome, and the ways in,
+ * as Claude Code and Codex open (owner, 2026-10-17: a bare "Sign in to start.
+ * Opening your browser…" line that opened a browser by itself "would seem like
+ * a bug"). The same choices as the app, the editors and the VS Code panel
+ * (cli/auth/sign-in-choices.ts). The sign-in itself is the same as `atlarix
+ * login`; this is only how it is offered. Pure, so a test can drive it
+ * (tests-bun/cli-login.test.tsx).
  */
 import { useKeyboard } from "@opentui/react";
 import { useRef, useState } from "react";
@@ -12,13 +14,9 @@ import type { Line } from "./dialogs";
 import { Rix } from "./Rix";
 import { color } from "./theme";
 import { linkify } from "./links";
+import { SIGN_IN_CHOICES, type SignInChoice } from "../auth/sign-in-choices";
 
-export type SignInMethod = "browser" | "code";
-
-const METHODS: Array<{ id: SignInMethod; label: string; detail: string }> = [
-  { id: "browser", label: "Sign in with your browser", detail: "GitHub, Google or email, on atlarix.dev" },
-  { id: "code", label: "Sign in with a code", detail: "for SSH, or a machine with no browser" },
-];
+export type SignInMethod = SignInChoice;
 
 const TONE: Record<string, string> = {
   accent: color.accent,
@@ -43,7 +41,10 @@ export function LoginScreen({
   onSignedIn: (email: string) => void;
   onQuit: () => void;
 }) {
-  const order = preferCode ? [METHODS[1]!, METHODS[0]!] : METHODS;
+  // No display to open a browser on: the code first, then the rest as they are.
+  const order = preferCode
+    ? [...SIGN_IN_CHOICES.filter((m) => m.id === "code"), ...SIGN_IN_CHOICES.filter((m) => m.id !== "code")]
+    : SIGN_IN_CHOICES;
   const [selected, setSelected] = useState(0);
   const [lines, setLines] = useState<Line[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +54,7 @@ export function LoginScreen({
 
   const start = (method: SignInMethod) => {
     setError(null);
-    setLines([{ text: method === "browser" ? "Opening your browser…" : "Getting a code…", tone: "muted" }]);
+    setLines([{ text: method === "code" ? "Getting a code…" : "Opening your browser…", tone: "muted" }]);
     signIn(method, (l) => {
       if (!done.current) setLines(l);
     }).then(
@@ -122,7 +123,7 @@ export function LoginScreen({
         </box>
         {error ? <text fg={color.error}>{error}</text> : null}
         <text fg={color.muted}>
-          {lines ? "esc back · ctrl+c quit" : "↑↓ choose · enter sign in · 1-2 pick · esc quit"}
+          {lines ? "esc back · ctrl+c quit" : `↑↓ choose · enter sign in · 1-${order.length} pick · esc quit`}
         </text>
       </box>
     </box>

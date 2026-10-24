@@ -709,6 +709,28 @@ export async function annotateToolCapability(
 }
 
 /**
+ * The catalog's own name for a model id, from whichever provider lists it:
+ * "Claude Haiku 4.5" for `us.anthropic.claude-haiku-4-5-20251001-v1:0` through
+ * an endpoint of your own, where nothing else names it. The id as given first,
+ * then as Anthropic's catalog writes it. Null when no provider lists it.
+ */
+export async function catalogModelName(modelId: string): Promise<string | null> {
+  try {
+    const data = await getModelsDevData();
+    const { anthropicCatalogModelId } = await import("@/lib/routing/custom-provider-format");
+    for (const id of [...new Set([modelId.trim(), anthropicCatalogModelId(modelId)])]) {
+      for (const provider of Object.values(data)) {
+        const name = provider?.models?.[id]?.name;
+        if (name) return name;
+      }
+    }
+  } catch {
+    /* no catalog: the id stands */
+  }
+  return null;
+}
+
+/**
  * Non-deprecated catalog rows for a provider, WITHOUT the tool-calling gate.
  *
  * Almost every caller wants `getModelsFromModelsDev` instead. This exists for

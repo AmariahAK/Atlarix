@@ -31,8 +31,13 @@ vi.mock("@/hooks/useLanguageModelsByProviders", () => ({
 vi.mock("@/hooks/useTranscriptionProviders", () => ({ useTranscriptionProviders: () => ({ data: [] }) }));
 vi.mock("@/hooks/useCreditBalance", () => ({ useCreditBalance: () => ({ balanceCents: state.cents }) }));
 vi.mock("@/components/DefaultMcpMenuSection", () => ({ DefaultMcpMenuSection: () => null }));
+vi.mock("@/ipc/ipc_client", () => ({
+  IpcClient: { getInstance: () => ({ setFrontSession: async () => ({ ok: true }) }) },
+}));
 
 import { ChatConfigDropdown } from "@/components/ChatConfigDropdown";
+import { getDefaultStore } from "jotai";
+import { activeSessionModelAtom, activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 function open() {
@@ -47,6 +52,8 @@ function open() {
 beforeEach(() => {
   state.update = vi.fn();
   state.settings = {};
+  getDefaultStore().set(activeWorkspaceSessionIdAtom, null);
+  getDefaultStore().set(activeSessionModelAtom, null);
 });
 
 describe("Effort in the composer menu", () => {
@@ -65,7 +72,8 @@ describe("Effort in the composer menu", () => {
     expect(await screen.findByTestId("effort-low")).toBeTruthy();
     expect(screen.getByTestId("effort-max")).toBeTruthy();
     fireEvent.click(screen.getByTestId("effort-low"));
-    expect(state.update).toHaveBeenCalledWith({ effort: "low", deepThinking: false });
+    // With the model it belongs to: the app's default is one model + its level.
+    expect(state.update).toHaveBeenCalledWith({ selectedModel: state.model, effort: "low", deepThinking: false });
   });
 
   it("a model's own levels exactly as listed, xhigh included", async () => {
@@ -74,7 +82,27 @@ describe("Effort in the composer menu", () => {
     open();
     for (const l of ["none", "low", "medium", "high", "xhigh"]) expect(await screen.findByTestId(`effort-${l}`)).toBeTruthy();
     fireEvent.click(screen.getByTestId("effort-xhigh"));
-    expect(state.update).toHaveBeenCalledWith({ effort: "xhigh", deepThinking: true });
+    expect(state.update).toHaveBeenCalledWith({ selectedModel: state.model, effort: "xhigh", deepThinking: true });
+  });
+
+  it("a chat on its own model shows that model's levels and its own level, and a pick is that chat's (15.11.1)", async () => {
+    state.cents = 0;
+    // The app's pick is Auto; this chat runs on GPT-5.4 at "high".
+    state.model = { provider: "compass", name: "core-auto" };
+    getDefaultStore().set(activeWorkspaceSessionIdAtom, "sess-a");
+    getDefaultStore().set(activeSessionModelAtom, { provider: "openai", name: "gpt-5.4", effort: "high" });
+    open();
+    expect(await screen.findByTestId("effort-xhigh")).toBeTruthy();
+    expect(screen.queryByText(/Free Auto runs at one level/)).toBeNull();
+    expect(screen.getByTestId("effort-high").getAttribute("data-state")).toBe("checked");
+    fireEvent.click(screen.getByTestId("effort-low"));
+    // One write: main stores the pair on this window's chat in front as well.
+    expect(getDefaultStore().get(activeSessionModelAtom)).toMatchObject({ name: "gpt-5.4", effort: "low" });
+    expect(state.update).toHaveBeenCalledWith({
+      selectedModel: { provider: "openai", name: "gpt-5.4" },
+      effort: "low",
+      deepThinking: false,
+    });
   });
 
   it("no section for a model with no control", async () => {

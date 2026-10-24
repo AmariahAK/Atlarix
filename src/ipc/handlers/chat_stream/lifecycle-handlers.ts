@@ -16,6 +16,7 @@ import type { ChatResponseEnd } from "@/ipc/ipc_types";
 import { FileUploadsState } from "@/ipc/utils/file_uploads_state";
 import { killForegroundCommandsForChat } from "@/lib/agent/background-commands";
 import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
+import { getInterceptorForChat } from "../permissions/handlers";
 import {
   USER_CANCEL_STREAM_STOP,
   streamStopAbortReason,
@@ -55,6 +56,9 @@ export function cancelChatStream(chatId: number, sender: IpcMainInvokeEvent["sen
   } else {
     logger.warn(`No active stream found for chat ${chatId}`);
   }
+  // Cards the stopped turn left open come down everywhere, and a late yes to
+  // one runs nothing (15.11.0: an orphan bar in every chat, with no Deny).
+  getInterceptorForChat(chatId)?.endTurn();
 
   // Fix 4: aborting the model stream doesn't stop a blocking foreground
   // run_command or running scout sub-agents — terminate them too so "stop"
@@ -125,6 +129,7 @@ export function registerLifecycleHandlers(
       logger.log(`[chat:abort] User cancelled stream for chat ${chatId}`);
       controller.abort(streamStopAbortReason(USER_CANCEL_STREAM_STOP));
       activeStreams.delete(chatId);
+      getInterceptorForChat(chatId)?.endTurn();
       // Fix 4: also terminate any blocking foreground run_command + running
       // scout sub-agents so cancel stops in-flight work, not just the request.
       const killed = killForegroundCommandsForChat(chatId);

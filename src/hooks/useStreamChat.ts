@@ -92,6 +92,7 @@ import {
   permissionQueueAtom,
   updateOperationStatus,
   type QueuedOperation,
+  withoutWaitingForChat,
 } from "@/atoms/permissionQueueAtom";
 import { IpcClient } from "@/ipc/ipc_client";
 import { compassUsageBumpAtom } from "@/atoms/viewAtoms";
@@ -121,6 +122,8 @@ import * as Sentry from "@sentry/electron/renderer";
 import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 import { useSettings } from "./useSettings";
 import { activeChatIdAtom, peerModeByChatIdAtom, peerModelByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeSessionChoiceFor } from "@/hooks/useChatModel";
+import { effortSettingsFor } from "@/lib/session-choices";
 import {
   clearActivityForChatInStore,
   filterActivityForChat,
@@ -148,7 +151,6 @@ function isErrorLikeLine(line: string): boolean {
   return /\b(error|failed|exception|traceback|fatal|warn(ing)?)\b/i.test(line);
 }
 
-import { playNotify, playRemaining } from "@/lib/sounds";
 import { messageIdOfTurn } from "@/shared/turn-id";
 
 /** PASS6: cap renderer-held chat history to limit heap growth (SQLite still has full history). */
@@ -724,9 +726,23 @@ export function useStreamChat({
       workspaceSessionId?: string | null;
     }) => {
       // A model another session set for this chat (item 9), unless this turn names one.
-      const peerModel = getDefaultStore().get(peerModelByChatIdAtom).get(chatId);
+      const choiceStore = getDefaultStore();
+      const peerModel = choiceStore.get(peerModelByChatIdAtom).get(chatId);
+      // Else this chat's own model + effort (15.11.1), never the app-wide pick:
+      // sent, so the turn runs on what its chip shows even if the stored copy
+      // has not landed yet. A chat not on screen sends none and main reads its row.
+      const ownChoice =
+        askedModel || peerModel
+          ? null
+          : activeSessionChoiceFor(choiceStore.get(chatIdToSessionIdAtom).get(chatId));
       const modelOverride =
-        askedModel ?? (peerModel ? { provider: peerModel.provider, name: peerModel.name } : undefined);
+        askedModel ??
+        (peerModel
+          ? { provider: peerModel.provider, name: peerModel.name }
+          : ownChoice
+            ? { provider: ownChoice.provider, name: ownChoice.name }
+            : undefined);
+      const effortOverride = ownChoice ? effortSettingsFor(ownChoice) : undefined;
       if (!chatId) return;
       const hasAttachments =
         attachments?.some(
@@ -929,36 +945,20 @@ export function useStreamChat({
 
             const allProposals = [...fileProposals, ...commandProposals];
 
-            // Add to pending proposals (with deduplication).
-            //
-            // The updater is now PURE. The sound used to live inside it, along
-            // with a toast, and a React state updater may be invoked more than
-            // once for the same update — so both could fire twice for one
-            // approval. Effects belong out here, where they run once.
-            let added = 0;
-            let hadPendingAlready = false;
-
+            // Add to pending proposals (with deduplication). The updater stays
+            // PURE: a React state updater may run more than once for one update.
             setPendingProposals((prev) => {
               // Deduplicate by operation ID - don't re-add if already exists
               const existingIds = new Set(prev.map((p) => p.id));
               const newProposals = allProposals.filter(
                 (p) => !existingIds.has(p.id),
               );
-
-              added = newProposals.length;
-              hadPendingAlready = prev.length > 0;
-
               if (newProposals.length === 0) {
                 return prev; // No new proposals to add
               }
 
               return [...prev, ...newProposals];
             });
-
-            if (added > 0) {
-              if (hadPendingAlready) playRemaining();
-              else playNotify();
-            }
 
             // NOTHING OPENS THE RIGHT PANEL HERE ANY MORE.
             //
@@ -1683,6 +1683,11 @@ export function useStreamChat({
             ? modeStore.get(activeSessionWorkModeAtom)
             : // A chat not on screen whose mode another session set (items 9, 11).
               (modeStore.get(peerModeByChatIdAtom).get(chatId) ?? null);
+        // A chat with no workspace is read-only (Explore), whatever was picked
+        // elsewhere: said here, per turn, so showing it no longer rewrites the
+        // app's default mode (15.11.1).
+        const sentWorkMode =
+          workModeOverride ?? sessionWorkMode ?? (streamAppId == null ? "ask" : undefined);
 
         // Remember what THIS turn dispatched with, so the composer can show the mode
         // the turn is actually running in while the picker offers the next one.
@@ -1699,8 +1704,7 @@ export function useStreamChat({
           next.set(
             chatId,
             resolveEffectiveWorkMode({
-              workModeOverride:
-                workModeOverride ?? sessionWorkMode ?? undefined,
+              workModeOverride: sentWorkMode,
               intentMode: settings?.intentMode,
               workModePreference: settings?.workModePreference,
               selectedChatMode: settings?.selectedChatMode ?? "ask",
@@ -1731,7 +1735,8 @@ export function useStreamChat({
           // decision made from app-wide state — the same shape as the v14.32.0
           // and v14.34.0 bugs. A session with no stored mode still sends nothing
           // and still resolves from the global, exactly as before.
-          workModeOverride: workModeOverride ?? sessionWorkMode ?? undefined,
+          workModeOverride: sentWorkMode,
+          effortOverride,
           escalate,
           onUpdate: (updatedMessages: Message[]) => {
             // v11.1: no freeze-baseline clamp — the turn ends at ask_user, so
@@ -2087,6 +2092,9 @@ export function useStreamChat({
             // pending and drains into the user's next turn.
             if (response.userCancelled) {
               userStoppedChatsRef.current.add(chatId);
+              // Its cards come down with it (main also reports them cancelled);
+              // only on a stop: a turn parked on a card ends with it still open.
+              setPermissionQueue((prev) => withoutWaitingForChat(prev, chatId));
             }
             const maybeWakeForBackgroundResults = () => {
               if (
@@ -2182,21 +2190,15 @@ export function useStreamChat({
             refreshVersions();
             invalidateTokenCount();
 
-            // Turn finished. When the app is UNFOCUSED, fire the OS "finished
-            // responding" notification (also covers the waiting-on-ask_user case).
-            // The OS notification is the SINGLE completion sound — we no longer
-            // ALSO play the in-app chime here, which doubled up annoyingly. When
-            // FOCUSED, keep the in-app chime on tool/permission turns only (the
-            // user is watching, so no OS-notification spam).
-            const appUnfocused =
-              typeof document !== "undefined" && !document.hasFocus();
-            if (appUnfocused) {
-              IpcClient.getInstance().notifyTurnDone(
-                response.endedWaitingOnUser === true,
-              );
-            } else if (response.hadToolCallsOrPermissions) {
-              playNotify();
-            }
+            // Turn finished: main shows the OS "finished responding" notification
+            // (also the waiting-on-ask_user case), naming this chat, when no
+            // window is focused, by the same rule as the approval one. Decided
+            // there: document.hasFocus() stayed true with another app in front
+            // (15.11.1 QA). The app plays no sounds of its own (owner, 15.11.1).
+            IpcClient.getInstance().notifyTurnDone(
+              response.endedWaitingOnUser === true,
+              response.chatId,
+            );
 
             // Store for ChatMessage so we can show "No actions this turn" when false in agent mode
             setLastTurnHadToolCallsByChatId((prev) => ({

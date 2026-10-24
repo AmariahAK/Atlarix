@@ -44,13 +44,21 @@ const settle = async (setup: Awaited<ReturnType<typeof testRender>>) => {
 };
 
 describe("the CLI's welcome screen", () => {
-  it("welcomes, and offers the browser first and a code second", async () => {
+  it("welcomes, and offers the app's ways in: GitHub, Google, Discord, email, then a code", async () => {
     const { setup } = await mount();
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Welcome to Atlarix");
-    expect(frame).toContain("Sign in with your browser");
-    expect(frame).toContain("Sign in with a code");
-    expect(frame.indexOf("your browser")).toBeLessThan(frame.indexOf("with a code"));
+    const order = ["Continue with GitHub", "Continue with Google", "Continue with Discord", "Continue with email", "Sign in with a code"];
+    for (const label of order) expect(frame).toContain(label);
+    const at = order.map((l) => frame.indexOf(l));
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+
+  it("each way in starts that provider (3 = Discord)", async () => {
+    const { setup, calls } = await mount();
+    setup.mockInput.pressKey("3");
+    await settle(setup);
+    expect(calls).toEqual(["discord"]);
   });
 
   it("starts nothing by itself: enter signs in the chosen way", async () => {
@@ -59,17 +67,17 @@ describe("the CLI's welcome screen", () => {
     expect(calls).toEqual([]);
     setup.mockInput.pressEnter();
     await settle(setup);
-    expect(calls).toEqual(["browser"]);
+    expect(calls).toEqual(["github"]);
     expect(setup.captureCharFrame()).toContain("Opening your browser");
   });
 
-  it("puts the code first where there's no browser (SSH), and 2 picks the other", async () => {
+  it("puts the code first where there's no browser (SSH), and 2 picks the next (GitHub)", async () => {
     const { setup, calls } = await mount({ preferCode: true });
     const frame = setup.captureCharFrame();
-    expect(frame.indexOf("with a code")).toBeLessThan(frame.indexOf("your browser"));
+    expect(frame.indexOf("with a code")).toBeLessThan(frame.indexOf("Continue with GitHub"));
     setup.mockInput.pressKey("2");
     await settle(setup);
-    expect(calls).toEqual(["browser"]);
+    expect(calls).toEqual(["github"]);
   });
 
   it("shows the sign-in's own lines, then who you are, then hands over", async () => {
@@ -97,7 +105,7 @@ describe("the CLI's welcome screen", () => {
     await settle(setup);
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Could not start a sign-in");
-    expect(frame).toContain("Sign in with your browser");
+    expect(frame).toContain("Continue with GitHub");
   });
 
   it("esc while waiting goes back; esc on the choices quits", async () => {

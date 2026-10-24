@@ -32,8 +32,9 @@ export function getSummarizationModel(
 
 /**
  * The model a chat's turns run on: its last request's own (the CLI's, an
- * editor's, a user agent's), else the app's. The same lookup a sub-agent uses
- * (run-subagent.ts).
+ * editor's, a user agent's, or the app chat's), else the model stored on its
+ * session (15.11.1: each app chat has one), else the app's. The same lookup a
+ * sub-agent uses (run-subagent.ts).
  */
 export async function turnModelForChat(
   chatId: number | null | undefined,
@@ -46,6 +47,28 @@ export async function turnModelForChat(
       if (own) return own;
     } catch {
       /* no stream state in this process: the app's model */
+    }
+    if (process.env.ATLARIX_SURFACE !== "cli") {
+      try {
+        const { sessionForTransport } = await import("@/lib/chat/stream-transport");
+        const sessionId = sessionForTransport(chatId);
+        if (sessionId) {
+          const [{ db }, { chatSessions }, { eq }, { parseSessionModel, modelOfChoice }] = await Promise.all([
+            import("@/db"),
+            import("@/db/schema"),
+            import("drizzle-orm"),
+            import("@/lib/session-choices"),
+          ]);
+          const row = await db.query.chatSessions.findFirst({
+            where: eq(chatSessions.id, sessionId),
+            columns: { model: true },
+          });
+          const stored = parseSessionModel(row?.model);
+          if (stored) return modelOfChoice(stored);
+        }
+      } catch {
+        /* no session readable: the app's model */
+      }
     }
   }
   return settings.selectedModel;

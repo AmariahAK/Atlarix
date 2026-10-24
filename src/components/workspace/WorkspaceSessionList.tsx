@@ -221,6 +221,7 @@ export function WorkspaceSessionList({
         activateWorkspaceSession(
           sessionId,
           listed ? ((listed.workMode ?? null) as WorkMode | null) : undefined,
+          listed ? (listed.model ?? null) : undefined,
         );
         setLoadedTruncated(false);
         setChatIdToSessionId((prev) => {
@@ -300,6 +301,7 @@ export function WorkspaceSessionList({
       activateWorkspaceSession(
         session.id,
         (session.workMode ?? null) as WorkMode | null,
+        session.model ?? null,
       );
       setLoadedTruncated(Boolean(truncated));
       // Only a genuinely prior-launch session is "restored" — a session opened
@@ -432,7 +434,9 @@ export function WorkspaceSessionList({
     setPendingHandoff(null);
     void loadSessions()
       .then(() => handleSelectSession(pendingHandoff.sessionId))
-      .then(() => showInfo(pendingHandoff.note ?? "Continued from the terminal"));
+      .then(() => {
+        if (!pendingHandoff.quiet) showInfo(pendingHandoff.note ?? "Continued from the terminal");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingHandoff, workspaceId]);
 

@@ -21,6 +21,7 @@ import {
   turnWorkModeByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { activeSessionWorkModeAtom } from "@/atoms/sessionAtoms";
+import { useChatModel } from "@/hooks/useChatModel";
 import { ModelPicker } from "./ModelPicker";
 import type { WorkMode } from "@/lib/schemas";
 import {
@@ -63,6 +64,8 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
   // own mode in v14.36.0 — so the footer and the picker could name different modes
   // with nothing to say which was in force.
   const sessionWorkMode = useAtomValue(activeSessionWorkModeAtom);
+  // This chat's own model (15.11.1), not the app-wide pick.
+  const chatModel = useChatModel(threadChatId).model;
   const selectedWorkMode: WorkMode = resolveSelectedWorkMode({
     sessionWorkMode,
     workModePreference: settings?.workModePreference,
@@ -143,10 +146,10 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
     else if (contextPercent >= 80) tokenWarning = "Approaching token limit";
   }
 
-  const usesCore = selectionUsesCompass(settings?.selectedModel);
+  const usesCore = selectionUsesCompass(chatModel);
   // Atlarix Auto never draws on the balance, so the free readout replaces it.
   const usesAuto =
-    usesCore && isCoreAutoTier(settings?.selectedModel?.name ?? undefined);
+    usesCore && isCoreAutoTier(chatModel?.name ?? undefined);
   const coreCreditLabel =
     usesCore &&
     !usesAuto &&
@@ -216,7 +219,7 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
         */}
         <ModelPicker resetKey={threadChatId} />
 
-        <ChatConfigDropdown />
+        <ChatConfigDropdown chatId={threadChatId} />
 
         <ChatIntentSelector />
       </div>

@@ -10,6 +10,27 @@ import {
   formatModelApiNameForDisplay,
   formatModelWithProvider,
 } from "@/lib/format-openrouter-model-label";
+import { anthropicCatalogModelId } from "@/lib/routing/custom-provider-format";
+
+/**
+ * The name another provider's list gives this model id (the catalog's: Anthropic
+ * lists `claude-haiku-4-5-20251001` as "Claude Haiku 4.5"), for an endpoint of
+ * your own whose own list doesn't name it. Exact id first, then the id as
+ * Anthropic's catalog writes it (Bedrock's `us.anthropic.…-v1:0`).
+ */
+function nameFromAnyProvider(
+  modelsByProviders: Record<string, LanguageModel[]> | undefined,
+  apiName: string,
+): string | undefined {
+  if (!modelsByProviders) return undefined;
+  for (const id of [...new Set([apiName, anthropicCatalogModelId(apiName)])]) {
+    for (const models of Object.values(modelsByProviders)) {
+      const m = models.find((x) => x.apiName === id);
+      if (m?.displayName && m.displayName !== m.apiName) return m.displayName;
+    }
+  }
+  return undefined;
+}
 
 /**
  * The provider to SHOW beside a model name.
@@ -45,6 +66,12 @@ export function resolveModelDisplayLabel(
     lmStudioDisplayName?: string;
     /** The provider's name as it was added (a custom provider's id is internal). */
     providerName?: string;
+    /**
+     * An endpoint of your own, whatever its id looks like (the CLI's are
+     * `atlarix-cli-dev-<hash>`, with no `custom::`): shown by its name, never
+     * its id (15.11.1 QA: "Claude Haiku 4.5 20251001 (atlarix-cli-dev-ee0d96d8)").
+     */
+    customProvider?: boolean;
   },
 ): string {
   if (!selectedModel?.name) return "—";
@@ -82,19 +109,33 @@ export function resolveModelDisplayLabel(
     );
   }
 
+  const ownEndpoint =
+    selectedModel.provider.startsWith("custom::") ||
+    // The CLI's `--provider-url` endpoints, known by their id even where this
+    // app has no row for them (a reply read on another profile).
+    selectedModel.provider.startsWith("atlarix-cli-dev") ||
+    options.customProvider === true;
+  // An endpoint of your own lists a model under its raw id until something
+  // names it: that is not a name.
+  const named = (m: LanguageModel | undefined) =>
+    m?.displayName && !(ownEndpoint && m.displayName === m.apiName) ? m.displayName : undefined;
   const providerModels = modelsByProviders?.[selectedModel.provider];
   if (providerModels) {
     const custom = providerModels.find(
       (m) => m.type === "custom" && m.id === selectedModel.customModelId,
     );
-    if (custom?.displayName) return custom.displayName;
+    if (named(custom)) return custom!.displayName;
     const byApi = providerModels.find((m) => m.apiName === selectedModel.name);
-    if (byApi?.displayName) return byApi.displayName;
+    if (named(byApi)) return byApi!.displayName;
   }
 
-  // A custom provider by its name, not "custom::<id>" (QA #26).
-  if (selectedModel.provider.startsWith("custom::") && options.providerName) {
-    return `${formatModelApiNameForDisplay(selectedModel.name)} (${options.providerName})`;
+  // An endpoint of your own by its name, never its id ("custom::<id>", QA #26;
+  // "atlarix-cli-dev-<hash>", 15.11.1), and the model by the catalog's name.
+  if (ownEndpoint) {
+    const model =
+      nameFromAnyProvider(modelsByProviders, selectedModel.name) ??
+      formatModelApiNameForDisplay(selectedModel.name);
+    return options.providerName ? `${model} (${options.providerName})` : model;
   }
   const slug = providerSlugFromApiName(
     selectedModel.name,

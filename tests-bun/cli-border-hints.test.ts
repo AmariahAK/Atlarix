@@ -14,6 +14,13 @@ describe("borderHints", () => {
     expect(borderHints({ ...base, busy: true, title: "Login page" })).toMatch(/^Login page · esc stop/);
   });
 
+  it("says computer use is on, idle, working and short of room (15.11.0: switched on in the app, silent here)", () => {
+    expect(borderHints({ ...base, busy: false, computerUse: true })).toContain("Computer use on");
+    expect(borderHints({ ...base, busy: true, computerUse: true, max: 24 })).toContain("Computer use on");
+    expect(borderHints({ ...base, busy: false, narrow: true, computerUse: true })).toContain("Computer use on");
+    expect(borderHints({ ...base, busy: false })).not.toContain("Computer use");
+  });
+
   it("short of room: the queue and steer hints go first, then the name; esc stop stays", () => {
     const line = borderHints({ ...base, busy: true, title: "Login page", max: 24 });
     expect(line).toBe("Login page · esc stop");

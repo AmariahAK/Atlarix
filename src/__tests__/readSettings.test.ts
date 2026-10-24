@@ -70,10 +70,6 @@ describe("readSettings", () => {
           "includeAtlarixCoAuthor": true,
           "isRunning": false,
           "lastKnownPerformance": undefined,
-          "notificationSound": {
-            "enabled": true,
-            "volume": 0.7,
-          },
           "providerSettings": {},
           "releaseChannel": "stable",
           "selectedChatMode": "ask",
@@ -255,10 +251,6 @@ describe("readSettings", () => {
           "includeAtlarixCoAuthor": true,
           "isRunning": false,
           "lastKnownPerformance": undefined,
-          "notificationSound": {
-            "enabled": true,
-            "volume": 0.7,
-          },
           "providerSettings": {},
           "releaseChannel": "stable",
           "selectedChatMode": "ask",

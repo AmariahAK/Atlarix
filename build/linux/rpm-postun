@@ -1,0 +1,6 @@
+# Only when the last copy is removed ($1 = 0). On an upgrade the OLD package's
+# postun runs after the new package's post, so removing here unconditionally
+# would delete the file the new version just wrote.
+if [ "$1" = 0 ]; then
+  rm -f /usr/lib/atlarix/resources/package-type
+fi

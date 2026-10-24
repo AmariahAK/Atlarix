@@ -357,7 +357,10 @@ export function borderHints(o: {
   title?: string | null;
   /** Columns the border has for it: the least useful hints go first, a long name ends in "…". */
   max?: number;
+  /** Computer use is on for this model (switched on here or anywhere else): never dropped. */
+  computerUse?: boolean;
 }): string {
+  const computer = o.computerUse ? "Computer use on" : null;
   const tasks = o.running ? "↓ tasks" : null;
   const fit = (parts: Array<string | null>, dropOrder: string[]) => {
     let kept = parts.filter((p): p is string => !!p);
@@ -372,13 +375,16 @@ export function borderHints(o: {
   if (o.busy) {
     const queued = o.queued ? "alt+↑ edit queued" : null;
     // The name stays while it works: that is when people switch tabs and come back.
-    return fit([title, "esc stop", "enter steer", "tab queue", queued, tasks], ["tab queue", "enter steer", title ?? ""]);
+    return fit([computer, title, "esc stop", "enter steer", "tab queue", queued, tasks], ["tab queue", "enter steer", title ?? ""]);
   }
-  if (o.narrow) return [title ?? o.place, tasks].filter(Boolean).join(" · ");
+  if (o.narrow) return [computer, title ?? o.place, tasks].filter(Boolean).join(" · ");
   const mcp = o.mcp ? `⊙ ${o.mcp} MCP` : null;
   // ctrl+o isn't here: each collapsed item says "(ctrl+o)" where it has more.
   // ctrl+y named beside shift+tab: VS Code's Tab Moves Focus takes shift+tab (QA).
-  return fit([title, o.place, mcp, "/commands", "shift+tab / ctrl+y mode", tasks], [mcp ?? "", "shift+tab / ctrl+y mode", "/commands", o.place]);
+  return fit(
+    [computer, title, o.place, mcp, "/commands", "shift+tab / ctrl+y mode", tasks],
+    [mcp ?? "", "shift+tab / ctrl+y mode", "/commands", o.place],
+  );
 }
 
 /** The palette's visible rows: at most 8, kept around the highlighted one. */
@@ -1132,6 +1138,7 @@ export function App({
     const want = arg.trim().toLowerCase();
     if (want === "on" || want === "off") {
       lane.setComputerUse(o, want === "on");
+      void session.refreshComputerUse();
       if (want === "off") return flash(`Computer use off for ${o.label}.`, 3000);
       const notice = await lane.computerUseGrantNotice();
       return flash(`Computer use on for ${o.label}. Move the mouse to stop it.${notice ? ` ${notice}` : ""}`, notice ? 9000 : 5000, "success");
@@ -1826,6 +1833,7 @@ export function App({
               version={version}
               model={`${modelLabel}${effortSuffix}`}
               mode={MODE_LABEL[state.mode]}
+              computerUse={state.computerUse}
               account={
                 !session.model || session.model.provider === "compass"
                   ? accountKind
@@ -2022,6 +2030,7 @@ export function App({
                   mcp: mcpOn,
                   title: state.title,
                   max: width - 8,
+                  computerUse: state.computerUse,
                 })} `
         }
         placeholder={

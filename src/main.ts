@@ -32,6 +32,8 @@ import {
   isNewer,
   shouldRunNotifyOnlyCheck,
   canElectronUpdaterRun,
+  readLinuxPackageType,
+  windowAlive,
   chooseUpdaterKind,
   type UpdateStatus,
 } from "./main/update-helpers";
@@ -645,7 +647,14 @@ export async function onReady() {
   });
 
   try {
-    initializeDatabase();
+    const startupDb = initializeDatabase();
+    // Each chat owns its model + mode now: chats from before get today's defaults
+    // once, before any window can send a turn (15.11.1).
+    {
+      const { backfillSessionChoices } = await import("./main/backfill-session-choices");
+      const { readSettings, writeSettings } = await import("./main/settings");
+      backfillSessionChoices(startupDb, readSettings(), writeSettings);
+    }
     // Other Atlarix sessions (CLI or app) can message this one (lib/peers).
     void import("./lib/peers/main-host").then((m) => m.startPeerMessaging("app"));
     // A session another process named or renamed (the CLI, an editor) reaches
@@ -869,6 +878,7 @@ export async function onReady() {
       isAppImage: Boolean(process.env.APPIMAGE),
       isInApplicationsFolder:
         process.platform !== "darwin" || safeIsInApplicationsFolder(),
+      linuxPackageType: linuxPackageType(),
       isWindowsStore: IS_MICROSOFT_STORE_BUILD,
     });
     if (kind === "squirrel") {
@@ -930,7 +940,7 @@ const updateStatus: UpdateStatus = {
 /** Merge into the in-memory status and push it to the renderer (Settings panel). */
 function setUpdateStatus(partial: Partial<UpdateStatus>): void {
   Object.assign(updateStatus, partial);
-  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+  if (windowAlive(mainWindow)) {
     mainWindow.webContents.send("update:status", { ...updateStatus });
   }
 }
@@ -1026,7 +1036,7 @@ async function checkForUpdatesNotify(): Promise<void> {
       lastCheckAt: Date.now(),
       detail: updateStatus.detail, // preserve an /Applications/unsupported hint if set
     });
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:available", {
         currentVersion,
         latestVersion,
@@ -1057,19 +1067,27 @@ export async function onFirstRunMaybe(settings: UserSettings) {
  * Checks GitHub releases at AmariahAK/atlarix-releases for latest.yml.
  * Shows a restart dialog when an update has downloaded.
  */
+/** deb/rpm (from resources/package-type), the same answer electron-updater reaches. */
+function linuxPackageType() {
+  return process.platform === "linux" && app.isPackaged ? readLinuxPackageType(process.resourcesPath) : null;
+}
+
 function initAutoUpdater(): void {
   // Route electron-updater logs through electron-log so update history is traceable.
   autoUpdater.logger = log;
 
   // Can electron-updater actually drive a silent update for THIS install? On
-  // macOS it must live in /Applications; deb/rpm and dev builds can't.
+  // macOS it must live in /Applications; on Linux it must be an AppImage, deb
+  // or rpm; dev builds can't.
   const isAppImage = Boolean(process.env.APPIMAGE);
+  const packageType = linuxPackageType();
   const capability = canElectronUpdaterRun({
     platform: process.platform,
     isPackaged: app.isPackaged,
     isAppImage,
     isInApplicationsFolder:
       process.platform !== "darwin" || safeIsInApplicationsFolder(),
+    linuxPackageType: packageType,
   });
   if (!capability.ok) {
     // Surface WHY rather than silently no-op'ing, then let the notify-only
@@ -1083,8 +1101,9 @@ function initAutoUpdater(): void {
     log.info(
       `[AutoUpdater] electron-updater inactive: ${capability.detail ?? "n/a"}`,
     );
-    // deb/rpm: still offer a native notification with the release page.
-    if (process.platform === "linux" && app.isPackaged && !isAppImage) {
+    // Any other Linux install: still offer a native notification with the
+    // release page.
+    if (process.platform === "linux" && app.isPackaged && !isAppImage && !packageType) {
       void checkLinuxPackageUpdate();
     }
     return;
@@ -1141,7 +1160,7 @@ function initAutoUpdater(): void {
       lastCheckAt: Date.now(),
     });
     // Send a subtle in-app notice to the renderer so the user knows a download is happening.
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:downloading", {
         version: info.version,
       });
@@ -1183,7 +1202,7 @@ function initAutoUpdater(): void {
       autoUpdater.quitAndInstall();
       return;
     }
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:downloaded", {
         version: info.version,
       });
@@ -1238,7 +1257,7 @@ function initWindowsAutoUpdater(): void {
   squirrelUpdater.on("update-available", () => {
     log.info("[AutoUpdater] Update available (squirrel)");
     setUpdateStatus({ lastResult: "downloading", lastCheckAt: Date.now() });
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:downloading", { version: "" });
     }
   });
@@ -1261,7 +1280,7 @@ function initWindowsAutoUpdater(): void {
       squirrelUpdater.quitAndInstall();
       return;
     }
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:downloaded", { version });
     }
   });

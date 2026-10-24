@@ -33,7 +33,7 @@ import {
 import { useAtom, useAtomValue } from "jotai";
 import { useContextReport } from "@/hooks/useContextReport";
 import { Scissors, Bot as BotIcon, DollarSign } from "lucide-react";
-import { useSettings } from "@/hooks/useSettings";
+import { useChatModel } from "@/hooks/useChatModel";
 import { TokenCircle } from "./TokenCircle";
 import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
@@ -64,7 +64,8 @@ function sectionLabel(name: string): string {
 
 export function TokenBar({ chatId }: TokenBarProps) {
   const [inputValue] = useAtom(chatInputValueAtom);
-  const { settings } = useSettings();
+  // This chat's own model (15.11.1), not the app-wide pick.
+  const chatModel = useChatModel(chatId).model;
   const { result, error } = useCountTokens(chatId ?? null, inputValue);
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
   const creditBalance = useCreditBalance();
@@ -103,9 +104,7 @@ export function TokenBar({ chatId }: TokenBarProps) {
   // the current usage. The dispatch already auto-compacts to fit; this is a
   // one-time transparency toast. Re-evaluated once the token count refetches
   // with the newly selected model's window.
-  const modelKey = settings?.selectedModel
-    ? `${settings.selectedModel.provider}/${settings.selectedModel.name}`
-    : "";
+  const modelKey = chatModel ? `${chatModel.provider}/${chatModel.name}` : "";
   const prevModelKeyRef = useRef(modelKey);
   const awaitingSwitchRef = useRef(false);
   useEffect(() => {
@@ -231,7 +230,7 @@ export function TokenBar({ chatId }: TokenBarProps) {
   const budget =
     contextReport?.contextWindow ?? effectiveBudget ?? contextWindow;
   const percentUsed = Math.min((totalTokens / budget) * 100, 100);
-  const usesCore = selectionUsesCompass(settings?.selectedModel);
+  const usesCore = selectionUsesCompass(chatModel);
   const coreCreditLabel =
     usesCore && !creditBalance.loading && creditBalance.balanceCents != null
       ? `$${(creditBalance.balanceCents / 100).toFixed(2)}`

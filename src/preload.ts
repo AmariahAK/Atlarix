@@ -73,6 +73,8 @@ const validInvokeChannels = [
   "sessions:stop-remote",
   "sessions:fork",
   "sessions:set-work-mode",
+  "sessions:set-model",
+  "sessions:set-front",
   "sessions:delete",
   "sessions:prune-if-empty",
   "sessions:get",
@@ -407,6 +409,7 @@ const validReceiveChannels = [
   "sessions:title-updated", // main → renderer: a session was named (placeholder, then generated title)
   "sessions:changed", // main → renderer: the stored sessions changed, maybe in another process
   "session:peer-settings", // main → renderer: another session set this one's mode and/or model (item 9)
+  "session:model", // main → renderer: the model stored on this window's chat in front (15.11.1)
   "chat:interjections", // main → renderer: the pending mid-turn-message queue changed
   "chat:remote-stop", // main → renderer: another surface following this chat pressed Stop
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)

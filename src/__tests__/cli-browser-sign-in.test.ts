@@ -6,7 +6,10 @@ import http from "node:http";
 import { describe, expect, it } from "vitest";
 import { signInWithBrowser, type Tokens } from "@/cli/auth/browser-sign-in";
 
-function start(accept: (t: Tokens) => Promise<string> = async () => "me@example.com") {
+function start(
+  accept: (t: Tokens) => Promise<string> = async () => "me@example.com",
+  provider?: "github" | "google" | "discord" | "email",
+) {
   let url = "";
   const accepted: Tokens[] = [];
   const done = signInWithBrowser({
@@ -16,6 +19,7 @@ function start(accept: (t: Tokens) => Promise<string> = async () => "me@example.
       return accept(t);
     },
     timeoutMs: 5_000,
+    ...(provider ? { provider } : {}),
   });
   const ready = async () => {
     for (let i = 0; i < 100 && !url; i++) await new Promise((r) => setTimeout(r, 10));
@@ -53,6 +57,19 @@ describe("browser sign-in", () => {
     expect(state).toMatch(/^[A-Za-z0-9_-]{32}$/);
     await post(port, `access_token=a&refresh_token=r&state=${state}`);
     await s.done;
+  });
+
+  it("names the way in already chosen, so the page starts it; none: the page asks", async () => {
+    const chosen = start(undefined, "discord");
+    const a = await chosen.ready();
+    expect(a.page.searchParams.get("provider")).toBe("discord");
+    await post(a.port, `access_token=a&refresh_token=r&state=${a.state}`);
+    await chosen.done;
+    const unchosen = start();
+    const b = await unchosen.ready();
+    expect(b.page.searchParams.has("provider")).toBe(false);
+    await post(b.port, `access_token=a&refresh_token=r&state=${b.state}`);
+    await unchosen.done;
   });
 
   it("serves a callback page that forwards the fragment", async () => {

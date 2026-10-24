@@ -32,9 +32,29 @@ The owner approved the scope 2026-10-23 and asked for a full release overnight. 
   uses them since the cloud agent went paid-only (reviewer ae7061c, agent-action v1.4.0). GitHub asks for sudo mode,
   so it's yours.
 - **VS Code Marketplace:** upload the 8 `.vsix` from the Desktop folder.
-- **Proxy failover:** the AWS copy runs the same commit as Railway (2f30852) but is OFF (no Supabase key since the
-  rotation). Mint a secret key, `scripts/aws/90-proxy-failover.sh --secrets < env.json`, prove /health + a debit, then
-  set `proxy.fallbackUrl` and add the copy to the uptime TARGETS.
+- **Proxy copies drift on a scripts-only push (2026-10-24).** Every push to atlarix-proxy main redeploys Railway, but the
+  AWS copy only moves with `scripts/aws/90-proxy-failover.sh`, so the uptime watcher emailed "proxy copies differ" after a
+  one-line change to scripts/aws/60-lambdas.sh. Fix: compare only the deployed code (e.g. a hash of the bundle, not the
+  commit), or redeploy the AWS copy from the same CI step that Railway deploys from.
+- **Test hygiene (2026-10-24):** bun/vitest runs log into the owner's ~/Library/Logs/Atlarix/main.log (it rotates the real
+  app's updater lines away); all bun files share one database (a later file can't get a clean one).
+- **Linux notifications:** check on a real GNOME/KDE desktop whether a chat title with `&` or `<` breaks the body on
+  markup daemons; escape only if confirmed.
+- **Proxy failover: LIVE 2026-10-24.** The AWS copy (us-east-1, commit 2f30852) has its own Supabase key
+  `aws_proxy_failover`. `proxy.fallbackUrl` is set in atlarix-releases core-models.json (477f0e4), and the uptime
+  watcher checks it (fde2b27). Clients fall back only on no connection / 502 / 503 / 504, never mid-stream. Not yet a
+  load-spreader: free-tier counters live in eu-west-1 DynamoDB, and two copies reopen the one-reserve-per-copy gap.
+
+### A2. Found in the 15.11.0 artifact checks (ai-44)
+
+- **Intel Macs never auto-update** (pre-existing, same in v15.10.0): `latest-mac.yml` lists only the arm64 files, so
+  electron-updater on x64 has nothing to download and shows only the notify banner. Publish both architectures in
+  the mac manifest (or a separate `latest-mac-x64`/arch-aware feed).
+- **Windows CLI version resource:** Company/Product/Description/Version now say Atlarix, but bun still fills
+  LegalCopyright ("https://bun.com/docs/project/licensing"), InternalName "bun" and an empty OriginalFilename. Set
+  them if bun's compile options allow, else post-process the resource.
+- **Linux deb:** the computer-use executor needs libxkbcommon0 and libwayland-client0; `Depends` doesn't list them
+  (libgtk-3-0 pulls both on Debian/Ubuntu). List them explicitly.
 
 ### B. Not verified (say so in any announcement)
 
@@ -452,6 +472,14 @@ The reasoning lives in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md); these are th
   unused, and Luna would reject audio anyway (`Audio input is not available.`). To offer it: route
   `purpose: transcribe` in the proxy to OpenAI's transcription endpoint, meter it, then declare
   audio for Auto.
+- **NEXT for the Auto router (owner, 2026-10-24): Pro only, and only if it's small.** Order:
+  1. Outcome logging for every paid Auto step: kept going, no retry, no model switch, tools didn't fail.
+  2. Two candidates in `shadow` (they log their pick next to the table's, they don't decide):
+     - option 5, the on-device contextual bandit (no model, a few KB);
+     - a cheap hosted classifier call (a Groq-hosted small model, or Claude Haiku) as the "model as router" baseline.
+     Hugging Face's RouteLLM routers (BERT / matrix factorisation, lm-sys/RouteLLM) are free but trained on
+     GPT-4 vs Mixtral, so they'd need retraining on our traffic first.
+  3. Compare cost + outcomes, then let the winner decide, for Pro only.
 - **Paid Auto: a router that picks the lane WITHIN a mode** (owner, 2026-10-04). Today the lane
   table picks by mode/purpose/image/escalation; the saving is "this build step is easy → GLM/Luna,
   this one is hard → Sol/Astra". Options, best fit first:

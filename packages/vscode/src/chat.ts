@@ -39,7 +39,11 @@ export interface ChatHost {
   /** A chat from another folder: open that folder in a new window, resumed there. */
   openElsewhere(sessionId: string, folder: string): Promise<void>;
   showLog(): void;
-  signIn(): Promise<void>;
+  /** Sign in the chosen way; throws (with the reason) when it didn't finish. */
+  signIn(
+    method?: "github" | "google" | "discord" | "email" | "code",
+    showCode?: (d: { userCode: string; verificationUri: string; expiresInS: number }) => void,
+  ): Promise<void>;
   /** This chat's model or busy state changed (the status bar). */
   changed?(chat: Chat): void;
   /** The Problems panel's errors and warnings, as context. */
@@ -194,7 +198,11 @@ export class Chat {
           if (/^https?:\/\//i.test(m.url)) await vscode.env.openExternal(vscode.Uri.parse(m.url));
           return;
         case "sign-in":
-          await this.host.signIn();
+          try {
+            await this.host.signIn(m.method, (d) => this.post({ type: "sign-in-code", ...d }));
+          } catch (e) {
+            return this.post({ type: "sign-in-failed", message: errorText(e) });
+          }
           return this.open(this.sessionId);
         case "sign-out":
           return this.signOut();

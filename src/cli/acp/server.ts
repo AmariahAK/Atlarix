@@ -12,6 +12,7 @@
  * Same data as the TUI: the desktop app's chats, settings, keys and sign-in.
  */
 import { computerUseGrantNotice, isComputerUseOn, setComputerUse } from "@/lib/computer/lane";
+import { isBrowserProvider, SIGN_IN_CHOICES } from "../auth/sign-in-choices";
 import * as acp from "@agentclientprotocol/sdk";
 import type { InitializeResponse } from "@agentclientprotocol/sdk";
 import { acpStdout } from "./stdio-guard";
@@ -67,19 +68,22 @@ export function initializeResponse(version: string): InitializeResponse {
       mcpCapabilities: { http: true, sse: false },
       sessionCapabilities: { list: {}, fork: {} },
     },
+    // The same ways in as the app, the CLI and the VS Code panel
+    // (cli/auth/sign-in-choices.ts): each browser one opens atlarix.dev on that
+    // provider; the code runs `atlarix login --device` in the editor's terminal.
     authMethods: [
+      ...SIGN_IN_CHOICES.filter((c) => c.id !== "code").map((c) => ({
+        id: `atlarix-${c.id}`,
+        name: c.label,
+        description: "Opens atlarix.dev in your browser.",
+      })),
       {
-        id: "atlarix-browser",
-        name: "Sign in with Atlarix",
-        description: "Opens atlarix.dev in your browser to sign in.",
-      },
-      {
-        id: "atlarix-login",
+        id: "atlarix-login-device",
         type: "terminal",
-        name: "Sign in from a terminal",
-        description: "Runs `atlarix login` (use `atlarix login --device` where no browser can open).",
-        args: ["login"],
-        _meta: { "terminal-auth": { command: "atlarix", args: ["login"], label: "Atlarix login" } },
+        name: "Sign in with a code",
+        description: "For SSH, or a machine with no browser: runs `atlarix login --device`.",
+        args: ["login", "--device"],
+        _meta: { "terminal-auth": { command: "atlarix", args: ["login", "--device"], label: "Atlarix sign-in code" } },
       },
     ],
   };
@@ -105,19 +109,27 @@ export function buildAgentApp(
       return initializeResponse(version);
     })
     .onRequest("authenticate", async (ctx) => {
-      if (ctx.params.methodId === "atlarix-login") {
+      // Terminal methods: the editor ran `atlarix login` (an older listing) or
+      // `atlarix login --device` itself, so the sign-in is already on disk.
+      if (ctx.params.methodId === "atlarix-login" || ctx.params.methodId === "atlarix-login-device") {
         // The editor ran `atlarix login` in its own terminal: the sign-in is
         // already on disk, shared with this process. Only say whether it took.
         const { realServices } = await import("../agent/services");
         if (await realServices.account.email().catch(() => null)) return {};
         throw acp.RequestError.authRequired(undefined, "Not signed in yet: finish `atlarix login`, then try again.");
       }
-      if (ctx.params.methodId !== "atlarix-browser") {
+      // "atlarix-browser": older VS Code panels; the page then offers every way in.
+      const provider = ctx.params.methodId.replace(/^atlarix-/, "");
+      if (ctx.params.methodId !== "atlarix-browser" && !isBrowserProvider(provider)) {
         throw acp.RequestError.invalidParams(undefined, `unknown sign-in method ${ctx.params.methodId}`);
       }
       const { signInCli } = await import("../auth/account");
       // An editor asked: the browser's page says to go back to it.
-      await signInCli((url) => process.stderr.write(`Atlarix sign-in: ${url}\n`), "your editor");
+      await signInCli(
+        (url) => process.stderr.write(`Atlarix sign-in: ${url}\n`),
+        "your editor",
+        isBrowserProvider(provider) ? provider : undefined,
+      );
       return {};
     })
     .onRequest("session/new", (ctx) => agent.newSession(ctx.params.cwd, ctx.params.mcpServers))
@@ -237,6 +249,22 @@ export function buildAgentApp(
       const url = await realServices.account.checkout(ctx.params.kind, ctx.params.amountCents);
       if (!url) throw acp.RequestError.invalidParams(undefined, ctx.params.kind === "credit" ? "Credit starts at $10." : "Checkout isn't available right now.");
       return { url };
+    })
+    // "Sign in with a code" from the VS Code panel: the first request starts the
+    // device sign-in and answers with the code to show; the second resolves once
+    // it was entered and approved. Two requests, not a notification, so the
+    // panel needs nothing new to listen for.
+    .onRequest("_atlarix/sign_in_code", (p) => p as Record<string, unknown>, async () => {
+      const { deviceSignIn } = await import("../auth/pending-device-sign-in");
+      const { acceptSession } = await import("../auth/account");
+      // Asked again (the panel's Back, then the code again): the same code while it lasts.
+      return deviceSignIn(acceptSession).code;
+    })
+    .onRequest("_atlarix/sign_in_code_wait", (p) => p as Record<string, unknown>, async () => {
+      const { pendingDeviceSignIn } = await import("../auth/pending-device-sign-in");
+      const done = pendingDeviceSignIn();
+      if (!done) throw acp.RequestError.invalidParams(undefined, "No sign-in with a code is under way.");
+      return { email: await done };
     })
     .onRequest("_atlarix/sign_out", (p) => p as Record<string, unknown>, async () => {
       const { realServices } = await import("../agent/services");
@@ -673,6 +701,15 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
   };
 
   const agent = new AcpAgent({
+    // Dev mode (own endpoint) needs no account, as in the CLI.
+    ...(opts.devUrl
+      ? {}
+      : {
+          signedIn: async () => {
+            const { currentEmail } = await import("../auth/account");
+            return Boolean(await currentEmail());
+          },
+        }),
     createSession: async (cwd) => {
       const s = new AgentSession({
         workspaceDir: cwd,

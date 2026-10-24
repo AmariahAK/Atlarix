@@ -22,6 +22,7 @@ import { isChatStreamLive, onStreamLiveChange } from "@/ipc/handlers/chat_stream
 import { recordUserInterjection } from "@/lib/agent/user-interjections";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import { readSettings } from "@/main/settings";
+import { parseSessionModel, serializeSessionModel } from "@/lib/session-choices";
 
 const logger = log.scope("peers");
 
@@ -50,6 +51,7 @@ export async function noteSessionOpen(
         `New ${process.env.ATLARIX_PEER_SURFACE === "editor" ? "editor " : process.env.ATLARIX_SURFACE === "cli" ? "CLI " : ""}session (${(app?.path ?? "").split(/[\\/]/).pop() || "no folder"})`,
       workspace: app?.path ?? "",
     });
+    noteAppChatModel(sessionId, parseSessionModel(session.model));
   } catch (e) {
     logger.debug(
       `could not register session ${sessionId}: ${(e as Error).message}`,
@@ -61,9 +63,11 @@ export async function noteSessionOpen(
  * A handoff from the CLI: show `sessionId` in the app and carry on there. The
  * window already showing its workspace if there is one, else the front window;
  * the renderer selects the workspace and opens the session (layout.tsx).
+ * `quiet`: no "Continued from the terminal" line (a notification's click).
  */
-async function openSessionInApp(
+export async function openSessionInApp(
   sessionId: string,
+  opts: { quiet?: boolean } = {},
 ): Promise<{ ok: boolean; error?: string }> {
   const session = await db.query.chatSessions.findFirst({
     where: eq(chatSessions.id, sessionId),
@@ -75,7 +79,7 @@ async function openSessionInApp(
   const { getPrimaryWindow, sendToWorkspaceWindow } = await import(
     "@/main/workspace-window-manager"
   );
-  const payload = { sessionId, workspaceId: session.workspaceId };
+  const payload = { sessionId, workspaceId: session.workspaceId, ...(opts.quiet ? { quiet: true } : {}) };
   if (
     app?.path &&
     sendToWorkspaceWindow(app.path, "session:handoff-open", payload)
@@ -159,6 +163,23 @@ async function applyPeerSettings(
   if (mode && row) {
     await db.update(chatSessions).set({ workMode: mode }).where(eq(chatSessions.id, target.sessionId));
   }
+  if (model && row) {
+    // That chat's own model from now on (15.11.1), stored like a pick made in it.
+    // Its effort stays only if the model is the same one: levels belong to a model.
+    const was = parseSessionModel(row.model);
+    const same = was?.provider === model.provider && was?.name === model.name;
+    await db
+      .update(chatSessions)
+      .set({
+        model: serializeSessionModel({
+          provider: model.provider,
+          name: model.name,
+          ...(same && was?.effort ? { effort: was.effort } : {}),
+          ...(same && was?.deepThinking !== undefined ? { deepThinking: was.deepThinking } : {}),
+        }),
+      })
+      .where(eq(chatSessions.id, target.sessionId));
+  }
   if (model) noteSessionModel(target.sessionId, model.label);
   const notice = [
     set.mode || set.model ? s.settingsNotice({ mode: set.mode ? mode : undefined, model: model?.label }, from.name) : "",
@@ -203,8 +224,30 @@ function appDefaultModelLabel(): string | undefined {
   return appDefault.label;
 }
 
+/** This process's surface ("app" once the app's inbox starts). */
+let hostSurface: Surface | null = null;
+
+/** "label" for a model as the pickers name it (its id when the list doesn't have it). */
+async function modelLabel(m: { provider: string; name: string }): Promise<string> {
+  try {
+    const { loadModelOptions } = await import("@/cli/agent/models");
+    const o = (await loadModelOptions()).find((x) => x.provider === m.provider && x.name === m.name);
+    return o?.label ?? m.name;
+  } catch {
+    return m.name;
+  }
+}
+
+/** An app chat's own model, as list_sessions shows it (15.11.1: each chat has one). */
+export function noteAppChatModel(sessionId: string, m: { provider: string; name: string } | null): void {
+  if (hostSurface !== "app" || !m) return;
+  void modelLabel(m).then((label) => noteSessionModel(sessionId, label));
+}
+
 export async function startPeerMessaging(surface: Surface): Promise<void> {
-  // The CLI and the editors report each session's own model.
+  hostSurface = surface;
+  // The CLI and the editors report each session's own model; the app's chats
+  // report theirs as they open (noteAppChatModel), the default covers the rest.
   if (surface === "app") setDefaultModelLabel(appDefaultModelLabel);
   try {
     await startPeerInbox({
@@ -250,7 +293,7 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
         stop: (chatId) => {
           broadcastToAllWindows("chat:remote-stop", { chatId });
         },
-        ...(surface === "app" ? { openSession: openSessionInApp } : {}),
+        ...(surface === "app" ? { openSession: (id: string) => openSessionInApp(id) } : {}),
         applySettings: applyPeerSettings,
         inbound: () => {
           try {

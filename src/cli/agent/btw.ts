@@ -48,9 +48,8 @@ export async function answerAside(
   const { recordAuxUsage } = await import("@/lib/usage/turn-usage-aggregator");
   const settings = readSettings();
   const chosen = model ?? settings.selectedModel;
-  const { modelClient, fellBackToCore } = await getModelClient(chosen, settings, { purpose: "summary" });
-  // Your own key's conversation never goes to Core (as session titles).
-  if (fellBackToCore && chosen.provider !== "compass") throw new Error(`No key for ${chosen.provider}. Add one with /connect.`);
+  // No key for the provider: getModelClient says so (it never moves to Core).
+  const { modelClient } = await getModelClient(chosen, settings, { purpose: "summary" });
   const context = conversationText(cells);
   const result = await generateText({
     model: modelClient.model,

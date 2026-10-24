@@ -1080,9 +1080,13 @@ export function isContextOverflowError(error: unknown): boolean {
  * model to answer at all. The reserve is now the model's real `maxOutputTokens`
  * from models.dev, clamped so it can never swallow the window.
  */
-export async function getUsableBudget(providerId?: string): Promise<number> {
+export async function getUsableBudget(
+  providerId?: string,
+  /** The turn's own model (its chat's); the app's selection only when absent (15.11.1). */
+  turnModel?: { provider: string; name: string },
+): Promise<number> {
   const settings = readSettings();
-  const selected = settings.selectedModel;
+  const selected = turnModel ?? settings.selectedModel;
   const pid = providerId ?? selected?.provider ?? "auto";
   const model =
     selected && (!providerId || selected.provider === providerId)

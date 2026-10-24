@@ -236,8 +236,11 @@ export function InlineStreamStatus({
     !waiting && chatId != null && reconnectingByChatId.get(chatId) === true;
   // A pending permission card means the turn is blocked ON THE USER (not the
   // model computing) — say so plainly instead of "still working".
-  const hasPendingApproval =
-    getOperationsByStatus(permissionQueue, "pending").length > 0;
+  // This chat's cards only: the queue holds every chat's, and another chat's
+  // card made this one say "Waiting for you · 2 approvals" (15.11.1 QA).
+  const pending =
+    chatId != null ? getOperationsByStatus(permissionQueue, "pending", chatId) : [];
+  const hasPendingApproval = pending.length > 0;
   const turnAgeMs =
     activeTurnScope?.chatId === chatId && activeTurnScope?.startedAt
       ? now - activeTurnScope.startedAt
@@ -303,7 +306,6 @@ export function InlineStreamStatus({
   // ten minutes while the turn looked busy. Same shape as the command wait, so the
   // two are learnable as one thing.
   if (!waiting && hasPendingApproval) {
-    const pending = getOperationsByStatus(permissionQueue, "pending");
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
         <button

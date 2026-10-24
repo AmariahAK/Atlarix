@@ -207,7 +207,9 @@ export async function getEffectiveBudget(
   if (override != null && override > 0) {
     return { budget: override, source: "override" };
   }
-  const budget = await getContextWindow(settings.selectedModel, chatId);
+  // The chat's own model (its last request's), not the app's current pick (15.11.1).
+  const { turnModelForChat } = await import("@/lib/summarization_model");
+  const budget = await getContextWindow(await turnModelForChat(chatId, settings), chatId);
   return { budget, source: "model" };
 }
 

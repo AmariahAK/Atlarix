@@ -1,0 +1,5 @@
+#!/bin/sh
+# Tells electron-updater this install is a deb, so it updates itself through
+# DebUpdater (dpkg, behind the system's password prompt). See forge.config.ts.
+set -e
+echo deb > /usr/lib/atlarix/resources/package-type

@@ -75,6 +75,11 @@ export interface ChatStreamParams {
   streamChatModeOverride?: "ask" | "agent" | "build";
   /** Resend/edit: use this work mode for prompt + tool allowlist for this turn only. */
   workModeOverride?: WorkMode;
+  /**
+   * The chat's own effort for its model (15.11.1: per chat, with the model). The
+   * app's global `effort` / `deepThinking` are only what a new chat starts with.
+   */
+  effortOverride?: { effort: string; deepThinking: boolean };
   /** "Try with a stronger model": paid Atlarix Auto answers this turn one level up. */
   escalate?: boolean;
   /**
@@ -783,12 +788,10 @@ export interface WorkspaceChatSession {
   id: string;
   workspaceId: number;
   title: string;
-  /**
-   * This session's work mode, or `null` when it has never had one picked — in
-   * which case the global preference applies, exactly as it did before sessions
-   * owned their mode. Never collapse the null to a default on read.
-   */
+  /** This session's work mode; `null` reads as the app's default (a row an older build wrote). */
   workMode?: "ask" | "plan" | "build" | "debug" | "review" | null;
+  /** This session's model + effort (15.11.1); `null` reads as the app's default. */
+  model?: import("@/lib/session-choices").SessionModelChoice | null;
   createdAt: Date;
   updatedAt: Date;
 }

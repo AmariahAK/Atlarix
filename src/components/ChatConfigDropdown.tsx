@@ -35,6 +35,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { chosenLevel, effortSettingsPatch } from "@/lib/routing/model-reasoning-profile";
+import { useChatModel } from "@/hooks/useChatModel";
+import { useSelectEffort } from "@/hooks/useSelectEffort";
 import { SlidersHorizontal, Brain, Mic, MousePointerClick } from "lucide-react";
 import { computerUseKey, ineligibleReason } from "@/lib/computer/eligibility";
 import { DefaultMcpMenuSection } from "@/components/DefaultMcpMenuSection";
@@ -47,7 +49,7 @@ import {
 /** What the menu holds; the icon button's name and its tooltip. */
 const MENU_NAME = "Effort, voice & MCP servers";
 
-export function ChatConfigDropdown() {
+export function ChatConfigDropdown({ chatId }: { chatId?: number | null } = {}) {
   const { settings, updateSettings } = useSettings();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
   // /effort: the levels THIS model lists, exactly as listed (or paid Auto's
@@ -60,33 +62,29 @@ export function ChatConfigDropdown() {
   // Undefined (query still loading, or a model not in the list) hides the section
   // rather than guessing: a control that appears and then vanishes is worse than
   // one that arrives a moment late.
-  const effortChoices =
-    settings?.selectedModel != null
-      ? modelsByProviders?.[settings.selectedModel.provider]?.find(
-          (m) => m.apiName === settings.selectedModel.name,
-        )?.effortChoices
-      : undefined;
-  const reasoningCapable = effortChoices != null;
+  // This chat's model and effort (15.11.1), not the app-wide pick.
+  const chat = useChatModel(chatId);
+  const chatModel = chat.model;
   const selectedRow =
-    settings?.selectedModel != null
-      ? modelsByProviders?.[settings.selectedModel.provider]?.find(
-          (m) => m.apiName === settings.selectedModel.name,
-        )
+    chatModel != null
+      ? modelsByProviders?.[chatModel.provider]?.find((m) => m.apiName === chatModel.name)
       : undefined;
-  const computerKey = settings?.selectedModel
-    ? computerUseKey({ provider: settings.selectedModel.provider, name: settings.selectedModel.name })
+  const effortChoices = selectedRow?.effortChoices;
+  const reasoningCapable = effortChoices != null;
+  const computerKey = chatModel
+    ? computerUseKey({ provider: chatModel.provider, name: chatModel.name })
     : null;
   const computerOn = settings?.computerUseModels ?? [];
   const computerWhy =
     selectedRow?.computerUse && selectedRow.computerUse !== "eligible" ? selectedRow.computerUse : null;
   const effortNow = effortChoices
-    ? chosenLevel(effortChoices, settings?.effort, !!settings?.deepThinking && !settings?.effort)
+    ? chosenLevel(effortChoices, chat.effort, chat.deepThinking && !chat.effort)
     : undefined;
+  const selectEffort = useSelectEffort();
   const { t } = useTranslation("chat");
   const { t: tSettings } = useTranslation("settings");
   const onAuto =
-    settings?.selectedModel?.provider === COMPASS_PROVIDER_ID &&
-    isCoreAutoTier(settings.selectedModel.name);
+    chatModel?.provider === COMPASS_PROVIDER_ID && isCoreAutoTier(chatModel.name);
   // Derived in main from (providers with a key) ∩ (providers with an
   // audio-input model), so the menu can't offer something that would fail at
   // transcription time.
@@ -167,7 +165,7 @@ export function ChatConfigDropdown() {
                 <>
                   <DropdownMenuRadioGroup
                     value={effortNow}
-                    onValueChange={(v) => updateSettings(effortSettingsPatch(effortChoices!, v))}
+                    onValueChange={(v) => chatModel && selectEffort(chatModel, effortSettingsPatch(effortChoices!, v))}
                   >
                     {effortChoices!.levels.map((level) => (
                       <DropdownMenuRadioItem
