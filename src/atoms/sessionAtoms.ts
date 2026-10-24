@@ -13,6 +13,8 @@ export const pendingSessionHandoffAtom = atom<{
   sessionId: string;
   workspaceId: number;
   note?: string;
+  /** Opened from a desktop notification: no toast. */
+  quiet?: boolean;
 } | null>(null);
 
 /**

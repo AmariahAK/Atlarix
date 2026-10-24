@@ -135,10 +135,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   buildVerification: {
     enabled: true,
   },
-  notificationSound: {
-    enabled: true,
-    volume: 0.7,
-  },
   includeAtlarixCoAuthor: true,
   enableAutoUpdate: true,
   releaseChannel: "stable",

@@ -54,6 +54,7 @@ import type { LargeLanguageModel, WorkMode } from "@/lib/schemas";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
+import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
 import {
   Select,
@@ -130,6 +131,7 @@ function SimpleMessageImpl({
   const { settings, updateSettings } = useSettings();
   const { data: coreCatalog = [] } = useAtlarixCoreCatalog();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
+  const { data: providers } = useLanguageModelProviders();
   const appId = useAtomValue(selectedAppIdAtom);
   const currentApp = useAtomValue(currentAppAtom);
   const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
@@ -218,10 +220,13 @@ function SimpleMessageImpl({
     turnModels[message.id] ??
     parseDisplaySnapshot(message.displaySnapshot)?.model ??
     (isStreaming ? settings?.selectedModel : undefined);
+  const answeredProvider = providers?.find((p) => p.id === answeredWith?.provider);
   const getModelDisplayName = () =>
     resolveModelDisplayLabel(answeredWith as LargeLanguageModel | undefined, {
       catalog: coreCatalog,
       modelsByProviders,
+      providerName: answeredProvider?.name,
+      customProvider: answeredProvider?.type === "custom",
     });
 
   return (

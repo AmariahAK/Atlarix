@@ -157,6 +157,9 @@ export function registerInterceptor(
   activeInterceptors.set(chatId, interceptor);
   logger.log(`Registered permission interceptor for chat ${chatId}`);
 
+  // The cards of this turn that asked: one notification per wait, not one per
+  // card (three edits at once raised three popups).
+  const asked = new Set<string>();
   interceptor.on(
     "permission-request",
     (data: { operationId: string; request: PermissionRequest }) => {
@@ -170,15 +173,19 @@ export function registerInterceptor(
           request: data.request,
         });
       }
-      // F1: when the app is UNFOCUSED and a turn is now waiting on the user,
-      // raise the same OS notification used for "finished responding". The
-      // in-app chime/toast covers the focused case. Different IPC channel from
-      // Automations (permission-request vs automation:run-update) → no double-fire.
+      // When the app is UNFOCUSED and the turn starts waiting on the user, the
+      // OS notification (focused: the card is on screen). Only for the first
+      // card of a wait: a card already waiting for this chat has said so.
+      const waiting = new Set(interceptor.getPendingOperations().map((op) => op.id));
+      for (const id of asked) if (!waiting.has(id)) asked.delete(id);
+      const alreadyAsked = asked.size > 0;
+      asked.add(data.operationId);
+      if (alreadyAsked) return;
       const preview =
         (data.request as { title?: string; command?: string })?.title ??
         (data.request as { command?: string })?.command ??
         "A step needs your approval to continue.";
-      void showAgentNotification("Atlarix needs your approval", preview);
+      void showAgentNotification("Atlarix needs your approval", preview, { chatId });
     },
   );
 
@@ -485,21 +492,24 @@ async function applyNewRuleToPendingOperations(
 
 ipcMain.handle("execute-permission", executePermissionHandler);
 
-// "Done responding" desktop notification. The renderer fires this at turn-end
-// when the app is unfocused; main shows the SAME OS notification used for the
-// waiting-on-user case (setting-gated, DND-honored, click-to-focus).
+// "Done responding" desktop notification. The renderer reports every turn's
+// end; main decides, by the same rule as the approval notification (no window
+// focused, the setting on), and names the chat.
 ipcMain.handle(
   "notify:turn-done",
-  (_event: IpcMainInvokeEvent, data?: { waitingOnUser?: boolean }) => {
+  (_event: IpcMainInvokeEvent, data?: { waitingOnUser?: boolean; chatId?: number }) => {
+    const opts = typeof data?.chatId === "number" ? { chatId: data.chatId } : {};
     if (data?.waitingOnUser) {
       void showAgentNotification(
         "Atlarix needs your answer",
         "Your input is needed to continue.",
+        opts,
       );
     } else {
       void showAgentNotification(
         "Atlarix finished responding",
         "Your turn is ready to review.",
+        opts,
       );
     }
   },

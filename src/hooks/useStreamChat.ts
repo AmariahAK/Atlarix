@@ -149,7 +149,6 @@ function isErrorLikeLine(line: string): boolean {
   return /\b(error|failed|exception|traceback|fatal|warn(ing)?)\b/i.test(line);
 }
 
-import { playNotify, playRemaining } from "@/lib/sounds";
 import { messageIdOfTurn } from "@/shared/turn-id";
 
 /** PASS6: cap renderer-held chat history to limit heap growth (SQLite still has full history). */
@@ -930,36 +929,20 @@ export function useStreamChat({
 
             const allProposals = [...fileProposals, ...commandProposals];
 
-            // Add to pending proposals (with deduplication).
-            //
-            // The updater is now PURE. The sound used to live inside it, along
-            // with a toast, and a React state updater may be invoked more than
-            // once for the same update — so both could fire twice for one
-            // approval. Effects belong out here, where they run once.
-            let added = 0;
-            let hadPendingAlready = false;
-
+            // Add to pending proposals (with deduplication). The updater stays
+            // PURE: a React state updater may run more than once for one update.
             setPendingProposals((prev) => {
               // Deduplicate by operation ID - don't re-add if already exists
               const existingIds = new Set(prev.map((p) => p.id));
               const newProposals = allProposals.filter(
                 (p) => !existingIds.has(p.id),
               );
-
-              added = newProposals.length;
-              hadPendingAlready = prev.length > 0;
-
               if (newProposals.length === 0) {
                 return prev; // No new proposals to add
               }
 
               return [...prev, ...newProposals];
             });
-
-            if (added > 0) {
-              if (hadPendingAlready) playRemaining();
-              else playNotify();
-            }
 
             // NOTHING OPENS THE RIGHT PANEL HERE ANY MORE.
             //
@@ -2186,21 +2169,15 @@ export function useStreamChat({
             refreshVersions();
             invalidateTokenCount();
 
-            // Turn finished. When the app is UNFOCUSED, fire the OS "finished
-            // responding" notification (also covers the waiting-on-ask_user case).
-            // The OS notification is the SINGLE completion sound — we no longer
-            // ALSO play the in-app chime here, which doubled up annoyingly. When
-            // FOCUSED, keep the in-app chime on tool/permission turns only (the
-            // user is watching, so no OS-notification spam).
-            const appUnfocused =
-              typeof document !== "undefined" && !document.hasFocus();
-            if (appUnfocused) {
-              IpcClient.getInstance().notifyTurnDone(
-                response.endedWaitingOnUser === true,
-              );
-            } else if (response.hadToolCallsOrPermissions) {
-              playNotify();
-            }
+            // Turn finished: main shows the OS "finished responding" notification
+            // (also the waiting-on-ask_user case), naming this chat, when no
+            // window is focused, by the same rule as the approval one. Decided
+            // there: document.hasFocus() stayed true with another app in front
+            // (15.11.1 QA). The app plays no sounds of its own (owner, 15.11.1).
+            IpcClient.getInstance().notifyTurnDone(
+              response.endedWaitingOnUser === true,
+              response.chatId,
+            );
 
             // Store for ChatMessage so we can show "No actions this turn" when false in agent mode
             setLastTurnHadToolCallsByChatId((prev) => ({

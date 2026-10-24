@@ -2914,9 +2914,9 @@ export class IpcClient {
     });
   }
 
-  /** Fire the "done responding" desktop notification (main shows it only when unfocused). */
-  public notifyTurnDone(waitingOnUser: boolean) {
-    this.ipcRenderer.invoke("notify:turn-done", { waitingOnUser });
+  /** A turn ended: main shows the "done responding" notification if no window is focused. */
+  public notifyTurnDone(waitingOnUser: boolean, chatId?: number) {
+    this.ipcRenderer.invoke("notify:turn-done", { waitingOnUser, chatId });
   }
 
   // Get proposal details
@@ -3146,12 +3146,13 @@ export class IpcClient {
 
   /** The CLI handed a session to the app (`/handoff app`): open it here. */
   public onSessionHandoff(
-    handler: (payload: { sessionId: string; workspaceId: number }) => void,
+    /** `quiet`: opened from a notification, so no "continued from" line. */
+    handler: (payload: { sessionId: string; workspaceId: number; quiet?: boolean }) => void,
   ): () => void {
     const listener = (...args: unknown[]) => {
       const payload = args.find(
         (a) => a && typeof a === "object" && "sessionId" in (a as object),
-      ) as { sessionId: string; workspaceId: number } | undefined;
+      ) as { sessionId: string; workspaceId: number; quiet?: boolean } | undefined;
       if (payload) handler(payload);
     };
     this.ipcRenderer.on("session:handoff-open", listener);
