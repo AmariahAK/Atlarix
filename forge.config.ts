@@ -475,6 +475,10 @@ const config: ForgeConfig = {
           post: path.join(__dirname, "build/linux/rpm-post"),
           postun: path.join(__dirname, "build/linux/rpm-postun"),
         },
+        // The computer-use executor's own libraries (its ELF NEEDED list, on
+        // top of Electron's defaults), by soname so they resolve on Fedora and
+        // openSUSE alike.
+        requires: ["libxkbcommon.so.0()(64bit)", "libwayland-client.so.0()(64bit)", "libxcb.so.1()(64bit)"],
       },
     }),
     new MakerDeb({
@@ -487,6 +491,8 @@ const config: ForgeConfig = {
           postinst: path.join(__dirname, "build/linux/deb-postinst"),
           postrm: path.join(__dirname, "build/linux/deb-postrm"),
         },
+        // The computer-use executor's own libraries (see the MakerRpm note).
+        depends: ["libxkbcommon0", "libwayland-client0", "libxcb1"],
       },
     }),
     new MakerAppImage({
