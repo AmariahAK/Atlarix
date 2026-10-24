@@ -39,8 +39,7 @@ import { isValidPublicKey, sealFor } from "../_shared/device-seal.ts";
  */
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-const SERVICE_KEY =
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("NEXT_PUBLIC_SUPABASE_SECRET_KEY");
+const SERVICE_KEY = Deno.env.get("NEXT_PUBLIC_SUPABASE_SECRET_KEY");
 
 const VERIFICATION_URI = "https://www.atlarix.dev/auth/cli";
 const LIFETIME_S = 600;

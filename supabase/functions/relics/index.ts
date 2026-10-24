@@ -20,7 +20,7 @@
  *   `on_behalf_of`. That caller may only `publish` a NEW relic, shared by link
  *   (the Slack card links it); the paid rule still applies to the owner.
  *
- * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, R2_ACCOUNT_ID,
+ * Secrets: SUPABASE_URL, NEXT_PUBLIC_SUPABASE_SECRET_KEY, R2_ACCOUNT_ID,
  * R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET (default atlarix-relics),
  * RELICS_VIEW_SECRET (shared with the Worker), RELICS_SERVICE_SECRET (shared
  * with the reviewer; unset = no service publishing).
@@ -32,7 +32,7 @@ import { RELIC_LIMITS, newRelicId, prepareRelicFiles } from "../_shared/relic-fi
 import { signRelicToken } from "../_shared/relic-token.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SERVICE_KEY = Deno.env.get("NEXT_PUBLIC_SUPABASE_SECRET_KEY")!;
 const VIEW_SECRET = Deno.env.get("RELICS_VIEW_SECRET") ?? "";
 const SERVICE_SECRET = Deno.env.get("RELICS_SERVICE_SECRET") ?? "";
 const BUCKET = Deno.env.get("R2_BUCKET") ?? "atlarix-relics";
