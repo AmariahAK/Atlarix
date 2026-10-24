@@ -61,6 +61,12 @@ export interface QueuedMessage {
 export interface SessionState {
   cells: Cell[];
   busy: boolean;
+  /**
+   * Computer use is on for this session's model. The switch is shared with the
+   * app and the editors (user-settings.json), so it can be turned on elsewhere:
+   * the CLI then took the real screen with no sign of it (15.11.0, ai-c8).
+   */
+  computerUse: boolean;
   /** "Thinking…", "Running command…" — what the agent says it is doing. */
   phase: string | null;
   /** "Couldn't connect, retrying in 2s (1/3)…" while a request is retried, else null. */
@@ -446,6 +452,7 @@ export class AgentSession extends EventEmitter {
     this.state = {
       cells: [],
       busy: false,
+      computerUse: false,
       phase: null,
       retrying: null,
       turnStartedAt: null,
@@ -489,6 +496,22 @@ export class AgentSession extends EventEmitter {
     // Finished automations in this folder, from any Atlarix: wake to act on them.
     this.startAutomationClaims();
     this.startFollowing();
+    void this.refreshComputerUse();
+  }
+
+  /**
+   * Re-reads the shared computer-use switch for `model` (default: the turn's
+   * model) into `state.computerUse`; true when it is on.
+   */
+  async refreshComputerUse(model: ModelChoice | undefined = this.turnModel()): Promise<boolean> {
+    let on = false;
+    try {
+      if (model) on = (await import("@/lib/computer/lane")).computerLane(model) != null;
+    } catch {
+      /* not knowable here: shown as off */
+    }
+    if (on !== this.state.computerUse) this.update({ computerUse: on });
+    return on;
   }
 
   /**
@@ -1185,6 +1208,7 @@ export class AgentSession extends EventEmitter {
   setModel(model: ModelChoice | undefined): void {
     this.model = model;
     void this.reportModel();
+    void this.refreshComputerUse();
   }
 
   /** The model, as people see it, for other sessions' list_sessions (item 9). */
@@ -1543,6 +1567,17 @@ export class AgentSession extends EventEmitter {
       const { readSettings } = await import("@/main/settings");
       const m = readSettings().selectedModel as Partial<ModelChoice> | undefined;
       this.turnRanOn = m?.provider && m.name ? { provider: m.provider, name: m.name } : undefined;
+    }
+    // Said at the start of every turn it is on for, wherever it was switched on.
+    if (await this.refreshComputerUse(this.turnRanOn)) {
+      this.wakeNotes.push({
+        id: `computer-use:${this.turnSeq}`,
+        cellId: `computer-use:${this.turnSeq}`,
+        afterCellId: lastAnchorCell(this.state.cells),
+        afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
+        text: "◇ Computer use on. Move the mouse to stop it.",
+      });
+      this.update({ cells: this.cellsFor(true) });
     }
     try {
       await (await handler("chat:stream"))(this.event, {
