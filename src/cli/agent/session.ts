@@ -2667,5 +2667,10 @@ export async function seedDevProvider(opts: {
   writeSettings({
     providerSettings: { [id]: { apiKey: { value: opts.apiKey ?? "dev" } } },
   } as never);
+  // The key this endpoint was started with is the one it uses, from memory. The
+  // stored copy can become unreadable here (the app re-saved a shared profile
+  // with its keychain, 15.11.1 QA E9), and the turn then went to Atlarix Core.
+  const { setPinnedProviderKey } = await import("@/ipc/shared/pinned-provider-key");
+  setPinnedProviderKey(id, opts.apiKey ?? "dev", { ownKeyRun: false });
   return { provider: id, name: opts.model };
 }

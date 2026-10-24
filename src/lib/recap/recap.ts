@@ -63,8 +63,8 @@ export async function generateRecap(
     const { generateText } = await import("ai");
     const { getModelClient } = await import("@/ipc/utils/get_model_client");
     const { recordAuxUsage } = await import("@/lib/usage/turn-usage-aggregator");
-    const { modelClient, fellBackToCore } = await getModelClient(chosen, settings, { purpose: "summary" });
-    if (fellBackToCore && chosen.provider !== "compass") return null;
+    // No key for the provider: getModelClient throws, and there is no recap.
+    const { modelClient } = await getModelClient(chosen, settings, { purpose: "summary" });
     const result = await generateText({
       model: modelClient.model,
       system: RECAP_SYSTEM,

@@ -126,15 +126,8 @@ export async function generateSessionTitle(
     const { turnModelForChat } = await import("@/lib/summarization_model");
     const settings = readSettings();
     const model = await resolveTitleModel(settings, await turnModelForChat(opts.chatId, settings));
-    const { modelClient, fellBackToCore } = await getModelClient(
-      model,
-      settings,
-      { purpose: "title" },
-    );
-    if (fellBackToCore && model.provider !== "compass") {
-      logger.info("title: provider has no key and fell back to Core — skipped");
-      return null;
-    }
+    // No key for the provider: getModelClient throws, and there is no title.
+    const { modelClient } = await getModelClient(model, settings, { purpose: "title" });
 
     const reasons = catalogSaysReasons(model.provider, model.name) === true;
     const call = (withReasoningOff: boolean) =>

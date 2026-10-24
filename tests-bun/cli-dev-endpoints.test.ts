@@ -55,6 +55,41 @@ describe("dev mode endpoints", () => {
     b.stop();
   }, 60_000);
 
+  it("uses the key it was started with when the stored copy can't be read (QA E9)", async () => {
+    const f = startFakeAnthropic({ key: "key-given", accepts: "x-api-key", reply: "Given." });
+    await import("../src/headless/bundled-assets");
+    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+    const model = await seedDevProvider({ baseUrl: f.url, model: MODEL, apiKey: "key-given", apiFormat: "anthropic" });
+    // The app, on the same profile, re-saved the key with its own keychain.
+    const { getSettingsFilePath } = await import("../src/main/settings");
+    const file = getSettingsFilePath();
+    const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
+    raw.providerSettings[model.provider].apiKey = { value: "djEwAAAAunreadable", encryptionType: "electron-safe-storage" };
+    fs.writeFileSync(file, JSON.stringify(raw));
+
+    const s = new AgentSession({ workspaceDir: ws, model });
+    await s.start();
+    await s.submit("hello");
+    for (let i = 0; i < 100 && s.state.busy; i++) await wait(100);
+    const sent = f.requests.filter((q) => q.path === "/v1/messages");
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((q) => q.headers["x-api-key"] === "key-given")).toBe(true);
+    expect(s.state.lastError ?? "").not.toMatch(/Core/);
+    f.stop();
+  }, 60_000);
+
+  it("a model with no key: the turn says so, and nothing goes to Atlarix Core", async () => {
+    delete process.env.OPENAI_API_KEY;
+    await import("../src/headless/bundled-assets");
+    const { AgentSession } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws, model: { provider: "openai", name: "gpt-4o-mini" } });
+    await s.start();
+    await s.submit("hello");
+    for (let i = 0; i < 100 && s.state.busy; i++) await wait(100);
+    expect(JSON.stringify(s.state.cells) + (s.state.lastError ?? "")).toContain("No key for OpenAI");
+    expect(JSON.stringify(s.state.cells) + (s.state.lastError ?? "")).not.toContain("Atlarix Core");
+  }, 60_000);
+
   it("the same endpoint again is the same row", async () => {
     const { seedDevProvider } = await import("../src/cli/agent/session");
     const one = await seedDevProvider({ baseUrl: "http://127.0.0.1:1/v1", model: "m" });
