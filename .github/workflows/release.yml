@@ -85,7 +85,8 @@ env:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 20 until the bun suite joined (~5 min on a laptop).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -180,6 +181,17 @@ jobs:
       # the node + renderer projects here; run `npm test` locally for the evals.
       - name: Tests (vitest)
         run: npm test
+
+      # The CLI and the editors' ACP server are tested under bun, the CLI's own
+      # runtime (tests-bun/), and CI never ran those: they only ran on a
+      # developer's Mac. Pinned, like the Rust toolchain above. `test:bun` runs
+      # each file isolated, with a profile of its own.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Tests (bun, CLI and ACP)
+        run: npm run test:bun
 
       # Report-only until the knip config is verified clean enough to block on.
       - name: Dead code report (knip)
