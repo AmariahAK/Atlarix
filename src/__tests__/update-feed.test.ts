@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import type { ResolvedUpdateFileInfo } from "electron-updater";
 import { MacUpdater } from "electron-updater/out/MacUpdater";
@@ -135,5 +136,62 @@ describe("latest-linux.yml", () => {
     expect(() => linuxFeed("15.11.1", written([LINUX[0], LINUX[1]]))).toThrow(
       /\.rpm/,
     );
+  });
+});
+
+describe("the script as release.yml runs it", () => {
+  const script = path.resolve(__dirname, "../../scripts/update-feed.mjs");
+  const run = (...args: string[]) =>
+    execFileSync(process.execPath, [script, ...args], { encoding: "utf8" });
+
+  it("fragment per Mac job, then mac joins them; linux from the three installers", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "feed-cli-"));
+    for (const n of [
+      ...MAC,
+      "Atlarix-15.11.1-x64.AppImage",
+      "atlarix_15.11.1_amd64.deb",
+      "atlarix-15.11.1-1.x86_64.rpm",
+    ]) {
+      fs.writeFileSync(path.join(dir, n), `bytes of ${n}`);
+    }
+    const at = (n: string) => path.join(dir, n);
+    run("fragment", "--out", at("mac-feed-arm64.json"), at(MAC[0]), at(MAC[1]));
+    run("fragment", "--out", at("mac-feed-x64.json"), at(MAC[2]), at(MAC[3]));
+    run(
+      "mac",
+      "--version",
+      "15.11.1",
+      "--out",
+      at("latest-mac.yml"),
+      at("mac-feed-arm64.json"),
+      at("mac-feed-x64.json"),
+    );
+    const mac = read(
+      fs.readFileSync(at("latest-mac.yml"), "utf8"),
+      "latest-mac.yml",
+    );
+    expect(mac.info.version).toBe("15.11.1");
+    expect(zipFor(mac.files, false)).toEqual([
+      "Atlarix-darwin-x64-15.11.1.zip",
+    ]);
+    run(
+      "linux",
+      "--version",
+      "15.11.1",
+      "--out",
+      at("latest-linux.yml"),
+      at("Atlarix-15.11.1-x64.AppImage"),
+      at("atlarix_15.11.1_amd64.deb"),
+      at("atlarix-15.11.1-1.x86_64.rpm"),
+    );
+    const linux = read(
+      fs.readFileSync(at("latest-linux.yml"), "utf8"),
+      "latest-linux.yml",
+    );
+    expect(linux.info.files.map((f) => f.url)).toEqual([
+      "Atlarix-15.11.1-x64.AppImage",
+      "atlarix_15.11.1_amd64.deb",
+      "atlarix-15.11.1-1.x86_64.rpm",
+    ]);
   });
 });

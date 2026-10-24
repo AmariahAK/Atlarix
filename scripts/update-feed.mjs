@@ -19,6 +19,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { argValue } from "./cli-args.mjs";
 
 /** One `files:` entry: name, sha512 (base64) and size, as electron-updater checks them. */
@@ -94,12 +95,16 @@ export function linuxFeed(version, files, releaseDate) {
   });
 }
 
+/** `argv` as node presents it: [node, script, mode, ...]. */
 function main(argv) {
-  const [mode, ...rest] = argv;
-  const out = argValue(rest, "out");
-  const version = argValue(rest, "version");
+  const mode = argv[2];
+  const out = argValue(argv, "out");
+  const version = argValue(argv, "version");
+  // Inputs: every token after the mode that is neither a flag nor a flag's value.
+  const rest = argv.slice(3);
   const inputs = rest.filter(
-    (a, i) => !a.startsWith("--") && !rest[i - 1]?.startsWith("--"),
+    (a, i) =>
+      !a.startsWith("--") && !/^--(out|version)$/.test(rest[i - 1] ?? ""),
   );
   if (!out) throw new Error("update feed: --out is required");
   if (mode === "fragment") {
@@ -122,9 +127,12 @@ function main(argv) {
   console.log(fs.readFileSync(out, "utf8"));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   try {
-    main(process.argv.slice(2));
+    main(process.argv);
   } catch (err) {
     console.error(
       `::error::${err instanceof Error ? err.message : String(err)}`,
