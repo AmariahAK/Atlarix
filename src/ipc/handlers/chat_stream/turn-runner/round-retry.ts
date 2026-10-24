@@ -10,7 +10,7 @@
  */
 
 import { noteTurn } from "@/lib/analytics/turn-stats";
-import { rememberNativeRejected } from "@/lib/computer/lane";
+import { computerLane, rememberNativeRejected } from "@/lib/computer/lane";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import type { ModelMessage } from "ai";
@@ -332,19 +332,23 @@ export async function runStreamRoundWithEmptyOutputRetry(
         continue;
       }
 
-      // The provider refused its own computer tool's version (Claude 5.5 on the
-      // Anthropic API takes only the newer toolset). Same shape as above: change
-      // the request, not the timing. Our own `computer` tool replaces it for the
-      // rest of the turn, and the model is remembered so the next turn never
-      // sends the native tool again. The user loses nothing.
+      // The provider refused its own computer tool's version (Claude Haiku 4.5 on
+      // Bedrock takes computer_20250124; Claude 5.5 on the Anthropic API only the
+      // newer toolset). Same shape as above: change the request, not the timing.
+      // The refusal is remembered for the model (lane.ts), so the retry, and every
+      // request after it, sends the version it named, or our own `computer` tool
+      // when none will do. The user loses nothing, and pays the refusal once.
       const computerRefusal =
         bundle?.getRecordedNativeComputerRejection?.() ??
         (isNativeComputerToolRejection(err) ? err : null);
       if (ctx.nativeComputerSent && !ctx.nativeComputerRejected && computerRefusal != null) {
-        ctx.nativeComputerRejected = true;
-        rememberNativeRejected(ctx.nativeComputerSent);
+        rememberNativeRejected(ctx.nativeComputerSent, computerRefusal);
+        // Each refusal rules a version out, so this ends: at worst on our own tool.
+        ctx.nativeComputerRejected = computerLane(ctx.nativeComputerSent) !== "native-anthropic";
         logger.warn(
-          `[stream] Provider refused its own computer tool — retrying with ours: ${
+          `[stream] Provider refused its computer tool version — retrying with ${
+            ctx.nativeComputerRejected ? "ours" : "the version it named"
+          }: ${
             computerRefusal instanceof Error ? computerRefusal.message : String(computerRefusal)
           }`,
         );

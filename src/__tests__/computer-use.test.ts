@@ -25,9 +25,13 @@ vi.mock("@/paths/paths", async (orig) => ({
 
 const { stepsForAnthropic, stepsForOpenAI } = await import("@/lib/computer/actions");
 const { normaliseModelId, flaggedIds, __setCatalogIdsForTests } = await import("@/lib/computer/catalog");
-const { computerLane, computerUseIneligible, __resetComputerLaneForTests, rememberNativeRejected } = await import(
-  "@/lib/computer/lane"
-);
+const {
+  computerLane,
+  computerUseIneligible,
+  __resetComputerLaneForTests,
+  rememberNativeRejected,
+  anthropicComputerVersion,
+} = await import("@/lib/computer/lane");
 const { registerModelsDevVision } = await import("@/lib/routing/model-capability-profile");
 const { rememberCustomProviderFormats } = await import("@/lib/routing/custom-provider-format");
 const { isNativeComputerToolRejection } = await import("@/ipc/handlers/chat_stream/network-retry");
@@ -45,6 +49,18 @@ const ANTHROPIC_400 = Object.assign(new Error("'claude-haiku-5-5' does not suppo
   statusCode: 400,
   responseBody: "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"'claude-haiku-5-5' does not support tool types: computer_20251124. Did you mean one of bash_20250124, bash_code_execution_20250825, browser_toolset_20260801, code_execution_20250522, code_execution_20250825, code_execution_20260120, code_execution_20260521, computer_toolset_20260801, memory_20250818, python_with_tools_code_execution_20250825, python_with_tools_code_execution_20260120, python_with_tools_code_execution_20260521, text_editor_20250728, text_editor_code_execution_20250825, tool_search_tool_bm25_20251119, tool_search_tool_regex_20251119, web_fetch_20250910, web_fetch_20260209, web_fetch_20260309, web_fetch_20260318, web_search_20250305, web_search_20260209, web_search_20260318?\"},\"request_id\":\"req_011CgK7hwAaJLZatGJqfftN3\"}",
 });
+
+/**
+ * Claude Haiku 4.5 behind Bedrock's Anthropic format, sent computer_20251124
+ * (ai-c8, released 15.11.0 CLI on Windows, 2026-10-24). The words as reported,
+ * the list around the version it named filled in Anthropic's own shape.
+ */
+const BEDROCK_400 = Object.assign(
+  new Error(
+    "'claude-haiku-4-5-20251001' does not support tool types: computer_20251124. Did you mean one of bash_20250124, computer_20250124, text_editor_20250124, text_editor_20250728?",
+  ),
+  { name: "AI_APICallError", statusCode: 400 },
+);
 
 function on(...keys: string[]) {
   settings.mockReturnValue({ computerUseModels: keys });
@@ -159,6 +175,39 @@ describe("computerLane", () => {
     expect(computerLane(m)).toBe("native-anthropic");
   });
 
+  it("sends the version a refusal named from then on, in this process and the next (15.11.0 Bedrock)", () => {
+    const m = { provider: "custom::bedrock", name: "us.anthropic.claude-haiku-4-5-20251001-v1:0" };
+    on("custom::bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0");
+    __resetComputerLaneForTests();
+    expect(anthropicComputerVersion(m)).toBe("computer_20251124");
+    rememberNativeRejected({ ...m, version: "computer_20251124" }, { error: BEDROCK_400 });
+    expect(computerLane(m)).toBe("native-anthropic");
+    expect(anthropicComputerVersion(m)).toBe("computer_20250124");
+    __resetComputerLaneForTests(); // a new process reads it back from disk
+    expect(anthropicComputerVersion(m)).toBe("computer_20250124");
+    // Refused too: nothing else it named is left, so our own tool.
+    rememberNativeRejected({ ...m, version: "computer_20250124" }, { error: BEDROCK_400 });
+    expect(computerLane(m)).toBe("own");
+  });
+
+  it("gives our own tool at once when a refusal names no dated computer version (Claude 5.5)", () => {
+    const m = { provider: "anthropic", name: "claude-haiku-5-5" };
+    on("anthropic/claude-haiku-5-5");
+    rememberNativeRejected({ ...m, version: "computer_20251124" }, ANTHROPIC_400);
+    expect(computerLane(m)).toBe("own");
+  });
+
+  it("reads 15.11.0's cache: a remembered model refused the newest version, and tries the next", () => {
+    const m = { provider: "anthropic", name: "claude-opus-4-5" };
+    on("anthropic/claude-opus-4-5");
+    fs.mkdirSync(path.join(userData, "cache"), { recursive: true });
+    fs.writeFileSync(path.join(userData, "cache", "computer-native-rejected.json"), JSON.stringify(["anthropic/claude-opus-4-5"]));
+    __resetComputerLaneForTests();
+    expect(anthropicComputerVersion(m)).toBe("computer_20250124");
+    fs.rmSync(path.join(userData, "cache", "computer-native-rejected.json"));
+    __resetComputerLaneForTests();
+  });
+
   it("gives our own tool once a provider has refused its own, and remembers that across processes", () => {
     const m = { provider: "anthropic", name: "claude-haiku-4-5" };
     on("anthropic/claude-haiku-4-5");
@@ -225,7 +274,7 @@ describe("a refused native tool never costs the turn", () => {
     );
     const { createStreamTurnContext } = await import("@/ipc/handlers/chat_stream/turn-context");
     const ctx = createStreamTurnContext();
-    ctx.nativeComputerSent = { provider: "anthropic", name: "claude-haiku-5-5" };
+    ctx.nativeComputerSent = { provider: "anthropic", name: "claude-haiku-5-5", version: "computer_20251124" };
     __resetComputerLaneForTests();
 
     // A request-phase 400 reaches round-retry only as the SDK's substitute.
@@ -269,6 +318,63 @@ describe("a refused native tool never costs the turn", () => {
     expect(runSimpleStream).toHaveBeenCalledTimes(2);
     expect(result.finishReason).toBe("stop");
     expect(computerLane({ provider: "anthropic", name: "claude-haiku-5-5" })).not.toBe("native-anthropic");
+  });
+
+  it("retries with the version the refusal named, and every later request sends it (15.11.0 Bedrock)", async () => {
+    const { runStreamRoundWithEmptyOutputRetry } = await import(
+      "@/ipc/handlers/chat_stream/turn-runner/round-retry"
+    );
+    const { createStreamTurnContext } = await import("@/ipc/handlers/chat_stream/turn-context");
+    const m = { provider: "custom::bedrock", name: "us.anthropic.claude-haiku-4-5-20251001-v1:0" };
+    on(`${m.provider}/${m.name}`);
+    fs.rmSync(path.join(userData, "cache", "computer-native-rejected.json"), { force: true });
+    __resetComputerLaneForTests();
+    expect(anthropicComputerVersion(m)).toBe("computer_20251124");
+    const ctx = createStreamTurnContext();
+    ctx.nativeComputerSent = { ...m, version: "computer_20251124" };
+
+    const substitute = Object.assign(new Error("No output generated."), { name: "AI_NoOutputGeneratedError" });
+    const refused = {
+      // eslint-disable-next-line require-yield
+      fullStream: (async function* () {
+        throw substitute;
+      })(),
+      finishReason: Promise.reject(substitute),
+      getRecordedNativeComputerRejection: () => ({ error: BEDROCK_400 }),
+    };
+    refused.finishReason.catch(() => {});
+    const answered = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", id: "t", text: "done" };
+      })(),
+      finishReason: Promise.resolve("stop"),
+    };
+    const runSimpleStream = vi
+      .fn()
+      .mockResolvedValueOnce(refused)
+      .mockImplementationOnce(async () => {
+        // Still the native tool, at the version it named.
+        expect(ctx.nativeComputerRejected).toBe(false);
+        expect(computerLane(m)).toBe("native-anthropic");
+        expect(anthropicComputerVersion(m)).toBe("computer_20250124");
+        return answered;
+      });
+
+    const result = await runStreamRoundWithEmptyOutputRetry(
+      ctx,
+      { event: { sender: { send() {}, isDestroyed: () => false } } as never },
+      {
+        runSimpleStream,
+        fullResponse: "",
+        abortController: new AbortController(),
+        chatId: 1,
+        processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+      },
+    );
+    expect(runSimpleStream).toHaveBeenCalledTimes(2);
+    expect(result.finishReason).toBe("stop");
+    // The next request (a new turn) starts on it: no second refusal.
+    expect(anthropicComputerVersion(m)).toBe("computer_20250124");
   });
 });
 
