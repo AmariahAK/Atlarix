@@ -191,3 +191,16 @@ export function moveToApplicationsDialog(existing: {
     defaultId: 1,
   };
 }
+
+/**
+ * Whether a window can still be sent to. While the app quits, the window is
+ * destroyed first, and then even READING its `webContents` throws "Object has
+ * been destroyed": an update install failing on quit (Fedora with pkexec but no
+ * polkit agent) reported its error that way and crashed with an unhandled
+ * TypeError instead (15.11.1 container run). Check the window, then its page.
+ */
+export function windowAlive<W extends { isDestroyed(): boolean; webContents: { isDestroyed(): boolean } }>(
+  win: W | null | undefined,
+): win is W {
+  return !!win && !win.isDestroyed() && !win.webContents.isDestroyed();
+}

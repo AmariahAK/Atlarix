@@ -33,6 +33,7 @@ import {
   shouldRunNotifyOnlyCheck,
   canElectronUpdaterRun,
   readLinuxPackageType,
+  windowAlive,
   chooseUpdaterKind,
   type UpdateStatus,
 } from "./main/update-helpers";
@@ -932,7 +933,7 @@ const updateStatus: UpdateStatus = {
 /** Merge into the in-memory status and push it to the renderer (Settings panel). */
 function setUpdateStatus(partial: Partial<UpdateStatus>): void {
   Object.assign(updateStatus, partial);
-  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+  if (windowAlive(mainWindow)) {
     mainWindow.webContents.send("update:status", { ...updateStatus });
   }
 }
@@ -1028,7 +1029,7 @@ async function checkForUpdatesNotify(): Promise<void> {
       lastCheckAt: Date.now(),
       detail: updateStatus.detail, // preserve an /Applications/unsupported hint if set
     });
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:available", {
         currentVersion,
         latestVersion,
@@ -1152,7 +1153,7 @@ function initAutoUpdater(): void {
       lastCheckAt: Date.now(),
     });
     // Send a subtle in-app notice to the renderer so the user knows a download is happening.
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:downloading", {
         version: info.version,
       });
@@ -1194,7 +1195,7 @@ function initAutoUpdater(): void {
       autoUpdater.quitAndInstall();
       return;
     }
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:downloaded", {
         version: info.version,
       });
@@ -1249,7 +1250,7 @@ function initWindowsAutoUpdater(): void {
   squirrelUpdater.on("update-available", () => {
     log.info("[AutoUpdater] Update available (squirrel)");
     setUpdateStatus({ lastResult: "downloading", lastCheckAt: Date.now() });
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:downloading", { version: "" });
     }
   });
@@ -1272,7 +1273,7 @@ function initWindowsAutoUpdater(): void {
       squirrelUpdater.quitAndInstall();
       return;
     }
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    if (windowAlive(mainWindow)) {
       mainWindow.webContents.send("update:downloaded", { version });
     }
   });

@@ -9,6 +9,7 @@ import {
   canElectronUpdaterRun,
   chooseUpdaterKind,
   readLinuxPackageType,
+  windowAlive,
 } from "@/main/update-helpers";
 import path from "node:path";
 
@@ -201,5 +202,20 @@ describe("chooseUpdaterKind", () => {
       chooseUpdaterKind({ ...base, platform: "win32", isWindowsStore: false }),
     ).toBe("squirrel");
     expect(chooseUpdaterKind({ ...base, platform: "win32" })).toBe("squirrel");
+  });
+});
+
+describe("windowAlive", () => {
+  it("is false for a destroyed window without touching its webContents (it throws then)", () => {
+    const destroyed = {
+      isDestroyed: () => true,
+      get webContents(): { isDestroyed(): boolean } {
+        throw new TypeError("Object has been destroyed");
+      },
+    };
+    expect(windowAlive(destroyed)).toBe(false);
+    expect(windowAlive(null)).toBe(false);
+    expect(windowAlive({ isDestroyed: () => false, webContents: { isDestroyed: () => true } })).toBe(false);
+    expect(windowAlive({ isDestroyed: () => false, webContents: { isDestroyed: () => false } })).toBe(true);
   });
 });
