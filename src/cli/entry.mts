@@ -305,20 +305,21 @@ async function signInInTui(show: ShowLines): Promise<string> {
  * chosen; none: the page asks), or with a code on any device.
  */
 async function signInWith(method: SignInChoice | undefined, show: ShowLines): Promise<string> {
-  const { signInWithDeviceCode } = await import("./auth/device-sign-in");
   const { acceptSession, signInCli } = await import("./auth/account");
   if (method === "code") {
-    return signInWithDeviceCode({
-      acceptSession,
-      show: ({ userCode, verificationUri, expiresInS }) =>
-        show([
-          { text: "On any device, open:" },
-          { text: `  ${verificationUri}`, tone: "accent" },
-          { text: "sign in, and enter this code:" },
-          { text: `  ${userCode}`, tone: "accent", bold: true },
-          { text: `It works for ${Math.round(expiresInS / 60)} minutes. Waiting… (esc to cancel)`, tone: "muted" },
-        ]),
-    });
+    // esc, then the code again: the same code while it lasts (the server allows
+    // only a few waiting per network).
+    const { deviceSignIn } = await import("./auth/pending-device-sign-in");
+    const pending = deviceSignIn(acceptSession);
+    const { userCode, verificationUri, expiresInS } = await pending.code;
+    show([
+      { text: "On any device, open:" },
+      { text: `  ${verificationUri}`, tone: "accent" },
+      { text: "sign in, and enter this code:" },
+      { text: `  ${userCode}`, tone: "accent", bold: true },
+      { text: `It works for ${Math.max(1, Math.round(expiresInS / 60))} minutes. Waiting… (esc to go back)`, tone: "muted" },
+    ]);
+    return pending.done;
   }
   return signInCli(
     (url) =>

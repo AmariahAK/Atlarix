@@ -89,9 +89,6 @@ export function initializeResponse(version: string): InitializeResponse {
   };
 }
 
-/** The device sign-in the VS Code panel started (`_atlarix/sign_in_code`), until it ends. */
-let deviceSignIn: Promise<string> | null = null;
-
 /** The ACP method table for `agent`; the stdio server and the tests connect it. */
 export function buildAgentApp(
   agent: AcpAgent,
@@ -258,26 +255,16 @@ export function buildAgentApp(
     // it was entered and approved. Two requests, not a notification, so the
     // panel needs nothing new to listen for.
     .onRequest("_atlarix/sign_in_code", (p) => p as Record<string, unknown>, async () => {
-      const { signInWithDeviceCode } = await import("../auth/device-sign-in");
+      const { deviceSignIn } = await import("../auth/pending-device-sign-in");
       const { acceptSession } = await import("../auth/account");
-      return await new Promise<{ userCode: string; verificationUri: string; expiresInS: number }>((resolve, reject) => {
-        const flow = signInWithDeviceCode({
-          acceptSession,
-          show: ({ userCode, verificationUri, expiresInS }) => resolve({ userCode, verificationUri, expiresInS }),
-        });
-        deviceSignIn = flow;
-        // Failing before there is a code (offline): this request says why.
-        flow.catch(reject);
-      });
+      // Asked again (the panel's Back, then the code again): the same code while it lasts.
+      return deviceSignIn(acceptSession).code;
     })
     .onRequest("_atlarix/sign_in_code_wait", (p) => p as Record<string, unknown>, async () => {
-      const flow = deviceSignIn;
-      if (!flow) throw acp.RequestError.invalidParams(undefined, "No sign-in with a code is under way.");
-      try {
-        return { email: await flow };
-      } finally {
-        if (deviceSignIn === flow) deviceSignIn = null;
-      }
+      const { pendingDeviceSignIn } = await import("../auth/pending-device-sign-in");
+      const done = pendingDeviceSignIn();
+      if (!done) throw acp.RequestError.invalidParams(undefined, "No sign-in with a code is under way.");
+      return { email: await done };
     })
     .onRequest("_atlarix/sign_out", (p) => p as Record<string, unknown>, async () => {
       const { realServices } = await import("../agent/services");
