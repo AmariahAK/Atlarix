@@ -43,6 +43,18 @@ vi.mock("@/components/chat/SessionRatingCard", () => ({
   SessionRatingCard: () => null,
   openFeedbackFor: vi.fn(),
 }));
+// The same chain came back through ChatErrorBox → open-settings-section → the
+// router → TitleBar → useSettings (24 errors on dev b4096620), so cut it at both
+// ends instead of one component at a time.
+vi.mock("@/lib/open-settings-section", () => ({
+  openSettingsSection: vi.fn(),
+}));
+vi.mock("@/lib/analytics/posthog-client", () => ({
+  getPostHogClient: () => null,
+  setPostHogConfig: vi.fn(),
+  ensurePostHogInitialized: () => null,
+  syncPostHogConsent: vi.fn(),
+}));
 vi.mock("@/lib/open-workspace-session", () => ({
   startNewWorkspaceConversation: vi.fn(),
 }));

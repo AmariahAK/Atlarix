@@ -23,8 +23,20 @@ not trust it.
 
 ## 🔨 Handover 2026-10-25 (ai-27) — 15.11.1 released overnight; what is left
 
-- **Microsoft Store:** 15.11.1 was NOT submitted: the 15.11.0 submission was still in Certification (the release never
-  replaces one in certification). After Microsoft finishes it, re-run the Store step for v15.11.1.
+- **Microsoft Store (owner, 2026-10-25 morning): 15.11.1 replaces 15.11.0.** The 15.11.0 certification was cancelled
+  (submission 32 is a draft again) and its Properties now carry the support info the 10.6.3 rejection asked for
+  (https://atlarix.dev, support@atlarix.dev). `msix.yml` `store_resubmit_run` built 15.11.1 with the release run's
+  Landlock helper (run 40142829118, green), but the API refused to update the cancelled draft: `PUT` → 409
+  "InvalidState … PreProcessing" while `--status` said "Canceled". So a cancelled draft can't be refilled through the
+  API; `reuse` for "Canceled" in `store-submit.mjs` never worked end to end. The owner uploads
+  `~/Desktop/Atlarix-15.11.1-x64.msixupload` in Partner Center (Packages → remove 15.11.0 → Submit for certification).
+  Fix the script: for "Canceled", delete and create (losing hand-set fields) or stop and say to use the UI.
+- **Done 2026-10-25 morning:** the unused Actions secret `OPENAI_API_KEY` deleted; the inactive IAM keys …FOFY and
+  …GNQH deleted (their replacements …KVKO, …7FFI are active and used); Slack Events and Interactivity Request URLs
+  now point at the inbox Lambda (Slack verified the challenge). Edge functions moved to the `sb_secret` key on dev
+  (b4096620), NOT deployed (the session's classifier refused the deploy): deploy, test `cli-device` start, then turn
+  off the legacy JWT keys. The OpenRouter free key is confirmed dead (401): delete `OPENROUTER_FREE_API_KEY` from the
+  proxy (classifier refused the Railway write).
 - **Owed checks:** the Windows approval toast (named chat, click opens it; Squirrel + MSIX) needs a signed-in app in
   the VM, so one owner device-code approval as agent@. The Mac notification click is the owner's check.
 - **15.11.2 small items:** a reply label shows a prettified raw id for ~10–20 s after launch, until the model list
@@ -44,7 +56,8 @@ The owner approved the scope 2026-10-23 and asked for a full release overnight. 
 - **GitHub App "Atlarix Cloud Agent" → Permissions:** set Repository "Secrets" and "Variables" to "No access". Nothing
   uses them since the cloud agent went paid-only (reviewer ae7061c, agent-action v1.4.0). GitHub asks for sudo mode,
   so it's yours.
-- **VS Code Marketplace:** upload the 8 `.vsix` from the Desktop folder.
+- **VS Code Marketplace:** DONE for 15.11.1 (owner, 2026-10-25; all 8 platforms public). CI publishes Open VSX only,
+  so every release still needs this upload by hand.
 - **Proxy copies drift on a scripts-only push (2026-10-24).** Every push to atlarix-proxy main redeploys Railway, but the
   AWS copy only moves with `scripts/aws/90-proxy-failover.sh`, so the uptime watcher emailed "proxy copies differ" after a
   one-line change to scripts/aws/60-lambdas.sh. Fix: compare only the deployed code (e.g. a hash of the bundle, not the
