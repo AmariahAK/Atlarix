@@ -41,3 +41,17 @@ describe("the approval popup", () => {
     expect(notify).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("the finished-responding notification", () => {
+  it("is decided in main for every turn end: named by its chat (15.11.1 QA: the renderer's focus test was unreliable)", async () => {
+    const { ipcMain } = await import("electron");
+    const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const turnDone = calls.find(([channel]) => channel === "notify:turn-done")?.[1] as (e: unknown, d: unknown) => void;
+    expect(turnDone).toBeTypeOf("function");
+    turnDone({}, { waitingOnUser: false, chatId: 902 });
+    turnDone({}, { waitingOnUser: true, chatId: 903 });
+    // Main's own window-focus rule (showAgentNotification) decides whether they show.
+    expect(notify).toHaveBeenCalledWith("Atlarix finished responding", "Your turn is ready to review.", { chatId: 902 });
+    expect(notify).toHaveBeenCalledWith("Atlarix needs your answer", "Your input is needed to continue.", { chatId: 903 });
+  });
+});

@@ -2914,7 +2914,7 @@ export class IpcClient {
     });
   }
 
-  /** Fire the "done responding" desktop notification (main shows it only when unfocused). */
+  /** A turn ended: main shows the "done responding" notification if no window is focused. */
   public notifyTurnDone(waitingOnUser: boolean, chatId?: number) {
     this.ipcRenderer.invoke("notify:turn-done", { waitingOnUser, chatId });
   }

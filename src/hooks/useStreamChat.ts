@@ -2169,18 +2169,15 @@ export function useStreamChat({
             refreshVersions();
             invalidateTokenCount();
 
-            // Turn finished. When the app is UNFOCUSED, the OS "finished
-            // responding" notification (also the waiting-on-ask_user case), naming
-            // this chat and opening it on click. Focused: nothing, it's on screen.
-            // The app plays no sounds of its own (owner, 15.11.1).
-            const appUnfocused =
-              typeof document !== "undefined" && !document.hasFocus();
-            if (appUnfocused) {
-              IpcClient.getInstance().notifyTurnDone(
-                response.endedWaitingOnUser === true,
-                response.chatId,
-              );
-            }
+            // Turn finished: main shows the OS "finished responding" notification
+            // (also the waiting-on-ask_user case), naming this chat, when no
+            // window is focused, by the same rule as the approval one. Decided
+            // there: document.hasFocus() stayed true with another app in front
+            // (15.11.1 QA). The app plays no sounds of its own (owner, 15.11.1).
+            IpcClient.getInstance().notifyTurnDone(
+              response.endedWaitingOnUser === true,
+              response.chatId,
+            );
 
             // Store for ChatMessage so we can show "No actions this turn" when false in agent mode
             setLastTurnHadToolCallsByChatId((prev) => ({

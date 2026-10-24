@@ -492,9 +492,9 @@ async function applyNewRuleToPendingOperations(
 
 ipcMain.handle("execute-permission", executePermissionHandler);
 
-// "Done responding" desktop notification. The renderer fires this at turn-end
-// when the app is unfocused; main shows the SAME OS notification used for the
-// waiting-on-user case (setting-gated, DND-honored, click-to-focus).
+// "Done responding" desktop notification. The renderer reports every turn's
+// end; main decides, by the same rule as the approval notification (no window
+// focused, the setting on), and names the chat.
 ipcMain.handle(
   "notify:turn-done",
   (_event: IpcMainInvokeEvent, data?: { waitingOnUser?: boolean; chatId?: number }) => {
