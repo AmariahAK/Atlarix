@@ -506,7 +506,13 @@ export class AgentSession extends EventEmitter {
   async refreshComputerUse(model: ModelChoice | undefined = this.turnModel()): Promise<boolean> {
     let on = false;
     try {
-      if (model) on = (await import("@/lib/computer/lane")).computerLane(model) != null;
+      if (model) {
+        // Whether a custom provider speaks Anthropic's format (so its Claude sees
+        // screenshots) is known once the providers are loaded; the turn loads
+        // them, and this ran first and said off (QA E8).
+        await (await import("@/ipc/shared/language_model_helpers")).getLanguageModelProviders();
+        on = (await import("@/lib/computer/lane")).computerLane(model) != null;
+      }
     } catch {
       /* not knowable here: shown as off */
     }
@@ -1570,9 +1576,10 @@ export class AgentSession extends EventEmitter {
     }
     // Said at the start of every turn it is on for, wherever it was switched on.
     if (await this.refreshComputerUse(this.turnRanOn)) {
+      // A wake note's own id ("wake:…"): editors show those as a finished
+      // step, and dropped this line under any other (QA E8).
       this.wakeNotes.push({
         id: `computer-use:${this.turnSeq}`,
-        cellId: `computer-use:${this.turnSeq}`,
         afterCellId: lastAnchorCell(this.state.cells),
         afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
         text: "◇ Computer use on. Move the mouse to stop it.",
