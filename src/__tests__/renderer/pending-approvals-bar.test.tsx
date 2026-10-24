@@ -39,6 +39,8 @@ const CHAT = -28;
 function op(over: Partial<QueuedOperation> = {}): QueuedOperation {
   return {
     id: over.id ?? "op1",
+    // Every queued card carries its chat since 15.11.1 (the bar is per chat).
+    chatId: CHAT,
     operation: over.operation ?? "edit_file",
     status: over.status ?? "pending",
     ...over,
@@ -77,6 +79,11 @@ describe("PendingApprovalsBar", () => {
       op({ id: "a", status: "running" }),
       op({ id: "b", status: "completed" }),
     ]);
+    expect(screen.queryByRole("button", { name: /allow all/i })).toBeNull();
+  });
+
+  it("stays hidden for another chat's card (15.11.0: one chat's card showed in every chat)", () => {
+    seed([op({ id: "elsewhere", path: "src/a.ts", chatId: CHAT - 1 })]);
     expect(screen.queryByRole("button", { name: /allow all/i })).toBeNull();
   });
 

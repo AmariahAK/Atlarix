@@ -1145,22 +1145,7 @@ export function registerChatStreamHandlers() {
             provider: effectiveModel.provider,
             model: effectiveModel.name,
             effort: settings.effort || undefined,
-            fellBackToCore: initialModelClientBundle.fellBackToCore,
           });
-          // Surface the no-key → Atlarix Core fallback so the user knows their
-          // selected model isn't what answered (and how to switch back).
-          if (initialModelClientBundle.fellBackToCore) {
-            safeSend(event.sender, "chat:activity", {
-              id: `core-fallback-${req.chatId}`,
-              type: "model_selection",
-              label: "Using Atlarix Core",
-              detail:
-                "Your selected model has no API key — add one in Settings to use it.",
-              status: "done",
-              timestamp: Date.now(),
-              chatId: req.chatId,
-            });
-          }
           // Native extended-thinking/reasoning turns on whenever the selected
           // model + gateway support it (the fast/balanced/thinking tiers are gone;
           // a model now delivers its full capability).

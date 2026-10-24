@@ -4,9 +4,10 @@
  * and the image result are our tool's, so the activity cards, the deny rules,
  * the stop and the executor are the same in both lanes.
  *
- * Anthropic: the highest computer version the installed SDK has. A model that
- * refuses it (Claude 5.5 on the Anthropic API takes only the newer toolset)
- * falls back to our tool in the same turn; see round-retry and lane.ts.
+ * Anthropic: the version lane.ts picks for the model (the newest the SDK has,
+ * until a refusal names another). A model that refuses every one (Claude 5.5
+ * on the Anthropic API takes only the newer toolset) gets our tool, in the same
+ * turn; see round-retry.
  */
 
 import { anthropic } from "@ai-sdk/anthropic";
@@ -20,10 +21,13 @@ type Own = Pick<Tool, "execute" | "toModelOutput">;
 export async function nativeComputerTool(
   lane: Exclude<ComputerLane, "own">,
   own: Own,
+  /** native-anthropic: the version to declare (lane.ts `anthropicComputerVersion`). */
+  version?: string,
 ): Promise<Tool> {
   if (lane === "native-anthropic") {
     const { width, height } = await computerDisplaySize();
-    return anthropic.tools.computer_20251124({
+    const make = anthropic.tools[(version ?? "computer_20251124") as "computer_20251124"];
+    return make({
       displayWidthPx: width,
       displayHeightPx: height,
       execute: own.execute as never,

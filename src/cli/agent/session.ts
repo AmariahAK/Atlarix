@@ -61,6 +61,12 @@ export interface QueuedMessage {
 export interface SessionState {
   cells: Cell[];
   busy: boolean;
+  /**
+   * Computer use is on for this session's model. The switch is shared with the
+   * app and the editors (user-settings.json), so it can be turned on elsewhere:
+   * the CLI then took the real screen with no sign of it (15.11.0, ai-c8).
+   */
+  computerUse: boolean;
   /** "Thinking…", "Running command…" — what the agent says it is doing. */
   phase: string | null;
   /** "Couldn't connect, retrying in 2s (1/3)…" while a request is retried, else null. */
@@ -261,7 +267,20 @@ let interjectionSeq = 0;
  * finished. `cellId` names a note that is not a wake: "approved:<op>", the line
  * an answered approval leaves (approvalConfirmation).
  */
-export type WakeNote = { id: string; afterCellId: string; afterMessageId: string; text: string; cellId?: string };
+export type WakeNote = {
+  id: string;
+  afterCellId: string;
+  afterMessageId: string;
+  text: string;
+  cellId?: string;
+  /**
+   * A note for the start of a turn: under that turn's message, which has no id
+   * yet when the turn starts. The message count then; the note is placed under
+   * the first user message after it (or after the last line before the turn,
+   * for a turn with none), and not drawn until the turn has a line.
+   */
+  underTurnFrom?: number;
+};
 
 /** Notes placed by placeWakeNotes: never the anchor for another one. */
 const isNoteCell = (id: string) => id.startsWith("wake:") || id.startsWith("approved:");
@@ -401,6 +420,8 @@ export class AgentSession extends EventEmitter {
   sessionId = "";
   chatId = 0;
   model: ModelChoice | undefined;
+  /** The model the running (or last) turn was sent with, for its saved reply. */
+  private turnRanOn: ModelChoice | undefined;
   private messages: ChatMessageLike[] = [];
   private shellRuns: ShellRun[] = [];
   // Stream ids only grow. A turn's end can be sent after the NEXT turn started
@@ -444,6 +465,7 @@ export class AgentSession extends EventEmitter {
     this.state = {
       cells: [],
       busy: false,
+      computerUse: false,
       phase: null,
       retrying: null,
       turnStartedAt: null,
@@ -487,6 +509,28 @@ export class AgentSession extends EventEmitter {
     // Finished automations in this folder, from any Atlarix: wake to act on them.
     this.startAutomationClaims();
     this.startFollowing();
+    void this.refreshComputerUse();
+  }
+
+  /**
+   * Re-reads the shared computer-use switch for `model` (default: the turn's
+   * model) into `state.computerUse`; true when it is on.
+   */
+  async refreshComputerUse(model: ModelChoice | undefined = this.turnModel()): Promise<boolean> {
+    let on = false;
+    try {
+      if (model) {
+        // Whether a custom provider speaks Anthropic's format (so its Claude sees
+        // screenshots) is known once the providers are loaded; the turn loads
+        // them, and this ran first and said off (QA E8).
+        await (await import("@/ipc/shared/language_model_helpers")).getLanguageModelProviders();
+        on = (await import("@/lib/computer/lane")).computerLane(model) != null;
+      }
+    } catch {
+      /* not knowable here: shown as off */
+    }
+    if (on !== this.state.computerUse) this.update({ computerUse: on });
+    return on;
   }
 
   /**
@@ -1052,7 +1096,11 @@ export class AgentSession extends EventEmitter {
   async recap(opts: { force?: boolean } = {}): Promise<string | null> {
     const { generateRecap } = await import("@/lib/recap/recap");
     const cells = this.state.cells.filter((c) => c.kind !== "recap");
-    return generateRecap(conversationText(cells), { chatId: this.chatId, model: this.model, force: opts.force });
+    const { recentChangedFiles } = await import("@/lib/recap/changed-files");
+    const filesChanged = this.sessionId
+      ? await recentChangedFiles({ sessionId: this.sessionId, workspacePath: this.workspaceDir })
+      : [];
+    return generateRecap(conversationText(cells), { chatId: this.chatId, model: this.model, force: opts.force, filesChanged });
   }
 
   async aside(question: string): Promise<string> {
@@ -1179,6 +1227,7 @@ export class AgentSession extends EventEmitter {
   setModel(model: ModelChoice | undefined): void {
     this.model = model;
     void this.reportModel();
+    void this.refreshComputerUse();
   }
 
   /** The model, as people see it, for other sessions' list_sessions (item 9). */
@@ -1530,6 +1579,29 @@ export class AgentSession extends EventEmitter {
     this.steerTakenAt.clear();
     this.staleBelow = this.highestStreamId + 1;
     void this.refreshContextWindow();
+    // The model this reply runs on, saved with it: the app labelled CLI replies
+    // with whatever its own picker showed later (15.11.0, filming).
+    this.turnRanOn = this.turnModel();
+    if (!this.turnRanOn) {
+      const { readSettings } = await import("@/main/settings");
+      const m = readSettings().selectedModel as Partial<ModelChoice> | undefined;
+      this.turnRanOn = m?.provider && m.name ? { provider: m.provider, name: m.name } : undefined;
+    }
+    // Said at the start of every turn it is on for, wherever it was switched on.
+    if (await this.refreshComputerUse(this.turnRanOn)) {
+      // A wake note's own id ("wake:…"): editors show those as a finished
+      // step, and dropped this line under any other (QA E8).
+      // Under the turn's own message, before its first step: it came after the
+      // reply and its footer, too late to say how to stop (QA, ai-44).
+      this.wakeNotes.push({
+        id: `computer-use:${this.turnSeq}`,
+        afterCellId: "",
+        afterMessageId: "",
+        underTurnFrom: this.messages.length,
+        text: "◇ Computer use on. Move the mouse to stop it.",
+      });
+      this.update({ cells: this.cellsFor(true) });
+    }
     try {
       await (await handler("chat:stream"))(this.event, {
         chatId: this.chatId,
@@ -1571,6 +1643,10 @@ export class AgentSession extends EventEmitter {
     // Anything queued for after this turn would otherwise start right away.
     this.queue = [];
     this.syncPending();
+    // Its cards come down: main withdraws them (endTurn), and an editor takes
+    // back a card whose approval left this list (ACP $/cancel_request). They
+    // stayed open after a stop, answerable into nothing (15.11.0, E7).
+    if (this.state.approvals.length) this.update({ approvals: [] });
   }
 
   /** Esc: stop the running turn. The session stays; the next message starts a new turn. */
@@ -1708,7 +1784,22 @@ export class AgentSession extends EventEmitter {
   private readonly wakeNotes: WakeNote[] = [];
 
   private placeWakeNotes(cells: Cell[]): Cell[] {
-    return this.wakeNotes.length ? placeWakeNotes(cells, this.wakeNotes) : cells;
+    if (!this.wakeNotes.length) return cells;
+    const notes: WakeNote[] = [];
+    for (const n of this.wakeNotes) {
+      if (n.underTurnFrom == null) {
+        notes.push(n);
+        continue;
+      }
+      const turn = this.messages.slice(n.underTurnFrom);
+      const user = turn.find((m) => m.role === "user");
+      if (user) notes.push({ ...n, afterCellId: `${String(user.id)}:u`, afterMessageId: String(user.id) });
+      else if (turn.length && n.underTurnFrom > 0) {
+        const before = String(this.messages[n.underTurnFrom - 1]!.id);
+        notes.push({ ...n, afterCellId: "", afterMessageId: before });
+      }
+    }
+    return placeWakeNotes(cells, notes);
   }
 
   /** Sub-agents started in this session, by delegation id (their work nests under the `task` line). */
@@ -2287,8 +2378,17 @@ export class AgentSession extends EventEmitter {
     if (typeof end.assistantModelContent === "string") extras.modelContent = end.assistantModelContent;
     if (typeof end.snapshotTurnId === "string") extras.snapshotTurnId = end.snapshotTurnId;
     if (this.lastStepTokens > 0) extras.maxTokensUsed = this.lastStepTokens;
+    const { buildDisplaySnapshotV1 } = await import("@/lib/chat/display-snapshot");
+    const snapshot = this.turnRanOn ? buildDisplaySnapshotV1({ completedThread: [], model: this.turnRanOn }) : null;
     try {
-      await (await handler("messages:add"))({}, this.sessionId, "assistant", content, undefined, Object.keys(extras).length ? extras : undefined);
+      await (await handler("messages:add"))(
+        {},
+        this.sessionId,
+        "assistant",
+        content,
+        snapshot ? JSON.stringify(snapshot) : undefined,
+        Object.keys(extras).length ? extras : undefined,
+      );
     } catch {
       this.persisted.delete(id);
     }
@@ -2487,6 +2587,37 @@ export class AgentSession extends EventEmitter {
  * `--provider-format anthropic`. Only ever called with a scratch data folder
  * (src/cli/entry.mts), never the desktop's.
  */
+/** The one id every dev endpoint shared before 15.11.1. */
+const LEGACY_DEV_PROVIDER_ID = "atlarix-cli-dev";
+
+/**
+ * Each endpoint its own provider row (and so its own key). Every dev-mode
+ * process shared one row in ~/.atlarix/dev-data, so a second one started on
+ * another endpoint re-pointed it, and the first one's conversation went to the
+ * second endpoint with the second's key (15.11.1, QA). The same endpoint
+ * always gets the same row; the old shared row stays the row for the address
+ * it holds, so what was saved against it (models, computer use) keeps working.
+ */
+async function devProviderId(
+  db: ReturnType<typeof import("@/db").initializeDatabase>,
+  schema: typeof import("@/db/schema"),
+  baseUrl: string,
+  apiFormat: "anthropic" | null,
+): Promise<string> {
+  const url = baseUrl.trim().replace(/\/+$/, "");
+  const { eq } = await import("drizzle-orm");
+  const legacy = db
+    .select({ url: schema.language_model_providers.api_base_url, format: schema.language_model_providers.api_format })
+    .from(schema.language_model_providers)
+    .where(eq(schema.language_model_providers.id, LEGACY_DEV_PROVIDER_ID))
+    .get();
+  if (legacy && legacy.url.trim().replace(/\/+$/, "") === url && (legacy.format ?? null) === apiFormat) {
+    return LEGACY_DEV_PROVIDER_ID;
+  }
+  const { createHash } = await import("node:crypto");
+  return `${LEGACY_DEV_PROVIDER_ID}-${createHash("sha256").update(`${url}\0${apiFormat ?? "openai"}`).digest("hex").slice(0, 8)}`;
+}
+
 export async function seedDevProvider(opts: {
   baseUrl: string;
   model: string;
@@ -2496,7 +2627,7 @@ export async function seedDevProvider(opts: {
   const { initializeDatabase } = await import("@/db");
   const db = initializeDatabase();
   const schema = await import("@/db/schema");
-  const id = "atlarix-cli-dev";
+  const id = await devProviderId(db, schema, opts.baseUrl, opts.apiFormat === "anthropic" ? "anthropic" : null);
   // The Anthropic format takes the key in one of two headers: ask the endpoint.
   let authHeader: "x-api-key" | "bearer" | null = null;
   if (opts.apiFormat === "anthropic") {
@@ -2507,11 +2638,22 @@ export async function seedDevProvider(opts: {
     api_format: opts.apiFormat === "anthropic" ? "anthropic" : null,
     auth_header: authHeader,
   };
+  // Named by its address: with a row per endpoint, two of them listed the same
+  // model twice under one name, in /model and in what sessions can set.
+  let host = opts.baseUrl;
+  try {
+    host = new URL(opts.baseUrl).host;
+  } catch {
+    /* not a URL: shown as given */
+  }
+  const name = `Your endpoint (${host})`;
   db.insert(schema.language_model_providers)
-    .values({ id, name: "Local endpoint (CLI dev)", api_base_url: opts.baseUrl, ...wire })
+    .values({ id, name, api_base_url: opts.baseUrl, ...wire })
     .onConflictDoUpdate({
       target: schema.language_model_providers.id,
-      set: { api_base_url: opts.baseUrl, ...wire },
+      // The address is part of the row's identity (devProviderId): only how it
+      // takes the key, and the name made from the address, can change.
+      set: { name, auth_header: wire.auth_header },
     })
     .run();
   // No unique key to conflict on: onConflictDoNothing added the same row on
@@ -2525,5 +2667,10 @@ export async function seedDevProvider(opts: {
   writeSettings({
     providerSettings: { [id]: { apiKey: { value: opts.apiKey ?? "dev" } } },
   } as never);
+  // The key this endpoint was started with is the one it uses, from memory. The
+  // stored copy can become unreadable here (the app re-saved a shared profile
+  // with its keychain, 15.11.1 QA E9), and the turn then went to Atlarix Core.
+  const { setPinnedProviderKey } = await import("@/ipc/shared/pinned-provider-key");
+  setPinnedProviderKey(id, opts.apiKey ?? "dev", { ownKeyRun: false });
   return { provider: id, name: opts.model };
 }

@@ -13,8 +13,8 @@ vi.mock("@/ipc/shared/language_model_helpers", () => ({
   getLanguageModelProviders: async () => [{ id: "openai", name: "OpenAI", type: "cloud", envVarName: "OPENAI_API_KEY" }],
 }));
 vi.mock("@/ipc/shared/provider_api_keys", () => ({ getProviderApiKey: async () => undefined }));
-// As in a release build: a keyless provider falls back to Atlarix Core. The
-// gate deciding "keyless" is what missed the pinned key.
+// As in a release build, where Atlarix Core is configured. The gate deciding
+// "keyless" is what missed the pinned key.
 vi.mock("@/ipc/shared/compass_constants", async (orig) => ({
   ...((await orig()) as object),
   isCompassBuildConfigured: () => true,
@@ -57,7 +57,6 @@ describe("the pinned provider key", () => {
   it("with no key anywhere else, it is used: no fallback to Atlarix Core", async () => {
     setPinnedProviderKey("openai", "sk-pinned-only");
     const out = await getModelClient({ provider: "openai", name: "gpt-4o" } as never, { providerSettings: {} } as never);
-    expect(out.fellBackToCore).toBe(false);
     expect(await authOf(out)).toBe("Bearer sk-pinned-only");
   });
 

@@ -14,11 +14,20 @@ beforeAll(() => {
 
 it("starting with the same local model again adds no second row", async () => {
   const { seedDevProvider } = await import("../src/cli/agent/session");
-  for (let i = 0; i < 3; i++) await seedDevProvider({ baseUrl: "http://127.0.0.1:9/v1", model: "fake-model", apiKey: "dev" });
+  let provider = "";
+  for (let i = 0; i < 3; i++) ({ provider } = await seedDevProvider({ baseUrl: "http://127.0.0.1:9/v1", model: "fake-model", apiKey: "dev" }));
   await seedDevProvider({ baseUrl: "http://127.0.0.1:9/v1", model: "other-model", apiKey: "dev" });
   const { db } = await import("../src/db");
   const { language_models } = await import("../src/db/schema");
-  const names = db.select({ apiName: language_models.apiName }).from(language_models).all().map((r) => r.apiName);
+  const { eq } = await import("drizzle-orm");
+  // This endpoint's rows (each endpoint has its own provider row since 15.11.1,
+  // and other test files in the same run seed theirs).
+  const names = db
+    .select({ apiName: language_models.apiName })
+    .from(language_models)
+    .where(eq(language_models.customProviderId, provider))
+    .all()
+    .map((r) => r.apiName);
   expect(names.filter((n) => n === "fake-model")).toHaveLength(1);
   expect(names.filter((n) => n === "other-model")).toHaveLength(1);
 });

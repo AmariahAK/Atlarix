@@ -782,7 +782,7 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
         pending.forEach((p) => {
           setQueue((q) => {
             if (q.has(p.id)) return q;
-            return addOperation(q, queueEntryFromPermission(p.id, p.request));
+            return addOperation(q, { ...queueEntryFromPermission(p.id, p.request), chatId });
           });
         });
       } catch {
@@ -796,10 +796,10 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
       (payload) => {
         setQueue((q) => {
           if (q.has(payload.operationId)) return q;
-          return addOperation(
-            q,
-            queueEntryFromPermission(payload.operationId, payload.request),
-          );
+          return addOperation(q, {
+            ...queueEntryFromPermission(payload.operationId, payload.request),
+            chatId,
+          });
         });
       },
     );
@@ -826,7 +826,7 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
     };
   }, [chatId, setQueue]);
 
-  const pending = getOperationsByStatus(queue, "pending");
+  const pending = getOperationsByStatus(queue, "pending", chatId);
   const filePending = useMemo(
     () => pending.filter((op) => isFileOperation(op.operation)),
     [pending],

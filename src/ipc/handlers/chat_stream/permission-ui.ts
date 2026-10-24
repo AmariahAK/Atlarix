@@ -265,7 +265,9 @@ export function shouldSkipPermissionWaitForRunCommand(
  *
  * Returns true when the operation must NOT bypass the approval wait, whatever
  * the auto-approve settings say. Exact matches (no notice) are unaffected, so
- * the common path keeps queueing writes without prompting.
+ * the common path keeps queueing writes without prompting. Two things outrank
+ * it (owner, 15.11.1; see `shouldSkipPermissionWait`): "Allow all this turn",
+ * and a write into the agent-memory folder.
  *
  * Safe unattended: headless turns don't stall on this. `src/headless/auto-approve.ts`
  * polls buffered `permission-request` events and resolves them through the real
@@ -279,6 +281,34 @@ export function requiresHumanReviewDespiteAutoApprove(permRequest: {
   if (permRequest.operation !== "edit_file") return false;
   const notice = (permRequest.preview as { notice?: unknown } | null)?.notice;
   return typeof notice === "string" && notice.trim().length > 0;
+}
+
+/**
+ * Whether an operation runs without waiting for a human. A guessed edit waits
+ * whatever the auto-approve settings say, except where the user already said
+ * yes to the whole turn ("Allow all this turn") or it writes the agent's memory
+ * folder (`reviewOverridden`, from the interceptor): ai-c8's fuzzy edit asked
+ * again right after "Allow all this turn" (15.11.0).
+ */
+export function shouldSkipPermissionWait(
+  permRequest: { operation: string; preview: unknown },
+  o: { reviewOverridden: boolean; autoApproved: boolean },
+): boolean {
+  if (o.reviewOverridden) return true;
+  return !requiresHumanReviewDespiteAutoApprove(permRequest) && o.autoApproved;
+}
+
+/** What the model is told when it makes a change the user already denied this turn. */
+export function deniedChangeResult(permRequest: { operation: string; preview: unknown }): string {
+  const target = (permRequest.preview as { path?: string } | null)?.path ?? "that file";
+  return JSON.stringify({
+    success: false,
+    error:
+      `The user denied this exact change to ${target} earlier in this turn. Don't make it again, ` +
+      "yourself or through a sub-agent; if it is still needed, ask the user first.",
+    operation: permRequest.operation,
+    path: target,
+  });
 }
 
 export function enrichRunCommandPermissionRequest<

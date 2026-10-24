@@ -80,7 +80,8 @@ export interface StreamTurnContext {
    * for (null when it sent none), and whether the provider refused it. Refused → the round retries at once with our own
    * `computer` tool and the rest of the turn keeps it (lib/computer/lane.ts).
    */
-  nativeComputerSent: { provider?: string; name?: string } | null;
+  /** The model sent the provider's own computer tool this round, and which version (Anthropic). */
+  nativeComputerSent: { provider?: string; builtinProviderId?: string; name?: string; version?: string } | null;
   nativeComputerRejected: boolean;
 
   // ── delegation (sub-agent) bookkeeping ───────────────────────────────────

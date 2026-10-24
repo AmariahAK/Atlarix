@@ -145,6 +145,8 @@ class Thread {
   /** This folder's skills and the account's, offered as / commands. */
   private skills: Array<{ name: string; description: string; readPath: string }> = [];
   private lastMode: WorkMode;
+  /** The shared computer-use switch as last shown (it can be flipped in the app). */
+  private lastComputerUse = false;
   private planSent = "";
   private pendingSent = "";
   private retryingSent: string | null = null;
@@ -335,6 +337,12 @@ class Thread {
       // without this the editor's picker kept showing the old one.
       this.lastMode = s.mode;
       void this.send({ sessionUpdate: "current_mode_update", currentModeId: s.mode });
+      void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+    }
+    if (s.computerUse !== this.lastComputerUse) {
+      // Switched on (or off) in the app or another terminal: the editor's
+      // "Computer use" option follows, so it is never on without showing it.
+      this.lastComputerUse = s.computerUse;
       void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
     }
     const elsewhere = s.following ? `Running in ${surfaceNames[s.following.surface] ?? s.following.surface}` : null;

@@ -351,6 +351,20 @@ function readRawSettingsFile(): Record<string, unknown> | null {
 }
 
 /**
+ * Whether the settings file holds a key for this provider, readable or not.
+ * readSettings drops a key it can't decrypt (keychain busy or changed), so
+ * "no key" there can mean "a key we can't read now", which must not be taken
+ * for "no key at all".
+ */
+export function hasStoredProviderKey(providerId: string): boolean {
+  const providers = readRawSettingsFile()?.providerSettings as
+    | Record<string, { apiKey?: { value?: unknown } } | undefined>
+    | undefined;
+  const v = providers?.[providerId]?.apiKey?.value;
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+/**
  * Save (or, with null, remove) ONE provider's key, leaving everything else in
  * the file exactly as it is on disk: other providers' keys and settings, and
  * this provider's own non-key settings.

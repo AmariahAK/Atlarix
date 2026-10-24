@@ -14,6 +14,7 @@
  */
 
 import fs from "node:fs";
+import { anthropic } from "@ai-sdk/anthropic";
 import path from "node:path";
 import { readSettings, writeSettings } from "@/main/settings";
 import { getUserDataPath } from "@/paths/paths";
@@ -68,35 +69,88 @@ export function computerUseIneligible(m: ComputerModel): Ineligible | null {
   return null;
 }
 
-// ─── Native tools a model's API refused ─────────────────────────────────────
+// ─── Native tool versions a model's API refused ─────────────────────────────
 // A model the catalog flags can still reject the tool VERSION our SDK sends
-// (Claude 5.5 on the Anthropic API takes only the newer toolset). The turn
-// retries at once with our own tool and the rejection is remembered here, so it
-// costs one free 400 per model per machine and never a turn.
+// (Claude Haiku 4.5 on Bedrock takes computer_20250124, not computer_20251124;
+// Claude 5.5 on the Anthropic API takes only the newer toolset). The refusal
+// names what the model does take, so the next request sends that, and the
+// choice is remembered (this process, and the cache on disk): one refused
+// request per model per machine, never one per request (15.11.0, Bedrock).
 
-let rejected: Set<string> | null = null;
+/** Per model: the native versions it refused, and any version its refusal named. */
+type Refusals = Record<string, { refused: string[]; accepts?: string[] }>;
 
-function rejectedPath(): string {
+let refusals: Refusals | null = null;
+
+function refusalsPath(): string {
   return path.join(getUserDataPath(), "cache", "computer-native-rejected.json");
 }
 
-function rejectedSet(): Set<string> {
-  if (rejected) return rejected;
-  try {
-    rejected = new Set(JSON.parse(fs.readFileSync(rejectedPath(), "utf-8")) as string[]);
-  } catch {
-    rejected = new Set();
-  }
-  return rejected;
+/** The dated computer tool versions the installed SDK has, newest first. */
+export function anthropicComputerVersions(): string[] {
+  return Object.keys(anthropic.tools)
+    .filter((k) => /^computer_\d{8}$/.test(k))
+    .sort()
+    .reverse();
 }
 
-export function rememberNativeRejected(m: ComputerModel): void {
-  const set = rejectedSet();
-  set.add(computerUseKey(m));
+function refusalsMap(): Refusals {
+  if (refusals) return refusals;
   try {
-    const file = rejectedPath();
+    const raw = JSON.parse(fs.readFileSync(refusalsPath(), "utf-8")) as unknown;
+    // 15.11.0 wrote bare keys: the model refused the version it sent then, the newest.
+    refusals = Array.isArray(raw)
+      ? Object.fromEntries(raw.map((k) => [String(k), { refused: ["computer_20251124"] }]))
+      : ((raw ?? {}) as Refusals);
+  } catch {
+    refusals = {};
+  }
+  return refusals;
+}
+
+function refusalText(err: unknown): string {
+  const e = err as { message?: unknown; responseBody?: unknown; error?: { message?: unknown; responseBody?: unknown } };
+  return [e?.message, e?.responseBody, e?.error?.message, e?.error?.responseBody]
+    .filter((p): p is string => typeof p === "string")
+    .join("\n");
+}
+
+/**
+ * The native Anthropic computer version to send this model: what its refusal
+ * named, else the newest it has not refused. Null: none left (our own tool).
+ */
+export function anthropicComputerVersion(m: ComputerModel): string | null {
+  const r = refusalsMap()[computerUseKey(m)];
+  const left = anthropicComputerVersions().filter((v) => !r?.refused.includes(v));
+  if (r?.accepts) return left.find((v) => r.accepts!.includes(v)) ?? null;
+  return left[0] ?? null;
+}
+
+/**
+ * The provider refused the native computer tool it was sent. `version`: the
+ * Anthropic version sent (absent: the tool as a whole, our own from now on).
+ * A refusal that lists the tool types the model takes ("Did you mean …")
+ * decides the next version; one that lists no dated computer version means
+ * none will do.
+ */
+export function rememberNativeRejected(m: ComputerModel & { version?: string }, err?: unknown): void {
+  const map = refusalsMap();
+  const key = computerUseKey(m);
+  const all = anthropicComputerVersions();
+  const entry = map[key] ?? { refused: [] };
+  if (!m.version) {
+    entry.refused = all;
+  } else {
+    if (!entry.refused.includes(m.version)) entry.refused.push(m.version);
+    const text = refusalText(err);
+    const named = text.split(/did you mean/i)[1];
+    if (named != null) entry.accepts = [...new Set(named.match(/\bcomputer_\d{8}\b/g) ?? [])];
+  }
+  map[key] = entry;
+  try {
+    const file = refusalsPath();
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify([...set]));
+    fs.writeFileSync(file, JSON.stringify(map));
   } catch {
     // Remembered for this process at least.
   }
@@ -105,11 +159,14 @@ export function rememberNativeRejected(m: ComputerModel): void {
 export function computerLane(m: ComputerModel): ComputerLane | null {
   if (!m.name || !isComputerUseOn(m)) return null;
   if (computerUseIneligible(m)) return null;
-  if (!hasNativeComputerTool(m.name) || rejectedSet().has(computerUseKey(m))) return "own";
+  if (!hasNativeComputerTool(m.name)) return "own";
   const provider = providerOf(m);
-  if (provider === "anthropic" || isCustomAnthropicFormat(provider)) return "native-anthropic";
-  if (provider === "bedrock" && /(^|\.)anthropic\./i.test(m.name)) return "native-anthropic";
-  if (provider === "openai") return "native-openai";
+  const anthropicFormat =
+    provider === "anthropic" ||
+    isCustomAnthropicFormat(provider) ||
+    (provider === "bedrock" && /(^|\.)anthropic\./i.test(m.name));
+  if (anthropicFormat) return anthropicComputerVersion(m) ? "native-anthropic" : "own";
+  if (provider === "openai") return refusalsMap()[computerUseKey(m)] ? "own" : "native-openai";
   // Gemini's own tool drives a browser only; everything else has no native tool.
   return "own";
 }
@@ -146,6 +203,6 @@ export async function computerUseGrantNotice(): Promise<string | null> {
 }
 
 export function __resetComputerLaneForTests(): void {
-  rejected = null;
+  refusals = null;
   bothGranted = false;
 }

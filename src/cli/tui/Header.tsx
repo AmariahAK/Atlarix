@@ -36,6 +36,7 @@ export function SessionHeader({
   branch,
   mood,
   hint,
+  computerUse,
 }: {
   version: string;
   model: string;
@@ -48,8 +49,12 @@ export function SessionHeader({
   mood: RixMood;
   /** Lines under the header while the session is still empty. */
   hint?: ReactNode;
+  /** Computer use is on for this model (the switch is shared with the app). */
+  computerUse?: boolean;
 }) {
-  const line = [model, mode, account ? ACCOUNT_LABEL[account] : null].filter(Boolean).join(" · ");
+  const line = [model, mode, account ? ACCOUNT_LABEL[account] : null, computerUse ? "Computer use on" : null]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <box flexDirection="column" flexShrink={0} marginBottom={1}>
       <box flexDirection="row" gap={2}>

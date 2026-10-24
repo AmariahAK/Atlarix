@@ -13,7 +13,6 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { OPENROUTER_APP_HEADERS } from "../shared/openrouter_app_headers";
 import {
   COMPASS_PROVIDER_ID,
-  isCompassBuildConfigured,
 } from "../shared/compass_constants";
 import {
   createModelFromCatalog,
@@ -37,6 +36,7 @@ export function getEffectiveModel(settings: UserSettings): LargeLanguageModel {
 
 import { getEnvVar } from "./read_env";
 import log from "electron-log";
+import { hasStoredProviderKey } from "@/main/settings";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";
 import { getProviderApiKey } from "../shared/provider_api_keys";
 import { LanguageModelProvider } from "../ipc_types";
@@ -45,7 +45,6 @@ import {
   getCompassMasterApiKey,
   getCoreModelIdForCoreTier,
   isCoreTierFromNewerBuild,
-  getFirstConfiguredCoreTier,
   isCoreAutoTier,
   resolveConfiguredCoreTier,
 } from "../shared/compass_constants";
@@ -194,8 +193,7 @@ export async function getModelClient(
   options?: GetModelClientOptions,
 ): Promise<{
   modelClient: ModelClient;
-  /** True when the selected provider had no usable key and we fell back to Atlarix Core. */
-  fellBackToCore?: boolean;
+  backupModelClients: ModelClient[];
 }> {
   const allProviders = await getLanguageModelProviders();
 
@@ -212,60 +210,30 @@ export async function getModelClient(
     throw new Error(`Configuration not found for provider: ${model.provider}`);
   }
 
-  // Resilience: if the selected model's provider has no usable API key, fall back
-  // to Atlarix Core (the managed `compass` provider) when this build has it
-  // configured — so the app stays usable instead of erroring. Never overrides a
-  // provider that DOES have a key, and never re-routes Core itself.
-  let fellBackToCore = false;
-  if (
-    process.env.ATLARIX_DIAG_146 === "1" &&
-    model.provider !== COMPASS_PROVIDER_ID
-  ) {
-    const coreConfigured = isCompassBuildConfigured();
-    const usable = await hasUsableProviderKey(
-      model.provider,
-      settings,
-      providerConfig,
-    );
-    logger.info(
-      `[DIAG_146] core-fallback gate provider=${model.provider} coreConfigured=${coreConfigured} hasUsableKey=${usable} → ${coreConfigured && !usable ? "FALLBACK" : "no-fallback"}`,
-    );
-  }
-  if (
-    model.provider !== COMPASS_PROVIDER_ID &&
-    isCompassBuildConfigured() &&
-    !(await hasUsableProviderKey(model.provider, settings, providerConfig))
-  ) {
-    // An own-key run uses the user's key or nothing: falling back to Core
-    // would spend their Atlarix balance on a run they chose not to pay for.
+  // A provider with no usable key fails here, saying so. It used to fall back
+  // to Atlarix Core, silently and paid, including when the key was there but
+  // couldn't be read (a busy or changed keychain: 15.11.1 QA E9). A turn never
+  // moves to Core unless Core was chosen.
+  if (model.provider !== COMPASS_PROVIDER_ID && !(await hasUsableProviderKey(model.provider, settings, providerConfig))) {
+    const name = providerConfig.name || model.provider;
+    if (hasStoredProviderKey(model.provider)) {
+      throw new Error(`Can't read the saved key for ${name}; re-enter it with /connect (Settings in the app).`);
+    }
+    // An own-key run (a headless run's key file) was given the key it uses.
     if (isOwnKeyRun()) {
       throw new Error(
         `This run uses your own API key, but there is none for ${model.provider}. Check the provider and model set for the run (ATLARIX_PROVIDER / ATLARIX_MODEL).`,
       );
     }
-    // Ask for the first CONFIGURED tier rather than assuming core-1 exists. The
-    // lineup size is config-driven, so hardcoding core-1 meant that dropping the
-    // tier-1 model turned this rescue path into a hard failure.
-    const coreTier = getFirstConfiguredCoreTier();
-    if (coreTier) {
-      logger.info(
-        `No usable API key for ${model.provider} — falling back to Atlarix Core (${coreTier}).`,
-      );
-      model = { name: coreTier, provider: COMPASS_PROVIDER_ID };
-      const coreConfig = allProviders.find((p) => p.id === COMPASS_PROVIDER_ID);
-      if (coreConfig) providerConfig = coreConfig;
-      fellBackToCore = true;
-    } else {
-      logger.warn(
-        `No usable API key for ${model.provider} and no Core model is configured — cannot fall back.`,
-      );
+    // Your own endpoint may take no key (the address decides); Vertex and
+    // Bedrock sign in with the machine's cloud credentials when there is none.
+    // Those are asked as they are, and say so themselves if they need more.
+    if (providerConfig.type !== "custom" && model.provider !== "vertex" && model.provider !== "bedrock") {
+      throw new Error(`No key for ${name}. Add one with /connect (Settings in the app), or pick another model.`);
     }
   }
 
-  return {
-    ...(await getRegularModelClient(model, settings, providerConfig, options)),
-    fellBackToCore,
-  };
+  return getRegularModelClient(model, settings, providerConfig, options);
 }
 
 async function getRegularModelClient(

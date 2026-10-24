@@ -118,7 +118,8 @@ describe("selectRelevantMemories", () => {
 
   it("never sends a BYOK prompt to Core", async () => {
     resolveTitleModel.mockResolvedValue({ provider: "openai", name: "gpt-mini" });
-    getModelClient.mockResolvedValue({ modelClient: { model: "m" }, fellBackToCore: true });
+    // No key for the provider: the model client refuses (it never moves to Core).
+    getModelClient.mockRejectedValue(new Error("No key for OpenAI. Add one with /connect (Settings in the app), or pick another model."));
     expect(await selectRelevantMemories({ message: "q", candidates })).toEqual([]);
     expect(generateText).not.toHaveBeenCalled();
   });
