@@ -12,6 +12,10 @@
     "label": "Session recap",
     "description": "When you come back to a chat after a few minutes away, a one-line recap of where it stands. Written by the chat's own model; never saved or sent back to it. Shared with the CLI and editors."
   },
+  "desktopNotifications": {
+    "label": "Desktop notifications when Atlarix needs you or finishes",
+    "description": "Only while Atlarix is in the background. Do Not Disturb applies."
+  },
   "foundMcp": {
     "title": "Found on this computer",
     "detail": "Servers you set up in other tools. Add one to use it here, in the CLI and in your editor.",

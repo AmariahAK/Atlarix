@@ -606,7 +606,7 @@ export function NotificationsSettings() {
       <div className="space-y-4">
         <div className="flex items-center justify-between max-w-md gap-4">
           <Label htmlFor="desktop-notifications" className="text-sm">
-            Desktop notifications when Atlarix needs you or finishes
+            {t("desktopNotifications.label")}
           </Label>
           <Switch
             id="desktop-notifications"
@@ -615,7 +615,7 @@ export function NotificationsSettings() {
           />
         </div>
         <p className="text-xs text-muted-foreground max-w-md">
-          Only while Atlarix is in the background. Do Not Disturb applies.
+          {t("desktopNotifications.description")}
         </p>
       </div>
 
