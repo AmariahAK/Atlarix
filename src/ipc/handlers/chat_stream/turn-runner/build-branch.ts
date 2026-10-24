@@ -54,7 +54,7 @@ import {
   emitAutoApprovedWritePreview,
   runCommandCategoryGateToolResult,
   shouldSkipPermissionWaitForRunCommand,
-  requiresHumanReviewDespiteAutoApprove,
+  shouldSkipPermissionWait,
 } from "@/ipc/handlers/chat_stream/permission-ui";
 import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import {
@@ -737,9 +737,10 @@ export async function runBuildBranch(
                   ? ((permRequest.preview as { command?: string }).command ??
                     "")
                   : "";
-              const skipPermissionWait =
-                !requiresHumanReviewDespiteAutoApprove(permRequest) &&
-                (filePref.skipPermissionWait ||
+              const skipPermissionWait = shouldSkipPermissionWait(permRequest, {
+                reviewOverridden: permissionInterceptor.overridesEditReview(permRequest),
+                autoApproved:
+                  filePref.skipPermissionWait ||
                   (permRequest.operation === "run_command" &&
                     shouldSkipPermissionWaitForRunCommand(
                       buildRunCmd,
@@ -753,7 +754,8 @@ export async function runBuildBranch(
                     settings.agentMode,
                     req.chatId,
                   ) ||
-                  permissionInterceptor.shouldAlwaysAutoApprove(permRequest));
+                  permissionInterceptor.shouldAlwaysAutoApprove(permRequest),
+              });
               // System-scope marker — set true ONLY when a human will approve
               // (attended). Lets the interceptor run an approved on-device
               // install / outside-workspace write unsandboxed; unattended runs
@@ -1686,9 +1688,10 @@ export async function runBuildBranch(
                   ? ((permRequest.preview as { command?: string }).command ??
                     "")
                   : "";
-              const skipPermissionWait =
-                !requiresHumanReviewDespiteAutoApprove(permRequest) &&
-                (filePref.skipPermissionWait ||
+              const skipPermissionWait = shouldSkipPermissionWait(permRequest, {
+                reviewOverridden: permissionInterceptor.overridesEditReview(permRequest),
+                autoApproved:
+                  filePref.skipPermissionWait ||
                   (permRequest.operation === "run_command" &&
                     shouldSkipPermissionWaitForRunCommand(
                       agenticRunCmd,
@@ -1702,7 +1705,8 @@ export async function runBuildBranch(
                     settings.agentMode,
                     req.chatId,
                   ) ||
-                  permissionInterceptor.shouldAlwaysAutoApprove(permRequest));
+                  permissionInterceptor.shouldAlwaysAutoApprove(permRequest),
+              });
               // System-scope marker (see the native-FC site above) — attended-only.
               if (permRequest.operation === "run_command") {
                 (

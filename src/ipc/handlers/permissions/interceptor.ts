@@ -439,6 +439,20 @@ export class PermissionInterceptor extends EventEmitter {
   }
 
   /**
+   * What a guessed edit's "always ask" gives way to (owner, 15.11.1): the user's
+   * "Allow all this turn", which covers every edit the turn makes after it, and
+   * the agent-memory folder, which is the agent's own notepad and never asks.
+   */
+  overridesEditReview(request: PermissionRequest): boolean {
+    if (this.turnBlanketApproved) return true;
+    if (request.operation !== "edit_file" || !this.memoryDir) return false;
+    const p = (request.preview as FileOperationPreview | null)?.path;
+    if (!p) return false;
+    const abs = path.isAbsolute(p) ? p : path.resolve(this.workspacePath ?? "", p);
+    return isAutoWritablePath(path.resolve(abs), this.memoryDir, null);
+  }
+
+  /**
    * File / batch file operations under `.atlarix/` or `.atlarixignore` auto-approve without user prompt.
    */
   shouldAlwaysAutoApprove(request: PermissionRequest): boolean {
