@@ -21,6 +21,19 @@ not trust it.
 
 ---
 
+## 🔨 Handover 2026-10-25 (ai-27) — 15.11.1 released overnight; what is left
+
+- **Microsoft Store:** 15.11.1 was NOT submitted: the 15.11.0 submission was still in Certification (the release never
+  replaces one in certification). After Microsoft finishes it, re-run the Store step for v15.11.1.
+- **Owed checks:** the Windows approval toast (named chat, click opens it; Squirrel + MSIX) needs a signed-in app in
+  the VM, so one owner device-code approval as agent@. The Mac notification click is the owner's check.
+- **15.11.2 small items:** a reply label shows a prettified raw id for ~10–20 s after launch, until the model list
+  loads; a provider renamed by the CLI keeps its old name in an open app until restart (the cached model list).
+- **Bun on CI:** `npm run test:bun` runs in the quality job now; the first runs passed. Locally the team uses the same
+  command (a plain multi-file `bun test` fails on purpose).
+- **The first real deb/rpm auto-update is 15.11.1 → 15.11.2:** check it on a Linux desktop when 15.11.2 ships,
+  including the pkexec prompt (unreachable in containers).
+
 ## 🔨 Handover 2026-10-24 (ai-27) — 15.11.0 released overnight; what is left
 
 The owner approved the scope 2026-10-23 and asked for a full release overnight. Team notes:
