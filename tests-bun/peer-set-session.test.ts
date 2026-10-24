@@ -97,11 +97,11 @@ describe("a session sets another's mode and model", () => {
     expect(row?.workMode).toBe("review");
 
     const list = await run("list_sessions", { workspaceSessionId: coord.sessionId });
-    expect(list.text).toMatch(/Guard \(id [^)]*· Review · /);
-    // Its model is listed by name, unless the list is past its first 25 names:
-    // the whole bun run shares one database, and other files leave endpoints.
-    const models = /Models you can set: (.*)$/m.exec(list.text ?? "")?.[1] ?? "";
-    expect(models.split(", ").includes(label) || /… and \d+ more/.test(models)).toBe(true);
+    // Guard's own line says both changes. (Not the "Models you can set" list:
+    // it names the first 25, and the whole bun run shares one database.)
+    expect(list.text).toMatch(
+      new RegExp(`Guard \\(id [^)]*· Review · ${shownLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`),
+    );
 
     const refused = await run("send_message", { to: guard.sessionId, model: "GPT-6 Astra", workspaceSessionId: coord.sessionId });
     expect(refused.success).toBe(false);
