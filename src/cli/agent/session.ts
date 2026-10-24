@@ -2556,6 +2556,37 @@ export class AgentSession extends EventEmitter {
  * `--provider-format anthropic`. Only ever called with a scratch data folder
  * (src/cli/entry.mts), never the desktop's.
  */
+/** The one id every dev endpoint shared before 15.11.1. */
+const LEGACY_DEV_PROVIDER_ID = "atlarix-cli-dev";
+
+/**
+ * Each endpoint its own provider row (and so its own key). Every dev-mode
+ * process shared one row in ~/.atlarix/dev-data, so a second one started on
+ * another endpoint re-pointed it, and the first one's conversation went to the
+ * second endpoint with the second's key (15.11.1, QA). The same endpoint
+ * always gets the same row; the old shared row stays the row for the address
+ * it holds, so what was saved against it (models, computer use) keeps working.
+ */
+async function devProviderId(
+  db: ReturnType<typeof import("@/db").initializeDatabase>,
+  schema: typeof import("@/db/schema"),
+  baseUrl: string,
+  apiFormat: "anthropic" | null,
+): Promise<string> {
+  const url = baseUrl.trim().replace(/\/+$/, "");
+  const { eq } = await import("drizzle-orm");
+  const legacy = db
+    .select({ url: schema.language_model_providers.api_base_url, format: schema.language_model_providers.api_format })
+    .from(schema.language_model_providers)
+    .where(eq(schema.language_model_providers.id, LEGACY_DEV_PROVIDER_ID))
+    .get();
+  if (legacy && legacy.url.trim().replace(/\/+$/, "") === url && (legacy.format ?? null) === apiFormat) {
+    return LEGACY_DEV_PROVIDER_ID;
+  }
+  const { createHash } = await import("node:crypto");
+  return `${LEGACY_DEV_PROVIDER_ID}-${createHash("sha256").update(`${url}\0${apiFormat ?? "openai"}`).digest("hex").slice(0, 8)}`;
+}
+
 export async function seedDevProvider(opts: {
   baseUrl: string;
   model: string;
@@ -2565,7 +2596,7 @@ export async function seedDevProvider(opts: {
   const { initializeDatabase } = await import("@/db");
   const db = initializeDatabase();
   const schema = await import("@/db/schema");
-  const id = "atlarix-cli-dev";
+  const id = await devProviderId(db, schema, opts.baseUrl, opts.apiFormat === "anthropic" ? "anthropic" : null);
   // The Anthropic format takes the key in one of two headers: ask the endpoint.
   let authHeader: "x-api-key" | "bearer" | null = null;
   if (opts.apiFormat === "anthropic") {
@@ -2580,7 +2611,9 @@ export async function seedDevProvider(opts: {
     .values({ id, name: "Local endpoint (CLI dev)", api_base_url: opts.baseUrl, ...wire })
     .onConflictDoUpdate({
       target: schema.language_model_providers.id,
-      set: { api_base_url: opts.baseUrl, ...wire },
+      // The address is part of the row's identity (devProviderId): only how it
+      // takes the key can change.
+      set: { auth_header: wire.auth_header },
     })
     .run();
   // No unique key to conflict on: onConflictDoNothing added the same row on
