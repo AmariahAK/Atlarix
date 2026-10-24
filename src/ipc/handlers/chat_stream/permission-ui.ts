@@ -298,6 +298,19 @@ export function shouldSkipPermissionWait(
   return !requiresHumanReviewDespiteAutoApprove(permRequest) && o.autoApproved;
 }
 
+/** What the model is told when it makes a change the user already denied this turn. */
+export function deniedChangeResult(permRequest: { operation: string; preview: unknown }): string {
+  const target = (permRequest.preview as { path?: string } | null)?.path ?? "that file";
+  return JSON.stringify({
+    success: false,
+    error:
+      `The user denied this exact change to ${target} earlier in this turn. Don't make it again, ` +
+      "yourself or through a sub-agent; if it is still needed, ask the user first.",
+    operation: permRequest.operation,
+    path: target,
+  });
+}
+
 export function enrichRunCommandPermissionRequest<
   T extends { operation: string; preview: unknown },
 >(

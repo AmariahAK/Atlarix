@@ -8,6 +8,7 @@
  */
 
 import { noteTurn } from "@/lib/analytics/turn-stats";
+import { createHash } from "node:crypto";
 import * as fs from "fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "path";
@@ -167,6 +168,15 @@ export function _resetRevertNeedsGitNoticeForTests(): void {
 export class PermissionInterceptor extends EventEmitter {
   /** Map of operation ID to pending permission request */
   private pendingOperations: Map<string, BufferedOperation> = new Map();
+
+  /**
+   * Changes the user DENIED this turn, by `changeKey`. The model routed a
+   * denied edit through a writer sub-agent and accepted its proposal (15.11.0,
+   * filming); the same change is now refused for the rest of the turn without
+   * a card. Owner: that exact change only; a different edit asks normally.
+   * Per turn because the interceptor is: a new message starts empty.
+   */
+  private deniedChanges = new Set<string>();
 
   /** Map of operation ID to pending approval promise */
   private pendingApprovals: Map<string, PendingApproval> = new Map();
@@ -431,6 +441,31 @@ export class PermissionInterceptor extends EventEmitter {
     logger.log(
       `[approveRestOfTurn] chat ${this.activeChatId}: approvals suppressed for the rest of this turn`,
     );
+  }
+
+  /**
+   * One file change, whoever proposes it: the file (resolved, so `./a.js` and
+   * its absolute path are one) and the content it would end with, line endings
+   * aside. Whole-file writes are `edit_file` too, so an edit and a rewrite that
+   * end alike are the same change.
+   */
+  private changeKey(request: PermissionRequest): string | null {
+    const op = request.operation;
+    if (op !== "edit_file" && op !== "delete_file") return null;
+    const preview = request.preview as (FileOperationPreview & { content?: unknown }) | null;
+    if (!preview?.path) return null;
+    const abs = path.resolve(
+      path.isAbsolute(preview.path) ? preview.path : path.join(this.workspacePath ?? "", preview.path),
+    );
+    const body = op === "delete_file" ? "" : String(preview.content ?? "").replace(/\r\n/g, "\n");
+    const digest = createHash("sha256").update(body).digest("hex");
+    return `${op === "delete_file" ? "delete" : "write"}\0${abs}\0${digest}`;
+  }
+
+  /** The user already denied exactly this change in this turn. */
+  isDeniedChange(request: PermissionRequest): boolean {
+    const key = this.changeKey(request);
+    return key !== null && this.deniedChanges.has(key);
   }
 
   /** Whether the rest-of-turn blanket is active (for logging / tests). */
@@ -1358,6 +1393,8 @@ export class PermissionInterceptor extends EventEmitter {
     this.resolveApproval(operationId, false);
 
     operation.status = "rejected";
+    const denied = this.changeKey(operation.request);
+    if (denied) this.deniedChanges.add(denied);
     logger.log(
       `[rejectOperation] Rejected ${operationId}: ${operation.request.operation}`,
     );
