@@ -1054,7 +1054,11 @@ export class AgentSession extends EventEmitter {
   async recap(opts: { force?: boolean } = {}): Promise<string | null> {
     const { generateRecap } = await import("@/lib/recap/recap");
     const cells = this.state.cells.filter((c) => c.kind !== "recap");
-    return generateRecap(conversationText(cells), { chatId: this.chatId, model: this.model, force: opts.force });
+    const { recentChangedFiles } = await import("@/lib/recap/changed-files");
+    const filesChanged = this.sessionId
+      ? await recentChangedFiles({ sessionId: this.sessionId, workspacePath: this.workspaceDir })
+      : [];
+    return generateRecap(conversationText(cells), { chatId: this.chatId, model: this.model, force: opts.force, filesChanged });
   }
 
   async aside(question: string): Promise<string> {

@@ -16,7 +16,14 @@ export function registerRecapHandlers(): void {
     const { readSettings } = await import("@/main/settings");
     const req = lastStreamRequest.get(chatId) as { modelOverride?: { provider: string; name: string } } | undefined;
     const model = req?.modelOverride ?? readSettings().selectedModel;
-    const text = await generateRecap(String(conversation ?? "").slice(-60_000), { chatId, model, force: force === true });
+    const { recentChangedFiles } = await import("@/lib/recap/changed-files");
+    const filesChanged = await recentChangedFiles({ chatId });
+    const text = await generateRecap(String(conversation ?? "").slice(-60_000), {
+      chatId,
+      model,
+      force: force === true,
+      filesChanged,
+    });
     return { text };
   });
 }
