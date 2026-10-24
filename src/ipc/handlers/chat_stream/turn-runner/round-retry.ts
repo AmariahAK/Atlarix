@@ -47,6 +47,15 @@ export interface RoundRetryDeps {
   event: IpcMainInvokeEvent;
 }
 
+/**
+ * The provider's words. The refusal onError recorded is the SDK's `{ error }`
+ * event, which logged as "[object Object]" (15.11.0, ai-c8's log).
+ */
+function refusalMessage(refusal: unknown): string {
+  const e = (refusal as { error?: unknown } | null)?.error ?? refusal;
+  return e instanceof Error ? e.message : String(e);
+}
+
 export async function runStreamRoundWithEmptyOutputRetry(
   ctx: StreamTurnContext,
   deps: RoundRetryDeps,
@@ -348,9 +357,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
         logger.warn(
           `[stream] Provider refused its computer tool version — retrying with ${
             ctx.nativeComputerRejected ? "ours" : "the version it named"
-          }: ${
-            computerRefusal instanceof Error ? computerRefusal.message : String(computerRefusal)
-          }`,
+          }: ${refusalMessage(computerRefusal)}`,
         );
         fullResponse = initialFullResponse;
         continue;

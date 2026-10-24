@@ -52,12 +52,12 @@ const ANTHROPIC_400 = Object.assign(new Error("'claude-haiku-5-5' does not suppo
 
 /**
  * Claude Haiku 4.5 behind Bedrock's Anthropic format, sent computer_20251124
- * (ai-c8, released 15.11.0 CLI on Windows, 2026-10-24). The words as reported,
- * the list around the version it named filled in Anthropic's own shape.
+ * (ai-c8, released 15.11.0 CLI on Windows, 2026-10-24 07:42:48, its log). As
+ * captured: the capture cut the line where it ends here.
  */
 const BEDROCK_400 = Object.assign(
   new Error(
-    "'claude-haiku-4-5-20251001' does not support tool types: computer_20251124. Did you mean one of bash_20250124, computer_20250124, text_editor_20250124, text_editor_20250728?",
+    "'claude-haiku-4-5-20251001' does not support tool types: computer_20251124. Did you mean one of bash_20250124, computer_20250124, memory_20250818, text_editor_20250728, tool_search_tool_bm25_20251119, to",
   ),
   { name: "AI_APICallError", statusCode: 400 },
 );
