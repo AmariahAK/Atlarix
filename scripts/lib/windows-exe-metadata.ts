@@ -4,6 +4,8 @@
  * Without it the exe carries Bun's own: ProductName "Bun", CompanyName "Oven",
  * and that is what SmartScreen, Task Manager and a firewall prompt show (QA E6).
  * The publisher is the name the MSIX already shows (PublisherDisplayName).
+ * InternalName and OriginalFilename have no bun option (1.4.2), and patching
+ * the PE afterwards can break bun's embedded payload, so they stay bun's.
  *
  * BUN ONLY WRITES THESE WHEN COMPILING ON WINDOWS. Cross-compiled from macOS or
  * Linux the build succeeds and the resource is still Bun's, so a QA exe built
@@ -24,6 +26,7 @@ export function windowsExeMetadata(version: string, repoRoot: string) {
     publisher: "Amariah Abishai",
     version: windowsFileVersion(version),
     description: "Atlarix CLI",
+    copyright: `© ${new Date().getFullYear()} Amariah Abishai`,
     icon: path.join(repoRoot, "assets", "icon", "logo.ico"),
   };
 }

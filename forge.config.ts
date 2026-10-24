@@ -467,6 +467,14 @@ const config: ForgeConfig = {
         // electron-installer-common branches on shape and accepts the hicolor
         // object (see LINUX_HICOLOR_ICONS). The types lag the implementation.
         icon: LINUX_HICOLOR_ICONS,
+        // resources/package-type, which makes electron-updater update this
+        // install as an rpm. Written on install, not packaged: the deb, rpm and
+        // AppImage share one packaged folder, and an AppImage carrying it would
+        // try to update itself as a deb.
+        scripts: {
+          post: path.join(__dirname, "build/linux/rpm-post"),
+          postun: path.join(__dirname, "build/linux/rpm-postun"),
+        },
       },
     }),
     new MakerDeb({
@@ -474,6 +482,11 @@ const config: ForgeConfig = {
         mimeType: ["x-scheme-handler/atlarix"],
         // @ts-expect-error see the MakerRpm note above.
         icon: LINUX_HICOLOR_ICONS,
+        // The same for the deb (see the MakerRpm note).
+        scripts: {
+          postinst: path.join(__dirname, "build/linux/deb-postinst"),
+          postrm: path.join(__dirname, "build/linux/deb-postrm"),
+        },
       },
     }),
     new MakerAppImage({

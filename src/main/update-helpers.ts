@@ -3,6 +3,28 @@
  * be unit-tested in plain Node). The electron-wired side lives in `main.ts`.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+
+export type LinuxPackageType = "deb" | "rpm";
+
+/**
+ * How this Linux install was packaged, from `resources/package-type`: the
+ * file electron-updater itself reads to pick DebUpdater or RpmUpdater. The
+ * deb and rpm write it on install (forge.config.ts); an AppImage has none.
+ */
+export function readLinuxPackageType(
+  resourcesPath: string,
+  read: (file: string) => string = (file) => fs.readFileSync(file, "utf8"),
+): LinuxPackageType | null {
+  try {
+    const kind = read(path.join(resourcesPath, "package-type")).trim();
+    return kind === "deb" || kind === "rpm" ? kind : null;
+  } catch {
+    return null;
+  }
+}
+
 export type UpdateResult =
   | "idle"
   | "checking"
@@ -89,6 +111,7 @@ export function chooseUpdaterKind(env: {
   isPackaged: boolean;
   isAppImage: boolean;
   isInApplicationsFolder: boolean;
+  linuxPackageType?: LinuxPackageType | null;
   /** `process.windowsStore` — true only for an MSIX/appx (Store) install. */
   isWindowsStore?: boolean;
 }): "squirrel" | "electron-updater" | "none" {
@@ -100,13 +123,17 @@ export function chooseUpdaterKind(env: {
 
 /**
  * Whether electron-updater can drive a true silent background update for this
- * install. macOS additionally requires the app to live in /Applications.
+ * install. macOS additionally requires the app to live in /Applications; on
+ * Linux an AppImage, deb or rpm can (a deb/rpm installs through the system's
+ * password prompt). Anything else gets the notify-only bridge.
  */
 export function canElectronUpdaterRun(env: {
   platform: NodeJS.Platform;
   isPackaged: boolean;
   isAppImage: boolean;
   isInApplicationsFolder: boolean;
+  /** deb/rpm update through electron-updater's DebUpdater/RpmUpdater. */
+  linuxPackageType?: LinuxPackageType | null;
 }): { ok: boolean; reason?: UpdateResult; detail?: string } {
   if (!env.isPackaged)
     return { ok: false, reason: "idle", detail: "Development build" };
@@ -117,12 +144,11 @@ export function canElectronUpdaterRun(env: {
       detail: "Move Atlarix to /Applications to enable automatic updates.",
     };
   }
-  if (env.platform === "linux" && !env.isAppImage) {
+  if (env.platform === "linux" && !env.isAppImage && !env.linuxPackageType) {
     return {
       ok: false,
       reason: "unsupported",
-      detail:
-        "deb/rpm packages update via your package manager — download the latest from the releases page.",
+      detail: "This install can't update itself. Download the latest from the releases page.",
     };
   }
   return { ok: true };

@@ -8,7 +8,9 @@ import {
   shouldRunNotifyOnlyCheck,
   canElectronUpdaterRun,
   chooseUpdaterKind,
+  readLinuxPackageType,
 } from "@/main/update-helpers";
+import path from "node:path";
 
 describe("isNewer", () => {
   it("compares the first three numeric parts", () => {
@@ -89,23 +91,48 @@ describe("canElectronUpdaterRun", () => {
       }).ok,
     ).toBe(true);
   });
-  it("ok on Linux AppImage but not deb/rpm", () => {
+  it("ok on Linux AppImage, deb and rpm; any other Linux install gets the bridge", () => {
+    const linux = { ...base, platform: "linux" as NodeJS.Platform };
+    expect(canElectronUpdaterRun({ ...linux, isAppImage: true }).ok).toBe(true);
     expect(
-      canElectronUpdaterRun({ ...base, platform: "linux", isAppImage: true })
-        .ok,
+      canElectronUpdaterRun({ ...linux, linuxPackageType: "deb" }).ok,
     ).toBe(true);
-    const deb = canElectronUpdaterRun({
-      ...base,
-      platform: "linux",
-      isAppImage: false,
-    });
-    expect(deb.ok).toBe(false);
-    expect(deb.reason).toBe("unsupported");
+    expect(
+      canElectronUpdaterRun({ ...linux, linuxPackageType: "rpm" }).ok,
+    ).toBe(true);
+    const other = canElectronUpdaterRun({ ...linux, linuxPackageType: null });
+    expect(other.ok).toBe(false);
+    expect(other.reason).toBe("unsupported");
   });
   it("not ok for an unpackaged dev build", () => {
     expect(canElectronUpdaterRun({ ...base, isPackaged: false }).ok).toBe(
       false,
     );
+  });
+});
+
+describe("readLinuxPackageType", () => {
+  it("reads deb/rpm from resources/package-type, the file electron-updater reads", () => {
+    const at = (content: string) => (file: string) => {
+      expect(file).toBe(
+        path.join("/usr/lib/atlarix/resources", "package-type"),
+      );
+      return content;
+    };
+    expect(
+      readLinuxPackageType("/usr/lib/atlarix/resources", at("deb\n")),
+    ).toBe("deb");
+    expect(readLinuxPackageType("/usr/lib/atlarix/resources", at("rpm"))).toBe(
+      "rpm",
+    );
+    expect(
+      readLinuxPackageType("/usr/lib/atlarix/resources", at("pacman")),
+    ).toBeNull();
+    expect(
+      readLinuxPackageType("/x", () => {
+        throw new Error("ENOENT");
+      }),
+    ).toBeNull();
   });
 });
 
@@ -129,13 +156,20 @@ describe("chooseUpdaterKind", () => {
   it("macOS in /Applications → electron-updater", () => {
     expect(chooseUpdaterKind(base)).toBe("electron-updater");
   });
-  it("Linux AppImage → electron-updater; deb/rpm → none", () => {
-    expect(
-      chooseUpdaterKind({ ...base, platform: "linux", isAppImage: true }),
-    ).toBe("electron-updater");
-    expect(
-      chooseUpdaterKind({ ...base, platform: "linux", isAppImage: false }),
-    ).toBe("none");
+  it("Linux AppImage, deb, rpm → electron-updater; anything else → none", () => {
+    const linux = { ...base, platform: "linux" as NodeJS.Platform };
+    expect(chooseUpdaterKind({ ...linux, isAppImage: true })).toBe(
+      "electron-updater",
+    );
+    expect(chooseUpdaterKind({ ...linux, linuxPackageType: "deb" })).toBe(
+      "electron-updater",
+    );
+    expect(chooseUpdaterKind({ ...linux, linuxPackageType: "rpm" })).toBe(
+      "electron-updater",
+    );
+    expect(chooseUpdaterKind({ ...linux, linuxPackageType: null })).toBe(
+      "none",
+    );
   });
   it("macOS outside /Applications → none (notify bridge handles it)", () => {
     expect(chooseUpdaterKind({ ...base, isInApplicationsFolder: false })).toBe(
