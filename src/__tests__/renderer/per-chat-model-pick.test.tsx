@@ -10,12 +10,18 @@ import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getDefaultStore } from "jotai";
 
-const setWorkspaceSessionModel = vi.fn(async (_id: string, choice: { provider: string; name: string }) => ({
-  model: { ...choice, effort: "high" },
-}));
+const setFrontSession = vi.fn(async () => ({ ok: true }));
+let sessionModelListener: ((p: { sessionId: string; model: unknown }) => void) | null = null;
 vi.mock("@/ipc/ipc_client", () => ({
   IpcClient: {
-    getInstance: () => ({ ackCoreSlotChange: async () => ({}), setWorkspaceSessionModel }),
+    getInstance: () => ({
+      ackCoreSlotChange: async () => ({}),
+      setFrontSession,
+      onSessionModel: (l: typeof sessionModelListener) => {
+        sessionModelListener = l;
+        return () => {};
+      },
+    }),
   },
 }));
 const settings = { selectedModel: { provider: "anthropic", name: "claude-haiku-4-5" }, effort: "", deepThinking: false };
@@ -24,7 +30,7 @@ vi.mock("@/hooks/useSettings", () => ({ useSettings: () => ({ settings, updateSe
 
 import { useSelectModel } from "@/hooks/useSelectModel";
 import { useChatModel } from "@/hooks/useChatModel";
-import { activateWorkspaceSession } from "@/lib/open-workspace-session";
+import { activateWorkspaceSession, subscribeToFrontSessionModel } from "@/lib/open-workspace-session";
 import { activeSessionModelAtom } from "@/atoms/sessionAtoms";
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -32,27 +38,35 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 );
 
 beforeEach(() => {
-  setWorkspaceSessionModel.mockClear();
+  setFrontSession.mockClear();
   updateSettings.mockClear();
 });
 
 describe("a model pick is the chat's", () => {
-  it("writes the chat in front and the default; switching chats shows each one's own", async () => {
+  it("tells main the chat in front, shows the pick at once and main's stored answer; switching chats shows each one's own", async () => {
+    const unsub = subscribeToFrontSessionModel();
     activateWorkspaceSession("chat-b", "build", { provider: "openai", name: "gpt-5", effort: "low" });
     activateWorkspaceSession("chat-a", "ask", { provider: "anthropic", name: "claude-haiku-4-5" });
+    // Main stores a model written from this window on this chat (front-session.ts).
+    expect(setFrontSession).toHaveBeenLastCalledWith("chat-a");
 
     const pick = renderHook(() => useSelectModel(), { wrapper });
     await act(async () => pick.result.current({ provider: "bedrock", name: "nova-micro" } as never));
+    expect(getDefaultStore().get(activeSessionModelAtom)).toEqual({ provider: "bedrock", name: "nova-micro" });
+    expect(updateSettings).toHaveBeenCalledWith({ selectedModel: { provider: "bedrock", name: "nova-micro" } });
 
-    expect(setWorkspaceSessionModel).toHaveBeenCalledTimes(1);
-    expect(setWorkspaceSessionModel).toHaveBeenCalledWith("chat-a", { provider: "bedrock", name: "nova-micro" });
-    // Main's answer (the level the new model keeps) replaces the optimistic copy.
+    // Main's answer (the level the new model keeps) replaces the optimistic copy;
+    // one for a chat not in front changes nothing here.
+    act(() => sessionModelListener?.({ sessionId: "chat-b", model: { provider: "x", name: "y" } }));
+    act(() =>
+      sessionModelListener?.({ sessionId: "chat-a", model: { provider: "bedrock", name: "nova-micro", effort: "high" } }),
+    );
     expect(getDefaultStore().get(activeSessionModelAtom)).toEqual({
       provider: "bedrock",
       name: "nova-micro",
       effort: "high",
     });
-    expect(updateSettings).toHaveBeenCalledWith({ selectedModel: { provider: "bedrock", name: "nova-micro" } });
+    unsub();
 
     const shown = renderHook(() => useChatModel(-1), { wrapper });
     expect(shown.result.current.model).toEqual({ provider: "bedrock", name: "nova-micro" });

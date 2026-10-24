@@ -31,9 +31,8 @@ vi.mock("@/hooks/useLanguageModelsByProviders", () => ({
 vi.mock("@/hooks/useTranscriptionProviders", () => ({ useTranscriptionProviders: () => ({ data: [] }) }));
 vi.mock("@/hooks/useCreditBalance", () => ({ useCreditBalance: () => ({ balanceCents: state.cents }) }));
 vi.mock("@/components/DefaultMcpMenuSection", () => ({ DefaultMcpMenuSection: () => null }));
-const { setSessionModel } = vi.hoisted(() => ({ setSessionModel: vi.fn(async () => ({})) }));
 vi.mock("@/ipc/ipc_client", () => ({
-  IpcClient: { getInstance: () => ({ setWorkspaceSessionModel: setSessionModel }) },
+  IpcClient: { getInstance: () => ({ setFrontSession: async () => ({ ok: true }) }) },
 }));
 
 import { ChatConfigDropdown } from "@/components/ChatConfigDropdown";
@@ -53,7 +52,6 @@ function open() {
 beforeEach(() => {
   state.update = vi.fn();
   state.settings = {};
-  setSessionModel.mockClear();
   getDefaultStore().set(activeWorkspaceSessionIdAtom, null);
   getDefaultStore().set(activeSessionModelAtom, null);
 });
@@ -98,12 +96,7 @@ describe("Effort in the composer menu", () => {
     expect(screen.queryByText(/Free Auto runs at one level/)).toBeNull();
     expect(screen.getByTestId("effort-high").getAttribute("data-state")).toBe("checked");
     fireEvent.click(screen.getByTestId("effort-low"));
-    expect(setSessionModel).toHaveBeenCalledWith("sess-a", {
-      provider: "openai",
-      name: "gpt-5.4",
-      effort: "low",
-      deepThinking: false,
-    });
+    // One write: main stores the pair on this window's chat in front as well.
     expect(getDefaultStore().get(activeSessionModelAtom)).toMatchObject({ name: "gpt-5.4", effort: "low" });
     expect(state.update).toHaveBeenCalledWith({
       selectedModel: { provider: "openai", name: "gpt-5.4" },

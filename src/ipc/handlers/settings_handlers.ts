@@ -23,7 +23,7 @@ export function registerSettingsHandlers() {
   // Intentionally do NOT use handle because it could log sensitive data from the args.
   ipcMain.handle(
     "set-user-settings",
-    async (_, settings: Partial<UserSettings>) => {
+    async (event, settings: Partial<UserSettings>) => {
       const prev = readSettings();
       // A new model keeps the /effort level only when it lists it too; otherwise
       // it runs its own default (owner: never translated between models). Here,
@@ -38,6 +38,10 @@ export function registerSettingsHandlers() {
           ? { ...settings, ...effortAfterModelChange(effortChoicesForModel(settings.selectedModel), prev) }
           : settings,
       );
+      // A model picked in a window is that window's chat's from now on, as well
+      // as what a new chat starts with, whatever wrote it (15.11.1, QA ai-44
+      // check 6): its row, so the chip, the turn and the reply label agree.
+      if (settings.selectedModel != null) await stampFrontChat(event, settings);
       // Mode and model choices reach analytics on the next turn
       // (`turn_completed.changed`), from every surface, not from here.
       const next = readSettings();
@@ -53,4 +57,32 @@ export function registerSettingsHandlers() {
       return next;
     },
   );
+}
+
+/** Store a model written from a window on the chat that window has in front. */
+async function stampFrontChat(
+  event: Electron.IpcMainInvokeEvent,
+  settings: Partial<UserSettings>,
+): Promise<void> {
+  try {
+    const { frontSessionOf } = await import("@/main/front-session");
+    const sessionId = frontSessionOf(event.sender.id);
+    const m = settings.selectedModel;
+    if (!sessionId || !m?.provider || !m.name) return;
+    const { stampSessionModel } = await import("./workspace_session_handlers");
+    const row = await stampSessionModel(sessionId, {
+      provider: m.provider,
+      name: m.name,
+      ...(m.customModelId != null ? { customModelId: m.customModelId } : {}),
+      // An effort named with it is that chat's; none: its level carries over by
+      // the same rule as the app's default.
+      ...(settings.effort !== undefined ? { effort: settings.effort, deepThinking: !!settings.deepThinking } : {}),
+    });
+    if (!event.sender.isDestroyed()) {
+      event.sender.send("session:model", { sessionId, model: row.model });
+    }
+  } catch (e) {
+    // The app's default is written either way; the chat keeps its stored model.
+    console.warn("[settings] could not store the model on the chat in front:", e);
+  }
 }

@@ -56,7 +56,10 @@ import { preloadSounds, setSoundPreferences } from "@/lib/sounds";
 import { GlobalAppSearch } from "@/components/GlobalAppSearch";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 import type { FileAttachment } from "@/ipc/ipc_types";
-import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
+import {
+  startNewWorkspaceConversation,
+  subscribeToFrontSessionModel,
+} from "@/lib/open-workspace-session";
 
 /**
  * PersistentChatContainer
@@ -321,6 +324,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // this keeps the sidebar and open tabs in step with them.
   useEffect(() => subscribeToSessionTitleUpdates(), []);
   useEffect(() => subscribeToPeerSessionSettings(), []);
+  useEffect(() => subscribeToFrontSessionModel(), []);
 
   // F1: keep the sound module's enabled/volume in sync with the user setting
   // (default on at 0.7 when unset, matching DEFAULT_SETTINGS).
