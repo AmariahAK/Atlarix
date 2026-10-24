@@ -401,6 +401,8 @@ export class AgentSession extends EventEmitter {
   sessionId = "";
   chatId = 0;
   model: ModelChoice | undefined;
+  /** The model the running (or last) turn was sent with, for its saved reply. */
+  private turnRanOn: ModelChoice | undefined;
   private messages: ChatMessageLike[] = [];
   private shellRuns: ShellRun[] = [];
   // Stream ids only grow. A turn's end can be sent after the NEXT turn started
@@ -1530,6 +1532,14 @@ export class AgentSession extends EventEmitter {
     this.steerTakenAt.clear();
     this.staleBelow = this.highestStreamId + 1;
     void this.refreshContextWindow();
+    // The model this reply runs on, saved with it: the app labelled CLI replies
+    // with whatever its own picker showed later (15.11.0, filming).
+    this.turnRanOn = this.turnModel();
+    if (!this.turnRanOn) {
+      const { readSettings } = await import("@/main/settings");
+      const m = readSettings().selectedModel as Partial<ModelChoice> | undefined;
+      this.turnRanOn = m?.provider && m.name ? { provider: m.provider, name: m.name } : undefined;
+    }
     try {
       await (await handler("chat:stream"))(this.event, {
         chatId: this.chatId,
@@ -2287,8 +2297,17 @@ export class AgentSession extends EventEmitter {
     if (typeof end.assistantModelContent === "string") extras.modelContent = end.assistantModelContent;
     if (typeof end.snapshotTurnId === "string") extras.snapshotTurnId = end.snapshotTurnId;
     if (this.lastStepTokens > 0) extras.maxTokensUsed = this.lastStepTokens;
+    const { buildDisplaySnapshotV1 } = await import("@/lib/chat/display-snapshot");
+    const snapshot = this.turnRanOn ? buildDisplaySnapshotV1({ completedThread: [], model: this.turnRanOn }) : null;
     try {
-      await (await handler("messages:add"))({}, this.sessionId, "assistant", content, undefined, Object.keys(extras).length ? extras : undefined);
+      await (await handler("messages:add"))(
+        {},
+        this.sessionId,
+        "assistant",
+        content,
+        snapshot ? JSON.stringify(snapshot) : undefined,
+        Object.keys(extras).length ? extras : undefined,
+      );
     } catch {
       this.persisted.delete(id);
     }
