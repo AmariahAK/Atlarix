@@ -62,13 +62,22 @@ Two safeguards remain:
   client credentials from the `AZURE_AD_TENANT_ID` / `AZURE_AD_CLIENT_ID` /
   `AZURE_AD_CLIENT_SECRET` secrets) is `continue-on-error: true`, so a Store API outage
   cannot fail a release — only a failed build can.
-- A product has ONE pending-submission slot. A release replaces whatever holds it,
-  even a submission still in certification (owner, 2026-10-18: the newest release
-  wins, so back-to-back releases can restart certification). Only a submission
-  Microsoft is mid-commit or mid-publish on is waited for (up to 10 minutes); if it is
-  still there, that release skips the Store with a warning. `msstore-submit`
-  concurrency keeps two tags from fighting over the slot. To see what the Store has
-  without building: dispatch this workflow with `store_status` on.
+- A product has ONE pending-submission slot. A release replaces a draft or a failed
+  submission. One Microsoft is processing or certifying is waited for (up to 10
+  minutes); if it is still there, that release skips the Store with a warning (the
+  2026-10-18 "newest release wins" rule restarted certification on every release, so
+  nothing published from 14.51.0 to 15.10.0). A submission whose certification was
+  cancelled in Partner Center is reused as a draft. `msstore-submit` concurrency keeps
+  two tags from fighting over the slot. To see what the Store has without building:
+  dispatch this workflow with `store_status` on.
+- **Re-running a release's Store step** (it skipped, or a newer release should take a
+  submission's place): don't re-run the job, since that re-runs `publish-release` and
+  `announce-release` too. Cancel the pending certification in Partner Center if there is
+  one, push a branch made from the tag, and dispatch this workflow on it with
+  `store_resubmit_run` = the tag's `release.yml` run id:
+  `gh workflow run msix.yml --ref store/vX.Y.Z -f store_resubmit_run=<run id>`. It uses
+  that run's `landlock-helper` artifact, which lasts ONE day, so do it within a day of
+  the tag.
 - The package is **not** uploaded to `atlarix-releases`. It is unsigned, and an
   unsigned `.msix` cannot be installed without the signer's certificate — publishing
   one would put a broken download on the public releases page.
