@@ -1,0 +1,6 @@
+#!/bin/sh
+# Only on removal: on an upgrade the new package's postinst has already written it.
+set -e
+case "$1" in
+  remove|purge) rm -f /usr/lib/atlarix/resources/package-type ;;
+esac

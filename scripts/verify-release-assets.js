@@ -136,6 +136,34 @@ async function verifyReleaseAssets() {
       process.exit(1);
     }
 
+    // The feeds must NAME the files each kind of install updates from: an
+    // arm64-only latest-mac.yml was present on every release and still left
+    // every Intel Mac without an update.
+    const feeds = {
+      "latest-mac.yml": [
+        `atlarix-darwin-arm64-${version}.zip`,
+        `atlarix-darwin-x64-${version}.zip`,
+      ],
+      "latest-linux.yml": [
+        `atlarix-${version}-x64.AppImage`,
+        `atlarix_${normalizeVersionForPlatform(version, "deb")}_amd64.deb`,
+        `atlarix-${normalizeVersionForPlatform(version, "rpm")}-1.x86_64.rpm`,
+      ],
+    };
+    for (const [feed, names] of Object.entries(feeds)) {
+      const asset = assets.find((a) => a.name === feed);
+      const res = await fetch(asset.url, {
+        headers: { Authorization: `token ${token}`, Accept: "application/octet-stream" },
+      });
+      if (!res.ok) throw new Error(`could not read ${feed}: HTTP ${res.status}`);
+      const text = (await res.text()).toLowerCase();
+      const unnamed = names.filter((n) => !text.includes(`url: ${n.toLowerCase()}`));
+      if (unnamed.length > 0) {
+        console.error(`❌ VERIFICATION FAILED! ${feed} does not list: ${unnamed.join(", ")}`);
+        process.exit(1);
+      }
+    }
+
     // Check for unexpected assets (optional warning)
     const expectedLower = new Set(expectedAssets.map((a) => a.toLowerCase()));
     const unexpectedAssets = actualAssets.filter(

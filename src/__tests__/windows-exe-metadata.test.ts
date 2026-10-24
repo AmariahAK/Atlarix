@@ -15,6 +15,8 @@ describe("the Windows exe's metadata", () => {
     const m = windowsExeMetadata("15.11.0", root);
     expect(m).toMatchObject({ title: "Atlarix", publisher: "Amariah Abishai", version: "15.11.0.0", description: "Atlarix CLI" });
     expect(fs.existsSync(m.icon)).toBe(true);
+    // LegalCopyright (15.11.0 artifact check: the exe had none).
+    expect(m.copyright).toMatch(/^© \d{4} Amariah Abishai$/);
     const msix = fs.readFileSync(path.join(root, "build/msix/AppxManifest.template.xml"), "utf8");
     expect(msix).toContain(`<PublisherDisplayName>${m.publisher}</PublisherDisplayName>`);
   });

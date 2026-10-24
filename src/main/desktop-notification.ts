@@ -29,9 +29,65 @@
  * call `close()` ourselves.
  */
 
+import { execFile } from "node:child_process";
 import log from "electron-log";
 
 const logger = log.scope("notification");
+
+/**
+ * LINUX BODIES ARE MARKUP. Electron hands the body to the notification daemon
+ * as it is, and daemons that advertise "body-markup" (GNOME Shell, KDE, dunst,
+ * mako…) parse it as Pango markup. A body like `A & <b>x</b> < y` then fails to
+ * parse, and dunst falls back to stripping tags: "A & x < y", so anything that
+ * looks like a tag ("<Button>") vanished from the notification (15.11.1, Electron
+ * 43.4.1 + dunst, read off the D-Bus Notify call and the screen). So on Linux
+ * the body's & < > are escaped, but ONLY for a daemon that says it parses
+ * markup: one that doesn't would show "&amp;" literally.
+ */
+export function escapeNotificationMarkup(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Whether a GetCapabilities reply (gdbus's or dbus-send's output) lists "body-markup". */
+export function capabilitiesListMarkup(reply: string): boolean {
+  return /['"]body-markup['"]/.test(reply);
+}
+
+let linuxMarkup: Promise<boolean> | null = null;
+
+/** Asked once per run: gdbus (GLib, beside GTK) or dbus-send; neither or no daemon → no. */
+function daemonParsesMarkup(): Promise<boolean> {
+  const ask = (cmd: string, args: string[]) =>
+    new Promise<string>((resolve, reject) =>
+      execFile(cmd, args, { timeout: 1500 }, (err, stdout) => (err ? reject(err) : resolve(String(stdout)))),
+    );
+  const path = ["/org/freedesktop/Notifications", "org.freedesktop.Notifications.GetCapabilities"];
+  return (linuxMarkup ??= ask("gdbus", [
+    "call",
+    "--session",
+    "--dest",
+    "org.freedesktop.Notifications",
+    "--object-path",
+    path[0]!,
+    "--method",
+    path[1]!,
+  ])
+    .catch(() =>
+      ask("dbus-send", ["--session", "--print-reply", "--dest=org.freedesktop.Notifications", path[0]!, path[1]!]),
+    )
+    .then(capabilitiesListMarkup, () => false));
+}
+
+/** The body as this platform's presenter should get it. */
+export async function notificationBody(
+  body: string,
+  platform: NodeJS.Platform = process.platform,
+  parsesMarkup: () => Promise<boolean> = daemonParsesMarkup,
+): Promise<string> {
+  // Cut first, so an entity is never cut in half.
+  const text = String(body).slice(0, 140);
+  return platform === "linux" && (await parsesMarkup()) ? escapeNotificationMarkup(text) : text;
+}
 
 /**
  * Live notifications, held ONLY to keep them out of GC's reach.
@@ -68,7 +124,7 @@ export async function showDesktopNotification(
 
     const notification = new Notification({
       title: options.title,
-      body: String(options.body).slice(0, 140),
+      body: await notificationBody(options.body),
       silent: options.silent ?? false,
     });
 

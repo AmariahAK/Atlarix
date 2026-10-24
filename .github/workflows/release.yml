@@ -531,44 +531,44 @@ jobs:
               "$UPLOAD_URL?name=$(basename "$f")"
           done
 
-      - name: Generate and upload latest-mac.yml (electron-updater feed, arm64 only)
-        if: success() && matrix.arch == 'arm64'
-        env:
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      # One fragment per arch; the mac-feed job joins them into latest-mac.yml.
+      # The arm64 job alone used to write the feed, so Intel installs (which
+      # drop every "arm64" file) found nothing to download and never updated.
+      - name: Write the update-feed fragment (zip + DMG, sha512 + size)
+        if: success()
         run: |
-          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
-          UPLOAD_URL="${UPLOAD_URL%\{*}"
-          VERSION=$(node -p "require('./package.json').version")
           ZIP=$(find out/make -name "*.zip" -path "*/zip/darwin/*" | head -1)
           DMG=$(find out/make -name "*.dmg" | head -1)
           if [ -z "$ZIP" ] || [ -z "$DMG" ]; then
-            echo "Missing ZIP or DMG, skipping latest-mac.yml"
-            exit 0
+            echo "::error::Missing ZIP or DMG for the update feed"; exit 1
           fi
-          ZIP_NAME=$(basename "$ZIP")
-          ZIP_SIZE=$(stat -f%z "$ZIP")
-          ZIP_SHA512=$(openssl dgst -sha512 -binary "$ZIP" | openssl base64 | tr -d '\n')
-          DMG_NAME=$(basename "$DMG")
-          DMG_SIZE=$(stat -f%z "$DMG")
-          DMG_SHA512=$(openssl dgst -sha512 -binary "$DMG" | openssl base64 | tr -d '\n')
-          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-          cat > latest-mac.yml << YAML
-          version: $VERSION
-          files:
-            - url: $ZIP_NAME
-              sha512: $ZIP_SHA512
-              size: $ZIP_SIZE
-            - url: $DMG_NAME
-              sha512: $DMG_SHA512
-              size: $DMG_SIZE
-          path: $ZIP_NAME
-          sha512: $ZIP_SHA512
-          releaseDate: '$RELEASE_DATE'
-          YAML
-          sed -i '' 's/^          //' latest-mac.yml
-          echo "--- latest-mac.yml ---"
-          cat latest-mac.yml
-          curl -sS -X POST \
+          node scripts/update-feed.mjs fragment --out "mac-feed-${{ matrix.arch }}.json" "$ZIP" "$DMG"
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: mac-feed-${{ matrix.arch }}
+          path: mac-feed-${{ matrix.arch }}.json
+
+  mac-feed:
+    needs: [create-draft, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mac-feed-*
+          merge-multiple: true
+      - name: Generate and upload latest-mac.yml (both arches)
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          VERSION=$(node -p "require('./package.json').version")
+          node scripts/update-feed.mjs mac --version "$VERSION" --out latest-mac.yml mac-feed-arm64.json mac-feed-x64.json
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: token $RELEASES_TOKEN" \
             -H "Content-Type: text/yaml" \
             --data-binary @latest-mac.yml \
@@ -730,33 +730,16 @@ jobs:
         env:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
+          set -euo pipefail
           UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
           UPLOAD_URL="${UPLOAD_URL%\{*}"
-          APPIMAGE=$(find out/make -name "*.AppImage" | head -1)
-          if [ -z "$APPIMAGE" ]; then
-            echo "No AppImage found, skipping latest-linux.yml"
-            exit 0
-          fi
           VERSION=$(node -p "require('./package.json').version")
-          FILENAME=$(basename "$APPIMAGE")
-          SIZE=$(stat -c%s "$APPIMAGE")
-          SHA512=$(openssl dgst -sha512 -binary "$APPIMAGE" | openssl base64 | tr -d '\n')
-          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-          cat > latest-linux.yml << YAML
-          version: $VERSION
-          files:
-            - url: $FILENAME
-              sha512: $SHA512
-              size: $SIZE
-          path: $FILENAME
-          sha512: $SHA512
-          releaseDate: '$RELEASE_DATE'
-          YAML
-          # Strip leading spaces (heredoc indentation)
-          sed -i 's/^          //' latest-linux.yml
-          echo "--- latest-linux.yml ---"
-          cat latest-linux.yml
-          curl -sS -X POST \
+          # AppImage, .deb and .rpm: each install kind's updater picks its own.
+          node scripts/update-feed.mjs linux --version "$VERSION" --out latest-linux.yml \
+            "$(find out/make -name '*.AppImage' | head -1)" \
+            "$(find out/make -name '*.deb' | head -1)" \
+            "$(find out/make -name '*.rpm' | head -1)"
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: token $RELEASES_TOKEN" \
             -H "Content-Type: text/yaml" \
             --data-binary @latest-linux.yml \
@@ -1562,6 +1545,7 @@ jobs:
         quality,
         create-draft,
         build-macos,
+        mac-feed,
         build-linux,
         build-windows,
         build-msix,

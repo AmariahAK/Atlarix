@@ -1,0 +1,3 @@
+# Tells electron-updater this install is an rpm, so it updates itself through
+# RpmUpdater (dnf/rpm, behind the system's password prompt). See forge.config.ts.
+echo rpm > /usr/lib/atlarix/resources/package-type
