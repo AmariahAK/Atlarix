@@ -32,6 +32,14 @@ The owner approved the scope 2026-10-23 and asked for a full release overnight. 
   uses them since the cloud agent went paid-only (reviewer ae7061c, agent-action v1.4.0). GitHub asks for sudo mode,
   so it's yours.
 - **VS Code Marketplace:** upload the 8 `.vsix` from the Desktop folder.
+- **Proxy copies drift on a scripts-only push (2026-10-24).** Every push to atlarix-proxy main redeploys Railway, but the
+  AWS copy only moves with `scripts/aws/90-proxy-failover.sh`, so the uptime watcher emailed "proxy copies differ" after a
+  one-line change to scripts/aws/60-lambdas.sh. Fix: compare only the deployed code (e.g. a hash of the bundle, not the
+  commit), or redeploy the AWS copy from the same CI step that Railway deploys from.
+- **Test hygiene (2026-10-24):** bun/vitest runs log into the owner's ~/Library/Logs/Atlarix/main.log (it rotates the real
+  app's updater lines away); all bun files share one database (a later file can't get a clean one).
+- **Linux notifications:** check on a real GNOME/KDE desktop whether a chat title with `&` or `<` breaks the body on
+  markup daemons; escape only if confirmed.
 - **Proxy failover: LIVE 2026-10-24.** The AWS copy (us-east-1, commit 2f30852) has its own Supabase key
   `aws_proxy_failover`. `proxy.fallbackUrl` is set in atlarix-releases core-models.json (477f0e4), and the uptime
   watcher checks it (fde2b27). Clients fall back only on no connection / 502 / 503 / 504, never mid-stream. Not yet a
