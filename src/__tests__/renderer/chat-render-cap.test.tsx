@@ -35,6 +35,14 @@ vi.mock("@/components/chat/InlineStreamStatus", () => ({
 vi.mock("@/components/chat/LoadedSessionBanner", () => ({
   LoadedSessionBanner: () => null,
 }));
+// The rating card pulls useWorkModeSelection → useSettings → the PostHog client
+// (and its recorder bundle). On CI that chain could still be loading when the
+// file's environment was torn down: 24 "Cannot load replay.ts" unhandled errors
+// failed main's run for 15.11.1. Nothing here is about the card.
+vi.mock("@/components/chat/SessionRatingCard", () => ({
+  SessionRatingCard: () => null,
+  openFeedbackFor: vi.fn(),
+}));
 vi.mock("@/lib/open-workspace-session", () => ({
   startNewWorkspaceConversation: vi.fn(),
 }));
