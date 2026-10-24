@@ -2660,8 +2660,20 @@ export async function seedDevProvider(opts: {
   // every start (QA saw 4 after 4).
   const { and, eq } = await import("drizzle-orm");
   const lm = schema.language_models;
-  if (!db.select({ id: lm.id }).from(lm).where(and(eq(lm.apiName, opts.model), eq(lm.customProviderId, id))).get()) {
-    db.insert(lm).values({ displayName: opts.model, apiName: opts.model, customProviderId: id }).run();
+  // Named as the catalog names it when it knows the model: replies were
+  // labelled "us.anthropic.claude-haiku-4-5-20251001-v1:0" (15.11.1 QA).
+  const { catalogModelName } = await import("@/lib/models_dev");
+  const displayName = (await catalogModelName(opts.model)) ?? opts.model;
+  const row = db
+    .select({ id: lm.id, displayName: lm.displayName })
+    .from(lm)
+    .where(and(eq(lm.apiName, opts.model), eq(lm.customProviderId, id)))
+    .get();
+  if (!row) {
+    db.insert(lm).values({ displayName, apiName: opts.model, customProviderId: id }).run();
+  } else if (row.displayName === opts.model && displayName !== opts.model) {
+    // Seeded before the catalog name was used: still its raw id.
+    db.update(lm).set({ displayName }).where(eq(lm.id, row.id)).run();
   }
   const { writeSettings } = await import("@/main/settings");
   writeSettings({

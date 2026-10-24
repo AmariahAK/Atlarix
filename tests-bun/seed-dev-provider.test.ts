@@ -31,3 +31,21 @@ it("starting with the same local model again adds no second row", async () => {
   expect(names.filter((n) => n === "fake-model")).toHaveLength(1);
   expect(names.filter((n) => n === "other-model")).toHaveLength(1);
 });
+
+it("names a model the catalog knows as the catalog does (15.11.1 QA: replies showed the raw id)", async () => {
+  const { seedDevProvider } = await import("../src/cli/agent/session");
+  const { db } = await import("../src/db");
+  const { language_models } = await import("../src/db/schema");
+  const { and, eq } = await import("drizzle-orm");
+  const nameOf = async (model: string) => {
+    const { provider } = await seedDevProvider({ baseUrl: "http://127.0.0.1:8/v1", model, apiKey: "dev" });
+    return db
+      .select({ displayName: language_models.displayName })
+      .from(language_models)
+      .where(and(eq(language_models.apiName, model), eq(language_models.customProviderId, provider)))
+      .get()?.displayName;
+  };
+  expect(await nameOf("us.anthropic.claude-haiku-4-5-20251001-v1:0")).toMatch(/^Claude Haiku 4\.5/);
+  // Unknown to the catalog: its id, as before.
+  expect(await nameOf("fake-model")).toBe("fake-model");
+});

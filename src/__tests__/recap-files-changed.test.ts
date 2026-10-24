@@ -62,6 +62,22 @@ describe("recentChangedFiles", () => {
     expect(await recentChangedFiles({ sessionId: "s", workspacePath: "/w" })).toEqual(["src/server.js", "test/ants.test.js"]);
   });
 
+  it("lists a file outside the workspace as ~/…, and leaves the agent's memory notes out (15.11.1 QA)", async () => {
+    const path = await import("node:path");
+    const os = await import("node:os");
+    const { memoryDirFor } = await import("@/lib/agent-memory");
+    const ws = "/w";
+    turns.push({ turnId: "t1" });
+    manifests.t1 = {
+      filesChanged: [
+        path.relative(ws, path.join(memoryDirFor(ws), "notes.md")),
+        path.relative(ws, path.join(os.homedir(), "notes", "todo.md")),
+        "src/a.ts",
+      ],
+    };
+    expect(await recentChangedFiles({ sessionId: "s", workspacePath: ws })).toEqual(["src/a.ts", "~/notes/todo.md"]);
+  });
+
   it("an empty list when no turn changed anything", async () => {
     expect(await recentChangedFiles({ sessionId: "s", workspacePath: "/w" })).toEqual([]);
   });
