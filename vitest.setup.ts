@@ -1,3 +1,5 @@
+// First: nothing may log to the app's real log file (tests/isolate-logs.ts).
+import "./tests/isolate-logs";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -51,7 +53,8 @@ try {
  *
  * Same class as the agent-memory leak above, with a worse failure mode: that one
  * created junk, this one deletes evidence. Console output is untouched, so a
- * failing test still says why.
+ * failing test still says why. The file is also pointed at a temp folder
+ * (tests/isolate-logs.ts, imported first), in case a test turns it back on.
  */
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports

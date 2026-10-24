@@ -53,6 +53,7 @@
     "prettier": "npx prettier --write .",
     "presubmit": "npm run prettier:check && npm run lint",
     "test": "vitest run",
+    "test:bun": "bun test --isolate",
     "audit:tools": "vitest run src/__tests__/tool-registry-audit.test.ts",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
