@@ -291,8 +291,19 @@ export class AtlarixConnection {
     return r.configOptions;
   }
 
-  authenticate(): Promise<unknown> {
-    return this.agent.request("authenticate", { methodId: "atlarix-browser" });
+  /** A browser way in (`atlarix-github`, …); the agent opens atlarix.dev on it. */
+  authenticate(methodId = "atlarix-browser"): Promise<unknown> {
+    return this.agent.request("authenticate", { methodId });
+  }
+
+  /** "Sign in with a code": the agent starts the device sign-in and answers with the code to show. */
+  signInCode(): Promise<{ userCode: string; verificationUri: string; expiresInS: number }> {
+    return this.agent.request<{ userCode: string; verificationUri: string; expiresInS: number }>("_atlarix/sign_in_code", {});
+  }
+
+  /** Resolves once the code was entered and approved (the session is on disk). */
+  signInCodeDone(): Promise<unknown> {
+    return this.agent.request("_atlarix/sign_in_code_wait", {});
   }
 
   status(): Promise<{ chrome?: string; recap?: boolean }> {

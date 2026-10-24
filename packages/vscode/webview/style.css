@@ -3060,3 +3060,85 @@ li.md-task {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Signed out: the first screen is the whole panel (views/sign-in.ts). */
+.signin-screen {
+  display: none;
+}
+#app.signed-out > :not(.signin-screen):not(.toast-slot) {
+  display: none !important;
+}
+#app.signed-out > .signin-screen {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+}
+.signin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 340px;
+  text-align: center;
+}
+.signin__title {
+  margin-bottom: 4px;
+}
+.signin__version {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.signin__lead {
+  margin: 0;
+  color: var(--muted);
+}
+.signin__choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+}
+.signin__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.signin__choice:hover,
+.signin__choice:focus-visible {
+  border-color: var(--primary);
+}
+.signin__label {
+  font-weight: 600;
+}
+.signin__detail {
+  font-size: 12px;
+  color: var(--muted);
+}
+.signin__code {
+  margin: 6px 0;
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--primary);
+}
+.signin__error {
+  margin: 8px 0 0;
+  color: var(--danger, var(--vscode-errorForeground));
+  font-size: 12px;
+}

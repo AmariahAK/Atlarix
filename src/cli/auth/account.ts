@@ -7,6 +7,7 @@
  * safeStorage). Signing out here ends this session only (scope "local").
  */
 import { spawn } from "node:child_process";
+import type { BrowserProvider } from "./sign-in-choices";
 import { signInWithBrowser, type Tokens } from "./browser-sign-in";
 
 /** Keep a session from the sign-in page, or refuse it (the same rules as the desktop). */
@@ -97,9 +98,14 @@ export function openInBrowser(url: string): void {
 }
 
 /** The whole browser sign-in, reporting the URL through `onUrl` as soon as it exists. */
-export function signInCli(onUrl: (url: string) => void, returnTo?: string): Promise<string> {
+export function signInCli(
+  onUrl: (url: string) => void,
+  returnTo?: string,
+  provider?: BrowserProvider,
+): Promise<string> {
   return signInWithBrowser({
     ...(returnTo ? { returnTo } : {}),
+    ...(provider ? { provider } : {}),
     openUrl: (url) => {
       onUrl(url);
       openInBrowser(url);

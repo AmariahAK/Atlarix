@@ -73,6 +73,13 @@ export interface AcpDeps {
   setEffort?(patch: { effort: string; deepThinking: boolean }): void;
   /** Computer use for a model: the same per-model switch as the app and the TUI's /computer. */
   computerUse?: { isOn(m: ModelChoice): boolean; set(m: ModelChoice, on: boolean): void; notice(): Promise<string | null> };
+  /**
+   * Whether someone is signed in. Absent (dev mode, own endpoint): no sign-in
+   * needed. Signed out → session/new and session/load answer authRequired at
+   * once, so the editor shows its sign-in choices FIRST, as the CLI and the app
+   * open on sign-in, not after a prompt fails (owner, 2026-10-24).
+   */
+  signedIn?(): Promise<boolean>;
   /** This folder's stored sessions, newest first (the TUI's /resume list). */
   listSessions(cwd: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date | string }>>;
   /** Rename or delete a stored session (the editor's Past chats). */
@@ -1309,7 +1316,15 @@ export class AcpAgent {
       .catch(() => {});
   }
 
+  /** Signed out (and not in dev mode): the editor's sign-in comes first. */
+  private async requireSignIn(): Promise<void> {
+    if (this.deps.signedIn && !(await this.deps.signedIn())) {
+      throw RequestError.authRequired(undefined, "Sign in to Atlarix to start.");
+    }
+  }
+
   async newSession(cwd: string, mcpServers?: unknown): Promise<NewSessionResponse> {
+    await this.requireSignIn();
     const t = await this.open(cwd);
     this.reportSessionOpened(t.id, "new");
     t.editorMcpServers = sessionMcpServersFrom(mcpServers);
@@ -1324,6 +1339,7 @@ export class AcpAgent {
     sessionId: string,
     mcpServers?: unknown,
   ): Promise<{ configOptions: SessionConfigOption[]; modes: SessionModeState }> {
+    await this.requireSignIn();
     const existing = this.threads.get(sessionId);
     const t = existing ?? (await this.open(cwd, sessionId));
     this.reportSessionOpened(t.id, "load");

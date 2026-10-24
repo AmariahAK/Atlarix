@@ -230,7 +230,7 @@ export function activate(context: vscode.ExtensionContext): void {
     diffs,
     openInTab: (sessionId) => openTab(sessionId),
     showLog: () => log.show(),
-    signIn: async () => {
+    signIn: async (method, showCode) => {
       // One sign-in at a time: another click shows its page again. Each click
       // used to start its own, and an earlier page then led nowhere.
       if (signingIn) {
@@ -239,12 +239,19 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       const c = await connect();
       if (!c) return;
-      signingIn = Promise.resolve(
-        vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: "Signing in to Atlarix — finish in your browser…", cancellable: false },
-          () => c.authenticate(),
-        ),
-      ).then(() => undefined);
+      signingIn =
+        method === "code"
+          ? // The panel shows the code (SSH, remote windows): no browser here.
+            c.signInCode().then((d) => {
+              showCode?.(d);
+              return c.signInCodeDone().then(() => undefined);
+            })
+          : Promise.resolve(
+              vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: "Signing in to Atlarix — finish in your browser…", cancellable: false },
+                () => c.authenticate(method ? `atlarix-${method}` : undefined),
+              ),
+            ).then(() => undefined);
       // Only when the browser didn't come up (the agent on another machine, a
       // blocked opener): after a few seconds, offer to open the page from here.
       const fallback = setTimeout(() => {

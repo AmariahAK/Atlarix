@@ -24,6 +24,7 @@
  * is `--api-key`, or ATLARIX_DEV_API_KEY (kept out of the process list).
  */
 import "./acp/stdio-guard";
+import type { SignInChoice } from "./auth/sign-in-choices";
 import "./tty-early";
 import "./build-env";
 import "../headless/log-setup";
@@ -295,11 +296,15 @@ type ShowLines = (lines: Array<{ text: string; tone?: "accent" | "muted" | "warn
 /** `/login` inside the TUI: the same two ways in, shown as lines in a dialog. */
 async function signInInTui(show: ShowLines): Promise<string> {
   const { shouldUseDeviceCode } = await import("./auth/device-sign-in");
-  return signInWith(shouldUseDeviceCode() ? "code" : "browser", show);
+  // The browser's page then offers every way in (GitHub, Google, Discord, email).
+  return signInWith(shouldUseDeviceCode() ? "code" : undefined, show);
 }
 
-/** Sign in through the browser on this machine, or with a code on any device. */
-async function signInWith(method: "browser" | "code", show: ShowLines): Promise<string> {
+/**
+ * Sign in through the browser on this machine (`provider`: the way in already
+ * chosen; none: the page asks), or with a code on any device.
+ */
+async function signInWith(method: SignInChoice | undefined, show: ShowLines): Promise<string> {
   const { signInWithDeviceCode } = await import("./auth/device-sign-in");
   const { acceptSession, signInCli } = await import("./auth/account");
   if (method === "code") {
@@ -315,13 +320,16 @@ async function signInWith(method: "browser" | "code", show: ShowLines): Promise<
         ]),
     });
   }
-  return signInCli((url) =>
-    show([
-      { text: "Finish signing in in your browser." },
-      { text: "If it didn't open, visit:", tone: "muted" },
-      { text: `  ${url}`, tone: "accent" },
-      { text: "Waiting… (esc to cancel)", tone: "muted" },
-    ]),
+  return signInCli(
+    (url) =>
+      show([
+        { text: "Finish signing in in your browser." },
+        { text: "If it didn't open, visit:", tone: "muted" },
+        { text: `  ${url}`, tone: "accent" },
+        { text: "Waiting… (esc to cancel)", tone: "muted" },
+      ]),
+    undefined,
+    method,
   );
 }
 

@@ -100,6 +100,10 @@ export interface HostSettings {
 
 export type HostMessage =
   | { type: "status"; status: "starting" | "ready" | "signed-out" | "error" | "no-folder"; detail?: string }
+  /** "Sign in with a code": the code to enter at `verificationUri`, while the agent waits. */
+  | { type: "sign-in-code"; userCode: string; verificationUri: string; expiresInS: number }
+  /** A sign-in that did not finish, and why: the first screen shows it with the choices again. */
+  | { type: "sign-in-failed"; message: string }
   | {
       type: "session";
       sessionId: string;
@@ -162,7 +166,8 @@ export type ViewMessage =
   | { type: "add-terminal" }
   | { type: "open-file"; path: string; line?: number }
   | { type: "open-url"; url: string }
-  | { type: "sign-in" }
+  /** `method`: a way in from cli/auth/sign-in-choices.ts; absent: the browser page asks (older webviews). */
+  | { type: "sign-in"; method?: "github" | "google" | "discord" | "email" | "code" }
   | { type: "sign-out" }
   | { type: "open-in-tab" }
   | { type: "visible"; visible: boolean; focused: boolean }
