@@ -21,6 +21,7 @@
 
 import { getDefaultStore } from "jotai";
 import { activeChatIdAtom, peerModelByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeSessionModelAtom, activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -28,6 +29,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSettings } from "@/hooks/useSettings";
 import { TOKEN_COUNT_QUERY_KEY } from "@/hooks/useCountTokens";
 import type { LargeLanguageModel } from "@/lib/schemas";
+import type { SessionModelChoice } from "@/lib/session-choices";
 
 export function useSelectModel(): (model: LargeLanguageModel) => Promise<void> {
   const { updateSettings } = useSettings();
@@ -35,9 +37,36 @@ export function useSelectModel(): (model: LargeLanguageModel) => Promise<void> {
 
   return useCallback(
     async (model: LargeLanguageModel) => {
+      const store = getDefaultStore();
+      // The chat in front runs on it from now on, and only that chat (15.11.1);
+      // the app's selection below is what the next NEW chat starts with.
+      // Optimistic, keeping its effort until main says which level the new model
+      // keeps (a level only stays when the new model lists it too).
+      const sessionId = store.get(activeWorkspaceSessionIdAtom);
+      if (sessionId) {
+        const was = store.get(activeSessionModelAtom);
+        store.set(activeSessionModelAtom, {
+          provider: model.provider,
+          name: model.name,
+          ...(model.customModelId != null ? { customModelId: model.customModelId } : {}),
+          ...(was?.effort ? { effort: was.effort } : {}),
+          ...(was?.deepThinking !== undefined ? { deepThinking: was.deepThinking } : {}),
+        });
+        void IpcClient.getInstance()
+          .setWorkspaceSessionModel(sessionId, {
+            provider: model.provider,
+            name: model.name,
+            ...(model.customModelId != null ? { customModelId: model.customModelId } : {}),
+          })
+          .then((row) => {
+            if (store.get(activeWorkspaceSessionIdAtom) === sessionId) {
+              store.set(activeSessionModelAtom, (row as { model?: SessionModelChoice | null }).model ?? null);
+            }
+          })
+          .catch((e) => console.warn("[model] failed to persist the chat's model:", e));
+      }
       await updateSettings({ selectedModel: model });
       // Your own pick ends one another session set for the chat in front of you (item 9).
-      const store = getDefaultStore();
       const here = [store.get(selectedChatIdAtom), store.get(activeChatIdAtom)];
       store.set(peerModelByChatIdAtom, (prev) => {
         if (!here.some((id) => id != null && prev.has(id))) return prev;

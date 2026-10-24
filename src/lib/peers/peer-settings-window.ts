@@ -1,6 +1,6 @@
 /**
  * The window's side of one session setting another's mode and/or model
- * (item 9): main already checked it and stored the mode on the session. The
+ * (item 9): main already checked it and stored the mode and model on the session. The
  * chat's next turns run on the model (until you pick one), the open session
  * takes the mode, and the chat shows who changed what.
  */
@@ -11,7 +11,11 @@ import {
   peerModelByChatIdAtom,
   peerSettingsNoticeByChatIdAtom,
 } from "@/atoms/chatAtoms";
-import { activeSessionWorkModeAtom, activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
+import {
+  activeSessionModelAtom,
+  activeSessionWorkModeAtom,
+  activeWorkspaceSessionIdAtom,
+} from "@/atoms/sessionAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 
 /** Once per window, at startup. Returns the unsubscribe. */
@@ -21,6 +25,13 @@ export function subscribeToPeerSessionSettings(): () => void {
     if (p.model) {
       const model = p.model;
       store.set(peerModelByChatIdAtom, (prev) => new Map(prev).set(p.chatId, model));
+      // Main stored it as that chat's own model (15.11.1); the open session shows
+      // it, keeping its effort only when the model is the one it already had.
+      if (store.get(activeWorkspaceSessionIdAtom) === p.sessionId) {
+        const was = store.get(activeSessionModelAtom);
+        const same = was?.provider === model.provider && was?.name === model.name;
+        store.set(activeSessionModelAtom, same && was ? was : { provider: model.provider, name: model.name });
+      }
     }
     if (p.mode) {
       const mode = p.mode;

@@ -50,7 +50,7 @@ import {
   FREE_LIMIT_MARKER,
 } from "@/shared/billing_copy";
 import { useTranslation } from "react-i18next";
-import { useSettings } from "@/hooks/useSettings";
+import { useChatModel } from "@/hooks/useChatModel";
 import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
 import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { useAccountKind } from "@/hooks/useAccountKind";
@@ -110,11 +110,12 @@ export function SimpleInlineChat({
   // A turn of this session running in another Atlarix shows here as it runs.
   useFollowRunningSession(chatId);
   const { t } = useTranslation("chat");
-  const { settings } = useSettings();
   const account = useAccountKind();
+  // This chat's own model (15.11.1), not the app-wide pick.
+  const chatModel = useChatModel(chatId).model;
   const onPaidAuto =
-    settings?.selectedModel?.provider === COMPASS_PROVIDER_ID &&
-    isCoreAutoTier(settings.selectedModel.name) &&
+    chatModel?.provider === COMPASS_PROVIDER_ID &&
+    isCoreAutoTier(chatModel.name) &&
     (account === "pro" || account === "payg");
   const [chatAppId, setChatAppId] = useState<number | null>(() =>
     selectedAppId != null ? selectedAppId : null,
@@ -526,14 +527,14 @@ export function SimpleInlineChat({
       const store = getDefaultStore();
       const res = await IpcClient.getInstance().compactChat({
         chatId,
-        providerId: settings?.selectedModel?.provider,
+        providerId: chatModel?.provider,
         workspaceSessionId: store.get(chatIdToSessionIdAtom).get(chatId) ?? null,
       });
       showInfo(res.message);
     } catch (e) {
       showError(e);
     }
-  }, [chatId, settings?.selectedModel?.provider]);
+  }, [chatId, chatModel?.provider]);
 
   // Build from the plan card in the chat (QA #17), as the Plan panel's Build:
   // the session switches to Build, the plan is marked building, and the build

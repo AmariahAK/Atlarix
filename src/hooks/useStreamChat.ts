@@ -121,6 +121,8 @@ import * as Sentry from "@sentry/electron/renderer";
 import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 import { useSettings } from "./useSettings";
 import { activeChatIdAtom, peerModeByChatIdAtom, peerModelByChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeSessionChoiceFor } from "@/hooks/useChatModel";
+import { effortSettingsFor } from "@/lib/session-choices";
 import {
   clearActivityForChatInStore,
   filterActivityForChat,
@@ -724,9 +726,23 @@ export function useStreamChat({
       workspaceSessionId?: string | null;
     }) => {
       // A model another session set for this chat (item 9), unless this turn names one.
-      const peerModel = getDefaultStore().get(peerModelByChatIdAtom).get(chatId);
+      const choiceStore = getDefaultStore();
+      const peerModel = choiceStore.get(peerModelByChatIdAtom).get(chatId);
+      // Else this chat's own model + effort (15.11.1), never the app-wide pick:
+      // sent, so the turn runs on what its chip shows even if the stored copy
+      // has not landed yet. A chat not on screen sends none and main reads its row.
+      const ownChoice =
+        askedModel || peerModel
+          ? null
+          : activeSessionChoiceFor(choiceStore.get(chatIdToSessionIdAtom).get(chatId));
       const modelOverride =
-        askedModel ?? (peerModel ? { provider: peerModel.provider, name: peerModel.name } : undefined);
+        askedModel ??
+        (peerModel
+          ? { provider: peerModel.provider, name: peerModel.name }
+          : ownChoice
+            ? { provider: ownChoice.provider, name: ownChoice.name }
+            : undefined);
+      const effortOverride = ownChoice ? effortSettingsFor(ownChoice) : undefined;
       if (!chatId) return;
       const hasAttachments =
         attachments?.some(
@@ -1683,6 +1699,11 @@ export function useStreamChat({
             ? modeStore.get(activeSessionWorkModeAtom)
             : // A chat not on screen whose mode another session set (items 9, 11).
               (modeStore.get(peerModeByChatIdAtom).get(chatId) ?? null);
+        // A chat with no workspace is read-only (Explore), whatever was picked
+        // elsewhere: said here, per turn, so showing it no longer rewrites the
+        // app's default mode (15.11.1).
+        const sentWorkMode =
+          workModeOverride ?? sessionWorkMode ?? (streamAppId == null ? "ask" : undefined);
 
         // Remember what THIS turn dispatched with, so the composer can show the mode
         // the turn is actually running in while the picker offers the next one.
@@ -1699,8 +1720,7 @@ export function useStreamChat({
           next.set(
             chatId,
             resolveEffectiveWorkMode({
-              workModeOverride:
-                workModeOverride ?? sessionWorkMode ?? undefined,
+              workModeOverride: sentWorkMode,
               intentMode: settings?.intentMode,
               workModePreference: settings?.workModePreference,
               selectedChatMode: settings?.selectedChatMode ?? "ask",
@@ -1731,7 +1751,8 @@ export function useStreamChat({
           // decision made from app-wide state — the same shape as the v14.32.0
           // and v14.34.0 bugs. A session with no stored mode still sends nothing
           // and still resolves from the global, exactly as before.
-          workModeOverride: workModeOverride ?? sessionWorkMode ?? undefined,
+          workModeOverride: sentWorkMode,
+          effortOverride,
           escalate,
           onUpdate: (updatedMessages: Message[]) => {
             // v11.1: no freeze-baseline clamp — the turn ends at ask_user, so

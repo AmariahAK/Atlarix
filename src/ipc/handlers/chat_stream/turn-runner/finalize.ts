@@ -236,7 +236,11 @@ export async function finalizeTurn(
   // v14.7: rolling session-memory recording removed (see the injection
   // site) — the full native history is the single source of truth.
   const settings = readSettings();
-  const isBuildModeTurn = settings.selectedChatMode === "build";
+  // This turn's mode (its chat's own, sent with the turn), not the app's current
+  // pick: another chat may have switched mode while this one ran (15.11.1).
+  const { chatModeForWorkMode } = await import("@/lib/work-mode");
+  const isBuildModeTurn =
+    (req.workModeOverride ? chatModeForWorkMode(req.workModeOverride) : settings.selectedChatMode) === "build";
   {
     const newReviewSystemActiveElse =
       ctx.delegatedAgentsThisTurn.includes("reviewer");
@@ -597,7 +601,7 @@ export async function handleTurnError(
       reason: "network",
       // Named the way the CLI and editor say it (ec6bdc46).
       providerName: providerDisplayName(
-        getEffectiveModel(readSettings())?.provider,
+        (req.modelOverride ?? getEffectiveModel(readSettings()))?.provider,
       ),
       ...(error.detail ? { detail: error.detail } : {}),
       canResume: true,
@@ -729,7 +733,7 @@ export async function handleTurnError(
           const { reportContextOverflowForModel } = await import(
             "@/lib/context/resolve-model-context-limit"
           );
-          reportContextOverflowForModel(getEffectiveModel(readSettings()));
+          reportContextOverflowForModel((req.modelOverride ?? getEffectiveModel(readSettings())));
         } catch {
           /* best-effort */
         }
@@ -738,7 +742,8 @@ export async function handleTurnError(
         );
         const compacted = await forceCompactEphemeralChat(
           req.chatId,
-          readSettings().selectedModel?.provider,
+          // This turn's model (the chat's own), not the app's current pick (15.11.1).
+          (req.modelOverride ?? readSettings().selectedModel)?.provider,
           { workspaceSessionId: req.workspaceSessionId },
         ).catch(() => ({ ok: false }) as const);
         if (compacted.ok) {

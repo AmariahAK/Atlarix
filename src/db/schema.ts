@@ -147,14 +147,28 @@ export const chatSessions = sqliteTable("chat_sessions", {
    * session is the honest owner — it is what the user thinks they are choosing a
    * mode FOR.
    *
-   * NULL means "no stored mode", which is every row written before this column
-   * existed. Those keep resolving from the global preference exactly as they did,
-   * and the first deliberate pick inside the session stamps it here. Defaulting
-   * them on open instead would hand every old session a mode it was never given.
+   * NULL means "no stored mode". It used to be left NULL until the first pick
+   * inside the session, so an unstamped session followed whatever another chat
+   * picked last (15.11.0). Now the app stamps a new session with its current
+   * mode, and reads NULL as the app's mode at the 15.11.1 upgrade
+   * (`legacyChatWorkMode`, owner 2026-10-24). Rows are not backfilled: the CLI and
+   * the editors don't stamp, and read NULL as "keep the session's current mode".
    */
   workMode: text("work_mode", {
     enum: ["ask", "plan", "build", "debug", "review"],
   }),
+  /**
+   * The model this session runs on, with its effort: JSON
+   * `{provider, name, effort?, deepThinking?}` (`SessionModelChoice`).
+   *
+   * Like `workMode`, and for the same reason: one app-wide selection meant that
+   * picking a model in one chat changed the next turn of every other chat
+   * (15.11.0). The app stamps a new session with its current default, and old
+   * rows get today's default once (`backfillSessionChoices`). NULL is read as the
+   * app's default. Only the app reads it; the CLI and the editors keep theirs in
+   * memory.
+   */
+  model: text("model"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

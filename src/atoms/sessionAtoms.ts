@@ -19,17 +19,23 @@ export const pendingSessionHandoffAtom = atom<{
  * The active session's stored work mode, or `null` when it has none.
  *
  * Hydrated when a session is activated and written when the user picks a mode in
- * it. `null` is meaningful — it means "this session has never had a mode chosen,
- * resolve from the global preference" — so it must never be collapsed to a
- * default here. `resolveEffectiveWorkMode` already treats an absent value that
- * way, which is what keeps every pre-existing session behaving as it does today.
+ * it. `null` reads as the app's default (a session stamped before it was read,
+ * or a row from an older build); every session is stamped now (15.11.1).
  *
- * Deliberately keyed on nothing: it tracks the ACTIVE session only. A per-chat
- * map would be a second source of truth for something the DB already owns, and
- * the one thing this change is trying to end is a mode with two owners.
+ * Deliberately keyed on nothing: it tracks the ACTIVE session only. A chat not
+ * on screen runs on its own row, which main reads at the start of its turn
+ * (`fillTurnChoicesFromSession`), so the DB stays the one owner.
  */
 export const activeSessionWorkModeAtom = atom<
   import("@/lib/schemas").WorkMode | null
+>(null);
+
+/**
+ * The active session's model + effort (15.11.1), or `null` for "the app's
+ * default". Same lifecycle as `activeSessionWorkModeAtom`.
+ */
+export const activeSessionModelAtom = atom<
+  import("@/lib/session-choices").SessionModelChoice | null
 >(null);
 
 /** True when UI shows history from a loaded session but model context is empty. */

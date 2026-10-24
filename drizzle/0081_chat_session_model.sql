@@ -1,0 +1,11 @@
+-- The model (and its effort) this chat runs on.
+--
+-- The desktop app kept ONE selected model for every chat: picking Haiku in one
+-- chat changed the next turn of every other chat (15.11.0, QA ai-44). The CLI and
+-- the editors already kept it per session. JSON `{provider, name, effort?,
+-- deepThinking?}`; null = no stored model (rows from before this column, or
+-- written by an older build), which reads as the app's default.
+--
+-- Additive only (one nullable column): an older reader ignores it, so min_reader
+-- stays where it is.
+ALTER TABLE `chat_sessions` ADD `model` text;

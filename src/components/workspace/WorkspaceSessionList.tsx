@@ -221,6 +221,7 @@ export function WorkspaceSessionList({
         activateWorkspaceSession(
           sessionId,
           listed ? ((listed.workMode ?? null) as WorkMode | null) : undefined,
+          listed ? (listed.model ?? null) : undefined,
         );
         setLoadedTruncated(false);
         setChatIdToSessionId((prev) => {
@@ -300,6 +301,7 @@ export function WorkspaceSessionList({
       activateWorkspaceSession(
         session.id,
         (session.workMode ?? null) as WorkMode | null,
+        session.model ?? null,
       );
       setLoadedTruncated(Boolean(truncated));
       // Only a genuinely prior-launch session is "restored" — a session opened

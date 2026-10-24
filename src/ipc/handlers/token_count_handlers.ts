@@ -338,11 +338,11 @@ async function computeTokenCountResult(
   const inputTokens = estimateTokens(req.input);
 
   const settings = readSettings();
+  // This chat's own model (15.11.1), not the app-wide pick.
+  const { turnModelForChat } = await import("@/lib/summarization_model");
+  const chatModel = await turnModelForChat(req.chatId, settings);
 
-  const contextSize = await getContextWindow(
-    settings.selectedModel,
-    req.chatId,
-  );
+  const contextSize = await getContextWindow(chatModel, req.chatId);
 
   // PASS8 E1: Cached system-prompt token estimate (recomputed at most every
   // SYSTEM_PROMPT_CACHE_TTL_MS, keyed by the params that actually influence it).
@@ -408,13 +408,10 @@ async function computeTokenCountResult(
     .find((m) => m.role === "assistant");
   const actualMaxTokens = lastAssistantMessage?.maxTokensUsed ?? null;
 
-  const providerId = settings.selectedModel?.provider ?? "auto";
+  const providerId = chatModel?.provider ?? "auto";
   const { budget: effectiveBudget, source: budgetSource } =
     await getEffectiveBudget(providerId, req.chatId);
-  const contextWindow = await getContextWindow(
-    settings.selectedModel,
-    req.chatId,
-  );
+  const contextWindow = await getContextWindow(chatModel, req.chatId);
 
   return {
     estimatedTotalTokens: totalTokens,
