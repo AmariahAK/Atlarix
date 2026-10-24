@@ -56,6 +56,7 @@ import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
+import { useChatModel } from "@/hooks/useChatModel";
 import {
   Select,
   SelectContent,
@@ -138,6 +139,8 @@ function SimpleMessageImpl({
   const activeChatId = useAtomValue(activeChatIdAtom);
   const turnModels = useAtomValue(turnModelByAssistantMessageIdAtom);
   const chatId = chatIdProp ?? activeChatId;
+  // This chat's own model (15.11.1), for a reply that has no record yet.
+  const chatModel = useChatModel(chatId).model;
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   // W5 (v14.8.11): attachment stub tags stripped from the editable text —
@@ -219,7 +222,7 @@ function SimpleMessageImpl({
   const answeredWith =
     turnModels[message.id] ??
     parseDisplaySnapshot(message.displaySnapshot)?.model ??
-    (isStreaming ? settings?.selectedModel : undefined);
+    (isStreaming ? chatModel : undefined);
   const answeredProvider = providers?.find((p) => p.id === answeredWith?.provider);
   const getModelDisplayName = () =>
     resolveModelDisplayLabel(answeredWith as LargeLanguageModel | undefined, {

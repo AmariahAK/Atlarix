@@ -473,6 +473,12 @@ export const UserSettingsSchema = z.object({
   intentMode: z.enum(["ask", "build", "auto"]).optional(),
   /** v5.1: Work mode for Blueprint tier + UX; maps to ask/build tools (see work-mode.ts). */
   workModePreference: WorkModeSchema.optional(),
+  /**
+   * The mode the app ran in when 15.11.1 gave each chat its own: what an app chat
+   * with no stored mode (one from before, or one a CLI made) runs in from then on,
+   * instead of following whatever was picked last. Written once, at that start.
+   */
+  legacyChatWorkMode: WorkModeSchema.optional(),
   /** v12 7A: active user-defined agent (.atlarix/agents/<name>.md); empty = none. */
   selectedAgent: z.string().optional(),
   /** v2.1: AI Configuration (agents, self-review, context, project understanding). */

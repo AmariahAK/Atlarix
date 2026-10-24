@@ -285,7 +285,10 @@ export async function executeCompressContext(
   const msgList = forCompaction(ctx.messages ?? []);
   const tokensBefore = countMessagesTokens(msgList);
 
-  const tierLimit = await getUsableBudget(ctx.providerId);
+  // The chat's own model (its turn's), not the app's current pick (15.11.1).
+  const { turnModelForChat } = await import("@/lib/summarization_model");
+  const { readSettings } = await import("@/main/settings");
+  const tierLimit = await getUsableBudget(ctx.providerId, await turnModelForChat(ctx.chatId, readSettings()));
   // W6 (v14.8.11): the model asked for space — force past the 60% usage
   // gate, and measure usage in the METER's scope (history + system prompt
   // + input) so the tool never reports "nothing to do" while the meter

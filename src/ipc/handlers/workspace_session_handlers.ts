@@ -42,7 +42,17 @@ import {
   stopElsewhere,
 } from "@/lib/peers/peers";
 import { isChatStreamLive, lastStreamRequest } from "./chat_stream/stream-state";
+import { readSettings } from "@/main/settings";
+import { legacyChatWorkMode } from "@/main/backfill-session-choices";
 import { WorkModeSchema, type WorkMode } from "@/lib/schemas";
+import {
+  SessionModelChoiceSchema,
+  defaultSessionModel,
+  defaultSessionWorkMode,
+  parseSessionModel,
+  serializeSessionModel,
+  type SessionModelChoice,
+} from "@/lib/session-choices";
 import {
   bindTransportToSession,
   createStreamTransport,
@@ -67,12 +77,14 @@ export type ChatSessionRow = {
   /** "auto" = generated and may be regenerated; "user" = typed, never touched. */
   titleSource: "auto" | "user";
   /**
-   * The mode this session runs in, or `null` for a session written before the
-   * column existed. `null` is not a default to be filled in on read — it means
-   * "resolve from the global preference", which is what those sessions have
-   * always done. See `chat_sessions.work_mode` in the schema.
+   * The mode this session runs in. In the app a row with none reads as the app's
+   * mode at the 15.11.1 upgrade (`legacyChatWorkMode`); in the CLI and the
+   * editors it stays `null`, which they read as "keep the current mode". See
+   * `chat_sessions.work_mode` in the schema.
    */
   workMode: WorkMode | null;
+  /** The model + effort this session runs on (`null`: the app's default). See `chat_sessions.model`. */
+  model: SessionModelChoice | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -123,7 +135,8 @@ function mapSession(row: typeof chatSessions.$inferSelect): ChatSessionRow {
     workspaceId: row.workspaceId,
     title: row.title,
     titleSource: (row.titleSource ?? "auto") as "auto" | "user",
-    workMode: (row.workMode ?? null) as WorkMode | null,
+    workMode: (row.workMode as WorkMode | null) ?? legacyChatWorkMode(readSettings),
+    model: parseSessionModel(row.model),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -768,7 +781,13 @@ export async function startWorkspaceSession(
     if (reuseId && !opts.id) {
       const verified = await verifyTrulyEmptySession(reuseId, "reuse");
       if (verified.row && verified.empty) {
-        session = mapSession(verified.row);
+        // Nothing was ever said in it, so it is a new chat: it starts with what
+        // was picked last, not what was the default when the row was made.
+        const fresh = appDefaultChoices();
+        const [restamped] = Object.keys(fresh).length
+          ? await db.update(chatSessions).set(fresh).where(eq(chatSessions.id, reuseId)).returning()
+          : [];
+        session = mapSession(restamped ?? verified.row);
         logger.log(
           `Reusing empty session ${session.id} for workspace ${workspaceId}`,
         );
@@ -813,6 +832,22 @@ export async function startWorkspaceSession(
   return { sessionId: session.id, chatId, session };
 }
 
+/**
+ * What a new app chat starts with: the app's current model, effort and mode,
+ * stamped on its row so a later pick in ANOTHER chat can't change it (15.11.1).
+ * Nothing in the CLI and the editors, which keep their session's choices in
+ * memory and read a stored mode as one to resume in.
+ */
+function appDefaultChoices(): { workMode?: WorkMode; model?: string | null } {
+  if (process.env.ATLARIX_SURFACE === "cli") return {};
+  const settings = readSettings();
+  const model = defaultSessionModel(settings);
+  return {
+    workMode: defaultSessionWorkMode(settings),
+    model: model ? serializeSessionModel(model) : null,
+  };
+}
+
 async function insertWorkspaceSession(
   workspaceId: number,
   presetId?: string,
@@ -825,6 +860,7 @@ async function insertWorkspaceSession(
       id,
       workspaceId,
       title: "Untitled",
+      ...appDefaultChoices(),
       createdAt: now,
       updatedAt: now,
     })
@@ -1176,6 +1212,7 @@ export function registerWorkspaceSessionHandlers(): void {
           title: named || `${source.title?.trim() || "Untitled"} (fork)`,
           titleSource: named ? "user" : "auto",
           workMode: source.workMode,
+          model: source.model,
         })
         .where(eq(chatSessions.id, fork.id))
         .returning();
@@ -1274,6 +1311,47 @@ export function registerWorkspaceSessionHandlers(): void {
         .where(eq(chatSessions.id, sessionId))
         .returning();
       if (!row) throw new Error("Session not found");
+      return mapSession(row);
+    },
+  );
+
+  /**
+   * Stamp the model (and its effort) this session runs on: the user picked it
+   * while this session was on screen. Only this row changes; other chats keep
+   * theirs. `updatedAt` is left alone: choosing a model is not activity in the
+   * chat, and the list is ordered by activity.
+   */
+  handle(
+    "sessions:set-model",
+    async (_event, sessionId: string, choice: SessionModelChoice) => {
+      const parsed = SessionModelChoiceSchema.safeParse(choice);
+      if (!parsed.success) {
+        throw new Error(`Invalid model choice: ${JSON.stringify(choice)}`);
+      }
+      let next = parsed.data;
+      // A model picked without an effort: this chat's level stays when the new
+      // model lists it too, else the model's own default (never translated), the
+      // rule `set-user-settings` applies to the app's default.
+      if (next.effort === undefined && next.deepThinking === undefined) {
+        const current = await db.query.chatSessions.findFirst({
+          where: eq(chatSessions.id, sessionId),
+          columns: { model: true },
+        });
+        const was = parseSessionModel(current?.model) ?? defaultSessionModel(readSettings());
+        const { effortAfterModelChange } = await import("@/lib/routing/model-reasoning-profile");
+        const { effortChoicesForModel } = await import("@/lib/routing/reasoning-detector");
+        const kept = effortAfterModelChange(effortChoicesForModel(next), was ?? {});
+        next = { ...next, effort: kept.effort, deepThinking: kept.deepThinking };
+      }
+      const [row] = await db
+        .update(chatSessions)
+        .set({ model: serializeSessionModel(next) })
+        .where(eq(chatSessions.id, sessionId))
+        .returning();
+      if (!row) throw new Error("Session not found");
+      // Other sessions see this chat's own model in list_sessions.
+      const { noteAppChatModel } = await import("@/lib/peers/main-host");
+      noteAppChatModel(sessionId, next);
       return mapSession(row);
     },
   );

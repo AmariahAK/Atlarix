@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { isStreamingForChatAtom, messagesForChatAtom, turnWorkModeByChatIdAtom } from "@/atoms/chatAtoms";
 import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
-import { useSettings } from "@/hooks/useSettings";
+import { useChatModel } from "@/hooks/useChatModel";
 import { IpcClient, type FeedbackSessionInfo } from "@/ipc/ipc_client";
 import {
   FEEDBACK_FAILED,
@@ -37,7 +37,7 @@ export function openFeedbackFor(chatId: number, given: Given = {}): void {
 
 export function SessionRatingCard({ chatId, composerEmpty }: { chatId: number; composerEmpty: boolean }) {
   const { t } = useTranslation("chat");
-  const { settings } = useSettings();
+  const chat = useChatModel(chatId);
   const { workMode: shownMode } = useWorkModeSelection();
   const turnMode = useAtomValue(turnWorkModeByChatIdAtom).get(chatId);
   const streaming = useAtomValue(isStreamingForChatAtom(chatId));
@@ -80,9 +80,9 @@ export function SessionRatingCard({ chatId, composerEmpty }: { chatId: number; c
   const turns = messages.filter((m) => m.role === "user").length;
   const session = (): FeedbackSessionInfo => ({
     mode: ratingMode(turnMode, shownMode),
-    effort: settings?.effort || undefined,
-    provider: settings?.selectedModel?.provider,
-    model: settings?.selectedModel?.name,
+    effort: chat.effort || undefined,
+    provider: chat.model?.provider,
+    model: chat.model?.name,
     turns,
     startedAt: startedAt.current,
   });

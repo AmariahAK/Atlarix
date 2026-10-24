@@ -28,9 +28,11 @@ vi.mock("@/hooks/useLanguageModelProviders", () => ({
 describe("the model chip (QA A15)", () => {
   it("names the model another session set for the chat, not the app's selected one", async () => {
     const { useModelDisplayName } = await import("@/hooks/useModelDisplayName");
-    const { chipModel } = await import("@/components/ModelPicker");
+    const { resolveChatModel } = await import("@/hooks/useChatModel");
     const selected = { provider: "bedrock" as const, name: "us.anthropic.claude-haiku-4-5", customModelId: 7 };
     const peer = { provider: "bedrock", name: "us.amazon.nova-micro-v1:0", label: "Nova Micro (US)" };
+    const chipModel = (settingsModel: typeof selected, p: typeof peer | undefined) =>
+      resolveChatModel({ settings: { selectedModel: settingsModel }, session: null, peer: p }).model;
     const shown = chipModel(selected, peer);
     expect(shown).toEqual({ provider: "bedrock", name: "us.amazon.nova-micro-v1:0" });
     const { result } = renderHook(() => useModelDisplayName(shown));

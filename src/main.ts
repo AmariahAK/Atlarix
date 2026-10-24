@@ -647,7 +647,14 @@ export async function onReady() {
   });
 
   try {
-    initializeDatabase();
+    const startupDb = initializeDatabase();
+    // Each chat owns its model + mode now: chats from before get today's defaults
+    // once, before any window can send a turn (15.11.1).
+    {
+      const { backfillSessionChoices } = await import("./main/backfill-session-choices");
+      const { readSettings, writeSettings } = await import("./main/settings");
+      backfillSessionChoices(startupDb, readSettings(), writeSettings);
+    }
     // Other Atlarix sessions (CLI or app) can message this one (lib/peers).
     void import("./lib/peers/main-host").then((m) => m.startPeerMessaging("app"));
     // A session another process named or renamed (the CLI, an editor) reaches

@@ -73,6 +73,7 @@ const validInvokeChannels = [
   "sessions:stop-remote",
   "sessions:fork",
   "sessions:set-work-mode",
+  "sessions:set-model",
   "sessions:delete",
   "sessions:prune-if-empty",
   "sessions:get",

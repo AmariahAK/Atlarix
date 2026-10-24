@@ -1832,6 +1832,8 @@ export class IpcClient {
       };
       /** Resend/edit: work mode for this turn only. */
       workModeOverride?: import("@/lib/schemas").WorkMode;
+      /** The chat's own effort for its model (15.11.1). */
+      effortOverride?: { effort: string; deepThinking: boolean };
       /** "Try with a stronger model" (paid Atlarix Auto). */
       escalate?: boolean;
     },
@@ -1851,6 +1853,7 @@ export class IpcClient {
       workspaceSessionId,
       prefillTaskLedger,
       workModeOverride,
+      effortOverride,
       escalate,
       displayPrompt,
       pasteAttachments,
@@ -1881,6 +1884,7 @@ export class IpcClient {
               workspaceSessionId: workspaceSessionId ?? undefined,
               prefillTaskLedger: prefillTaskLedger ?? undefined,
               workModeOverride: workModeOverride ?? undefined,
+              effortOverride: effortOverride ?? undefined,
               escalate: escalate || undefined,
             })
             .then((res) => this.endStreamDispatch(chatId, res))
@@ -1916,6 +1920,7 @@ export class IpcClient {
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger: prefillTaskLedger ?? undefined,
           workModeOverride: workModeOverride ?? undefined,
+              effortOverride: effortOverride ?? undefined,
           escalate: escalate || undefined,
         })
         .then((res) => this.endStreamDispatch(chatId, res))
@@ -2166,10 +2171,17 @@ export class IpcClient {
   }
 
   /**
-   * Stamp the session's work mode. Call this only on a DELIBERATE pick while the
-   * session is active — never on open, or a session written before the column
-   * existed would silently acquire whatever the global preference happened to be.
+   * Stamp the model (with its effort) this session runs on: a pick made while it
+   * is on screen. Only this chat changes (15.11.1).
    */
+  public async setWorkspaceSessionModel(
+    sessionId: string,
+    choice: import("@/lib/session-choices").SessionModelChoice,
+  ) {
+    return this.ipcRenderer.invoke("sessions:set-model", sessionId, choice);
+  }
+
+  /** Stamp the session's work mode: a pick made while it is on screen. Only this chat changes. */
   public async setWorkspaceSessionWorkMode(
     sessionId: string,
     workMode: import("@/lib/schemas").WorkMode,

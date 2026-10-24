@@ -95,6 +95,11 @@ describe("a session sets another's mode and model", () => {
     const { eq } = await import("drizzle-orm");
     const row = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, guard.sessionId) });
     expect(row?.workMode).toBe("review");
+    // Stored as that session's own model (15.11.1), and only that session's.
+    const setTo = all.find((o) => o.provider !== "compass")!;
+    expect(JSON.parse(row?.model ?? "null")).toMatchObject({ provider: setTo.provider, name: setTo.name });
+    const coordRow = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, coord.sessionId) });
+    expect(coordRow?.workMode).not.toBe("review");
 
     const list = await run("list_sessions", { workspaceSessionId: coord.sessionId });
     // Guard's own line says both changes, the model by the name it was set by.

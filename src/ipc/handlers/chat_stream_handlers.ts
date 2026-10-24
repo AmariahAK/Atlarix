@@ -340,6 +340,13 @@ export function registerChatStreamHandlers() {
     const abortController = new AbortController();
     activeStreams.set(req.chatId, abortController);
     resetTurnState(req.chatId);
+    // The chat's own model, effort and mode when the request doesn't name them
+    // (15.11.1: per chat, never the app-wide pick). Before lastStreamRequest, so
+    // sub-agents and compaction read the same model as the turn.
+    {
+      const { fillTurnChoicesFromSession } = await import("@/main/turn-session-choices");
+      await fillTurnChoicesFromSession(req);
+    }
     // FIX 4: remember this request so the renderer's [Reconnect] button can
     // re-dispatch the exact same turn via `chat:stream:reconnect`.
     lastStreamRequest.set(req.chatId, req);
@@ -993,6 +1000,16 @@ export function registerChatStreamHandlers() {
           settings = {
             ...settings,
             ...settingsPatchForWorkMode(req.workModeOverride),
+          };
+        }
+        // The chat's own effort (it travels with the chat's model): the turn reads
+        // this snapshot, never the app's global, so another chat's /effort can't
+        // change it (15.11.1).
+        if (req.effortOverride) {
+          settings = {
+            ...settings,
+            effort: req.effortOverride.effort,
+            deepThinking: req.effortOverride.deepThinking,
           };
         }
 

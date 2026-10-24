@@ -8,6 +8,7 @@ import type { NavigateOptions } from "@tanstack/react-router";
 import { IpcClient } from "@/ipc/ipc_client";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
 import {
+  activeSessionModelAtom,
   activeSessionWorkModeAtom,
   activeWorkspaceSessionIdAtom,
   chatIdToSessionIdAtom,
@@ -16,6 +17,7 @@ import {
   workspaceSessionsRefreshAtom,
 } from "@/atoms/sessionAtoms";
 import type { WorkMode } from "@/lib/schemas";
+import type { SessionModelChoice } from "@/lib/session-choices";
 import {
   activeChatIdAtom,
   chatMessagesByIdAtom,
@@ -51,11 +53,21 @@ import { clearChatAtomsForChat } from "@/lib/chat/clear-chat-atoms";
 export function activateWorkspaceSession(
   sessionId: string,
   workMode?: WorkMode | null,
+  /** Its model + effort, by the same rule as `workMode` (15.11.1). */
+  model?: SessionModelChoice | null,
 ): void {
   const store = getDefaultStore();
+  const switched = store.get(activeWorkspaceSessionIdAtom) !== sessionId;
   store.set(activeWorkspaceSessionIdAtom, sessionId);
   if (workMode !== undefined) {
     store.set(activeSessionWorkModeAtom, workMode);
+  }
+  if (model !== undefined) {
+    store.set(activeSessionModelAtom, model);
+  } else if (switched) {
+    // Not known yet: never the previous chat's, which a send would carry. With
+    // none, a turn runs on this chat's stored model (main reads its row).
+    store.set(activeSessionModelAtom, null);
   }
 }
 
@@ -71,10 +83,12 @@ export async function activateWorkspaceSessionById(
   activateWorkspaceSession(sessionId, undefined);
   const res = (await IpcClient.getInstance()
     .getWorkspaceSession(sessionId, { limit: 1 })
-    .catch(() => null)) as { session?: { workMode?: WorkMode | null } } | null;
+    .catch(() => null)) as {
+    session?: { workMode?: WorkMode | null; model?: SessionModelChoice | null };
+  } | null;
   if (!res?.session) return;
   if (getDefaultStore().get(activeWorkspaceSessionIdAtom) !== sessionId) return;
-  activateWorkspaceSession(sessionId, res.session.workMode ?? null);
+  activateWorkspaceSession(sessionId, res.session.workMode ?? null, res.session.model ?? null);
 }
 
 export function registerOpenChatTab(tab: {
@@ -210,10 +224,10 @@ export async function startNewWorkspaceConversation(
       name,
       path: workspacePath,
     });
-    // A brand-new session has no stored mode: `null` so it resolves from the
-    // global preference, and so the mode of whatever session you were just in
-    // does not follow you into a fresh chat.
-    activateWorkspaceSession(sessionId, null);
+    // A brand-new session was stamped with the app's defaults a moment ago, and
+    // `null` reads as exactly those; the session you were just in does not
+    // follow you into a fresh chat.
+    activateWorkspaceSession(sessionId, null, null);
     store.set(loadedSessionResumeAtom, false);
     store.set(loadedSessionTruncatedAtom, false);
     store.set(sessionIdToChatIdAtom, (prev) => {
@@ -274,9 +288,9 @@ export type OpenWorkspaceFolderOptions = {
  * Untitled rows. The CLI path (`import_workspace_core.ts`) has always gone through
  * it; this makes the renderer agree instead of diverging.
  *
- * `workMode: null` is deliberate — a session created a moment ago has no stored
- * mode, so it resolves from the global preference, and the previous session's mode
- * must not carry into a brand-new one.
+ * `workMode: null` is deliberate: the session was just stamped (or re-stamped,
+ * when an empty one is reused) with the app's defaults, which is what `null`
+ * reads as, and the previous session's mode must not carry into a brand-new one.
  */
 async function resolveSessionAndChat(
   workspaceAppId: number,
@@ -342,7 +356,7 @@ export async function openWorkspaceByAppId(
       name: app.name,
       path: folderPath || app.path || "",
     });
-    activateWorkspaceSession(sessionId, workMode);
+    activateWorkspaceSession(sessionId, workMode, null);
     store.set(loadedSessionResumeAtom, false);
     store.set(activeChatIdAtom, chatId);
     store.set(selectedChatIdAtom, chatId);
@@ -408,7 +422,7 @@ export async function openWorkspaceFolder(
       name: app.name,
       path: app.path ?? folderPath,
     });
-    activateWorkspaceSession(sessionId, workMode);
+    activateWorkspaceSession(sessionId, workMode, null);
     store.set(loadedSessionResumeAtom, false);
     store.set(activeChatIdAtom, chatId);
     store.set(selectedChatIdAtom, chatId);
