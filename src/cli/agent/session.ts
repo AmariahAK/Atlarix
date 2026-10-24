@@ -1581,6 +1581,10 @@ export class AgentSession extends EventEmitter {
     // Anything queued for after this turn would otherwise start right away.
     this.queue = [];
     this.syncPending();
+    // Its cards come down: main withdraws them (endTurn), and an editor takes
+    // back a card whose approval left this list (ACP $/cancel_request). They
+    // stayed open after a stop, answerable into nothing (15.11.0, E7).
+    if (this.state.approvals.length) this.update({ approvals: [] });
   }
 
   /** Esc: stop the running turn. The session stays; the next message starts a new turn. */

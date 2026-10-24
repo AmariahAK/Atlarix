@@ -12,10 +12,17 @@ export type OperationStatus =
   | "queued"
   | "running"
   | "completed"
-  | "failed";
+  | "failed"
+  /** Withdrawn: its turn was stopped (main `endTurn`). */
+  | "cancelled";
 
 export interface QueuedOperation {
   id: string;
+  /**
+   * The chat whose turn asked. The queue is one map for the whole window, and
+   * the bar read all of it: a card from one chat showed in every chat (15.11.0).
+   */
+  chatId?: number;
   operation:
     | "run_command"
     | "edit_file"
@@ -106,10 +113,31 @@ export const permissionQueueAtom = atom<Map<string, QueuedOperation>>(
 export function getOperationsByStatus(
   queue: Map<string, QueuedOperation>,
   status: OperationStatus,
+  /** Only this chat's (the bar and the inline cards are per chat). */
+  chatId?: number,
 ): QueuedOperation[] {
   return Array.from(queue.values())
-    .filter((op) => op.status === status)
+    .filter((op) => op.status === status && (chatId === undefined || op.chatId === chatId))
     .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
+ * A chat's cards still waiting, dropped: its turn ended (the backstop to main's
+ * `cancelled` status, for a window that missed it).
+ */
+export function withoutWaitingForChat(
+  queue: Map<string, QueuedOperation>,
+  chatId: number,
+): Map<string, QueuedOperation> {
+  let changed = false;
+  const next = new Map(queue);
+  for (const [id, op] of queue) {
+    if (op.chatId === chatId && (op.status === "pending" || op.status === "queued")) {
+      next.delete(id);
+      changed = true;
+    }
+  }
+  return changed ? next : queue;
 }
 
 /**

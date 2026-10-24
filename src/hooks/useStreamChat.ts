@@ -92,6 +92,7 @@ import {
   permissionQueueAtom,
   updateOperationStatus,
   type QueuedOperation,
+  withoutWaitingForChat,
 } from "@/atoms/permissionQueueAtom";
 import { IpcClient } from "@/ipc/ipc_client";
 import { compassUsageBumpAtom } from "@/atoms/viewAtoms";
@@ -2087,6 +2088,9 @@ export function useStreamChat({
             // pending and drains into the user's next turn.
             if (response.userCancelled) {
               userStoppedChatsRef.current.add(chatId);
+              // Its cards come down with it (main also reports them cancelled);
+              // only on a stop: a turn parked on a card ends with it still open.
+              setPermissionQueue((prev) => withoutWaitingForChat(prev, chatId));
             }
             const maybeWakeForBackgroundResults = () => {
               if (

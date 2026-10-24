@@ -178,6 +178,9 @@ export class PermissionInterceptor extends EventEmitter {
    */
   private deniedChanges = new Set<string>();
 
+  /** Set by `endTurn`: nothing this turn asked for may be approved any more. */
+  private turnEnded = false;
+
   /** Map of operation ID to pending approval promise */
   private pendingApprovals: Map<string, PendingApproval> = new Map();
 
@@ -437,6 +440,12 @@ export class PermissionInterceptor extends EventEmitter {
    * One-way: there is no un-set, because the turn ending is the un-set.
    */
   approveRestOfTurn(): void {
+    // A card left on screen after Stop: its turn is over, and a yes now must not
+    // reach anything (15.11.0: the orphan bar's "Allow all this turn").
+    if (this.turnEnded) {
+      logger.log(`[approveRestOfTurn] chat ${this.activeChatId}: that turn has ended; nothing to approve`);
+      return;
+    }
     this.turnBlanketApproved = true;
     logger.log(
       `[approveRestOfTurn] chat ${this.activeChatId}: approvals suppressed for the rest of this turn`,
@@ -466,6 +475,24 @@ export class PermissionInterceptor extends EventEmitter {
   isDeniedChange(request: PermissionRequest): boolean {
     const key = this.changeKey(request);
     return key !== null && this.deniedChanges.has(key);
+  }
+
+  /**
+   * The turn is over (stopped, or ended with a card still open). Every card
+   * still waiting is withdrawn: marked not approved, so a late yes ("Allow all
+   * this turn" on the orphan bar, or the card itself) runs nothing, and
+   * reported `cancelled` so every surface takes its card down. Before 15.11.1 a
+   * Stop left them pending: the bar stayed, in every chat, and its "Allow all"
+   * could still apply the stopped edit.
+   */
+  endTurn(): void {
+    this.turnEnded = true;
+    for (const [operationId, operation] of this.pendingOperations) {
+      if (operation.status !== "pending") continue;
+      operation.status = "rejected";
+      this.resolveApproval(operationId, false);
+      this.emitStatus(operationId, "cancelled");
+    }
   }
 
   /** Whether the rest-of-turn blanket is active (for logging / tests). */
@@ -592,7 +619,7 @@ export class PermissionInterceptor extends EventEmitter {
    */
   private emitStatus(
     operationId: string,
-    status: "pending" | "queued" | "running" | "completed" | "failed",
+    status: "pending" | "queued" | "running" | "completed" | "failed" | "cancelled",
     progress?: number,
     duration?: number,
     error?: string,
