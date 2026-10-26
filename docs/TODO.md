@@ -100,6 +100,21 @@ not trust it.
   - **QA (full confirmation):** a fresh free account with a $0 wallet, on each of app, CLI, VS Code panel and Zed:
     the picker shows Core as paid, picking it gives the new wording plus the `/billing` / Auto way out, and a paid
     account (Pro or credit) sees no "Credit" tag and no change in the refusal it can still get.
+- **Sentry: two issues from 2026-10-24/26 (owner, 2026-10-27).**
+  - **ATLARIX-46, CLI browser sign-in crash** (`TypeError: null is not an object (evaluating 'server.address().port')`,
+    `src/cli/auth/browser-sign-in.ts:118`, 15.11.1, Linux, bun; new user d345dde0 at sign-up). Not the user's doing:
+    after sign-in `finish()` calls `server.close()`, and the browser's follow-up request on the still-open keep-alive
+    connection (typically `/favicon.ico`) reaches the handler, where `server.address()` is now null, thrown uncaught.
+    Sign-in had already succeeded (the user ran turns a minute later). Fix: take the port once in the `listen`
+    callback and use it in the handler; after `finish`, answer any request with 503/close (or
+    `server.closeAllConnections()`); a test that sends a request after sign-in finishes.
+  - **ATLARIX-45 "Source folder does not exist"** (`src/ipc/handlers/import_handlers.ts:65`): opening a moved or deleted
+    workspace (usually from Recent). The user IS told (`showError` in `src/lib/open-workspace-session.ts:474`), but as
+    raw text "[import-app] Error: Source folder does not exist". Ignored forever in Sentry 2026-10-27 at the owner's
+    request. Code side: `createLoggedHandler` (`src/ipc/handlers/safe_handle.ts`) sends EVERY IPC error to Sentry;
+    mark expected user-condition errors (missing folder, and similar) so they are logged but not reported, show a
+    plain message ("That folder no longer exists. It may have been moved or deleted."), and offer to remove it from
+    Recent.
 - **15.11.2 small items:** a reply label shows a prettified raw id for ~10–20 s after launch, until the model list
   loads; a provider renamed by the CLI keeps its old name in an open app until restart (the cached model list).
 - **Bun on CI:** `npm run test:bun` runs in the quality job now; the first runs passed. Locally the team uses the same
