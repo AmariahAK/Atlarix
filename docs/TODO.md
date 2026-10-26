@@ -86,6 +86,17 @@ not trust it.
       to Pro / Auto buttons must still show).
     - CLI: `src/cli/tui/limits.ts` (`errorNotice` keys on `CORE_EXHAUSTED_MARKER`).
     - VS Code panel and ACP editors: they receive the CLI's error text, so check the hint line still renders there.
+  - **Approved wording (owner, 2026-10-27; use exactly):**
+    - Picker tag for Core, accounts with no Pro and no credit: `Credit` (muted) in the app, CLI and VS Code panel,
+      next to Auto's `Free`; in ACP editors the model's description says `Uses credit` (Auto: `Free`). Pro users and
+      anyone with a balance see no tag.
+    - Refusal for a $0 account that has NEVER added credit: "**Atlarix Core models run on credit.** Add credit or get
+      Pro to use them, or switch to Atlarix Auto, which is free." Plus, when the proxy sends `required_cents`: "This
+      model needs at least $X of credit." App: the existing Add credit / Upgrade to Pro / Use Atlarix Auto buttons
+      under it. CLI, VS Code panel and ACP: title "Atlarix Core runs on credit", detail "Add credit or get Pro to use
+      it, or switch to Atlarix Auto (free).", actions "/billing add credit or get Pro · /model Atlarix Auto (free) or
+      your own key".
+    - An account that HAD credit and spent it keeps today's "Your Atlarix Core balance is used up" message.
   - **QA (full confirmation):** a fresh free account with a $0 wallet, on each of app, CLI, VS Code panel and Zed:
     the picker shows Core as paid, picking it gives the new wording plus the `/billing` / Auto way out, and a paid
     account (Pro or credit) sees no "Credit" tag and no change in the refusal it can still get.
