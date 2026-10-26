@@ -48,16 +48,23 @@ not trust it.
   serve requests when you use up your quota". Owner: check Usage / billing.
 - **Owed checks:** the Windows approval toast (named chat, click opens it; Squirrel + MSIX) needs a signed-in app in
   the VM, so one owner device-code approval as agent@. The Mac notification click is the owner's check.
-- **Mac auto-update: a failed download leaves the banner stuck and doesn't retry (owner's app, 2026-10-26).** The owner's
-  /Applications app (15.11.0, team 7VWW7N9R87) found 15.11.1 at 21:20, then the download died at 17% with
-  `net::ERR_NETWORK_CHANGED` (main.log). Two bugs: (1) `src/components/UpdateBanner.tsx` sets "Downloading update X…"
-  on `update:downloading` and clears it only on `update:downloaded`; it never listens to `update:status`, so after the
-  `downloadUpdate().catch` in `src/main.ts` records `lastResult: "error"`, the banner stays forever (the owner saw it as
-  "stuck at installing"). Fix: subscribe `onUpdateStatus` and clear on "error". (2) Nothing retries until the 4 h
-  `UPDATE_RECHECK_INTERVAL_MS`; a network change mid-download should re-check after a short backoff (e.g. 2 min,
-  doubling up to the 4 h interval, reset on `update-downloaded`). Test: a failed download clears the banner and
-  schedules a re-check. Note: the 2026-10-25 01:45 "Update downloaded: 15.11.1" lines in the owner's main.log came from
-  the QA ~/Applications update test, not the owner's app, which has never auto-updated.
+- **Auto-update on every desktop platform: a failed download leaves the banner stuck and nothing retries soon
+  (owner, 2026-10-26).** Seen on the owner's Mac (/Applications, 15.11.0): it found 15.11.1 at 21:20, the download died at
+  17% with `net::ERR_NETWORK_CHANGED` (main.log), and the banner stayed on "Downloading…" (the owner saw "stuck at
+  installing"). The owner's app has never auto-updated (the 2026-10-25 01:45 "Update downloaded" lines in main.log came
+  from the QA ~/Applications test). The fix must cover all three:
+  - **The banner (all platforms):** `src/components/UpdateBanner.tsx` shows "Downloading update X…" on
+    `update:downloading` and clears it only on `update:downloaded`. It never listens to `update:status`, so an error
+    recorded by electron-updater (`downloadUpdate().catch` and the `error` event in `src/main.ts`) or by Squirrel on
+    Windows (`squirrelUpdater.on("error")`) leaves it stuck. Subscribe `onUpdateStatus` and clear (or say it will
+    retry) on "error".
+  - **macOS and Linux (electron-updater: dmg/zip, AppImage, .deb, .rpm):** after a failed download nothing retries until
+    the 4 h `UPDATE_RECHECK_INTERVAL_MS`. Re-check after a short backoff (e.g. 2 min, doubling up to 4 h, reset on
+    `update-downloaded`). Check the deb/rpm pkexec install path fails visibly too.
+  - **Windows (Squirrel via update-electron-app):** re-checks hourly; confirm a mid-download network change recovers
+    on the next check and the banner clears. MSIX installs update through the Store (nothing to fix there).
+  - **Tests:** a failed download clears the banner and schedules a re-check (electron-updater path); a Squirrel error
+    clears the banner. Then a real network-drop test on Mac, Windows (VM) and Linux.
 - **15.11.2 small items:** a reply label shows a prettified raw id for ~10–20 s after launch, until the model list
   loads; a provider renamed by the CLI keeps its old name in an open app until restart (the cached model list).
 - **Bun on CI:** `npm run test:bun` runs in the quality job now; the first runs passed. Locally the team uses the same
