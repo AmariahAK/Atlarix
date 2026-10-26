@@ -65,17 +65,30 @@ not trust it.
     on the next check and the banner clears. MSIX installs update through the Store (nothing to fix there).
   - **Tests:** a failed download clears the banner and schedules a re-check (electron-updater path); a Squirrel error
     clears the banner. Then a real network-drop test on Mac, Windows (VM) and Linux.
-- **New free users pick a paid Core model first and hit a misleading refusal (owner, 2026-10-27).** Both CLI sign-ups of
-  2026-10-26 (Linux, 15.11.1, $0 wallet) chose a Core tier in their first minute (core-1, core-5), got 402 quota, then
-  switched to Auto, OK'd consent and worked (PostHog `turn_completed`, `prev_model` null on turn 1 = picked, not a
-  default; every surface defaults to `core-auto`).
-  - **Say Core costs credit in the picker.** CLI `/model` (`openPicker` in `src/cli/tui/App.tsx`) tags Auto "Free" but
-    shows Core rows by model name with only a context size. Tag Core rows (e.g. "Credit", or the price) for accounts
-    without Pro/credit. Check the app's model picker and the VS Code panel's for the same gap.
-  - **"Your Atlarix Core balance is used up" is wrong for an account that never had a balance.** `CORE_EXHAUSTED_MESSAGE`
-    (`src/shared/billing_copy.ts`) is the same for everyone by design; for a $0 never-topped-up account say Core runs
-    on credit instead (keep `CORE_EXHAUSTED_MARKER` matching in `src/cli/tui/limits.ts`, or add a marker for the new
-    text, so the `/billing … · /model … Atlarix Auto (free)` hint still shows).
+- **New free users pick a paid Core model first and hit a misleading refusal: fix on EVERY surface (owner,
+  2026-10-27).** Both CLI sign-ups of 2026-10-26 (Linux, 15.11.1, $0 wallet) chose a Core tier in their first minute
+  (core-1, core-5), got 402 quota, then switched to Auto, OK'd consent and worked (PostHog `turn_completed`;
+  `prev_model` null on turn 1 = picked, not a default; every surface defaults to `core-auto`). The owner wants both
+  fixes on all four surfaces, with a QA confirmation on each:
+  - **1. Say Core costs credit wherever a model is picked** (for accounts without Pro or credit), the same way Auto
+    is tagged "Free":
+    - App: `src/components/ModelPicker.tsx` (and the chat's model menu, `ChatConfigDropdown.tsx` / `ChatInputControls.tsx`).
+    - CLI: `/model` (`openPicker` in `src/cli/tui/App.tsx`), which tags Auto "Free" but shows Core rows with only a
+      context size.
+    - VS Code panel: `packages/vscode/webview/chat/picker.ts`.
+    - ACP editors (Zed, JetBrains): the session model options in `src/cli/acp/agent.ts` (the option name or
+      description is all the editor shows).
+  - **2. "Your Atlarix Core balance is used up" is wrong for an account that never had a balance.** For a $0,
+    never-topped-up account, say Core runs on credit, keeping the way out: `/billing` (add credit or Pro) and Atlarix
+    Auto (free). The text lives in `CORE_EXHAUSTED_MESSAGE` (`src/shared/billing_copy.ts`); each surface matches it
+    by marker, so add or keep a marker every surface recognises:
+    - App: `src/components/chat/ChatErrorBox.tsx`, `src/components/SimpleInlineChat.tsx` (its Add credit / Upgrade
+      to Pro / Auto buttons must still show).
+    - CLI: `src/cli/tui/limits.ts` (`errorNotice` keys on `CORE_EXHAUSTED_MARKER`).
+    - VS Code panel and ACP editors: they receive the CLI's error text, so check the hint line still renders there.
+  - **QA (full confirmation):** a fresh free account with a $0 wallet, on each of app, CLI, VS Code panel and Zed:
+    the picker shows Core as paid, picking it gives the new wording plus the `/billing` / Auto way out, and a paid
+    account (Pro or credit) sees no "Credit" tag and no change in the refusal it can still get.
 - **15.11.2 small items:** a reply label shows a prettified raw id for ~10–20 s after launch, until the model list
   loads; a provider renamed by the CLI keeps its old name in an open app until restart (the cached model list).
 - **Bun on CI:** `npm run test:bun` runs in the quality job now; the first runs passed. Locally the team uses the same
