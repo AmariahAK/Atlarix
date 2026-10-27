@@ -115,6 +115,18 @@ not trust it.
     mark expected user-condition errors (missing folder, and similar) so they are logged but not reported, show a
     plain message ("That folder no longer exists. It may have been moved or deleted."), and offer to remove it from
     Recent.
+- **Add GPT-6.1 Terra to Atlarix Core as a new slot, core-6 (owner, 2026-10-27).** Make it one of the available models
+  and selectable in every model picker (app, CLI `/model`, VS Code panel, ACP options). All five slots are taken
+  (`routing` in atlarix-releases `core-models.json` has core-1…core-5), so it needs a sixth:
+  - App: `CORE_TIER_6` and its env lookup in `src/ipc/shared/compass_constants.ts` (next to `CORE_TIER_5`, line ~285),
+    `src/ipc/utils/dev_core_env.ts`, the label row in `src/shared/compass_product_copy.ts`, and `ATLARIX_CORE_MODEL_6`
+    in `.github/workflows/release.yml`, `msix.yml` (and every other workflow that lists 1-5).
+  - atlarix-releases `core-models.json`: a `core-6` routing entry and its provider (OpenAI); check pricing, context
+    window and the API model id against OpenAI's model page first, never from memory.
+  - atlarix-proxy: confirm it routes any slot named in `core-models.json` (no hardcoded list), and that billing prices it.
+  - Launchpad: the Core lineup is derived from `core-models.json` and CI-checked (`check:core-lineup`); regenerate.
+  - Older apps must ignore an unknown slot without breaking; check a 15.11.1 build against the new JSON before
+    publishing it.
 - **15.11.2 small items:** a reply label shows a prettified raw id for ~10–20 s after launch, until the model list
   loads; a provider renamed by the CLI keeps its old name in an open app until restart (the cached model list).
 - **Bun on CI:** `npm run test:bun` runs in the quality job now; the first runs passed. Locally the team uses the same
