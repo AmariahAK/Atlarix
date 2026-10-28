@@ -17,9 +17,26 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-28
 
 ---
+
+## 🔨 Queued 2026-10-28 (planned today, built 2026-10-29 with the two calendar events)
+
+- **Peer messaging: a one-shot "tell me when it's done" (owner, 2026-10-28).** Today a session that messages another
+  (`send_message`, `src/lib/tools/peers.ts`) learns the outcome only by polling `list_sessions` with `result_of` or by
+  asking the peer to message back. Add an opt-in on `send_message` (e.g. `notify_when_done`) that delivers ONE
+  notice to the sender when the target's turn ends (how it ended + the `result_of` line), on every surface, and
+  nothing when the target refuses or never runs. Implemented in `src/lib/peers/peers.ts` where a turn's end is
+  already recorded for `result_of`.
+- **Resume sessions started by other sessions, on every surface (owner, 2026-10-28).** A session can come from
+  another one (`/fork`, a sub-agent's run, a peer that messaged a pending session, a cloud or automation run) and
+  today nothing records that lineage: `src/db/schema.ts` has no parent/origin on a chat, so `/resume` (CLI, "from
+  this folder, the app's too"), the app's recent chats, the VS Code panel's Past chats and an ACP editor's session
+  list show flat rows. Record the lineage (parent chat, how it was started, by which session/surface), and let the
+  user open the whole tree from any surface, from the first turn on: resume the parent and see its children, resume a
+  child and see where it came from, with the same session visible from the app, the CLI, VS Code and ACP
+  (`session/load`). Design in plan mode first; the stores are shared, so one schema change serves all four.
 
 ## 🔨 Handover 2026-10-25 (ai-27) — 15.11.1 released overnight; what is left
 
