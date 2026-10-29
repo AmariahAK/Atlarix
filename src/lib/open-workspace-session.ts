@@ -206,8 +206,6 @@ export type StartNewWorkspaceConversationOptions = {
   workspacePath?: string;
   navigate?: (opts: NavigateOptions) => void;
   refreshApps?: () => Promise<void>;
-  /** Offered as "Remove…" when the folder no longer exists (the caller confirms). */
-  onFolderMissing?: () => void;
 };
 
 /**
@@ -296,7 +294,8 @@ export type OpenWorkspaceFolderOptions = {
   installCommand?: string | null;
   startCommand?: string | null;
   navigate?: (opts: NavigateOptions) => void;
-  refreshApps?: () => Promise<void>;
+  refreshApps?: () => Promise<void>;  /** Offered as "Remove…" when the folder no longer exists (the caller confirms). */
+  onFolderMissing?: () => void;
 };
 
 /**

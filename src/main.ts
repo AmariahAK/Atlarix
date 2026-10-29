@@ -1242,7 +1242,6 @@ function initAutoUpdater(): void {
   // The next check: every 4 h, sooner after a failure.
   updateRechecker.start();
 }
-}
 
 /**
  * Windows silent background auto-updater. Windows ships Squirrel.Windows
