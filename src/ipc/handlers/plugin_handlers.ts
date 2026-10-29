@@ -11,6 +11,16 @@
  * The agent has no path to any of this: these are UI calls, not tools.
  */
 
+import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
+import {
+  modCommands,
+  modProblems,
+  modsRenderPane,
+  modsUiAction,
+  modUiEvents,
+  openModPanes,
+  type ModUiEvent,
+} from "@/lib/plugins/mod-host";
 import type { IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
 import { listPluginCommands } from "@/lib/plugins/commands";
@@ -139,21 +149,54 @@ async function prepare(input: string, opts: { cwd?: string; update?: string }) {
   return previewView(preview);
 }
 
+let forwardingModUi = false;
+
 export function registerPluginHandlers(): void {
+  // Mods' status, toasts and panes, to every window (the CLI, in-process, listens
+  // to `modUiEvents` itself).
+  if (!forwardingModUi) {
+    forwardingModUi = true;
+    modUiEvents.on("ui", (e: ModUiEvent) => broadcastToAllWindows("mods:ui", e));
+  }
+
   handle("plugins:list", async () => listPluginsForUi());
+
+  handle(
+    "mods:render-pane",
+    async (
+      _e: IpcMainInvokeEvent,
+      { plugin, id, workspacePath }: { plugin: string; id: string; workspacePath?: string | null },
+    ) => modsRenderPane({ workspacePath: workspacePath ?? null }, plugin, id),
+  );
+
+  handle(
+    "mods:action",
+    async (
+      _e: IpcMainInvokeEvent,
+      { plugin, action, workspacePath }: { plugin: string; action: string; workspacePath?: string | null },
+    ) => modsUiAction({ workspacePath: workspacePath ?? null }, plugin, action),
+  );
+
+  handle("mods:open-panes", async () => openModPanes());
 
   handle(
     "plugins:commands",
     async (
       _e: IpcMainInvokeEvent,
       { workspacePath }: { workspacePath?: string | null },
-    ) =>
-      listPluginCommands(workspacePath ?? null).map((c) => ({
+    ) => {
+      const markdown = listPluginCommands(workspacePath ?? null).map((c) => ({
         name: c.name,
         description: c.description,
         argumentHint: c.argumentHint ?? null,
         plugin: c.plugin,
-      })),
+      }));
+      // Commands a mod registered (its `command.run` answers them).
+      const fromMods = (await modCommands({ workspacePath: workspacePath ?? null }))
+        .filter((c) => !markdown.some((m) => m.name === c.name))
+        .map((c) => ({ name: c.name, description: c.description, argumentHint: null, plugin: c.plugin }));
+      return [...markdown, ...fromMods];
+    },
   );
 
   handle(
@@ -161,7 +204,7 @@ export function registerPluginHandlers(): void {
     async (
       _e: IpcMainInvokeEvent,
       { workspacePath }: { workspacePath?: string | null },
-    ) => loadPlugins(workspacePath ?? null).problems,
+    ) => [...loadPlugins(workspacePath ?? null).problems, ...modProblems()],
   );
 
   handle(

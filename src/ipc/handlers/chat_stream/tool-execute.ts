@@ -121,6 +121,17 @@ export async function runToolExecute(
       error: `Blocked by a pre_tool_use hook (${hookDenial.deniedBy}):\n${hookDenial.reason}`,
     });
   }
+  // Mods with the `tool` capability can deny too (lib/plugins/mod-host.ts).
+  // Loaded lazily: QuickJS is only started when a verified plugin has a mod.
+  const { modsToolCall } = await import("@/lib/plugins/mod-host");
+  const modDenial = await modsToolCall(hookCtx, toolName, executeArgs);
+  if (modDenial) {
+    logger.warn(`[mods] ${toolName} denied by ${modDenial.plugin}`);
+    return JSON.stringify({
+      success: false,
+      error: `Blocked by the ${modDenial.plugin} mod:\n${modDenial.reason}`,
+    });
+  }
 
   // v14.8.11: attachment tools are scoped to the calling chat/session (the
   // store is process-global; unscoped calls leaked other sessions'

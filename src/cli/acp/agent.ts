@@ -940,7 +940,12 @@ class Thread {
       const { listPluginCommands } = await import("@/lib/plugins/commands");
       const builtin = new Set(BUILTIN_COMMANDS);
       const skillNames = new Set(this.skills.map((s) => s.name));
-      this.pluginCommands = listPluginCommands(this.cwd).filter((c) => !builtin.has(c.name) && !skillNames.has(c.name));
+      const { modCommands } = await import("@/lib/plugins/mod-host");
+      const markdown = listPluginCommands(this.cwd);
+      const fromMods = (await modCommands({ workspacePath: this.cwd })).filter(
+        (c) => !markdown.some((m) => m.name === c.name),
+      );
+      this.pluginCommands = [...markdown, ...fromMods].filter((c) => !builtin.has(c.name) && !skillNames.has(c.name));
     } catch {
       this.pluginCommands = [];
     }

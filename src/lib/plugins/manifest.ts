@@ -14,8 +14,8 @@
  *    reported unsupported: its API is Claude Code's.
  *
  * 3. **Skills only** — no manifest, just `skills/<name>/SKILL.md` (or one root
- *    `SKILL.md`): the Agent Skills layout `npx skills add` installs, which is how
- *    Cloudflare ships security-audit. Named after the source.
+ *    `SKILL.md`): the Agent Skills layout `npx skills add` installs. Named after
+ *    the source.
  *
  * Conventional paths, all layouts: `skills/<n>/SKILL.md`, `agents/*.md`,
  * `commands/*.md`, `hooks/hooks.json`, `.mcp.json`.
@@ -41,16 +41,31 @@ import { sha256 } from "./tree-hash";
 
 export type PluginFormat = "atlarix" | "claude" | "skills";
 
+/**
+ * What a mod may ask `$` for (mod-host.ts). `process` and `net` are not in v1:
+ * both would have to wait on the person's approval card, and the isolate runs
+ * synchronously — a mod that declares them is told at install they won't run.
+ */
 export const MOD_CAPABILITIES = [
   "ui",
   "command",
   "prompt",
   "tool",
+  "state",
   "fs",
-  "process",
-  "net",
 ] as const;
 export type ModCapability = (typeof MOD_CAPABILITIES)[number];
+
+/** What each capability lets a mod do, as the second confirm says it. */
+export const MOD_CAPABILITY_TEXT: Readonly<Record<ModCapability, string>> = {
+  ui: "shows a status line, toasts and panes ($.ui)",
+  command: "adds slash commands and answers them ($.command, command.run)",
+  prompt:
+    "rewrites your messages and adds context to every turn (prompt.submit, prompt.compose)",
+  tool: "sees every tool call and can block it (tool.call)",
+  state: "keeps its own data, up to 64 KB ($.state, $.store)",
+  fs: "reads files in the open folder ($.fs.read)",
+};
 
 export interface PluginSkill {
   name: string;
@@ -467,10 +482,15 @@ export function describeRunnables(c: PluginContents): string[] {
       );
     }
   }
-  if (c.mod)
+  if (c.mod) {
+    // The `$` surface in full (mod-host.ts), one line per declared capability,
+    // so the second confirm says what the mod can DO, not just a word.
     lines.push(
-      `mod ${c.mod.main}: ${c.mod.capabilities.join(", ") || "no capabilities"}`,
+      `mod ${c.mod.main}: runs isolated (no files, network or programs), 32 MB, 200 ms per event`,
     );
+    for (const cap of c.mod.capabilities)
+      lines.push(`mod ${c.mod.main} ${cap}: ${MOD_CAPABILITY_TEXT[cap]}`);
+  }
   // Shown on a terminal: an escape sequence in a plugin's text must not be able
   // to redraw what the person reads at the confirm.
   return lines.map(visible);

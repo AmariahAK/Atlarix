@@ -38,6 +38,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/automations", description: "Scheduled and triggered tasks for this folder", group: "work" },
   { name: "/mcp", description: "MCP servers for this folder: turn on/off, add, test", group: "tools" },
   { name: "/plugins", description: "Plugins you installed: add, update, turn on/off", group: "tools" },
+  { name: "/mods", description: "Panes your mods opened", group: "tools" },
   { name: "/chrome", description: "The Chrome extension: connected, or how to connect it", group: "tools" },
   { name: "/computer", description: "Let this model see your screen and use the mouse and keyboard: /computer on|off", group: "tools" },
   { name: "/permissions", description: "What Atlarix may do here without asking", group: "tools" },

@@ -4,6 +4,7 @@ import {
   AppSearchResultsSchema,
 } from "../lib/schemas";
 import type { PluginListItem, PluginPreviewView } from "./handlers/plugin_handlers";
+import type { ModNode, ModUiEvent } from "@/lib/plugins/mod-host";
 import {
   applyLiveTextPatch,
   type LiveTextPatch,
@@ -4304,6 +4305,23 @@ export class IpcClient {
       listener(payload as { type: "added" | "resolved"; chatId: number; suggestion: McpSuggestionView }),
     );
     return typeof off === "function" ? off : () => {};
+  }
+
+  public onModUi(listener: (e: ModUiEvent) => void): () => void {
+    const off = this.ipcRenderer.on("mods:ui", (payload) => listener(payload as ModUiEvent));
+    return typeof off === "function" ? off : () => {};
+  }
+
+  public async renderModPane(plugin: string, id: string, workspacePath: string | null): Promise<ModNode | null> {
+    return this.ipcRenderer.invoke("mods:render-pane", { plugin, id, workspacePath });
+  }
+
+  public async modAction(plugin: string, action: string, workspacePath: string | null): Promise<void> {
+    return this.ipcRenderer.invoke("mods:action", { plugin, action, workspacePath });
+  }
+
+  public async openModPanes(): Promise<Array<{ plugin: string; id: string; title: string }>> {
+    return this.ipcRenderer.invoke("mods:open-panes");
   }
 
   public onMcpServersChanged(listener: () => void): () => void {

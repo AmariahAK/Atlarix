@@ -388,3 +388,76 @@ function reviewRunnables(
     )
     .catch((e: Error) => ctx.flash(e.message, 6000, "warn"));
 }
+
+/**
+ * /mods — the panes mods opened, drawn as rows: a pane's text lines, and its
+ * buttons as rows that send the button's action to the mod and draw it again.
+ */
+export function openMods(ctx: ScreenContext): void {
+  void import("@/lib/plugins/mod-host").then(({ openModPanes }) => {
+    const panes = openModPanes();
+    if (panes.length === 0) return void ctx.flash("No mod has a pane open.");
+    if (panes.length === 1)
+      return openModPane(ctx, panes[0]!.plugin, panes[0]!.id, panes[0]!.title);
+    ctx.host.push(
+      new ListDialog({
+        title: "Mods",
+        footer: "↑↓ move · enter open · esc close",
+        items: panes.map((p) => ({
+          id: `${p.plugin}\u0000${p.id}`,
+          label: p.title,
+          detail: p.plugin,
+        })),
+        onChoose: (item) => {
+          const [plugin, id] = item.id.split("\u0000") as [string, string];
+          openModPane(ctx, plugin, id, item.label);
+        },
+      }),
+    );
+  });
+}
+
+function openModPane(
+  ctx: ScreenContext,
+  plugin: string,
+  id: string,
+  title: string,
+): void {
+  const modCtx = { workspacePath: ctx.session.workspaceDir };
+  const pane: ListDialog = new ListDialog({
+    title: `${title} · ${plugin}`,
+    footer: "↑↓ move · enter press · esc close",
+    empty: "This pane is empty.",
+    items: async () => {
+      const { modsRenderPane } = await import("@/lib/plugins/mod-host");
+      const tree = await modsRenderPane(modCtx, plugin, id);
+      return tree ? paneRows(tree) : [];
+    },
+    onChoose: async (item) => {
+      if (!item.id.startsWith("action:")) return;
+      const { modsUiAction } = await import("@/lib/plugins/mod-host");
+      await modsUiAction(modCtx, plugin, item.id.slice("action:".length));
+      await pane.reload();
+    },
+  });
+  ctx.host.push(pane);
+}
+
+/** A mod's tree as list rows; only Buttons are choosable. */
+export function paneRows(
+  node: import("@/lib/plugins/mod-host").ModNode,
+  out: ListItem[] = [],
+): ListItem[] {
+  const text = node.props?.text;
+  if (node.type === "Button") {
+    out.push({
+      id: `action:${node.props?.action ?? ""}`,
+      label: `[ ${text ?? ""} ]`,
+    });
+  } else if (text) {
+    for (const line of text.split("\n"))
+      out.push({ id: `text:${out.length}`, label: line, header: true });
+  }
+  for (const c of node.children ?? []) paneRows(c, out);
+  return out;
+}

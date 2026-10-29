@@ -19,7 +19,7 @@
  * prompts …) is a dialog on one stack (dialogs.ts, screens.ts): while one is
  * open it owns the keyboard, and esc closes it.
  */
-import { openPlugins } from "./plugins";
+import { openMods, openPlugins } from "./plugins";
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
@@ -938,6 +938,37 @@ export function App({
   // The background update: a toast while it installs, then a notice that
   // stays above the prompt box ("Update installed · restart to use v14.53.0").
   const [updateNotice, setUpdateNotice] = useState<string | null>(null);
+  // Mods' status line and toasts (lib/plugins/mod-host.ts): the CLI runs the
+  // same main-side code in-process, so it listens to the events directly.
+  const [modStatus, setModStatus] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let off = () => {};
+    void import("@/lib/plugins/mod-host").then(({ modUiEvents }) => {
+      const on = (e: import("@/lib/plugins/mod-host").ModUiEvent) => {
+        if (e.kind === "status") {
+          setModStatus((st) => {
+            const next = { ...st };
+            if (e.text) next[e.plugin] = e.text;
+            else delete next[e.plugin];
+            return next;
+          });
+        } else if (e.kind === "toast") flash(`${e.plugin}: ${e.text}`, 5000);
+        else if (e.kind === "open") flash(`${e.plugin}: ${e.title} · /mods to see it`, 6000);
+        else if (e.kind === "off") {
+          setModStatus((st) => {
+            const next = { ...st };
+            delete next[e.plugin];
+            return next;
+          });
+          flash(`${e.plugin}'s mod is off: ${e.reason}`, 8000, "warn");
+        }
+      };
+      modUiEvents.on("ui", on);
+      off = () => modUiEvents.off("ui", on);
+    });
+    return () => off();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     autoUpdate?.((e) => {
       if (e.kind === "installing") flash(`Updating to v${e.version}…`, 30_000);
@@ -1399,6 +1430,8 @@ export function App({
         return openMcp(ctx);
       case "/plugins":
         return openPlugins(ctx);
+      case "/mods":
+        return openMods(ctx);
       case "/computer":
         return void openComputer(rest);
       case "/permissions":
@@ -1937,6 +1970,11 @@ export function App({
       {working ? (
         <box flexDirection="column" flexShrink={0}>
           <WorkingLine activity={activity!} since={state.turnStartedAt} tokens={state.tokensThisTurn} cells={state.cells} />
+        </box>
+      ) : null}
+      {Object.keys(modStatus).length ? (
+        <box flexDirection="row" justifyContent="flex-end" flexShrink={0}>
+          <text fg={color.textDim}>{Object.values(modStatus).join(" · ")}</text>
         </box>
       ) : null}
       {updateNotice ? (

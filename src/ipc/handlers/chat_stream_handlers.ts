@@ -898,6 +898,23 @@ export function registerChatStreamHandlers() {
             );
             if (expanded) userPrompt = expanded;
           }
+          // Mods: a mod's own command answers with the prompt to send, and
+          // `prompt.submit` may rewrite what the model gets (plugins/mod-host.ts).
+          // The message shown stays what was typed.
+          {
+            const { modsPromptSubmit, modsRunCommand } = await import(
+              "@/lib/plugins/mod-host"
+            );
+            const modCtx = {
+              workspacePath: chat.app?.path ? resolveAppPath(chat.app.path) : null,
+              sessionId: req.workspaceSessionId ?? undefined,
+            };
+            if (userPrompt.trimStart().startsWith("/")) {
+              const fromMod = await modsRunCommand(modCtx, userPrompt);
+              if (fromMod) userPrompt = fromMod;
+            }
+            userPrompt = await modsPromptSubmit(modCtx, userPrompt);
+          }
         }
         // v14.8.11 (W9): every live chat is a negative-id stream-transport chat —
         // renderer, headless CLI, and evals all mint them. The legacy positive-id
@@ -971,13 +988,20 @@ export function registerChatStreamHandlers() {
           const startContext = firstTurn
             ? await runSessionStartHooks(hookCtx)
             : [];
+          const mods = await import("@/lib/plugins/mod-host");
+          if (firstTurn) await mods.modsSessionStart(hookCtx);
+          const modSections = await mods.modsPromptSections(hookCtx);
           const promptHooks = await runPromptSubmitHooks(hookCtx, userPrompt);
           if (promptHooks.blocked) {
             throw new Error(
               `A prompt_submit hook stopped this message (${promptHooks.blocked})`,
             );
           }
-          const hookContext = [...startContext, ...promptHooks.context];
+          const hookContext = [
+            ...startContext,
+            ...promptHooks.context,
+            ...modSections,
+          ];
           if (hookContext.length > 0) {
             const { withMemoryContext } = await import(
               "@/lib/memory/session-context"
@@ -987,7 +1011,7 @@ export function registerChatStreamHandlers() {
               // Labelled as the hooks' output: it can echo the project's own
               // text, which must not read as Atlarix speaking.
               systemReminder(
-                `Output of the user's hooks (prompt_submit/session_start):\n\n${hookContext.join("\n\n")}`,
+                `Output of the user's hooks and mods:\n\n${hookContext.join("\n\n")}`,
               ),
             );
           }

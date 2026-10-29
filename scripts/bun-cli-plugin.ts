@@ -47,6 +47,8 @@ export function assetFiles(target?: string): Record<string, string> {
     modelsSnapshot: path.join(root, "build/models-snapshot.json.gz"),
     mcpRegistrySnapshot: path.join(root, "build/mcp-registry-snapshot.json.gz"),
     tiktokenWasm: path.join(root, "node_modules/tiktoken/lite/tiktoken_bg.wasm"),
+    // The QuickJS engine mods run in (mod-host.ts, via ATLARIX_QUICKJS_WASM).
+    quickjsWasm: path.join(root, "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm"),
     // CI and cross builds unpack the target's ripgrep package elsewhere
     // (`npm pack @vscode/ripgrep-<os>-<arch>`) and point here.
     rg: process.env.ATLARIX_RG_PATH || ripgrepFor(target),

@@ -29,4 +29,5 @@ export const assets = {
   skills: shippedSkills(),
   modelsSnapshot: shipped("models-snapshot.json.gz"),
   mcpRegistrySnapshot: shipped("mcp-registry-snapshot.json.gz"),
+  quickjsWasm: shipped("quickjs.wasm"),
 };
