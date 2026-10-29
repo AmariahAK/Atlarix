@@ -15,15 +15,24 @@ const SHADES = ["#1e3325", "#0e4429", "#12805a", "#10b981", "#6ee7b7"] as const;
 const W = 1200;
 const H = 630;
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const esc = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 export function shareCardSvg(
   s: Pick<
     ActivityStats,
-    "weeks" | "monthLabels" | "currentStreak" | "longestStreak" | "lifetimeTokens" | "totalTurns" | "since"
+    | "weeks"
+    | "monthLabels"
+    | "currentStreak"
+    | "longestStreak"
+    | "lifetimeTokens"
+    | "totalTurns"
+    | "since"
   >,
 ): string {
-  const activeDays = s.weeks.flat().filter((d) => d.inRange && d.turns > 0).length;
+  const activeDays = s.weeks
+    .flat()
+    .filter((d) => d.inRange && d.turns > 0).length;
   const cell = 17;
   const gap = 4;
   const cols = s.weeks.length;

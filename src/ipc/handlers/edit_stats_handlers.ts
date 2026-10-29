@@ -109,8 +109,12 @@ export function registerEditStatsHandlers(): void {
   /** Usage on this computer: activity, tokens by model, MCP & skills, Auto picks, BYOK estimate. */
   ipcMain.handle("usage:report", async (_e, raw: unknown) => {
     const { getUsageReport } = await import("@/lib/stats/usage-report");
-    const f = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-    const str = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 200) : undefined);
+    const f = (raw && typeof raw === "object" ? raw : {}) as Record<
+      string,
+      unknown
+    >;
+    const str = (v: unknown) =>
+      typeof v === "string" && v ? v.slice(0, 200) : undefined;
     return getUsageReport({
       days: typeof f.days === "number" ? f.days : undefined,
       model: str(f.model),
@@ -127,17 +131,25 @@ export function registerEditStatsHandlers(): void {
 
   /** Save the share card the page drew (PNG data URL) where the user picks. */
   ipcMain.handle("usage:save-card", async (e, dataUrl: unknown) => {
-    const png = typeof dataUrl === "string" ? /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl) : null;
+    const png =
+      typeof dataUrl === "string"
+        ? /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl)
+        : null;
     if (!png) return { saved: false };
     const { BrowserWindow, app, dialog } = await import("electron");
     const path = await import("node:path");
     const fs = await import("node:fs/promises");
     const win = BrowserWindow.fromWebContents(e.sender);
     const opts = {
-      defaultPath: path.join(app.getPath("downloads"), `atlarix-usage-${new Date().toISOString().slice(0, 10)}.png`),
+      defaultPath: path.join(
+        app.getPath("downloads"),
+        `atlarix-usage-${new Date().toISOString().slice(0, 10)}.png`,
+      ),
       filters: [{ name: "PNG image", extensions: ["png"] }],
     };
-    const { canceled, filePath } = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    const { canceled, filePath } = win
+      ? await dialog.showSaveDialog(win, opts)
+      : await dialog.showSaveDialog(opts);
     if (canceled || !filePath) return { saved: false };
     await fs.writeFile(filePath, Buffer.from(png[1]!, "base64"));
     return { saved: true };

@@ -21,7 +21,8 @@ export function recordLocalTurnUsage(
   if (!of) return;
   // Finalization drains the aux bucket on the save path; a stopped turn never
   // got there, so drain it here (the next turn resets it either way).
-  const aux = ctx.turnAuxUsage !== undefined ? ctx.turnAuxUsage : takeAuxUsage(chatId);
+  const aux =
+    ctx.turnAuxUsage !== undefined ? ctx.turnAuxUsage : takeAuxUsage(chatId);
   const spent = ctx.turnInputTokens + ctx.turnOutputTokens > 0;
   const byok = of.pricing.builtinProviderId !== "compass" && !!of.model;
   recordTurnUsageSafely({
@@ -43,11 +44,15 @@ export function recordLocalTurnUsage(
             {
               inputTokens: ctx.turnInputTokens,
               outputTokens: ctx.turnOutputTokens,
-              ...(ctx.turnCachedInputTokens > 0 ? { cachedInputTokens: ctx.turnCachedInputTokens } : {}),
+              ...(ctx.turnCachedInputTokens > 0
+                ? { cachedInputTokens: ctx.turnCachedInputTokens }
+                : {}),
               ...(ctx.turnCacheCreationTokens > 0
                 ? { cacheCreationInputTokens: ctx.turnCacheCreationTokens }
                 : {}),
-              ...(ctx.maxTokensUsed ? { contextTokens: ctx.maxTokensUsed } : {}),
+              ...(ctx.maxTokensUsed
+                ? { contextTokens: ctx.maxTokensUsed }
+                : {}),
             },
             ctx.turnActualCostUsd > 0 ? ctx.turnActualCostUsd : null,
             { reliableOnly: true },

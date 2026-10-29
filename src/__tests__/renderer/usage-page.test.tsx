@@ -7,8 +7,12 @@ import { describe, it, expect, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { renderWithProviders } from "./helpers";
 
-vi.mock("@/components/settings/SettingsWorkspaceNav", () => ({ SettingsWorkspaceNav: () => null }));
-vi.mock("@/components/settings/EditStatsCard", () => ({ EditStatsCard: () => null }));
+vi.mock("@/components/settings/SettingsWorkspaceNav", () => ({
+  SettingsWorkspaceNav: () => null,
+}));
+vi.mock("@/components/settings/EditStatsCard", () => ({
+  EditStatsCard: () => null,
+}));
 
 const day = (d: number) => `2026-10-${String(d).padStart(2, "0")}`;
 const days = Array.from({ length: 30 }, (_, i) => day(i + 1));
@@ -38,35 +42,77 @@ const report = {
   range: 30,
   days,
   filters: {
-    models: [{ key: "anthropic\u0000claude-sonnet-5-5", label: "Claude Sonnet 5.5 (anthropic)" }],
+    models: [
+      {
+        key: "anthropic\u0000claude-sonnet-5-5",
+        label: "Claude Sonnet 5.5 (anthropic)",
+      },
+    ],
     surfaces: [{ key: "app", label: "App" }],
     sources: [{ key: "chat", label: "Chats" }],
     applied: { model: null, surface: null, source: null },
   },
   tokens: {
-    series: [{ key: "anthropic\u0000claude-sonnet-5-5", label: "Claude Sonnet 5.5 (anthropic)" }],
-    byDay: days.map((d) => ({ day: d, values: [d === "2026-10-30" ? 1200 : 0] })),
+    series: [
+      {
+        key: "anthropic\u0000claude-sonnet-5-5",
+        label: "Claude Sonnet 5.5 (anthropic)",
+      },
+    ],
+    byDay: days.map((d) => ({
+      day: d,
+      values: [d === "2026-10-30" ? 1200 : 0],
+    })),
     total: 1200,
     since: "2026-10-20",
   },
-  tools: { byDay: days.map((d) => ({ day: d, mcp: 0, skill: 0 })), mcp: [], skills: [] },
+  tools: {
+    byDay: days.map((d) => ({ day: d, mcp: 0, skill: 0 })),
+    mcp: [],
+    skills: [],
+  },
   autoPicks: {
     steps: 4,
-    models: [{ label: "GPT 5.4 Mini", billing: "free", tier: "auto", steps: 4, share: 100 }],
-    byDay: days.map((d) => ({ day: d, free: d === "2026-10-30" ? 4 : 0, paid: 0 })),
+    models: [
+      {
+        label: "GPT 5.4 Mini",
+        billing: "free",
+        tier: "auto",
+        steps: 4,
+        share: 100,
+      },
+    ],
+    byDay: days.map((d) => ({
+      day: d,
+      free: d === "2026-10-30" ? 4 : 0,
+      paid: 0,
+    })),
     since: "2026-10-25",
   },
-  byok: { totalUsd: 0.42, byDay: [], pricedTurns: 3, unpricedTurns: 1, since: "2026-10-21" },
+  byok: {
+    totalUsd: 0.42,
+    byDay: [],
+    pricedTurns: 3,
+    unpricedTurns: 1,
+    since: "2026-10-21",
+  },
 };
 const getUsageReport = vi.fn(async () => report);
 const getUsageCredits = vi.fn(async () => ({ state: "signed_out" }));
 vi.mock("@/ipc/ipc_client", () => ({
-  IpcClient: { getInstance: () => ({ getUsageReport, getUsageCredits, saveUsageCard: vi.fn() }) },
+  IpcClient: {
+    getInstance: () => ({
+      getUsageReport,
+      getUsageCredits,
+      saveUsageCard: vi.fn(),
+    }),
+  },
 }));
 
 import { UsagePage } from "@/pages/usage";
 
-const open = (name: string) => fireEvent.mouseDown(screen.getByRole("tab", { name }), { button: 0 });
+const open = (name: string) =>
+  fireEvent.mouseDown(screen.getByRole("tab", { name }), { button: 0 });
 
 describe("Usage", () => {
   it("opens on the overview, with the share card", async () => {
@@ -85,10 +131,18 @@ describe("Usage", () => {
     expect(await screen.findByText("1.2K tokens")).toBeTruthy();
     expect(screen.getByLabelText("Model")).toBeTruthy();
     expect(screen.getByText("Your own keys: about $0.42")).toBeTruthy();
-    expect(screen.getByText(/An estimate at list price, not a bill/)).toBeTruthy();
-    expect(screen.getByText(/1 turns on models without a reliable price/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Surface"), { target: { value: "app" } });
-    await vi.waitFor(() => expect(getUsageReport).toHaveBeenLastCalledWith({ surface: "app" }));
+    expect(
+      screen.getByText(/An estimate at list price, not a bill/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/1 turns on models without a reliable price/),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Surface"), {
+      target: { value: "app" },
+    });
+    await vi.waitFor(() =>
+      expect(getUsageReport).toHaveBeenLastCalledWith({ surface: "app" }),
+    );
   });
 
   it("shows which models Auto picked, and asks for credits only on Credits", async () => {
@@ -97,7 +151,9 @@ describe("Usage", () => {
     open("Auto");
     expect(await screen.findByText("GPT 5.4 Mini · Free")).toBeTruthy();
     open("Credits");
-    expect(await screen.findByText("Sign in to see Atlarix credits.")).toBeTruthy();
+    expect(
+      await screen.findByText("Sign in to see Atlarix credits."),
+    ).toBeTruthy();
     expect(getUsageCredits).toHaveBeenCalled();
   });
 });

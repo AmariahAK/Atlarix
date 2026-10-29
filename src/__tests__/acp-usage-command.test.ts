@@ -6,7 +6,15 @@ import { describe, expect, it, vi } from "vitest";
  */
 
 vi.mock("electron-log", () => ({
-  default: { scope: () => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), log: vi.fn(), debug: vi.fn() }) },
+  default: {
+    scope: () => ({
+      warn: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      log: vi.fn(),
+      debug: vi.fn(),
+    }),
+  },
 }));
 vi.mock("@/db", () => ({ db: {} }));
 
@@ -45,7 +53,9 @@ vi.mock("@/cli/agent/services", () => ({
 }));
 
 const { accountCommandText } = await import("@/cli/acp/account-commands");
-const session = { appId: 1 } as unknown as import("@/cli/agent/session").AgentSession;
+const session = {
+  appId: 1,
+} as unknown as import("@/cli/agent/session").AgentSession;
 
 describe("/usage in an editor chat", () => {
   it("answers signed out, from this computer", async () => {
@@ -58,6 +68,8 @@ describe("/usage in an editor chat", () => {
 
   it("still answers /stats, the old name", async () => {
     email.mockResolvedValue(null);
-    expect(await accountCommandText("stats", session)).toContain("**Your activity**");
+    expect(await accountCommandText("stats", session)).toContain(
+      "**Your activity**",
+    );
   });
 });

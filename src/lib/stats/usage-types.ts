@@ -71,7 +71,11 @@ export interface UsageReport {
     models: UsageOption[];
     surfaces: UsageOption[];
     sources: UsageOption[];
-    applied: { model: string | null; surface: string | null; source: string | null };
+    applied: {
+      model: string | null;
+      surface: string | null;
+      source: string | null;
+    };
   };
   tokens: {
     /** Up to five models, then "Other". */
@@ -89,7 +93,13 @@ export interface UsageReport {
   };
   autoPicks: {
     steps: number;
-    models: Array<{ label: string; billing: "free" | "paid"; tier: string; steps: number; share: number }>;
+    models: Array<{
+      label: string;
+      billing: "free" | "paid";
+      tier: string;
+      steps: number;
+      share: number;
+    }>;
     byDay: Array<{ day: string; free: number; paid: number }>;
     since: string | null;
   };

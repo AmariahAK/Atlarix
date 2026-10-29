@@ -23,7 +23,12 @@
 import log from "electron-log";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
-import { usageAutoPicks, usageRollup, usageStats, usageToolStats } from "@/db/schema";
+import {
+  usageAutoPicks,
+  usageRollup,
+  usageStats,
+  usageToolStats,
+} from "@/db/schema";
 import { localDayKey } from "./edit-stats";
 import type { ActivityDay, ActivityStats } from "./usage-types";
 import { printableName } from "./usage-labels";
@@ -32,7 +37,6 @@ import {
   levelFor,
   localDayString,
   parseLocalDay,
-  type CalendarLevel,
 } from "./edit-stats-calendar";
 
 const logger = log.scope("usage-stats");
@@ -110,9 +114,15 @@ export interface AuxSpend {
 
 /** Group `takeAuxUsage`'s labels into rollup sources; estimated tokens are left out. */
 export function auxSpendFrom(
-  byLabel: Readonly<
-    Record<string, { tokens: number; inputTokens: number; outputTokens: number }>
-  > | null | undefined,
+  byLabel:
+    | Readonly<
+        Record<
+          string,
+          { tokens: number; inputTokens: number; outputTokens: number }
+        >
+      >
+    | null
+    | undefined,
 ): AuxSpend[] {
   const by = new Map<AuxSpend["source"], AuxSpend>();
   for (const [label, e] of Object.entries(byLabel ?? {})) {
@@ -190,7 +200,15 @@ async function addRow(row: {
     .insert(r)
     .values(row)
     .onConflictDoUpdate({
-      target: [r.day, r.surface, r.editor, r.source, r.provider, r.modelId, r.mode],
+      target: [
+        r.day,
+        r.surface,
+        r.editor,
+        r.source,
+        r.provider,
+        r.modelId,
+        r.mode,
+      ],
       set: {
         turns: sql`${r.turns} + ${row.turns}`,
         deepTurns: sql`${r.deepTurns} + ${row.deepTurns}`,
@@ -298,8 +316,12 @@ export async function recordAutoPick(p: {
     });
 }
 
-export function recordAutoPickSafely(p: Parameters<typeof recordAutoPick>[0]): void {
-  void recordAutoPick(p).catch((e) => logger.warn("failed to record an Auto pick", e));
+export function recordAutoPickSafely(
+  p: Parameters<typeof recordAutoPick>[0],
+): void {
+  void recordAutoPick(p).catch((e) =>
+    logger.warn("failed to record an Auto pick", e),
+  );
 }
 
 /** Statistics must never fail a turn: the turn has already finished. */
@@ -428,10 +450,16 @@ export async function usageRows(): Promise<UsageRollupRow[]> {
 export const ACTIVE_GAP_SECONDS = 30 * 60;
 
 /** How a chat's selected model (display snapshot) groups with the dispatched one. */
-function historyModel(provider: string, name: string): { provider: string; modelId: string } {
+function historyModel(
+  provider: string,
+  name: string,
+): { provider: string; modelId: string } {
   if (provider !== "compass") return { provider, modelId: name };
   // A Core tier id names a slot, whose model has changed since; never re-resolve it.
-  return { provider, modelId: name === "core-auto" ? "atlarix/auto" : "atlarix/core" };
+  return {
+    provider,
+    modelId: name === "core-auto" ? "atlarix/auto" : "atlarix/core",
+  };
 }
 
 const share = (n: number, total: number) =>
@@ -490,7 +518,10 @@ export async function getActivityStats(
          ) GROUP BY session_id
        ) g JOIN chat_sessions s ON s.id = g.session_id ORDER BY g.span DESC LIMIT 1`,
     )
-    .all(ACTIVE_GAP_SECONDS) as Array<{ title: string | null; span: number | null }>;
+    .all(ACTIVE_GAP_SECONDS) as Array<{
+    title: string | null;
+    span: number | null;
+  }>;
   // Models before the rollup: the model each reply's chat had selected.
   const historyModels = recordedSince
     ? (raw
@@ -503,7 +534,11 @@ export async function getActivityStats(
              AND json_extract(display_snapshot, '$.model.name') IS NOT NULL
            GROUP BY provider, name`,
         )
-        .all(recordedSince) as Array<{ provider: string | null; name: string; n: number }>)
+        .all(recordedSince) as Array<{
+        provider: string | null;
+        name: string;
+        n: number;
+      }>)
     : [];
   const chats = raw
     .prepare(
@@ -587,7 +622,10 @@ export async function getActivityStats(
     models: [...byModel.values()]
       .sort((a, b) => b.turns - a.turns || a.modelId.localeCompare(b.modelId))
       .slice(0, 5)
-      .map((m) => ({ ...m, share: share(m.turns, recordedTurns + historyModelTurns) })),
+      .map((m) => ({
+        ...m,
+        share: share(m.turns, recordedTurns + historyModelTurns),
+      })),
     modes: [...byMode]
       .sort((a, b) => b[1] - a[1])
       .map(([mode, n]) => ({ mode, share: share(n, recordedTurns) })),

@@ -9,23 +9,33 @@ import { editStatsModelLabel } from "./edit-stats-label";
  * anywhere: no control or bidi characters (a terminal would run an escape
  * sequence; a model can be steered into naming anything), capped in length.
  */
+/* eslint-disable no-control-regex -- stripping them is the point */
+const UNPRINTABLE =
+  /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g;
+/* eslint-enable no-control-regex */
+
 export function printableName(name: string, max = 80): string {
-  return name
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "")
-    .trim()
-    .slice(0, max);
+  return name.replace(UNPRINTABLE, "").trim().slice(0, max);
 }
 
 /** A rollup model as the user reads it; Auto and history's Core slots by product name. */
-export function usageModelLabel(row: { provider: string; modelId: string }): string {
-  if (row.provider === "compass" && row.modelId === "atlarix/auto") return "Atlarix Auto";
-  if (row.provider === "compass" && row.modelId === "atlarix/core") return "Atlarix Core";
+export function usageModelLabel(row: {
+  provider: string;
+  modelId: string;
+}): string {
+  if (row.provider === "compass" && row.modelId === "atlarix/auto")
+    return "Atlarix Auto";
+  if (row.provider === "compass" && row.modelId === "atlarix/core")
+    return "Atlarix Core";
   if (row.provider === "unknown") return "Unknown model";
   return editStatsModelLabel(row);
 }
 
 /** The surface filter's key: app, cli, or the editor's own name (editor when it gave none). */
-export function usageSurfaceKey(row: { surface: string; editor: string }): string {
+export function usageSurfaceKey(row: {
+  surface: string;
+  editor: string;
+}): string {
   return row.surface === "editor" ? row.editor || "editor" : row.surface;
 }
 

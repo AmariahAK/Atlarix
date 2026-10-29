@@ -122,12 +122,17 @@ describe("/stats in an editor", () => {
   });
 
   it("says so when there's nothing yet", () => {
-    expect(F.statsMarkdown(stats({ since: null }))).toContain("No activity yet.");
+    expect(F.statsMarkdown(stats({ since: null }))).toContain(
+      "No activity yet.",
+    );
   });
 
   it("lists a named editor on its own and leaves the rest as Editors", () => {
     const rows = F.activitySections(
-      stats({ surfaces: [{ surface: "editor", turns: 5 }], editors: [{ editor: "zed", turns: 3 }] }),
+      stats({
+        surfaces: [{ surface: "editor", turns: 5 }],
+        editors: [{ editor: "zed", turns: 3 }],
+      }),
     ).find((x) => x.title === "Where you work")!.rows;
     expect(rows).toEqual([
       { label: "Editors (VS Code, Zed, JetBrains)", value: "2 turns" },

@@ -13,8 +13,17 @@ import { getCoreAuto } from "@/ipc/shared/core-model-override-store";
 import { formatModelApiNameForDisplay } from "@/lib/format-openrouter-model-label";
 import { localDayString } from "./edit-stats-calendar";
 import { USAGE_RANGES, type UsageRange } from "./usage-format";
-import { usageModelLabel, usageSourceLabel, usageSurfaceKey, usageSurfaceLabel } from "./usage-labels";
-import { getActivityStats, usageRows, type UsageRollupRow } from "./usage-stats";
+import {
+  usageModelLabel,
+  usageSourceLabel,
+  usageSurfaceKey,
+  usageSurfaceLabel,
+} from "./usage-labels";
+import {
+  getActivityStats,
+  usageRows,
+  type UsageRollupRow,
+} from "./usage-stats";
 import type { ActivityStats } from "./usage-types";
 
 export { USAGE_RANGES, type UsageRange } from "./usage-format";
@@ -28,14 +37,20 @@ const SERIES = 5;
 export function windowDays(n: number, now: Date): string[] {
   const out: string[] = [];
   for (let i = n - 1; i >= 0; i--) {
-    out.push(localDayString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)));
+    out.push(
+      localDayString(
+        new Date(now.getFullYear(), now.getMonth(), now.getDate() - i),
+      ),
+    );
   }
   return out;
 }
 
-const modelKey = (r: { provider: string; modelId: string }) => `${r.provider}\u0000${r.modelId}`;
+const modelKey = (r: { provider: string; modelId: string }) =>
+  `${r.provider}\u0000${r.modelId}`;
 
-const shareOf = (n: number, total: number) => (total > 0 ? Math.round((n / total) * 1000) / 10 : 0);
+const shareOf = (n: number, total: number) =>
+  total > 0 ? Math.round((n / total) * 1000) / 10 : 0;
 
 /** How an Auto pick reads: its name only when Auto's own config lists it (never a gateway). */
 export function autoPickLabel(
@@ -43,7 +58,8 @@ export function autoPickLabel(
   billing: string,
   nameable: ReadonlySet<string>,
 ): string {
-  if (nameable.has(servedModel)) return formatModelApiNameForDisplay(servedModel);
+  if (nameable.has(servedModel))
+    return formatModelApiNameForDisplay(servedModel);
   return billing === "free" ? "Other free models" : "Other models";
 }
 
@@ -51,13 +67,26 @@ export function autoPickLabel(
 export function buildUsageReport(
   overview: ActivityStats,
   rows: readonly UsageRollupRow[],
-  tools: ReadonlyArray<{ day: string; kind: string; name: string; runs: number }>,
-  picks: ReadonlyArray<{ day: string; billing: string; tier: string; servedModel: string; steps: number }>,
+  tools: ReadonlyArray<{
+    day: string;
+    kind: string;
+    name: string;
+    runs: number;
+  }>,
+  picks: ReadonlyArray<{
+    day: string;
+    billing: string;
+    tier: string;
+    servedModel: string;
+    steps: number;
+  }>,
   filters: UsageFilters,
   now: Date,
   nameable: ReadonlySet<string> = new Set(),
 ): UsageReport {
-  const range = USAGE_RANGES.includes(filters.days as UsageRange) ? (filters.days as number) : 30;
+  const range = USAGE_RANGES.includes(filters.days as UsageRange)
+    ? (filters.days as number)
+    : 30;
   const days = windowDays(range, now);
   const first = days[0]!;
   const inWindow = (d: string) => d >= first && d <= days[days.length - 1]!;
@@ -78,8 +107,10 @@ export function buildUsageReport(
   }
   const applied = {
     model: filters.model && models.has(filters.model) ? filters.model : null,
-    surface: filters.surface && surfaces.has(filters.surface) ? filters.surface : null,
-    source: filters.source && sources.has(filters.source) ? filters.source : null,
+    surface:
+      filters.surface && surfaces.has(filters.surface) ? filters.surface : null,
+    source:
+      filters.source && sources.has(filters.source) ? filters.source : null,
   };
   const kept = rows.filter(
     (r) =>
@@ -92,9 +123,14 @@ export function buildUsageReport(
   const windowByModel = new Map<string, number>();
   for (const r of kept) {
     if (!inWindow(r.day)) continue;
-    windowByModel.set(modelKey(r), (windowByModel.get(modelKey(r)) ?? 0) + r.inputTokens + r.outputTokens);
+    windowByModel.set(
+      modelKey(r),
+      (windowByModel.get(modelKey(r)) ?? 0) + r.inputTokens + r.outputTokens,
+    );
   }
-  const ranked = [...windowByModel].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const ranked = [...windowByModel]
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1]);
   const top = ranked.slice(0, SERIES).map(([k]) => k);
   const hasOther = ranked.length > SERIES;
   const series: UsageOption[] = [
@@ -102,7 +138,9 @@ export function buildUsageReport(
     ...(hasOther ? [{ key: "other", label: "Other" }] : []),
   ];
   const index = new Map(top.map((k, i) => [k, i]));
-  const byDayTokens = new Map(days.map((d) => [d, new Array<number>(series.length).fill(0)]));
+  const byDayTokens = new Map(
+    days.map((d) => [d, new Array<number>(series.length).fill(0)]),
+  );
   let total = 0;
   for (const r of kept) {
     const v = byDayTokens.get(r.day);
@@ -112,16 +150,23 @@ export function buildUsageReport(
     v[index.get(modelKey(r)) ?? series.length - 1] += t;
     total += t;
   }
-  const tokenDays = rows.filter((r) => r.inputTokens + r.outputTokens > 0).map((r) => r.day).sort();
+  const tokenDays = rows
+    .filter((r) => r.inputTokens + r.outputTokens > 0)
+    .map((r) => r.day)
+    .sort();
 
   // MCP and skills per day.
   const toolDays = new Map(days.map((d) => [d, { day: d, mcp: 0, skill: 0 }]));
-  const runsBy = { mcp: new Map<string, number>(), skill: new Map<string, number>() };
+  const runsBy = {
+    mcp: new Map<string, number>(),
+    skill: new Map<string, number>(),
+  };
   for (const t of tools) {
     if (t.kind !== "mcp" && t.kind !== "skill") continue;
     const d = toolDays.get(t.day);
     if (d) d[t.kind] += t.runs;
-    if (inWindow(t.day)) runsBy[t.kind].set(t.name, (runsBy[t.kind].get(t.name) ?? 0) + t.runs);
+    if (inWindow(t.day))
+      runsBy[t.kind].set(t.name, (runsBy[t.kind].get(t.name) ?? 0) + t.runs);
   }
   const topRuns = (m: Map<string, number>) =>
     [...m]
@@ -130,7 +175,10 @@ export function buildUsageReport(
       .slice(0, 10);
 
   // Auto picks in the window.
-  const pickBy = new Map<string, { label: string; billing: "free" | "paid"; tier: string; steps: number }>();
+  const pickBy = new Map<
+    string,
+    { label: string; billing: "free" | "paid"; tier: string; steps: number }
+  >();
   const pickDays = new Map(days.map((d) => [d, { day: d, free: 0, paid: 0 }]));
   let pickSteps = 0;
   for (const p of picks) {
@@ -169,8 +217,12 @@ export function buildUsageReport(
       models: [...models]
         .sort((a, b) => b[1].tokens - a[1].tokens)
         .map(([key, m]) => ({ key, label: m.label })),
-      surfaces: [...surfaces].sort((a, b) => b[1] - a[1]).map(([key]) => ({ key, label: usageSurfaceLabel(key) })),
-      sources: [...sources].sort((a, b) => b[1] - a[1]).map(([key]) => ({ key, label: usageSourceLabel(key) })),
+      surfaces: [...surfaces]
+        .sort((a, b) => b[1] - a[1])
+        .map(([key]) => ({ key, label: usageSurfaceLabel(key) })),
+      sources: [...sources]
+        .sort((a, b) => b[1] - a[1])
+        .map(([key]) => ({ key, label: usageSourceLabel(key) })),
       applied,
     },
     tokens: {
@@ -179,20 +231,29 @@ export function buildUsageReport(
       total,
       since: tokenDays[0] ?? null,
     },
-    tools: { byDay: [...toolDays.values()], mcp: topRuns(runsBy.mcp), skills: topRuns(runsBy.skill) },
+    tools: {
+      byDay: [...toolDays.values()],
+      mcp: topRuns(runsBy.mcp),
+      skills: topRuns(runsBy.skill),
+    },
     autoPicks: {
       steps: pickSteps,
       models: [...pickBy.values()]
         .sort((a, b) => b.steps - a.steps)
         .map((e) => ({ ...e, share: shareOf(e.steps, pickSteps) })),
       byDay: [...pickDays.values()],
-      since: picks.length ? picks.reduce((m, p) => (p.day < m ? p.day : m), picks[0]!.day) : null,
+      since: picks.length
+        ? picks.reduce((m, p) => (p.day < m ? p.day : m), picks[0]!.day)
+        : null,
     },
     byok:
       priced > 0 && byokSince
         ? {
             totalUsd: micros / 1e6,
-            byDay: days.map((day) => ({ day, usd: (byokDays.get(day) ?? 0) / 1e6 })),
+            byDay: days.map((day) => ({
+              day,
+              usd: (byokDays.get(day) ?? 0) / 1e6,
+            })),
             pricedTurns: priced,
             unpricedTurns: unpriced,
             since: byokSince,
@@ -201,12 +262,23 @@ export function buildUsageReport(
   };
 }
 
-export async function getUsageReport(filters: UsageFilters = {}, now: Date = new Date()): Promise<UsageReport> {
+export async function getUsageReport(
+  filters: UsageFilters = {},
+  now: Date = new Date(),
+): Promise<UsageReport> {
   const [overview, rows, tools, picks] = await Promise.all([
     getActivityStats(now),
     usageRows(),
     db.select().from(usageToolStats),
     db.select().from(usageAutoPicks),
   ]);
-  return buildUsageReport(overview, rows, tools, picks, filters, now, new Set(getCoreAuto()?.nameableModels ?? []));
+  return buildUsageReport(
+    overview,
+    rows,
+    tools,
+    picks,
+    filters,
+    now,
+    new Set(getCoreAuto()?.nameableModels ?? []),
+  );
 }

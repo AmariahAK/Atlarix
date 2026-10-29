@@ -6,10 +6,21 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron-log", () => ({
-  default: { scope: () => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), log: vi.fn(), debug: vi.fn() }) },
+  default: {
+    scope: () => ({
+      warn: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      log: vi.fn(),
+      debug: vi.fn(),
+    }),
+  },
 }));
 vi.mock("@/db", () => ({ db: {} }));
-vi.mock("@/lib/auth/supabase-client", () => ({ getSession: vi.fn(), getSupabaseClient: vi.fn() }));
+vi.mock("@/lib/auth/supabase-client", () => ({
+  getSession: vi.fn(),
+  getSupabaseClient: vi.fn(),
+}));
 
 const R = await import("@/lib/stats/usage-report");
 const Fm = await import("@/lib/stats/usage-format");
@@ -31,8 +42,21 @@ const overview: ActivityStats = {
   longestStreak: 9,
   totalChats: 12,
   totalTurns: 80,
-  ...activityCalendar(new Map([["2026-10-28", 5], ["2026-10-29", 2]]), NOW),
-  models: [{ provider: "anthropic", modelId: "claude-sonnet-5-5", turns: 5, share: 100 }],
+  ...activityCalendar(
+    new Map([
+      ["2026-10-28", 5],
+      ["2026-10-29", 2],
+    ]),
+    NOW,
+  ),
+  models: [
+    {
+      provider: "anthropic",
+      modelId: "claude-sonnet-5-5",
+      turns: 5,
+      share: 100,
+    },
+  ],
   modes: [{ mode: "build", share: 100 }],
   deepShare: 0,
   surfaces: [{ surface: "app", turns: 5 }],
@@ -67,7 +91,9 @@ const row = (over: Partial<UsageRollupRow>): UsageRollupRow => ({
 
 describe("tokens", () => {
   it("stacks a window of local days by model: five, then Other", () => {
-    const rows = Array.from({ length: 7 }, (_, i) => row({ modelId: `model-${i}`, inputTokens: (i + 1) * 100 }));
+    const rows = Array.from({ length: 7 }, (_, i) =>
+      row({ modelId: `model-${i}`, inputTokens: (i + 1) * 100 }),
+    );
     const r = R.buildUsageReport(overview, rows, [], [], {}, NOW);
     expect(r.days).toHaveLength(30);
     expect(r.days.at(-1)).toBe("2026-10-29");
@@ -91,35 +117,67 @@ describe("tokens", () => {
       row({ source: "subagent", turns: 0, inputTokens: 40 }),
       row({ provider: "compass", modelId: "atlarix/auto", inputTokens: 80 }),
     ];
-    const by = (f: Parameters<typeof R.buildUsageReport>[4]) => R.buildUsageReport(overview, rows, [], [], f, NOW).tokens.total;
+    const by = (f: Parameters<typeof R.buildUsageReport>[4]) =>
+      R.buildUsageReport(overview, rows, [], [], f, NOW).tokens.total;
     expect(by({})).toBe(150);
     expect(by({ surface: "zed" })).toBe(20);
     expect(by({ source: "subagent" })).toBe(40);
     expect(by({ model: "compass\u0000atlarix/auto" })).toBe(80);
     expect(by({ surface: "nowhere" })).toBe(150);
-    const f = R.buildUsageReport(overview, rows, [], [], { surface: "zed" }, NOW).filters;
+    const f = R.buildUsageReport(
+      overview,
+      rows,
+      [],
+      [],
+      { surface: "zed" },
+      NOW,
+    ).filters;
     // Every option stays listed while one is applied.
-    expect(f.surfaces.map((s) => s.label).sort()).toEqual(["App", "CLI", "Zed"]);
-    expect(f.sources.map((s) => s.label).sort()).toEqual(["Chats", "Sub-agents"]);
+    expect(f.surfaces.map((s) => s.label).sort()).toEqual([
+      "App",
+      "CLI",
+      "Zed",
+    ]);
+    expect(f.sources.map((s) => s.label).sort()).toEqual([
+      "Chats",
+      "Sub-agents",
+    ]);
     expect(f.models.map((m) => m.label)).toContain("Atlarix Auto");
   });
 
   it("takes 90 or 365 days, and anything else as 30", () => {
-    expect(R.buildUsageReport(overview, [], [], [], { days: 365 }, NOW).days).toHaveLength(365);
-    expect(R.buildUsageReport(overview, [], [], [], { days: 7 }, NOW).range).toBe(30);
+    expect(
+      R.buildUsageReport(overview, [], [], [], { days: 365 }, NOW).days,
+    ).toHaveLength(365);
+    expect(
+      R.buildUsageReport(overview, [], [], [], { days: 7 }, NOW).range,
+    ).toBe(30);
   });
 
   it("estimates BYOK cost only from priced rows, and says how many had no price", () => {
     const rows = [
       row({ estCostMicros: 1_500_000, pricedTurns: 3 }),
-      row({ day: "2026-10-28", estCostMicros: 250_000, pricedTurns: 1, unpricedTurns: 2 }),
+      row({
+        day: "2026-10-28",
+        estCostMicros: 250_000,
+        pricedTurns: 1,
+        unpricedTurns: 2,
+      }),
       row({ provider: "compass", modelId: "atlarix/auto" }),
     ];
     const r = R.buildUsageReport(overview, rows, [], [], {}, NOW);
-    expect(r.byok).toMatchObject({ totalUsd: 1.75, pricedTurns: 4, unpricedTurns: 2, since: "2026-10-28" });
+    expect(r.byok).toMatchObject({
+      totalUsd: 1.75,
+      pricedTurns: 4,
+      unpricedTurns: 2,
+      since: "2026-10-28",
+    });
     expect(r.byok!.byDay.at(-1)).toEqual({ day: "2026-10-29", usd: 1.5 });
     // Nothing priced: no estimate at all rather than "$0.00".
-    expect(R.buildUsageReport(overview, [row({ unpricedTurns: 4 })], [], [], {}, NOW).byok).toBeNull();
+    expect(
+      R.buildUsageReport(overview, [row({ unpricedTurns: 4 })], [], [], {}, NOW)
+        .byok,
+    ).toBeNull();
   });
 });
 
@@ -137,45 +195,122 @@ describe("MCP & skills and Auto picks", () => {
       {},
       NOW,
     );
-    expect(r.tools.byDay.at(-1)).toEqual({ day: "2026-10-29", mcp: 3, skill: 1 });
+    expect(r.tools.byDay.at(-1)).toEqual({
+      day: "2026-10-29",
+      mcp: 3,
+      skill: 1,
+    });
     expect(r.tools.mcp).toEqual([{ name: "deepwiki", runs: 3 }]);
   });
 
   it("names only models Auto's own config lists; gateways read as other models", () => {
     const nameable = new Set(["gpt-5.4-mini", "claude-haiku-5-5"]);
     const picks = [
-      { day: "2026-10-29", billing: "free", tier: "auto", servedModel: "gpt-5.4-mini", steps: 6 },
-      { day: "2026-10-29", billing: "free", tier: "auto", servedModel: "openrouter/free", steps: 2 },
-      { day: "2026-10-29", billing: "free", tier: "auto", servedModel: "meta-llama/llama-4:free", steps: 1 },
-      { day: "2026-10-29", billing: "paid", tier: "auto", servedModel: "claude-haiku-5-5", steps: 1 },
+      {
+        day: "2026-10-29",
+        billing: "free",
+        tier: "auto",
+        servedModel: "gpt-5.4-mini",
+        steps: 6,
+      },
+      {
+        day: "2026-10-29",
+        billing: "free",
+        tier: "auto",
+        servedModel: "openrouter/free",
+        steps: 2,
+      },
+      {
+        day: "2026-10-29",
+        billing: "free",
+        tier: "auto",
+        servedModel: "meta-llama/llama-4:free",
+        steps: 1,
+      },
+      {
+        day: "2026-10-29",
+        billing: "paid",
+        tier: "auto",
+        servedModel: "claude-haiku-5-5",
+        steps: 1,
+      },
     ];
     const r = R.buildUsageReport(overview, [], [], picks, {}, NOW, nameable);
     expect(r.autoPicks.steps).toBe(10);
     expect(r.autoPicks.models).toEqual([
-      { label: "GPT 5.4 Mini", billing: "free", tier: "auto", steps: 6, share: 60 },
-      { label: "Other free models", billing: "free", tier: "auto", steps: 3, share: 30 },
-      { label: "Claude Haiku 5.5", billing: "paid", tier: "auto", steps: 1, share: 10 },
+      {
+        label: "GPT 5.4 Mini",
+        billing: "free",
+        tier: "auto",
+        steps: 6,
+        share: 60,
+      },
+      {
+        label: "Other free models",
+        billing: "free",
+        tier: "auto",
+        steps: 3,
+        share: 30,
+      },
+      {
+        label: "Claude Haiku 5.5",
+        billing: "paid",
+        tier: "auto",
+        steps: 1,
+        share: 10,
+      },
     ]);
     expect(JSON.stringify(r.autoPicks)).not.toMatch(/openrouter|llama/i);
-    expect(r.autoPicks.byDay.at(-1)).toEqual({ day: "2026-10-29", free: 9, paid: 1 });
+    expect(r.autoPicks.byDay.at(-1)).toEqual({
+      day: "2026-10-29",
+      free: 9,
+      paid: 1,
+    });
   });
 });
 
 describe("as text (CLI and ACP)", () => {
   it("fits every tab in an 80-column terminal", () => {
     const rows = Array.from({ length: 30 }, (_, i) =>
-      row({ day: R.windowDays(30, NOW)[i]!, modelId: `a-very-long-model-name-${i % 7}`, inputTokens: 1000 * (i + 1) }),
+      row({
+        day: R.windowDays(30, NOW)[i]!,
+        modelId: `a-very-long-model-name-${i % 7}`,
+        inputTokens: 1000 * (i + 1),
+      }),
     );
-    const r = R.buildUsageReport(overview, rows, [{ day: "2026-10-29", kind: "mcp", name: "x".repeat(60), runs: 2 }], [], {}, NOW);
+    const r = R.buildUsageReport(
+      overview,
+      rows,
+      [{ day: "2026-10-29", kind: "mcp", name: "x".repeat(60), runs: 2 }],
+      [],
+      {},
+      NOW,
+    );
     for (const lines of [Fm.tokensText(r), Fm.toolsText(r), Fm.autoText(r)]) {
-      for (const l of lines.filter((x) => !x.tone)) expect(l.text.length).toBeLessThanOrEqual(80);
+      for (const l of lines.filter((x) => !x.tone))
+        expect(l.text.length).toBeLessThanOrEqual(80);
     }
   });
 
   it("draws a name recorded before names were cleaned without its escape codes", () => {
-    const r = R.buildUsageReport(overview, [], [{ day: "2026-10-29", kind: "mcp", name: "x\u001b]0;pwned\u0007", runs: 1 }], [], {}, NOW);
+    const r = R.buildUsageReport(
+      overview,
+      [],
+      [
+        {
+          day: "2026-10-29",
+          kind: "mcp",
+          name: "x\u001b]0;pwned\u0007",
+          runs: 1,
+        },
+      ],
+      [],
+      {},
+      NOW,
+    );
     const lines = Fm.toolsText(r).map((l) => l.text);
     expect(lines.some((l) => l.includes("x]0;pwned"))).toBe(true);
+    // eslint-disable-next-line no-control-regex -- looking for them is the point
     for (const l of lines) expect(l).not.toMatch(/[\u0000-\u001f\u007f]/);
   });
 
@@ -186,10 +321,23 @@ describe("as text (CLI and ACP)", () => {
   });
 
   it("says why a tab is empty", () => {
-    const empty = R.buildUsageReport({ ...overview, since: null }, [], [], [], {}, NOW);
-    expect(Fm.tokensText(empty)[0]!.text).toBe("Tokens are counted from your next chat.");
-    expect(Fm.autoText(empty)[0]!.text).toBe("Atlarix Auto hasn't answered yet.");
-    expect(Fm.creditsText({ state: "signed_out" })[0]!.text).toBe("Sign in to see Atlarix credits.");
+    const empty = R.buildUsageReport(
+      { ...overview, since: null },
+      [],
+      [],
+      [],
+      {},
+      NOW,
+    );
+    expect(Fm.tokensText(empty)[0]!.text).toBe(
+      "Tokens are counted from your next chat.",
+    );
+    expect(Fm.autoText(empty)[0]!.text).toBe(
+      "Atlarix Auto hasn't answered yet.",
+    );
+    expect(Fm.creditsText({ state: "signed_out" })[0]!.text).toBe(
+      "Sign in to see Atlarix credits.",
+    );
   });
 });
 
@@ -200,7 +348,13 @@ describe("the share card", () => {
     expect(svg).toContain("4 days");
     expect(svg).toContain("9 days");
     expect(svg).toContain("1.2M");
-    for (const secret of ["Secret project", "private-release-skill", "acme-internal-mcp", "claude", "Sonnet"]) {
+    for (const secret of [
+      "Secret project",
+      "private-release-skill",
+      "acme-internal-mcp",
+      "claude",
+      "Sonnet",
+    ]) {
       expect(svg).not.toContain(secret);
     }
   });
@@ -218,19 +372,47 @@ describe("Credits", () => {
       renews_at: "2026-11-20T00:00:00Z",
       since: "2026-10-01",
       days: [
-        { day: "2026-10-29", auto_paid_cents: 12, core_cents: 30, tool_cents: 1, other_cents: 0, unsplit_cents: 0 },
+        {
+          day: "2026-10-29",
+          auto_paid_cents: 12,
+          core_cents: 30,
+          tool_cents: 1,
+          other_cents: 0,
+          unsplit_cents: 0,
+        },
         { day: "2026-10-28", auto_paid_cents: -5, core_cents: 2.4 },
         { nope: true },
       ],
     });
-    expect(c).toMatchObject({ state: "ok", balanceCents: 1234, plan: "pro", renewsAt: "2026-11-20T00:00:00Z" });
+    expect(c).toMatchObject({
+      state: "ok",
+      balanceCents: 1234,
+      plan: "pro",
+      renewsAt: "2026-11-20T00:00:00Z",
+    });
     if (c.state !== "ok") throw new Error("unreachable");
     expect(c.days).toEqual([
-      { day: "2026-10-28", autoPaidCents: 0, coreCents: 2, toolCents: 0, otherCents: 0, unsplitCents: 0 },
-      { day: "2026-10-29", autoPaidCents: 12, coreCents: 30, toolCents: 1, otherCents: 0, unsplitCents: 0 },
+      {
+        day: "2026-10-28",
+        autoPaidCents: 0,
+        coreCents: 2,
+        toolCents: 0,
+        otherCents: 0,
+        unsplitCents: 0,
+      },
+      {
+        day: "2026-10-29",
+        autoPaidCents: 12,
+        coreCents: 30,
+        toolCents: 1,
+        otherCents: 0,
+        unsplitCents: 0,
+      },
     ]);
     expect(parseUsageCredits(null)).toEqual({ state: "unavailable" });
-    expect(parseUsageCredits({ ok: false, error: "account_banned" })).toEqual({ state: "unavailable" });
+    expect(parseUsageCredits({ ok: false, error: "account_banned" })).toEqual({
+      state: "unavailable",
+    });
     expect(parseUsageCredits({ ok: true })).toEqual({ state: "unavailable" });
   });
 

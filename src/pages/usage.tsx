@@ -12,7 +12,12 @@ import { compactCount } from "@/lib/stats/activity-format";
 import { shareCardSvg } from "@/lib/stats/share-card";
 import { USAGE_TABS, shortDay, type UsageTab } from "@/lib/stats/usage-format";
 import { usdLabel } from "@/lib/stats/usage-labels";
-import type { UsageCredits, UsageFilters, UsageOption, UsageReport } from "@/lib/stats/usage-types";
+import type {
+  UsageCredits,
+  UsageFilters,
+  UsageOption,
+  UsageReport,
+} from "@/lib/stats/usage-types";
 import { showError } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
@@ -42,20 +47,34 @@ function DayColumns({
   days: Array<{ day: string; values: number[] }>;
   title: (d: { day: string; values: number[] }) => string;
 }) {
-  const max = Math.max(0, ...days.map((d) => d.values.reduce((a, b) => a + b, 0)));
+  const max = Math.max(
+    0,
+    ...days.map((d) => d.values.reduce((a, b) => a + b, 0)),
+  );
   return (
     <div className="flex h-40 items-end gap-[2px] border-b pb-px">
       {days.map((d) => {
         const total = d.values.reduce((a, b) => a + b, 0);
         return (
-          <div key={d.day} title={title(d)} aria-label={title(d)} className="flex h-full min-w-[2px] flex-1 items-end">
+          <div
+            key={d.day}
+            title={title(d)}
+            aria-label={title(d)}
+            className="flex h-full min-w-[2px] flex-1 items-end"
+          >
             {max > 0 && total > 0 ? (
               <div
                 className="flex w-full flex-col-reverse overflow-hidden rounded-t-[2px]"
                 style={{ height: `${Math.max(1.5, (total / max) * 100)}%` }}
               >
                 {d.values.map((v, i) =>
-                  v > 0 ? <span key={i} className={cn("min-h-px", seriesBg(i))} style={{ flexGrow: v }} /> : null,
+                  v > 0 ? (
+                    <span
+                      key={i}
+                      className={cn("min-h-px", seriesBg(i))}
+                      style={{ flexGrow: v }}
+                    />
+                  ) : null,
                 )}
               </div>
             ) : null}
@@ -70,7 +89,10 @@ function Legend({ labels }: { labels: string[] }) {
   return (
     <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
       {labels.map((l, i) => (
-        <span key={`${l}-${i}`} className="inline-flex min-w-0 items-center gap-1.5">
+        <span
+          key={`${l}-${i}`}
+          className="inline-flex min-w-0 items-center gap-1.5"
+        >
           <span className={cn("h-2 w-2 shrink-0 rounded-[2px]", seriesBg(i))} />
           <span className="truncate">{l}</span>
         </span>
@@ -113,9 +135,14 @@ function Rows({ rows }: { rows: Array<{ label: string; value: string }> }) {
   return (
     <div className="space-y-1.5">
       {rows.map((r) => (
-        <div key={r.label} className="flex items-center justify-between gap-3 text-sm">
+        <div
+          key={r.label}
+          className="flex items-center justify-between gap-3 text-sm"
+        >
           <span className="truncate">{r.label}</span>
-          <span className="text-muted-foreground whitespace-nowrap tabular-nums">{r.value}</span>
+          <span className="text-muted-foreground whitespace-nowrap tabular-nums">
+            {r.value}
+          </span>
         </div>
       ))}
     </div>
@@ -152,7 +179,9 @@ function ShareButtons({ report }: { report: UsageReport }) {
         onClick={async () => {
           try {
             const { blob } = await cardPng(svg());
-            await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+            await navigator.clipboard.write([
+              new ClipboardItem({ "image/png": blob }),
+            ]);
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
           } catch {
@@ -167,7 +196,9 @@ function ShareButtons({ report }: { report: UsageReport }) {
         size="sm"
         onClick={async () => {
           try {
-            await IpcClient.getInstance().saveUsageCard((await cardPng(svg())).dataUrl);
+            await IpcClient.getInstance().saveUsageCard(
+              (await cardPng(svg())).dataUrl,
+            );
           } catch {
             showError("Couldn't save the card.");
           }
@@ -190,7 +221,8 @@ function TokensTab({
 }) {
   const { t } = useTranslation("settings");
   if (!r.tokens.since) return <Muted>{t("usage.tokensEmpty")}</Muted>;
-  const set = (k: keyof UsageFilters) => (v: string | number | undefined) => setFilters({ ...filters, [k]: v });
+  const set = (k: keyof UsageFilters) => (v: string | number | undefined) =>
+    setFilters({ ...filters, [k]: v });
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
@@ -204,7 +236,13 @@ function TokensTab({
           all={t("usage.range30")}
           onPick={(v) => set("days")(v ? Number(v) : undefined)}
         />
-        <Filter label="Model" value={r.filters.applied.model} options={r.filters.models} all={t("usage.allModels")} onPick={set("model")} />
+        <Filter
+          label="Model"
+          value={r.filters.applied.model}
+          options={r.filters.models}
+          all={t("usage.allModels")}
+          onPick={set("model")}
+        />
         <Filter
           label="Surface"
           value={r.filters.applied.surface}
@@ -220,47 +258,76 @@ function TokensTab({
           onPick={set("source")}
         />
       </div>
-      <div className="text-xl font-semibold tabular-nums">{t("usage.tokensTotal", { tokens: compactCount(r.tokens.total) })}</div>
+      <div className="text-xl font-semibold tabular-nums">
+        {t("usage.tokensTotal", { tokens: compactCount(r.tokens.total) })}
+      </div>
       <DayColumns
         days={r.tokens.byDay}
-        title={(d) => `${shortDay(d.day)}: ${compactCount(d.values.reduce((a, b) => a + b, 0))}`}
+        title={(d) =>
+          `${shortDay(d.day)}: ${compactCount(d.values.reduce((a, b) => a + b, 0))}`
+        }
       />
       <Legend labels={r.tokens.series.map((s) => s.label)} />
       {r.byok ? (
         <div className="space-y-1 border-t pt-4">
-          <div className="text-sm font-medium">{t("usage.byokTitle", { usd: usdLabel(r.byok.totalUsd) })}</div>
+          <div className="text-sm font-medium">
+            {t("usage.byokTitle", { usd: usdLabel(r.byok.totalUsd) })}
+          </div>
           <p className="text-muted-foreground text-xs">
-            {t("usage.byokNote", { priced: r.byok.pricedTurns, day: r.byok.since })}{" "}
-            {r.byok.unpricedTurns > 0 ? t("usage.byokUnpriced", { count: r.byok.unpricedTurns }) : null}
+            {t("usage.byokNote", {
+              priced: r.byok.pricedTurns,
+              day: r.byok.since,
+            })}{" "}
+            {r.byok.unpricedTurns > 0
+              ? t("usage.byokUnpriced", { count: r.byok.unpricedTurns })
+              : null}
           </p>
         </div>
       ) : null}
-      <p className="text-muted-foreground border-t pt-2 text-xs">{t("usage.tokensSince", { day: r.tokens.since })}</p>
+      <p className="text-muted-foreground border-t pt-2 text-xs">
+        {t("usage.tokensSince", { day: r.tokens.since })}
+      </p>
     </div>
   );
 }
 
 function ToolsTab({ report: r }: { report: UsageReport }) {
   const { t } = useTranslation("settings");
-  if (!r.tools.byDay.some((d) => d.mcp + d.skill > 0)) return <Muted>{t("usage.toolsEmpty", { days: r.range })}</Muted>;
+  if (!r.tools.byDay.some((d) => d.mcp + d.skill > 0))
+    return <Muted>{t("usage.toolsEmpty", { days: r.range })}</Muted>;
   return (
     <div className="space-y-4">
       <DayColumns
-        days={r.tools.byDay.map((d) => ({ day: d.day, values: [d.mcp, d.skill] }))}
-        title={(d) => `${shortDay(d.day)}: ${d.values[0]} MCP, ${d.values[1]} skills`}
+        days={r.tools.byDay.map((d) => ({
+          day: d.day,
+          values: [d.mcp, d.skill],
+        }))}
+        title={(d) =>
+          `${shortDay(d.day)}: ${d.values[0]} MCP, ${d.values[1]} skills`
+        }
       />
       <Legend labels={["MCP", t("usage.skills")]} />
       <div className="grid gap-5 border-t pt-4 sm:grid-cols-2">
         {r.tools.mcp.length ? (
           <div className="space-y-1.5">
             <div className="text-sm font-medium">{t("usage.mcpServers")}</div>
-            <Rows rows={r.tools.mcp.map((x) => ({ label: x.name, value: `${x.runs} ${x.runs === 1 ? "call" : "calls"}` }))} />
+            <Rows
+              rows={r.tools.mcp.map((x) => ({
+                label: x.name,
+                value: `${x.runs} ${x.runs === 1 ? "call" : "calls"}`,
+              }))}
+            />
           </div>
         ) : null}
         {r.tools.skills.length ? (
           <div className="space-y-1.5">
             <div className="text-sm font-medium">{t("usage.skills")}</div>
-            <Rows rows={r.tools.skills.map((x) => ({ label: x.name, value: `${x.runs} ${x.runs === 1 ? "run" : "runs"}` }))} />
+            <Rows
+              rows={r.tools.skills.map((x) => ({
+                label: x.name,
+                value: `${x.runs} ${x.runs === 1 ? "run" : "runs"}`,
+              }))}
+            />
           </div>
         ) : null}
       </div>
@@ -275,12 +342,19 @@ function AutoTab({ report: r }: { report: UsageReport }) {
   return (
     <div className="space-y-4">
       <DayColumns
-        days={r.autoPicks.byDay.map((d) => ({ day: d.day, values: [d.paid, d.free] }))}
-        title={(d) => `${shortDay(d.day)}: ${d.values[0]} paid, ${d.values[1]} free`}
+        days={r.autoPicks.byDay.map((d) => ({
+          day: d.day,
+          values: [d.paid, d.free],
+        }))}
+        title={(d) =>
+          `${shortDay(d.day)}: ${d.values[0]} paid, ${d.values[1]} free`
+        }
       />
       <Legend labels={[t("usage.paid"), t("usage.free")]} />
       <div className="space-y-1.5 border-t pt-4">
-        <div className="text-sm font-medium">{t("usage.autoSteps", { count: r.autoPicks.steps })}</div>
+        <div className="text-sm font-medium">
+          {t("usage.autoSteps", { count: r.autoPicks.steps })}
+        </div>
         <Rows
           rows={r.autoPicks.models.map((m) => ({
             label: `${m.label} · ${zenith ? `${m.tier === "zenith" ? "Zenith" : "Auto"}, ` : ""}${m.billing === "paid" ? t("usage.paid") : t("usage.free")}`,
@@ -288,43 +362,74 @@ function AutoTab({ report: r }: { report: UsageReport }) {
           }))}
         />
       </div>
-      <p className="text-muted-foreground text-xs">{t("usage.autoNote", { day: r.autoPicks.since })}</p>
+      <p className="text-muted-foreground text-xs">
+        {t("usage.autoNote", { day: r.autoPicks.since })}
+      </p>
     </div>
   );
 }
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
-function CreditsTab({ credits: c, loading }: { credits: UsageCredits | undefined; loading: boolean }) {
+function CreditsTab({
+  credits: c,
+  loading,
+}: {
+  credits: UsageCredits | undefined;
+  loading: boolean;
+}) {
   const { t } = useTranslation("settings");
   if (loading || !c) return <Muted>{t("usage.loading")}</Muted>;
-  if (c.state === "signed_out") return <Muted>{t("usage.creditsSignedOut")}</Muted>;
-  if (c.state === "unavailable") return <Muted>{t("usage.creditsUnavailable")}</Muted>;
+  if (c.state === "signed_out")
+    return <Muted>{t("usage.creditsSignedOut")}</Muted>;
+  if (c.state === "unavailable")
+    return <Muted>{t("usage.creditsUnavailable")}</Muted>;
   const recent = c.days.slice(-30);
-  const spent = c.days.reduce((n, d) => n + d.autoPaidCents + d.coreCents + d.toolCents + d.otherCents + d.unsplitCents, 0);
+  const spent = c.days.reduce(
+    (n, d) =>
+      n +
+      d.autoPaidCents +
+      d.coreCents +
+      d.toolCents +
+      d.otherCents +
+      d.unsplitCents,
+    0,
+  );
   const hasOther = recent.some((d) => d.toolCents + d.otherCents > 0);
   const hasUnsplit = recent.some((d) => d.unsplitCents > 0);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <div>
-          <div className="text-xl font-semibold tabular-nums">{dollars(c.balanceCents)}</div>
-          <div className="text-muted-foreground text-xs">{t("usage.balance")}</div>
+          <div className="text-xl font-semibold tabular-nums">
+            {dollars(c.balanceCents)}
+          </div>
+          <div className="text-muted-foreground text-xs">
+            {t("usage.balance")}
+          </div>
         </div>
         {c.plan === "pro" && c.grantedTotalCents > 0 ? (
           <div>
             <div className="text-xl font-semibold tabular-nums">
-              {dollars(c.grantedTotalCents - c.grantedCents)} / {dollars(c.grantedTotalCents)}
+              {dollars(c.grantedTotalCents - c.grantedCents)} /{" "}
+              {dollars(c.grantedTotalCents)}
             </div>
-            <div className="text-muted-foreground text-xs">{t("usage.proUsed")}</div>
+            <div className="text-muted-foreground text-xs">
+              {t("usage.proUsed")}
+            </div>
           </div>
         ) : null}
         {c.plan === "pro" && c.renewsAt ? (
           <div>
             <div className="text-xl font-semibold">
-              {new Date(c.renewsAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+              {new Date(c.renewsAt).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+              })}
             </div>
-            <div className="text-muted-foreground text-xs">{t("usage.resets")}</div>
+            <div className="text-muted-foreground text-xs">
+              {t("usage.resets")}
+            </div>
           </div>
         ) : null}
       </div>
@@ -336,9 +441,16 @@ function CreditsTab({ credits: c, loading }: { credits: UsageCredits | undefined
           <DayColumns
             days={recent.map((d) => ({
               day: d.day,
-              values: [d.autoPaidCents, d.coreCents, d.toolCents + d.otherCents, d.unsplitCents],
+              values: [
+                d.autoPaidCents,
+                d.coreCents,
+                d.toolCents + d.otherCents,
+                d.unsplitCents,
+              ],
             }))}
-            title={(d) => `${shortDay(d.day)}: ${dollars(d.values.reduce((a, b) => a + b, 0))}`}
+            title={(d) =>
+              `${shortDay(d.day)}: ${dollars(d.values.reduce((a, b) => a + b, 0))}`
+            }
           />
           <Legend
             labels={[
@@ -384,7 +496,12 @@ export function UsagePage() {
             ))}
           </TabsList>
           <TabsContent value="overview" className="space-y-8">
-            {r ? <ActivityCard data={r.overview} action={<ShareButtons report={r} />} /> : null}
+            {r ? (
+              <ActivityCard
+                data={r.overview}
+                action={<ShareButtons report={r} />}
+              />
+            ) : null}
             <EditStatsCard />
           </TabsContent>
           {(["credits", "tokens", "tools", "auto"] as const).map((key) => (
@@ -392,11 +509,20 @@ export function UsagePage() {
               <Card>
                 <CardContent className="pt-6">
                   {key === "credits" ? (
-                    <CreditsTab credits={credits.data} loading={credits.isLoading} />
+                    <CreditsTab
+                      credits={credits.data}
+                      loading={credits.isLoading}
+                    />
                   ) : !r ? (
-                    <Muted>{report.error ? t("usage.error") : t("usage.loading")}</Muted>
+                    <Muted>
+                      {report.error ? t("usage.error") : t("usage.loading")}
+                    </Muted>
                   ) : key === "tokens" ? (
-                    <TokensTab report={r} filters={filters} setFilters={setFilters} />
+                    <TokensTab
+                      report={r}
+                      filters={filters}
+                      setFilters={setFilters}
+                    />
                   ) : key === "tools" ? (
                     <ToolsTab report={r} />
                   ) : (
@@ -407,7 +533,9 @@ export function UsagePage() {
             </TabsContent>
           ))}
         </Tabs>
-        {tab === "overview" && !r ? <Muted>{report.error ? t("usage.error") : t("usage.loading")}</Muted> : null}
+        {tab === "overview" && !r ? (
+          <Muted>{report.error ? t("usage.error") : t("usage.loading")}</Muted>
+        ) : null}
       </div>
     </div>
   );
