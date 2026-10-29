@@ -238,7 +238,7 @@ describe("Auto's identity and capabilities", () => {
 });
 
 describe("the routing hints", () => {
-  it("carry purpose, mode, deep thinking — and consent only once given", () => {
+  it("carry purpose, mode, escalate — and consent only once given", () => {
     expect(
       autoRequestHeaders(
         { deepThinking: true, atlarixAutoConsentAt: undefined },
@@ -246,8 +246,6 @@ describe("the routing hints", () => {
       ),
     ).toEqual({
       "X-Atlarix-Purpose": "main",
-      "X-Atlarix-Effort": "max",
-      "X-Atlarix-Thinking": "1",
       "X-Atlarix-Mode": "plan",
     });
     const h = autoRequestHeaders(
@@ -256,18 +254,17 @@ describe("the routing hints", () => {
     );
     expect(h).toMatchObject({
       "X-Atlarix-Purpose": "subagent",
-      "X-Atlarix-Effort": "medium",
-      "X-Atlarix-Thinking": "0",
       "X-Atlarix-Escalate": "1",
       "X-Atlarix-Free-Consent": "1",
     });
   });
 
-  it("carry the /effort level for paid Auto's lanes, max also as the old thinking header", () => {
-    expect(autoRequestHeaders({ effort: "low" })).toMatchObject({ "X-Atlarix-Effort": "low", "X-Atlarix-Thinking": "0" });
-    expect(autoRequestHeaders({ effort: "max" })).toMatchObject({ "X-Atlarix-Effort": "max", "X-Atlarix-Thinking": "1" });
-    // A level Auto doesn't have (another model's) runs Auto's default.
-    expect(autoRequestHeaders({ effort: "xhigh" })).toMatchObject({ "X-Atlarix-Effort": "medium" });
+  it("carry no effort or thinking hint: a saved level can't steer lanes the user can't see (owner, 2026-10-29)", () => {
+    for (const effort of ["low", "medium", "max", "xhigh", undefined]) {
+      const h = autoRequestHeaders({ effort, deepThinking: true });
+      expect(h).not.toHaveProperty("X-Atlarix-Effort");
+      expect(h).not.toHaveProperty("X-Atlarix-Thinking");
+    }
   });
 });
 

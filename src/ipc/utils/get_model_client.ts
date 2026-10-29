@@ -65,7 +65,6 @@ import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
 import { trackLocalModelConnected } from "@/main/lib/analytics";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
-import { autoEffort } from "@/lib/routing/model-reasoning-profile";
 import { CORE_TIER_NEWER_BUILD } from "@/shared/texts";
 
 export interface ModelClient {
@@ -122,15 +121,14 @@ export function autoRequestHeaders(
   settings: Pick<UserSettings, "deepThinking" | "effort" | "atlarixAutoConsentAt" | "atlarixAutoConsentVersion">,
   options?: GetModelClientOptions,
 ): Record<string, string> {
-  // /effort on Auto: low | medium | max choose the lanes. The thinking header
-  // stays for a proxy that predates the effort header (max = deep thinking).
-  const effort = autoEffort(settings);
+  // No effort or thinking hint (owner, 2026-10-29: no effort on Auto or Zenith;
+  // ai-34): the proxy runs every Auto/Zenith lane on high and picks the model
+  // from the purpose and the work mode. A saved level from before must not keep
+  // steering lanes the user can no longer see or change.
   const out: Record<string, string> = {
     "X-Atlarix-Purpose":
       options?.purpose ??
       (options?.delegationRole === "subagent" ? "subagent" : "main"),
-    "X-Atlarix-Effort": effort,
-    "X-Atlarix-Thinking": effort === "max" ? "1" : "0",
   };
   if (options?.workMode) out["X-Atlarix-Mode"] = options.workMode;
   if (options?.escalate) out["X-Atlarix-Escalate"] = "1";
