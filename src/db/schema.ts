@@ -1179,6 +1179,76 @@ export const usageToolStats = sqliteTable(
   (table) => [unique("usage_tool_stats_bucket_unique").on(table.day, table.kind, table.name)],
 );
 
+/**
+ * Usage: what `usage_stats` records, plus the editor, the source, the cache
+ * split and a BYOK cost estimate (migration 0082). New writes land here only;
+ * `usage_stats` keeps what older builds write, and the reader adds the two.
+ *
+ * `source` is chat | automation (a turn) or subagent | compaction | other (the
+ * auxiliary calls a turn made; `turns` stays 0 on those rows). `turns` counts
+ * finished turns; a stopped or failed turn still adds the tokens it spent.
+ * `est_cost_micros` is BYOK only, in millionths of a USD at list price, summed
+ * over the `priced_turns`; `unpriced_turns` had no reliable price.
+ */
+export const usageRollup = sqliteTable(
+  "usage_rollup",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    day: text("day").notNull(),
+    surface: text("surface").notNull(),
+    editor: text("editor").notNull().default(""),
+    source: text("source").notNull(),
+    provider: text("provider").notNull(),
+    modelId: text("model_id").notNull(),
+    mode: text("mode").notNull(),
+    turns: integer("turns").notNull().default(0),
+    deepTurns: integer("deep_turns").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    estCostMicros: integer("est_cost_micros").notNull().default(0),
+    pricedTurns: integer("priced_turns").notNull().default(0),
+    unpricedTurns: integer("unpriced_turns").notNull().default(0),
+  },
+  (table) => [
+    unique("usage_rollup_bucket_unique").on(
+      table.day,
+      table.surface,
+      table.editor,
+      table.source,
+      table.provider,
+      table.modelId,
+      table.mode,
+    ),
+  ],
+);
+
+/** Atlarix Auto replies per day by the model that answered (`X-Atlarix-Served-Model`). */
+export const usageAutoPicks = sqliteTable(
+  "usage_auto_picks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    day: text("day").notNull(),
+    surface: text("surface").notNull(),
+    /** free | paid, as the reply said. */
+    billing: text("billing").notNull(),
+    /** auto | zenith (`X-Atlarix-Tier`); '' from a proxy that does not say. */
+    tier: text("tier").notNull().default(""),
+    servedModel: text("served_model").notNull(),
+    steps: integer("steps").notNull().default(0),
+  },
+  (table) => [
+    unique("usage_auto_picks_bucket_unique").on(
+      table.day,
+      table.surface,
+      table.billing,
+      table.tier,
+      table.servedModel,
+    ),
+  ],
+);
+
 export const editStatsRelations = relations(editStats, ({ one }) => ({
   workspace: one(apps, {
     fields: [editStats.workspaceId],

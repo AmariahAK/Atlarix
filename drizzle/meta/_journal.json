@@ -575,6 +575,13 @@
       "when": 1788134400000,
       "tag": "0081_chat_session_model",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1788220800000,
+      "tag": "0082_usage_rollup",
+      "breakpoints": true
     }
   ]
 }

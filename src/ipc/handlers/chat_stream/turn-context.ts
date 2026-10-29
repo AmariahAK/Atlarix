@@ -89,6 +89,22 @@ export interface StreamTurnContext {
   delegationsStartedThisTurn: number;
   inFlightDelegationKeys: Set<string>;
 
+  /**
+   * The Usage page's view of this turn, read in `finally` (after a stop or an
+   * error too): the dispatched model, the model to price it as, and the mode.
+   * A closure because the model client can be rebound mid-turn.
+   */
+  usageModel:
+    | (() => {
+        model: { provider: string; name: string } | null;
+        pricing: { name: string; builtinProviderId?: string };
+        mode: string;
+        deep: boolean;
+      })
+    | undefined;
+  /** The sub-agent/compaction usage finalization drained (null: none; undefined: not drained). */
+  turnAuxUsage: import("@/lib/usage/turn-usage-aggregator").AuxUsageTotals | null | undefined;
+
   // ── analytics: what `turn_completed` reports, set as the turn learns it ──
   analyticsTurn: {
     mode?: string;
@@ -129,6 +145,8 @@ export function createStreamTurnContext(): StreamTurnContext {
     delegatedAgentsThisTurn: [],
     delegationsStartedThisTurn: 0,
     inFlightDelegationKeys: new Set<string>(),
+    usageModel: undefined,
+    turnAuxUsage: undefined,
     analyticsTurn: {},
   };
 }

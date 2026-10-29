@@ -9,6 +9,7 @@ import {
   LogOut,
   MoreHorizontal,
   User,
+  BarChart3,
 } from "lucide-react";
 import {
   Popover,
@@ -370,6 +371,14 @@ export function AppSidebar() {
                     >
                       <User className="h-4 w-4" />
                       Account
+                    </Link>
+                    <Link
+                      to="/usage"
+                      onClick={() => setShowAuthMenu(false)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-muted rounded transition-colors"
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                      Usage
                     </Link>
 
                     {/* Sign out button */}

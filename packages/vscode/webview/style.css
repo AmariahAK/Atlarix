@@ -3061,6 +3061,73 @@ li.md-task {
   white-space: nowrap;
 }
 
+/* Usage (views/usage.ts): a column a day, stacked by series. */
+.usage {
+  gap: 10px;
+}
+.use-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 96px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.use-bars__day {
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.use-bars__stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 2px 2px 0 0;
+  overflow: hidden;
+}
+.use-bars__seg {
+  min-height: 1px;
+}
+.ser0 { background: var(--primary); }
+.ser1 { background: var(--code); }
+.ser2 { background: var(--warn); }
+.ser3 { background: var(--primary-line); }
+.ser4 { background: var(--danger-soft); }
+.ser5 { background: var(--faint); }
+.use-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+}
+.use-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.use-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+.use-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.use-filter {
+  max-width: 100%;
+  background: var(--field);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+}
+
 /* Signed out: the first screen is the whole panel (views/sign-in.ts). */
 .signin-screen {
   display: none;

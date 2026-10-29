@@ -57,6 +57,7 @@ const stats = (over: Partial<ActivityStats> = {}): ActivityStats => ({
     { surface: "cli", turns: 7 },
     { surface: "editor", turns: 3 },
   ],
+  editors: [],
   skills: [{ name: "release", runs: 7 }],
   mcp: [{ name: "deepwiki", runs: 4 }],
   linesWritten: 5000,
@@ -121,6 +122,16 @@ describe("/stats in an editor", () => {
   });
 
   it("says so when there's nothing yet", () => {
-    expect(F.statsMarkdown(stats({ since: null }))).toContain("Nothing yet");
+    expect(F.statsMarkdown(stats({ since: null }))).toContain("No activity yet.");
+  });
+
+  it("lists a named editor on its own and leaves the rest as Editors", () => {
+    const rows = F.activitySections(
+      stats({ surfaces: [{ surface: "editor", turns: 5 }], editors: [{ editor: "zed", turns: 3 }] }),
+    ).find((x) => x.title === "Where you work")!.rows;
+    expect(rows).toEqual([
+      { label: "Editors (VS Code, Zed, JetBrains)", value: "2 turns" },
+      { label: "Zed", value: "3 turns" },
+    ]);
   });
 });

@@ -150,7 +150,11 @@ describe("the live readout", () => {
           "x-atlarix-free-remaining": "62",
         }),
       ),
-    ).toEqual({ servedModel: "gpt-5.4-mini", freeRemaining: 62, billing: null, costCents: null, onFloor: null });
+    ).toEqual({ servedModel: "gpt-5.4-mini", freeRemaining: 62, billing: null, tier: null, costCents: null, onFloor: null });
+    // Auto or Zenith, for the Usage page's Auto picks.
+    expect(
+      autoStatusFromHeaders(new Headers({ "x-atlarix-billing": "paid", "x-atlarix-tier": " Zenith " }))?.tier,
+    ).toBe("zenith");
     expect(
       autoStatusFromHeaders(
         new Headers({ "x-atlarix-billing": "free", "x-atlarix-free-remaining": "0", "x-atlarix-free-floor": "1" }),
@@ -179,6 +183,35 @@ describe("Auto's identity and capabilities", () => {
     // The loading-time fallback (no catalog yet) too.
     expect(displayLabelForCompassTier("core-auto")).toBe("Atlarix Auto");
     expect(displayLabelForCompassTier("core-3")).not.toMatch(/openrouter/);
+  });
+
+  it("lists the models the Usage page may name: concrete rungs, paid and Zenith levels, Core slots, never a gateway", () => {
+    const parsed = parseCoreAuto({
+      routing: { "core-1": { provider: "anthropic", apiModelId: "claude-sonnet-5-5" } },
+      auto: {
+        id: "atlarix/auto",
+        chain: [
+          { provider: "openai-shared", apiModelId: "gpt-5.4-mini", pool: "mini" },
+          { provider: "openrouter-free", apiModelId: "openrouter/free", pool: "openrouter", pinServed: true },
+          { provider: "requesty-free", apiModelId: "discover", pool: "requesty", discover: true },
+        ],
+        paid: { levels: { low: [{ provider: "anthropic", apiModelId: "claude-haiku-5-5" }] } },
+        zenith: {
+          levels: {
+            max: [
+              { provider: "openai", apiModelId: "gpt-6.1-astra" },
+              { provider: "bedrock", apiModelId: "us.anthropic.claude-opus-5-5-v1:0" },
+            ],
+          },
+        },
+      },
+    });
+    expect(parsed?.nameableModels?.sort()).toEqual([
+      "claude-haiku-5-5",
+      "claude-sonnet-5-5",
+      "gpt-5.4-mini",
+      "gpt-6.1-astra",
+    ]);
   });
 
   it("takes reasoning/vision capability from the first rung (shared suffix stripped)", async () => {

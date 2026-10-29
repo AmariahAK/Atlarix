@@ -3,8 +3,8 @@
  * /stats, VS Code's Account panel). Renderer-safe: no database, no Node.
  */
 
-import type { ActivityStats } from "./usage-stats";
-import { editStatsModelLabel } from "./edit-stats-label";
+import type { ActivityStats } from "./usage-types";
+import { usageModelLabel, usageSurfaceLabel } from "./usage-labels";
 
 /** 472.4M, 68.7K, 950. */
 export function compactCount(n: number): string {
@@ -95,7 +95,7 @@ export function activityTiles(
       value: s.peakDay ? compactCount(s.peakDay.tokens) : "—",
     },
     {
-      label: "Longest chat",
+      label: "Longest session",
       value: s.longestChat ? durationLabel(s.longestChat.minutes) : "—",
     },
     { label: "Current streak", value: days(s.currentStreak) },
@@ -111,7 +111,7 @@ export function activitySections(s: ActivityStats): ActivitySection[] {
     {
       title: "Favourite models",
       rows: s.models.map((m) => ({
-        label: editStatsModelLabel(m),
+        label: usageModelLabel(m),
         value: `${m.share}%`,
       })),
     },
@@ -143,10 +143,23 @@ export function activitySections(s: ActivityStats): ActivitySection[] {
     },
     {
       title: "Where you work",
-      rows: s.surfaces.map((x) => ({
-        label: activitySurfaceLabel(x.surface),
-        value: plural(x.turns, "turn", "turns"),
-      })),
+      rows: [
+        ...s.surfaces
+          // Named editors list themselves below; the rest stay one row.
+          .map((x) => ({
+            ...x,
+            turns: x.surface === "editor" ? x.turns - (s.editors ?? []).reduce((n, e) => n + e.turns, 0) : x.turns,
+          }))
+          .filter((x) => x.turns > 0)
+          .map((x) => ({
+            label: activitySurfaceLabel(x.surface),
+            value: plural(x.turns, "turn", "turns"),
+          })),
+        ...(s.editors ?? []).map((e) => ({
+          label: usageSurfaceLabel(e.editor),
+          value: plural(e.turns, "turn", "turns"),
+        })),
+      ],
     },
     {
       title: "Totals",
@@ -178,7 +191,7 @@ export function activityFootnote(s: ActivityStats): string {
 /** /stats in an editor chat (Zed, JetBrains, VS Code): markdown, the calendar in a code block. */
 export function statsMarkdown(s: ActivityStats): string {
   if (!s.since)
-    return "**Your activity**\n\nNothing yet. Your first chat starts the count.";
+    return "**Your activity**\n\nNo activity yet.";
   const out = [
     "**Your activity** (this computer)",
     "",

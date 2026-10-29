@@ -19,6 +19,7 @@ import { onHost, post, rpc } from "./rpc";
 import { applyOptions, emit, loadProviders, on, state } from "./state";
 import { button, el, iconButton, MODE_NAME, relTime, rixGlyph } from "./ui";
 import { renderAccount } from "./views/account";
+import { renderUsage } from "./views/usage";
 import { renderAddProvider } from "./views/addProvider";
 import { historyChanged, leaveHistory, renderHistory, renderUndo } from "./views/history";
 import { clearRating, maybeAskRating } from "./chat/rating";
@@ -101,6 +102,7 @@ function go(v: View): void {
   if (v.name === "history") void renderHistory(page, navApi);
   else if (v.name === "undo") void renderUndo(page, navApi, (id, text) => void C.goBack(id, text, null));
   else if (v.name === "account") void renderAccount(page, navApi);
+  else if (v.name === "usage") void renderUsage(page, navApi);
   else if (v.name === "mcp") void renderMcp(page, navApi);
   else if (v.name === "automations") void renderAutomations(page, navApi, () => setAutomationUnread(0));
   else if (v.name === "settings") renderSettings(page, navApi, v.tab);

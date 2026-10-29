@@ -4122,9 +4122,21 @@ export class IpcClient {
     return this.ipcRenderer.invoke("edit-stats:summary");
   }
 
-  /** Your activity on this computer (the stats page). */
-  public async getActivityStats(): Promise<import("@/lib/stats/usage-stats").ActivityStats> {
-    return this.ipcRenderer.invoke("usage:activity");
+  /** Usage on this computer (the Usage page). */
+  public async getUsageReport(
+    filters: import("@/lib/stats/usage-types").UsageFilters = {},
+  ): Promise<import("@/lib/stats/usage-types").UsageReport> {
+    return this.ipcRenderer.invoke("usage:report", filters);
+  }
+
+  /** The account's Atlarix credits (the Usage page's Credits tab). */
+  public async getUsageCredits(): Promise<import("@/lib/stats/usage-types").UsageCredits> {
+    return this.ipcRenderer.invoke("usage:credits");
+  }
+
+  /** Save the share card (a PNG data URL); asks where. */
+  public async saveUsageCard(dataUrl: string): Promise<{ saved: boolean }> {
+    return this.ipcRenderer.invoke("usage:save-card", dataUrl);
   }
 
   /** One line on where a chat stands, for someone coming back to it (lib/recap). */

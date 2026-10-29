@@ -1,6 +1,6 @@
 /**
- * The Account page's "Your activity": the numbers, the calendar and the ranked
- * lists, from this computer's stats (lib/stats/usage-stats).
+ * The Usage page's Overview ("Your activity"): the numbers, the calendar and the
+ * ranked lists, from this computer's stats (lib/stats/usage-stats).
  */
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
@@ -37,20 +37,18 @@ const stats = {
   modes: [{ mode: "ask", share: 100 }],
   deepShare: 0,
   surfaces: [{ surface: "editor", turns: 10 }],
+  editors: [],
   skills: [{ name: "release", runs: 7 }],
   mcp: [{ name: "deepwiki", runs: 4 }],
   linesWritten: 0,
   asOf: "2026-10-15",
 };
-vi.mock("@/ipc/ipc_client", () => ({
-  IpcClient: { getInstance: () => ({ getActivityStats: async () => stats }) },
-}));
 
 import { ActivityCard } from "@/components/settings/ActivityCard";
 
 describe("Your activity", () => {
   it("shows the numbers, the calendar and what you use most", async () => {
-    renderWithProviders(<ActivityCard />);
+    renderWithProviders(<ActivityCard data={stats as never} />);
     expect(await screen.findByText("472.4M")).toBeTruthy();
     expect(screen.getByText("Lifetime tokens")).toBeTruthy();
     expect(screen.getByText("1h 24m")).toBeTruthy();

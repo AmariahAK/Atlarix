@@ -90,12 +90,20 @@ export async function accountCommandText(
     startSignIns([added], session.appId, realServices);
     return mcpAddedText([added]);
   }
+  // Usage is this computer's: it needs no sign-in, only its Credits part does.
+  if (cmd === "usage" || cmd === "stats") {
+    const [{ statsMarkdown }, { usageMarkdown }] = await Promise.all([
+      import("@/lib/stats/activity-format"),
+      import("@/lib/stats/usage-format"),
+    ]);
+    const [report, credits] = await Promise.all([
+      realServices.usage({}),
+      realServices.usageCredits().catch(() => ({ state: "unavailable" }) as const),
+    ]);
+    return usageMarkdown(report, credits, statsMarkdown(report.overview));
+  }
   if (!email) return "You're not signed in to Atlarix. Run `atlarix login` in a terminal, then try again.";
   const [kind, balance] = await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)]);
-  if (cmd === "stats") {
-    const { statsMarkdown } = await import("@/lib/stats/activity-format");
-    return statsMarkdown(await realServices.stats());
-  }
   if (cmd === "billing") {
     const lines = ["**Atlarix billing**", "", `Plan: ${PLAN[kind ?? ""] ?? "unknown"} · Credit: ${money(balance)}`, ""];
     if (kind !== "pro") {

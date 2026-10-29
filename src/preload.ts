@@ -219,7 +219,9 @@ const validInvokeChannels = [
   "compass:get-slot-change-notice",
   "compass:ack-slot-change",
   "edit-stats:summary",
-  "usage:activity",
+  "usage:report",
+  "usage:credits",
+  "usage:save-card",
   "recap:generate",
   // Models.dev (dynamic model catalog)
   "models-dev:refresh",

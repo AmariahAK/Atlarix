@@ -102,8 +102,12 @@ import type { ConnectorView } from "@/lib/mcp/account-connectors";
 import type { CatalogEntry } from "@/shared/mcp-catalog";
 
 export interface CliServices {
-  /** Your activity on this computer (/stats). */
-  stats(): Promise<import("@/lib/stats/usage-stats").ActivityStats>;
+  /** Usage on this computer (/usage): activity, tokens, MCP & skills, Auto picks, BYOK estimate. */
+  usage(filters: import("@/lib/stats/usage-report").UsageFilters): Promise<import("@/lib/stats/usage-report").UsageReport>;
+  /** The account's Atlarix credits (/usage Credits). */
+  usageCredits(): Promise<import("@/lib/billing/usage-credits").UsageCredits>;
+  /** Writes the share card (SVG) to Downloads; returns its path. */
+  saveUsageCard(svg: string): Promise<string>;
   automations: {
     list(appId: number | null): Promise<AutomationSummary[]>;
     runs(appId: number): Promise<AutomationRun[]>;
@@ -297,8 +301,17 @@ async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 export const realServices: CliServices = {
-  /** Your activity on this computer: read straight from the shared database. */
-  stats: async () => (await import("@/lib/stats/usage-stats")).getActivityStats(),
+  /** Usage on this computer: read straight from the shared database. */
+  usage: async (filters) => (await import("@/lib/stats/usage-report")).getUsageReport(filters),
+  usageCredits: async () => (await import("@/lib/billing/usage-credits")).getUsageCredits(),
+  async saveUsageCard(svg) {
+    const [{ promises: fs }, os, path] = await Promise.all([import("node:fs"), import("node:os"), import("node:path")]);
+    const dir = path.join(os.homedir(), "Downloads");
+    await fs.mkdir(dir, { recursive: true });
+    const file = path.join(dir, `atlarix-usage-${new Date().toISOString().slice(0, 10)}.svg`);
+    await fs.writeFile(file, svg, "utf8");
+    return file;
+  },
   automations: {
     async list(appId) {
       if (appId != null) {
