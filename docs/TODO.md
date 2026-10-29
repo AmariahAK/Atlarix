@@ -81,6 +81,10 @@ endpoint for ~7 h. The owner's notes are in the calendar ("Atlarix alerts fixes"
   child and see where it came from, with the same session visible from the app, the CLI, VS Code and ACP
   (`session/load`). Design in plan mode first; the stores are shared, so one schema change serves all four.
 
+- **atlarix-proxy: `railway.json` config-as-code is deprecated, stops working 2026-12-01** (Railway CLI warning,
+  2026-10-29). Migrate with `railway config migrate` to `.railway/railway.ts` (which already exists for variables) and
+  keep the `watchPatterns` that make Railway deploy only when deployed code changes (f5f2485). Reliability bundle.
+
 ## 🔨 Handover 2026-10-25 (ai-27) — 15.11.1 released overnight; what is left
 
 - **Microsoft Store: 15.11.1 SUBMITTED, in Certification (2026-10-25 ~08:20 MYT), replacing 15.11.0 (owner's call).**
