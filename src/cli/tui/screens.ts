@@ -27,6 +27,7 @@ import {
   type PortableSession,
 } from "../sessions/portable";
 import { SOURCE_NAMES, listForeignSessions, type ImportSource } from "../sessions/importers";
+import { lineageNote, treeLabel } from "@/shared/session-lineage";
 
 /** What the session offers the screens (AgentSession, or the tests' fake). */
 export type ScreenSession = Pick<
@@ -108,6 +109,7 @@ const ago = (t: number | Date | string, now: Date): string => {
 
 export function openResume(ctx: ScreenContext): void {
   const now = ctx.now?.() ?? new Date();
+  const titles = new Map<string, string>();
   ctx.host.push(
     new ListDialog({
       title: "Resume a session",
@@ -115,15 +117,24 @@ export function openResume(ctx: ScreenContext): void {
       empty: "No earlier sessions in this folder yet.",
       footer: "type to search · ↑↓ move · enter open · esc close",
       items: async () =>
-        (await ctx.session.listSessions()).map((s) => ({
-          id: s.id,
-          label: s.title?.trim() || "Untitled session",
-          detail: [ago(s.updatedAt, now), s.workMode && s.workMode !== "build" ? s.workMode : null].filter(Boolean).join(" · "),
-        })),
+        (await ctx.session.listSessions()).map((s) => {
+          titles.set(s.id, s.title?.trim() || "Untitled session");
+          return {
+            id: s.id,
+            label: treeLabel(titles.get(s.id)!, s.depth),
+            detail: [
+              ago(s.updatedAt, now),
+              s.workMode && s.workMode !== "build" ? s.workMode : null,
+              lineageNote({ origin: s.origin ?? null, depth: s.depth, runs: s.runs, parentTitle: s.parentTitle }),
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          };
+        }),
       onChoose: async (item) => {
-        await ctx.session.resume(item.id);
+        const { parent } = await ctx.session.resume(item.id);
         ctx.host.closeAll();
-        ctx.flash(`Resumed “${item.label}”.`);
+        ctx.flash(`Resumed “${titles.get(item.id) ?? item.label}”${parent ? `, from “${parent.title}”` : ""}.`);
       },
     }),
   );

@@ -464,6 +464,7 @@ export function buildAgentApp(
     // Past chats in Atlarix's extension: this folder's or every folder's, with mode and star.
     .onRequest("_atlarix/sessions", (p) => p as { cwd?: string; all?: boolean }, async (ctx) => {
       const { listFolderSessions, listAllSessions } = await import("../agent/session");
+      const { lineageNote } = await import("@/shared/session-lineage");
       const models = await import("../agent/models");
       const starred = new Set(models.readCliState().starredSessions ?? []);
       const rows = ctx.params.all ? await listAllSessions() : ctx.params.cwd ? await listFolderSessions(ctx.params.cwd) : [];
@@ -475,6 +476,12 @@ export function buildAgentApp(
           mode: (r as { workMode?: string | null }).workMode ?? null,
           starred: starred.has(r.id),
           ...("folder" in r ? { folder: (r as unknown as { folder: string }).folder, folderName: (r as unknown as { folderName: string }).folderName } : {}),
+          // Where it came from: the panel shows each child under its parent.
+          depth: r.depth ?? 0,
+          ...(r.parentSessionId ? { parentSessionId: r.parentSessionId, via: r.origin?.via ?? null } : {}),
+          ...(lineageNote({ origin: r.origin ?? null, depth: r.depth, runs: r.runs, parentTitle: r.parentTitle })
+            ? { lineage: lineageNote({ origin: r.origin ?? null, depth: r.depth, runs: r.runs, parentTitle: r.parentTitle }) }
+            : {}),
         })),
       };
     })

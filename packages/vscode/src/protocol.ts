@@ -112,6 +112,8 @@ export type HostMessage =
       configOptions: SessionConfigOption[];
       /** A past session loaded: its updates replay next. */
       replay: boolean;
+      /** The chat it was started from (a fork's source, the session that messaged it). */
+      parent?: { id: string; title: string } | null;
     }
   | { type: "update"; update: SessionUpdate }
   | { type: "permission"; requestId: string; toolCall: ToolCallUpdate; options: PermissionOption[]; hasDiff: boolean }

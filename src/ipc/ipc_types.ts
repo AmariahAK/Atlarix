@@ -792,6 +792,14 @@ export interface WorkspaceChatSession {
   workMode?: "ask" | "plan" | "build" | "debug" | "review" | null;
   /** This session's model + effort (15.11.1); `null` reads as the app's default. */
   model?: import("@/lib/session-choices").SessionModelChoice | null;
+  /** The chat it was started from, and how; the list puts it under its parent at `depth`. */
+  parentSessionId?: string | null;
+  origin?: import("@/shared/session-lineage").SessionOrigin | null;
+  depth?: number;
+  /** An automation's runs under one chat, shown as its latest. */
+  runs?: number;
+  /** The parent's title when the parent is not in this list. */
+  parentTitle?: string;
   createdAt: Date;
   updatedAt: Date;
 }

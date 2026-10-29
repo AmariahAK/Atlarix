@@ -53,9 +53,10 @@ export interface LocalSession {
   /**
    * A CLI session that has no session row yet (one is made on its first
    * message): reachable anyway, under a placeholder id. Delivering to it makes
-   * the real session first, and the message goes there.
+   * the real session first, and the message goes there. `from` started it: the
+   * new session is that one's child.
    */
-  materialize?: () => Promise<{ sessionId: string; chatId: number }>;
+  materialize?: (from: PeerFrame["from"]) => Promise<{ sessionId: string; chatId: number }>;
   /** Earlier names and ids it answered to (a placeholder's, a title before an auto-title). */
   aliases?: string[];
   /** Published as this surface instead of the process's own (a browser this process speaks for). */
@@ -110,6 +111,8 @@ interface PeerFrame {
   text: string;
   /** Set the session's mode and/or model from its next turn (item 9), and/or answer its plan (item 11). */
   set?: { mode?: string; model?: string; plan?: string; planText?: string };
+  /** Send the sender ONE notice when the turn that reads this message ends (`notify_when_done`). */
+  notify?: boolean;
   from: {
     sessionId: string;
     name: string;
@@ -146,6 +149,8 @@ export interface PeerHost {
   steer?(chatId: number, id: string, text: string): void;
   /** Stop the running turn, as the stop button here would. */
   stop?(chatId: number): void;
+  /** Is the message `enqueue`d under `id` still waiting for a turn to read it? */
+  pending?(chatId: number, id: string): boolean;
 }
 
 /** The row every process publishes for itself, so a handoff can find "the app" even with no session open. */
@@ -442,6 +447,8 @@ export function sessionsHeldElsewhere(): Set<string> {
 }
 
 export function forgetLiveSession(sessionId: string): void {
+  // Closed here before its turn ran: nobody is told anything.
+  dropTurnWatches((w) => w.sessionId === sessionId);
   if (local.delete(sessionId)) publish();
 }
 
@@ -488,7 +495,7 @@ function accept(socket: net.Socket): void {
 /** Exported for tests. */
 export async function receive(
   f: PeerFrame,
-): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean }> {
+): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean; notify?: boolean }> {
   if (!f || !["peer-message", "open-session", "steer", "stop"].includes(f.type))
     return { ok: false, error: "unknown frame" };
   if (!token || f.token !== token)
@@ -554,7 +561,7 @@ export async function receive(
     // A CLI with no session row yet: make the session, and deliver there.
     try {
       const placeholder = target;
-      const real = await placeholder.materialize!();
+      const real = await placeholder.materialize!(f.from);
       local.delete(placeholder.sessionId);
       const made: LocalSession = local.get(real.sessionId) ?? {
         ...placeholder,
@@ -598,20 +605,26 @@ export async function receive(
   recentTexts.set(dupKey, now);
   // An approval's build turn: the plan's own Build instruction, as the user's
   // Build sends it, never wrapped as a peer's words (item 11).
-  if (applied.startTurn) hostImpl.enqueue(target.chatId, `${f.id || randomUUID()}-build`, applied.startTurn);
-  if (text) {
-    hostImpl.enqueue(
-      target.chatId,
-      f.id || randomUUID(),
-      wrapPeerMessage(f.from, text),
-    );
+  const id = f.id || randomUUID();
+  const queued: string[] = [];
+  if (applied.startTurn) {
+    hostImpl.enqueue(target.chatId, `${id}-build`, applied.startTurn);
+    queued.push(`${id}-build`);
   }
+  if (text) {
+    hostImpl.enqueue(target.chatId, id, wrapPeerMessage(f.from, text));
+    queued.push(id);
+  }
+  // Watched only once it went in: a refused or empty frame never notifies.
+  const notify = f.notify === true && queued.length > 0 && f.from?.sessionId !== "unknown";
+  if (notify) turnWatches.push({ chatId: target.chatId, sessionId: target.sessionId, ids: queued, from: f.from });
   const idle = (text || applied.startTurn) && !hostImpl.isBusy(target.chatId);
   if (idle) hostImpl.wake(target.chatId);
   return {
     ok: true,
     ...(applied.notice ? { applied: applied.notice } : {}),
     ...(idle && idleMessagesWait() ? { waits: true } : {}),
+    ...(notify ? { notify: true } : {}),
   };
 }
 
@@ -895,11 +908,21 @@ export function sendPeerMessage(
   from: PeerFrame["from"],
   text: string,
   set?: PeerFrame["set"],
-): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean }> {
+  opts: { notify?: boolean } = {},
+): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean; notify?: boolean }> {
   // Delivering to a CLI's placeholder first creates its session (seconds).
   return sendFrame(
     row.socket,
-    { type: "peer-message", token: row.token, to: row.session_id, id: randomUUID(), text, ...(set ? { set } : {}), from },
+    {
+      type: "peer-message",
+      token: row.token,
+      to: row.session_id,
+      id: randomUUID(),
+      text,
+      ...(set ? { set } : {}),
+      ...(opts.notify ? { notify: true } : {}),
+      from,
+    },
     "that session did not answer",
   );
 }
@@ -920,6 +943,69 @@ export function noteTurnEnded(
     };
   }
   publish();
+  // A sender asked to hear when the turn reading its message ends. One still
+  // queued (the turn ended before taking it) waits for the turn that does.
+  const due = dropTurnWatches(
+    (w) => w.chatId === chatId && !w.ids.some((id) => hostImpl?.pending?.(chatId, id)),
+  );
+  for (const w of due) void tellTurnEnded(w);
+}
+
+// ─── notify_when_done ────────────────────────────────────────────────────────
+
+/** A sender waiting for one notice when the turn that reads its message ends. */
+interface TurnWatch {
+  chatId: number;
+  sessionId: string;
+  /** The queued ids its frame put in (the message, an approval's build turn). */
+  ids: string[];
+  from: PeerFrame["from"];
+}
+const turnWatches: TurnWatch[] = [];
+
+function dropTurnWatches(match: (w: TurnWatch) => boolean): TurnWatch[] {
+  const dropped: TurnWatch[] = [];
+  for (let i = turnWatches.length - 1; i >= 0; i--) {
+    if (match(turnWatches[i])) dropped.unshift(...turnWatches.splice(i, 1));
+  }
+  return dropped;
+}
+
+/** How a turn ended, as `result_of` and the notice say it. */
+export function endedText(outcome: string, errorKind?: string): string {
+  if (outcome === "error") return `failed${errorKind ? ` (${errorKind.replace(/_/g, " ")})` : ""}`;
+  if (outcome === "gate") return "paused: the free share is used up, Auto is busy, or credit is needed";
+  if (outcome === "stopped" || outcome === "aborted") return "stopped";
+  if (outcome === "ask_user") return "waiting for the user's answer";
+  return "done";
+}
+
+/** The files a saved turn changed, comma-separated; "" for none or unknown. */
+export async function filesChangedText(workspace: string, snapshotTurnId: string | null): Promise<string> {
+  if (!snapshotTurnId || !workspace) return "";
+  const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
+  const changed = await listSnapshotFiles(workspace, snapshotTurnId).catch(() => null);
+  return changed?.filesChanged.length ? changed.filesChanged.join(", ") : "";
+}
+
+/** The one notice: how the turn ended and what it changed, from the session that ran it to the one that asked. */
+async function tellTurnEnded(w: TurnWatch): Promise<void> {
+  const s = local.get(w.sessionId);
+  const turn = s?.lastTurn;
+  if (!s || !turn) return;
+  const reply = latestReply(s.sessionId, turn.startedAt);
+  const files = await filesChangedText(s.workspace, reply?.snapshotTurnId ?? null);
+  const text =
+    `${s.name}'s turn ended: ${endedText(turn.outcome, turn.errorKind)}, ${new Date(turn.endedAt).toLocaleString()}.` +
+    `\nFiles changed: ${files || "none"}.`;
+  const to = resolvePeer(w.from.sessionId, s.sessionId);
+  // The sender closed meanwhile: nothing to tell.
+  if ("error" in to) return;
+  await sendPeerMessage(
+    to.row,
+    { sessionId: s.sessionId, name: s.name, surface: s.surface ?? surface, workspace: s.workspace },
+    text,
+  ).catch(() => {});
 }
 
 /** The turn record a live row carries, if its process noted one. */
@@ -1004,6 +1090,7 @@ export function __resetPeersForTests(): void {
   local.clear();
   recentBySender.clear();
   recentTexts.clear();
+  turnWatches.length = 0;
   hostImpl = null;
   dbFn = null;
   token = "";
