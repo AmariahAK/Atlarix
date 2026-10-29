@@ -234,7 +234,7 @@ function TokensTab({
       <div className="flex flex-wrap gap-2">
         <Filter
           label="Range"
-          value={String(r.range)}
+          value={r.range === 30 ? null : String(r.range)}
           options={[
             { key: "90", label: t("usage.range90") },
             { key: "365", label: t("usage.range365") },

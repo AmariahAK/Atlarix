@@ -308,7 +308,9 @@ export const realServices: CliServices = {
     const [{ promises: fs }, os, path] = await Promise.all([import("node:fs"), import("node:os"), import("node:path")]);
     const dir = path.join(os.homedir(), "Downloads");
     await fs.mkdir(dir, { recursive: true });
-    const stem = path.join(dir, `atlarix-usage-${new Date().toISOString().slice(0, 10)}`);
+    // The local day, as the page's "As of" says, not UTC's.
+    const { localDayKey } = await import("@/lib/stats/edit-stats");
+    const stem = path.join(dir, `atlarix-usage-${localDayKey()}`);
     // Never over a file that is already there (an earlier card, or anything else).
     for (let n = 1; ; n++) {
       const file = n === 1 ? `${stem}.svg` : `${stem}-${n}.svg`;

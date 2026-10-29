@@ -181,7 +181,12 @@ const tierLabel = (tier: string) => (tier === "zenith" ? "Zenith" : "Auto");
 
 export function autoText(r: UsageReport): UsageTextLine[] {
   if (r.autoPicks.steps === 0)
-    return [{ text: "Atlarix Auto hasn't answered yet.", tone: "muted" }];
+    return [
+      {
+        text: "Atlarix Auto's picks count from its next reply on this computer.",
+        tone: "muted",
+      },
+    ];
   const zenith = r.autoPicks.models.some((m) => m.tier === "zenith");
   const out: UsageTextLine[] = [
     {

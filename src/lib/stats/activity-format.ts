@@ -190,8 +190,8 @@ export function activitySections(s: ActivityStats): ActivitySection[] {
 export function activityFootnote(s: ActivityStats): string {
   return `Stored only on this computer. ${
     s.recordedSince
-      ? `Tokens, models, skills and MCP servers count from ${s.recordedSince}.`
-      : "Tokens, models, skills and MCP servers count from your next chat."
+      ? `Tokens, modes, where you work, skills and MCP servers count from ${s.recordedSince}; chats, turns and favourite models from your whole history.`
+      : "Tokens, modes, where you work, skills and MCP servers count from your next chat."
   } As of ${s.asOf}.`;
 }
 

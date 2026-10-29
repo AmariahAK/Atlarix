@@ -143,7 +143,7 @@ export function registerEditStatsHandlers(): void {
     const opts = {
       defaultPath: path.join(
         app.getPath("downloads"),
-        `atlarix-usage-${new Date().toISOString().slice(0, 10)}.png`,
+        `atlarix-usage-${(await import("@/lib/stats/edit-stats")).localDayKey()}.png`,
       ),
       filters: [{ name: "PNG image", extensions: ["png"] }],
     };

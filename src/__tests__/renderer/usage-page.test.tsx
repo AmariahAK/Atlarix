@@ -130,6 +130,14 @@ describe("Usage", () => {
     open("Tokens");
     expect(await screen.findByText("1.2K tokens")).toBeTruthy();
     expect(screen.getByLabelText("Model")).toBeTruthy();
+    // One "30 days", the default, selected (QA 2 E1: it was listed twice).
+    const range = screen.getByLabelText("Range") as HTMLSelectElement;
+    expect([...range.options].map((o) => o.text)).toEqual([
+      "30 days",
+      "90 days",
+      "12 months",
+    ]);
+    expect(range.value).toBe("");
     expect(screen.getByText("Your own keys: about $0.42")).toBeTruthy();
     expect(
       screen.getByText(/An estimate at list price, not a bill/),

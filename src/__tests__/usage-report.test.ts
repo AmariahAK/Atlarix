@@ -348,7 +348,7 @@ describe("as text (CLI and ACP)", () => {
       "Tokens are counted from your next chat.",
     );
     expect(Fm.autoText(empty)[0]!.text).toBe(
-      "Atlarix Auto hasn't answered yet.",
+      "Atlarix Auto's picks count from its next reply on this computer.",
     );
     expect(Fm.creditsText({ state: "signed_out" })[0]!.text).toBe(
       "Sign in to see Atlarix credits.",

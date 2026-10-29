@@ -78,8 +78,8 @@
     "calendar": "Activity · last 12 months",
     "less": "Less",
     "more": "More",
-    "footnoteSince": "Stored only on this computer. Tokens, models, skills and MCP servers count from {{day}}.",
-    "footnoteNext": "Stored only on this computer. Tokens, models, skills and MCP servers count from your next chat."
+    "footnoteSince": "Stored only on this computer. Tokens, modes, where you work, skills and MCP servers count from {{day}}; chats, turns and favourite models from your whole history.",
+    "footnoteNext": "Stored only on this computer. Tokens, modes, where you work, skills and MCP servers count from your next chat."
   },
   "byokDefault": {
     "prompt": "Use {{provider}} for new chats?",
@@ -128,7 +128,7 @@
     "toolsEmpty": "No MCP or skill calls in the last {{days}} days.",
     "mcpServers": "MCP servers",
     "skills": "Skills",
-    "autoEmpty": "Atlarix Auto hasn't answered yet.",
+    "autoEmpty": "Atlarix Auto's picks count from its next reply on this computer.",
     "autoSteps": "{{count}} steps",
     "autoNote": "Which model answered each Auto step, from {{day}}.",
     "paid": "Paid",

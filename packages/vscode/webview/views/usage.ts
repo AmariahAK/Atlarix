@@ -168,7 +168,13 @@ function overviewTab(body: HTMLElement, r: UsageReply): void {
   head.append(
     eyebrow("YOUR ACTIVITY"),
     ...(share
-      ? [button("Save share card", "link small", () => void saveCard(share))]
+      ? [
+          button(
+            "Save share card",
+            "link small",
+            () => void saveCard(share, r.report.overview.asOf),
+          ),
+        ]
       : []),
   );
   body.append(head, grid, cal);
@@ -189,7 +195,7 @@ function overviewTab(body: HTMLElement, r: UsageReply): void {
 }
 
 /** The card as a PNG, through a canvas; the extension asks where to save it. */
-async function saveCard(svg: string): Promise<void> {
+async function saveCard(svg: string, day: string): Promise<void> {
   const img = new Image();
   img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   await img.decode();
@@ -199,7 +205,7 @@ async function saveCard(svg: string): Promise<void> {
   canvas.getContext("2d")?.drawImage(img, 0, 0);
   post({
     type: "save-image",
-    name: `atlarix-usage-${new Date().toISOString().slice(0, 10)}.png`,
+    name: `atlarix-usage-${day}.png`,
     dataUrl: canvas.toDataURL("image/png"),
   });
 }
@@ -237,9 +243,8 @@ function tokensTab(
   f.append(
     select(
       "Range",
-      String(r.range),
+      r.range === 30 ? null : String(r.range),
       [
-        { key: "30", label: "30 days" },
         { key: "90", label: "90 days" },
         { key: "365", label: "12 months" },
       ],
@@ -342,7 +347,11 @@ function toolsTab(body: HTMLElement, r: UsageReport): void {
 function autoTab(body: HTMLElement, r: UsageReport): void {
   if (r.autoPicks.steps === 0)
     return void body.append(
-      el("div", "muted pad", "Atlarix Auto hasn't answered yet."),
+      el(
+        "div",
+        "muted pad",
+        "Atlarix Auto's picks count from its next reply on this computer.",
+      ),
     );
   const zenith = r.autoPicks.models.some((m) => m.tier === "zenith");
   body.append(
