@@ -30,6 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import log from "electron-log";
 import type { WorkMode } from "@/lib/schemas";
+import { loadPlugins } from "@/lib/plugins/registry";
 import { BUILTIN_AGENTS, listBuiltinAgents } from "./builtin-agents";
 
 const logger = log.scope("user-agents");
@@ -194,7 +195,43 @@ export function listUserAgents(workspacePath: string): UserAgent[] {
       logger.warn(`Failed to read user agent ${entry}: ${String(e)}`);
     }
   }
+  for (const agent of listPluginAgents(workspacePath)) byName.set(agent.name, agent);
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The installed plugins' agents, one line each, for the prompt — they are not in
+ * the project, so `glob` over `.atlarix/agents/` cannot find them. Empty when no
+ * installed plugin has an agent.
+ */
+export function formatInstalledAgentsForPrompt(workspacePath: string | null | undefined): string {
+  const agents = listPluginAgents(workspacePath ?? "");
+  if (agents.length === 0) return "";
+  return [
+    `## Installed agents (${agents.length})`,
+    "From plugins the user installed. Start one with `task` and its name as `subagent_type`.",
+    ...agents.map((a) => (a.description ? `- **${a.name}** — ${a.description}` : `- **${a.name}**`)),
+  ].join("\n");
+}
+
+/**
+ * Agents from installed plugins, `<plugin>:<agent>` — the colon keeps them from
+ * ever shadowing a workspace or built-in agent. Verified on this load
+ * (plugins/registry.ts). The person's model for the plugin wins over the
+ * plugin's own default.
+ */
+function listPluginAgents(workspacePath: string): UserAgent[] {
+  const out: UserAgent[] = [];
+  try {
+    for (const p of loadPlugins(workspacePath || null).plugins) {
+      for (const a of p.contents.agents) {
+        out.push({ ...a, model: p.record.model ?? a.model });
+      }
+    }
+  } catch (e) {
+    logger.warn(`Failed to read plugin agents: ${String(e)}`);
+  }
+  return out;
 }
 
 /**
@@ -235,6 +272,9 @@ export function loadUserAgent(
   // Guard against traversal — agent names are bare file stems.
   if (name.includes("/") || name.includes("\\") || name.includes("..")) {
     return null;
+  }
+  if (name.includes(":")) {
+    return listPluginAgents(workspacePath).find((a) => a.name === name) ?? null;
   }
   // A workspace file under the OLD name still wins — the user wrote it.
   const exact = readWorkspaceAgent(workspacePath, name);

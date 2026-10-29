@@ -218,7 +218,11 @@ function listDir(dir: string): fs.Dirent[] {
   }
 }
 
-function readSkills(root: string): PluginSkill[] {
+/**
+ * Skills in a folder laid out like a plugin's: `skills/<n>/SKILL.md`, `skills/<n>.md`,
+ * or a root `SKILL.md`. Also how `~/.agents/skills` is read (pass its parent).
+ */
+export function readSkills(root: string): PluginSkill[] {
   const out: PluginSkill[] = [];
   const add = (file: string, fallback: string) => {
     const { data, content } = parseFrontmatter(fs.readFileSync(file, "utf8"));

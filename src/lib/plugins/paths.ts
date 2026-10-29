@@ -66,3 +66,13 @@ export const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 export function isValidPluginName(name: string): boolean {
   return PLUGIN_NAME_RE.test(name) && !name.includes("..");
 }
+
+/**
+ * `~/.agents/skills`, where `npx skills add` installs Agent Skills (Cloudflare's
+ * security-audit among them). Read-only, listed in the skill index; Atlarix never
+ * writes there. Beside `atlarixHomeDir()` so a scratch profile or a test run gets
+ * its own (`<profile>/.agents/skills`) instead of the person's.
+ */
+export function userAgentSkillsParentDir(): string {
+  return path.join(path.dirname(atlarixHomeDir()), ".agents");
+}

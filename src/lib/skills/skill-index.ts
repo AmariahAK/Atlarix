@@ -28,6 +28,9 @@ import * as path from "node:path";
 import log from "electron-log";
 
 import { firstSentence } from "@/lib/text/first-sentence";
+import { loadPlugins } from "@/lib/plugins/registry";
+import { readSkills } from "@/lib/plugins/manifest";
+import { userAgentSkillsParentDir } from "@/lib/plugins/paths";
 import { resolveBuiltinSkillsRoot } from "./skill-loader";
 import {
   filterSkillsForMode,
@@ -45,7 +48,11 @@ export interface SkillIndexEntry {
    * `"installed"` is gone with the marketplace (v14.45). It rendered identically to
    * `"repo"` in `formatSkillIndexForPrompt`, so nothing downstream distinguished them.
    */
-  source: "repo" | "guide";
+  /**
+   * `"installed"`: from a plugin the person installed, or `~/.agents/skills`.
+   * Outside every project, so listed by line like the guides.
+   */
+  source: "repo" | "guide" | "installed";
 }
 
 /**
@@ -95,7 +102,29 @@ async function loadGuideEntries(): Promise<SkillIndexEntry[]> {
 }
 
 /**
- * Every skill available this turn, in read order: repo → marketplace → bundled.
+ * Skills the person installed: each verified plugin's (registry.ts re-hashes them
+ * on this load), then `~/.agents/skills`. A plugin skill is named `<plugin>:<skill>`.
+ */
+function installedSkillEntries(workspacePath: string | null): SkillIndexEntry[] {
+  const out: SkillIndexEntry[] = [];
+  for (const p of loadPlugins(workspacePath).plugins) {
+    for (const s of p.contents.skills) {
+      out.push({
+        name: `${p.contents.name}:${s.name}`,
+        description: s.description,
+        readPath: s.skillPath,
+        source: "installed",
+      });
+    }
+  }
+  for (const s of readSkills(userAgentSkillsParentDir())) {
+    out.push({ name: s.name, description: s.description, readPath: s.skillPath, source: "installed" });
+  }
+  return out;
+}
+
+/**
+ * Every skill available this turn, in read order: repo → installed → bundled.
  *
  * `currentMode` filters repo skills by their `modes`/`compatibleModes`
  * frontmatter, so a Build-only skill doesn't advertise itself in Explore.
@@ -124,6 +153,12 @@ export async function buildSkillIndex(
     } catch (err) {
       logger.warn("[skill-index] repo skills failed:", err);
     }
+  }
+
+  try {
+    entries.push(...installedSkillEntries(ws ?? null));
+  } catch (err) {
+    logger.warn("[skill-index] installed skills failed:", err);
   }
 
   try {
@@ -168,6 +203,11 @@ export function formatSkillIndexForPrompt(entries: SkillIndexEntry[]): string {
 
   const project = entries.filter((e) => e.source === "repo");
   const guides = entries.filter((e) => e.source === "guide");
+  const installed = entries.filter((e) => e.source === "installed");
+  const render = (e: SkillIndexEntry) =>
+    e.description
+      ? `- **${e.name}** — ${e.description}\n  \`${e.readPath}\``
+      : `- **${e.name}**\n  \`${e.readPath}\``;
 
   const lines: string[] = [];
   if (project.length) {
@@ -175,6 +215,17 @@ export function formatSkillIndexForPrompt(entries: SkillIndexEntry[]): string {
       `## Skills (${project.length})`,
       `This project has ${project.length} skill file(s) in \`.atlarix/skills/\` — written procedures for jobs it does repeatedly. When a task looks like one of them, \`grep\` or \`glob\` that directory and \`read_file\` the one that fits BEFORE doing the work it covers. Optional: never chase a skill at the cost of the user's actual task.`,
     );
+  }
+
+  // Installed skills keep their lines for the guides' reason: they live outside
+  // the project, where grep cannot reach them. The person chose each one.
+  if (installed.length) {
+    if (lines.length) lines.push("");
+    lines.push(`## Installed skills (${installed.length})`);
+    lines.push(
+      "Skills the user installed. `read_file` one when its line fits the task, before doing the work it covers. Their folders are not the project: never `cd` into them or write there.",
+    );
+    for (const e of installed) lines.push(render(e));
   }
 
   // Bundled guides are split out and labelled because their path points INSIDE
@@ -189,10 +240,6 @@ export function formatSkillIndexForPrompt(entries: SkillIndexEntry[]): string {
     // application bundle, so grep over the project cannot reach them — a count would
     // make them unreachable rather than merely unlisted. They are also few and fixed,
     // so the cost does not grow.
-    const render = (e: SkillIndexEntry) =>
-      e.description
-        ? `- **${e.name}** — ${e.description}\n  \`${e.readPath}\``
-        : `- **${e.name}**\n  \`${e.readPath}\``;
     if (lines.length) lines.push("");
     lines.push(`## Built-in guides (${guides.length})`);
     lines.push(
