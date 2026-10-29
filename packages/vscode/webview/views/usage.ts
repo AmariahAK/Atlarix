@@ -7,6 +7,7 @@
  */
 import type { UsageCredits } from "@/lib/stats/usage-types";
 import type { UsageReport } from "@/lib/stats/usage-types";
+import { creditSeries } from "@/lib/stats/usage-format";
 import { post, rpc } from "../rpc";
 import { el, eyebrow, money, pageHeader, button, tokens } from "../ui";
 import type { Nav } from "./nav";
@@ -418,28 +419,14 @@ function creditsTab(body: HTMLElement, c: UsageCredits): void {
     return void body.append(
       el("div", "muted pad", "No Atlarix credit used yet."),
     );
-  const hasOther = recent.some((d) => d.toolCents + d.otherCents > 0);
-  const hasUnsplit = recent.some((d) => d.unsplitCents > 0);
+  const { series, byDay } = creditSeries(recent);
   body.append(
     eyebrow("SPENT · LAST 30 DAYS"),
     columns(
-      recent.map((d) => ({
-        day: d.day,
-        values: [
-          d.autoPaidCents,
-          d.coreCents,
-          d.toolCents + d.otherCents,
-          d.unsplitCents,
-        ],
-      })),
+      byDay,
       (d) =>
         `${shortDay(d.day)}: ${money(d.values.reduce((a, b) => a + b, 0))}`,
     ),
-    legend([
-      "Auto",
-      "Core",
-      ...(hasOther || hasUnsplit ? ["Search, reviewer, cloud"] : []),
-      ...(hasUnsplit ? ["Earlier, not split"] : []),
-    ]),
+    legend(series.map((x) => x.label)),
   );
 }

@@ -10,7 +10,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { IpcClient } from "@/ipc/ipc_client";
 import { compactCount } from "@/lib/stats/activity-format";
 import { shareCardSvg } from "@/lib/stats/share-card";
-import { USAGE_TABS, shortDay, type UsageTab } from "@/lib/stats/usage-format";
+import {
+  USAGE_TABS,
+  creditSeries,
+  shortDay,
+  type CreditSeriesKey,
+  type UsageTab,
+} from "@/lib/stats/usage-format";
 import { usdLabel } from "@/lib/stats/usage-labels";
 import type {
   UsageCredits,
@@ -395,8 +401,13 @@ function CreditsTab({
       d.unsplitCents,
     0,
   );
-  const hasOther = recent.some((d) => d.toolCents + d.otherCents > 0);
-  const hasUnsplit = recent.some((d) => d.unsplitCents > 0);
+  const { series, byDay } = creditSeries(recent);
+  const seriesName: Record<CreditSeriesKey, string> = {
+    auto: t("usage.seriesAuto"),
+    core: t("usage.seriesCore"),
+    other: t("usage.seriesOther"),
+    unsplit: t("usage.seriesUnsplit"),
+  };
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
@@ -439,27 +450,12 @@ function CreditsTab({
         <div className="space-y-3 border-t pt-4">
           <div className="text-sm font-medium">{t("usage.spent30")}</div>
           <DayColumns
-            days={recent.map((d) => ({
-              day: d.day,
-              values: [
-                d.autoPaidCents,
-                d.coreCents,
-                d.toolCents + d.otherCents,
-                d.unsplitCents,
-              ],
-            }))}
+            days={byDay}
             title={(d) =>
               `${shortDay(d.day)}: ${dollars(d.values.reduce((a, b) => a + b, 0))}`
             }
           />
-          <Legend
-            labels={[
-              t("usage.seriesAuto"),
-              t("usage.seriesCore"),
-              ...(hasOther || hasUnsplit ? [t("usage.seriesOther")] : []),
-              ...(hasUnsplit ? [t("usage.seriesUnsplit")] : []),
-            ]}
-          />
+          <Legend labels={series.map((x) => seriesName[x.key])} />
         </div>
       )}
     </div>

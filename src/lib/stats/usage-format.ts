@@ -4,7 +4,7 @@
  * same numbers as charts.
  */
 
-import type { UsageCredits, UsageReport } from "./usage-types";
+import type { UsageCredits, UsageCreditsDay, UsageReport } from "./usage-types";
 import { compactCount } from "./activity-format";
 import { printableName, usageSourceLabel, usdLabel } from "./usage-labels";
 
@@ -205,6 +205,38 @@ export function autoText(r: UsageReport): UsageTextLine[] {
   return out;
 }
 
+export type CreditSeriesKey = "auto" | "core" | "other" | "unsplit";
+
+const CREDIT_SERIES: Array<{
+  key: CreditSeriesKey;
+  label: string;
+  cents: (d: UsageCreditsDay) => number;
+}> = [
+  { key: "auto", label: "Auto", cents: (d) => d.autoPaidCents },
+  { key: "core", label: "Core", cents: (d) => d.coreCents },
+  {
+    key: "other",
+    label: "Search, reviewer, cloud",
+    cents: (d) => d.toolCents + d.otherCents,
+  },
+  { key: "unsplit", label: "Not split", cents: (d) => d.unsplitCents },
+];
+
+/** Spend per day stacked by what it paid for: only the series with spend in these days. */
+export function creditSeries(days: readonly UsageCreditsDay[]): {
+  series: Array<{ key: CreditSeriesKey; label: string }>;
+  byDay: Array<{ day: string; values: number[] }>;
+} {
+  const present = CREDIT_SERIES.filter((x) => days.some((d) => x.cents(d) > 0));
+  return {
+    series: present.map(({ key, label }) => ({ key, label })),
+    byDay: days.map((d) => ({
+      day: d.day,
+      values: present.map((x) => x.cents(d)),
+    })),
+  };
+}
+
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 export function creditsText(
@@ -246,31 +278,12 @@ export function creditsText(
     );
     return out;
   }
-  const recent = c.days.slice(-days);
-  const hasUnsplit = recent.some((d) => d.unsplitCents > 0);
-  const hasOther = recent.some((d) => d.toolCents + d.otherCents > 0);
+  const { series, byDay } = creditSeries(c.days.slice(-days));
   out.push(
     { text: "" },
     { text: `Spent · last ${days} days`, bold: true },
-    ...dayRows(
-      recent.map((d) => ({
-        day: d.day,
-        values: [
-          d.autoPaidCents,
-          d.coreCents,
-          d.toolCents + d.otherCents,
-          d.unsplitCents,
-        ],
-      })),
-      width,
-      dollars,
-    ),
-    ...legend([
-      "Auto",
-      "Core",
-      ...(hasOther || hasUnsplit ? ["Search, reviewer, cloud"] : []),
-      ...(hasUnsplit ? ["Earlier, not split"] : []),
-    ]),
+    ...dayRows(byDay, width, dollars),
+    ...legend(series.map((x) => x.label)),
   );
   return out;
 }

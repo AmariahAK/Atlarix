@@ -121,7 +121,7 @@ export interface UsageCreditsDay {
   toolCents: number;
   /** Reviewer and cloud agent runs. */
   otherCents: number;
-  /** Spend from before debits said what they were for. */
+  /** Spend whose debit did not say what it was for (older rows, or a proxy before billing was passed). */
   unsplitCents: number;
 }
 

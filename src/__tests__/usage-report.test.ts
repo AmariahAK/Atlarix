@@ -439,6 +439,51 @@ describe("Credits", () => {
     expect(parseUsageCredits({ ok: true })).toEqual({ state: "unavailable" });
   });
 
+  it("reads the live RPC's body while every debit is still unsplit", () => {
+    // get_usage_credits as applied (20261029130000), before the proxy passes p_billing.
+    const c = parseUsageCredits({
+      ok: true,
+      balance_cents: 812,
+      purchased_cents: 812,
+      granted_cents: 0,
+      granted_total_cents: 0,
+      plan: "free",
+      renews_at: null,
+      since: "2026-10-02",
+      days: [
+        {
+          day: "2026-10-28",
+          auto_paid_cents: 0,
+          core_cents: 0,
+          tool_cents: 0,
+          other_cents: 0,
+          unsplit_cents: 37,
+        },
+        {
+          day: "2026-10-29",
+          auto_paid_cents: 0,
+          core_cents: 0,
+          tool_cents: 0,
+          other_cents: 0,
+          unsplit_cents: 151,
+        },
+      ],
+    });
+    expect(c).toMatchObject({
+      state: "ok",
+      plan: "free",
+      renewsAt: null,
+      since: "2026-10-02",
+    });
+    const text = Fm.creditsText(c).map((l) => l.text);
+    expect(text[0]).toBe("Balance $8.12");
+    // No Pro line for a free account; today's spend is "Not split", never called "earlier".
+    expect(text.join("\n")).not.toContain("Pro allowance");
+    // Only series with spend are drawn: no "Auto", "Core" or "Search" key for nothing.
+    expect(text.at(-1)).toBe("█ Not split");
+    expect(text.find((l) => l.startsWith("Oct 29"))).toMatch(/█+ \$1\.51$/);
+  });
+
   it("shows the Pro allowance and splits Auto from Core in the text", () => {
     const c = parseUsageCredits({
       ok: true,
