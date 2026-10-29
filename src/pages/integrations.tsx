@@ -65,8 +65,8 @@ const SECTIONS = [
     hint: "Agent behaviors, per project",
   },
   {
-    to: "/integrations/plugins",
-    label: "Plugins",
+    to: "/integrations/augments",
+    label: "Augments",
     icon: Puzzle,
     hint: "Skills, agents, commands, hooks and MCP servers you add",
   },

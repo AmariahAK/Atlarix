@@ -28,7 +28,7 @@ describe.runIf(process.platform === "darwin")(
       ws = fs.realpathSync(
         fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-plugins-e2e-ws-")),
       );
-      fs.mkdirSync(path.join(home, "plugins", "acme"), { recursive: true });
+      fs.mkdirSync(path.join(home, "augments", "acme"), { recursive: true });
       saved = process.env.ATLARIX_HOME_DIR;
       process.env.ATLARIX_HOME_DIR = home;
     });
@@ -62,9 +62,9 @@ describe.runIf(process.platform === "darwin")(
 
       for (const target of [
         path.join(home, "hooks.json"),
-        path.join(home, "plugins.json"),
-        path.join(home, "plugins", "acme", "evil.sh"),
-        path.join(home, "plugins", "new-plugin", "x"),
+        path.join(home, "augments.json"),
+        path.join(home, "augments", "acme", "evil.sh"),
+        path.join(home, "augments", "new-plugin", "x"),
         path.join(home, "memory.md"),
       ]) {
         const r = run(

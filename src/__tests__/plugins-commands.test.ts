@@ -39,7 +39,7 @@ async function install(name: string, commands: Record<string, string>) {
   const dir = path.join(work, name);
   fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
   fs.writeFileSync(
-    path.join(dir, "atlarix-plugin.json"),
+    path.join(dir, "atlarix-augment.json"),
     JSON.stringify({ name }),
   );
   for (const [cmd, body] of Object.entries(commands)) {

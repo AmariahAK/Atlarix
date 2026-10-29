@@ -51,7 +51,7 @@ describe("file writes", () => {
 
   it("refuses an edit inside an installed plugin when the workspace IS the home folder", () => {
     // A relative path in a workspace that contains the plugins folder.
-    const g = guardPluginControl(edit("plugins/acme/hooks/hooks.json"), home);
+    const g = guardPluginControl(edit("augments/acme/hooks/hooks.json"), home);
     expect(g.refusal).not.toBeNull();
   });
 
@@ -60,7 +60,7 @@ describe("file writes", () => {
       operation: "rename_file",
       preview: {
         fromPath: "/tmp/x.json",
-        toPath: path.join(home, "plugins.json"),
+        toPath: path.join(home, "augments.json"),
       },
     };
     expect(guardPluginControl(req, "/tmp").refusal).not.toBeNull();
@@ -100,7 +100,7 @@ describe("links", () => {
         guardPluginControl(edit("cfg/hooks.json"), ws).refusal,
       ).not.toBeNull();
       expect(
-        guardPluginControl(edit("cfg/plugins/acme/x.sh"), ws).refusal,
+        guardPluginControl(edit("cfg/augments/acme/x.sh"), ws).refusal,
       ).not.toBeNull();
     } finally {
       fs.rmSync(ws, { recursive: true, force: true });
@@ -137,7 +137,7 @@ describe("commands", () => {
     for (const c of [
       `echo '{}' > ${path.join(home, "hooks.json")}`,
       "cp evil.json ~/.atlarix/hooks.json",
-      "rm -rf $HOME/.atlarix/plugins/acme",
+      "rm -rf $HOME/.atlarix/augments/acme",
       "cd ~/.atlarix && echo '{}' > hooks.json",
       "cp x.json ~/.atl*/hooks.json",
       "mv ~/.atlarix /tmp/x",
@@ -194,7 +194,7 @@ describe("sandbox", () => {
   });
 
   it("never offers a grant that would cover them", () => {
-    expect(grantCoversPluginControl(path.join(home, "plugins", "acme"))).toBe(
+    expect(grantCoversPluginControl(path.join(home, "augments", "acme"))).toBe(
       true,
     );
     expect(grantCoversPluginControl(home)).toBe(true);

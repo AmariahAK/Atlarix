@@ -4,6 +4,6 @@ import { PluginsSettingsPage } from "@/components/settings/PluginsSettingsPage";
 
 export const integrationsPluginsRoute = createRoute({
   getParentRoute: () => integrationsRoute,
-  path: "plugins",
+  path: "augments",
   component: PluginsSettingsPage,
 });

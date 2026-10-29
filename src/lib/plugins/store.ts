@@ -67,7 +67,7 @@ export function readPluginRecords(): PluginRecord[] {
     return Array.isArray(data.plugins) ? data.plugins.filter(isRecord) : [];
   } catch (err) {
     logger.warn(
-      `plugins.json unreadable; every plugin stays off: ${String(err)}`,
+      `augments.json unreadable; every augment stays off: ${String(err)}`,
     );
     return [];
   }

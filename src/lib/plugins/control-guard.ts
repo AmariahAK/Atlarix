@@ -35,7 +35,7 @@ import {
 } from "./paths";
 
 export const PLUGIN_CONTROL_EXPLANATION =
-  "Changes what your plugins and hooks run";
+  "Changes what your augments and hooks run";
 
 export function touchesPluginControl(
   permRequest: { operation: string; preview: unknown },
@@ -119,8 +119,8 @@ function namesControlFile(norm: string): boolean {
 }
 
 export const PLUGIN_CONTROL_REFUSAL =
-  "Plugin files, plugins.json and hooks.json are changed by the person, not the agent: " +
-  "ask them to edit the file, or to use /plugins.";
+  "Augment files, augments.json and hooks.json are changed by the person, not the agent: " +
+  "ask them to edit the file, or to use /augments.";
 
 /**
  * The request as the card shows it; whether it may skip the card (never, when

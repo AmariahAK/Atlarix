@@ -204,7 +204,7 @@ ToolRegistry.register({
       // A plugin's server is turned on by the person, never by the agent: it runs
       // a command from a plugin (plugins/mcp-sync.ts).
       if (on && here.where !== "account" && isPluginMcpTag(here.registryName)) {
-        return { error: `"${here.name}" comes from a plugin. The user turns it on in /mcp or Settings → MCP servers.` };
+        return { error: `"${here.name}" comes from an augment. The user turns it on in /mcp or Settings → MCP servers.` };
       }
       if (on && here.needs) {
         return { error: `"${here.name}" needs ${here.needs === "sign-in" ? "a sign-in" : "its key"} first. Suggest it so the user can connect it.` };

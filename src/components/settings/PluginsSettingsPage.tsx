@@ -172,7 +172,7 @@ export function PluginsSettingsPage() {
       <div className="flex items-start gap-3">
         <Puzzle className="w-5 h-5 mt-0.5 text-muted-foreground shrink-0" />
         <div className="min-w-0">
-          <h2 className="text-lg font-semibold">Plugins</h2>
+          <h2 className="text-lg font-semibold">Augments</h2>
           <p className="text-sm text-muted-foreground">
             Skills, agents, commands, hooks and MCP servers you add, on every
             folder or one.
@@ -191,7 +191,7 @@ export function PluginsSettingsPage() {
           value={source}
           onChange={(e) => setSource(e.target.value)}
           placeholder="owner/repo, a GitHub link, or a folder"
-          aria-label="Plugin source"
+          aria-label="Augment source"
         />
         <Button type="submit" disabled={busy || !source.trim()}>
           Add
@@ -202,7 +202,7 @@ export function PluginsSettingsPage() {
       ) : null}
 
       {plugins.length === 0 ? (
-        <div className="text-sm text-muted-foreground">No plugins yet.</div>
+        <div className="text-sm text-muted-foreground">No augments yet.</div>
       ) : (
         <div className="space-y-3">
           {plugins.map((p) => (

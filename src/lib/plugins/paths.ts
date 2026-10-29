@@ -20,7 +20,7 @@ import path from "node:path";
 import { atlarixHomeDir } from "@/paths/atlarix-home";
 
 export function pluginsRootDir(): string {
-  return path.join(atlarixHomeDir(), "plugins");
+  return path.join(atlarixHomeDir(), "augments");
 }
 
 export function pluginDir(name: string): string {
@@ -33,7 +33,7 @@ export function pluginStagingDir(): string {
 }
 
 export function pluginRecordsPath(): string {
-  return path.join(atlarixHomeDir(), "plugins.json");
+  return path.join(atlarixHomeDir(), "augments.json");
 }
 
 export function userHooksPath(): string {

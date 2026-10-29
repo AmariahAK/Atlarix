@@ -2,7 +2,7 @@
  * What a plugin folder contains, read the same way for the install screen and for
  * every load, in each of the three layouts Atlarix accepts:
  *
- * 1. **Atlarix** — `atlarix-plugin.json` at the root:
+ * 1. **Atlarix** — `atlarix-augment.json` at the root:
  *
  *      { "name": "acme-tools", "version": "1.2.0", "description": "…",
  *        "mod": { "main": "mod/index.js", "capabilities": ["ui", "process"] } }
@@ -134,14 +134,14 @@ export function readPluginContents(
   root: string,
   fallbackName: string,
 ): PluginContents {
-  const atlarixManifest = path.join(root, "atlarix-plugin.json");
+  const atlarixManifest = path.join(root, "atlarix-augment.json");
   const claudeManifest = path.join(root, ".claude-plugin", "plugin.json");
 
   let format: PluginFormat;
   let manifest: Record<string, unknown> = {};
   if (fs.existsSync(atlarixManifest)) {
     format = "atlarix";
-    manifest = readJsonObject(atlarixManifest, "atlarix-plugin.json");
+    manifest = readJsonObject(atlarixManifest, "atlarix-augment.json");
   } else if (fs.existsSync(claudeManifest)) {
     format = "claude";
     manifest = readJsonObject(claudeManifest, ".claude-plugin/plugin.json");
@@ -152,7 +152,7 @@ export function readPluginContents(
     format = "skills";
   } else {
     throw new PluginManifestError(
-      "No plugin here: expected atlarix-plugin.json, .claude-plugin/plugin.json or skills/",
+      "No augment here: expected atlarix-augment.json, .claude-plugin/plugin.json or skills/",
     );
   }
 
@@ -163,7 +163,7 @@ export function readPluginContents(
     .toLowerCase();
   if (!isValidPluginName(name)) {
     throw new PluginManifestError(
-      `"${name}" is not a usable plugin name (a-z, 0-9, . _ -)`,
+      `"${name}" is not a usable augment name (a-z, 0-9, . _ -)`,
     );
   }
 
@@ -424,7 +424,7 @@ function readMod(
     !abs.startsWith(path.resolve(root) + path.sep) ||
     !fs.existsSync(abs)
   ) {
-    unsupported.push(`mod: "${main}" is not a file in the plugin`);
+    unsupported.push(`mod: "${main}" is not a file in the augment`);
     return null;
   }
   const declared = Array.isArray(raw.capabilities)

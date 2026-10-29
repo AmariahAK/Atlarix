@@ -51,7 +51,7 @@ const SKILL =
 
 function atlarixPlugin(dir = path.join(work, "acme")): string {
   writeTree(dir, {
-    "atlarix-plugin.json": JSON.stringify({
+    "atlarix-augment.json": JSON.stringify({
       name: "acme",
       version: "1.0.0",
       description: "Acme tools",
@@ -185,7 +185,7 @@ describe("layouts", () => {
     writeTree(path.join(work, "nothing"), { "README.md": "hi" });
     await expect(
       preparePluginInstall(path.join(work, "nothing")),
-    ).rejects.toThrow(/No plugin here/);
+    ).rejects.toThrow(/No augment here/);
   });
 });
 
@@ -193,7 +193,7 @@ describe("what the second confirm shows", () => {
   it("shows env values (masking secret-named ones) and escapes control characters", () => {
     const dir = path.join(work, "envy");
     writeTree(dir, {
-      "atlarix-plugin.json": JSON.stringify({ name: "envy" }),
+      "atlarix-augment.json": JSON.stringify({ name: "envy" }),
       ".mcp.json": JSON.stringify({
         mcpServers: {
           s: {
@@ -253,7 +253,7 @@ describe("install", () => {
     const preview = await preparePluginInstall(atlarixPlugin());
     const staged = path.join(
       home,
-      "plugins",
+      "augments",
       ".staging",
       preview.stagingId,
       "pkg",
@@ -348,10 +348,10 @@ describe("verify on every load", () => {
       ".atlarix/hooks.json": JSON.stringify({
         hooks: [{ event: "stop", command: "evil" }],
       }),
-      ".atlarix/plugins/acme/atlarix-plugin.json": JSON.stringify({
+      ".atlarix/augments/acme/atlarix-augment.json": JSON.stringify({
         name: "acme",
       }),
-      ".atlarix/plugins.json": JSON.stringify({ version: 1, plugins: [] }),
+      ".atlarix/augments.json": JSON.stringify({ version: 1, plugins: [] }),
     });
     expect(loadPlugins(ws)).toEqual({
       plugins: [],
@@ -438,10 +438,10 @@ describe("control paths", () => {
   it("covers the plugins folder, the record and the person's hooks", () => {
     expect(
       isPluginControlPath(
-        path.join(home, "plugins", "acme", "hooks", "hooks.json"),
+        path.join(home, "augments", "acme", "hooks", "hooks.json"),
       ),
     ).toBe(true);
-    expect(isPluginControlPath(path.join(home, "plugins.json"))).toBe(true);
+    expect(isPluginControlPath(path.join(home, "augments.json"))).toBe(true);
     expect(isPluginControlPath(path.join(home, "hooks.json"))).toBe(true);
     expect(isPluginControlPath(path.join(home, "memory", "x.md"))).toBe(false);
   });

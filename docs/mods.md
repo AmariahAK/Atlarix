@@ -1,12 +1,12 @@
 # Mods
 
-A mod is the JavaScript part of a plugin: it hooks Atlarix events and draws a little UI. It runs in an
+A mod is the JavaScript part of an augment: it hooks Atlarix events and draws a little UI. It runs in an
 isolated JavaScript engine with no files, network, programs or Node APIs. Everything it does goes
 through `$`, and only the capabilities it declares.
 
-## In the plugin
+## In the augment
 
-`atlarix-plugin.json`:
+`atlarix-augment.json`:
 
 ```json
 {
@@ -54,7 +54,7 @@ The person sees every capability at the install's second confirm.
 | `session.start` | `{}` | nothing |
 | `tool.call` | `{ tool, args }` | `{ deny: "why" }` blocks the call; the model sees why |
 | `prompt.submit` | `{ text }` | `{ text }` replaces what the model gets (the message shown stays) |
-| `prompt.compose` | `{}` | `{ section }` adds context to the turn, labelled with the plugin |
+| `prompt.compose` | `{}` | `{ section }` adds context to the turn, labelled with the augment |
 | `command.run` | `{ name, args }` | `{ text }` is sent to the model as the prompt |
 | `ui.render` | `{ component: "Pane", requestId }` | a tree (below) |
 | `ui.action` | `{ action }` | nothing; the pane is drawn again |

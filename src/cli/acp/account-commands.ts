@@ -22,13 +22,13 @@ export async function accountCommandText(
     await a.signOut();
     return `Signed out of ${email}. The CLI on this computer shares this sign-in, so it's signed out too; the Atlarix app keeps its own. To sign in again, start a new chat (the editor will ask), or run \`atlarix login\`.`;
   }
-  if (cmd === "plugins") {
+  if (cmd === "augments" || cmd === "plugins") {
     // An editor has no dialog for installing: the list is read-only here, and
     // installing (with its two confirms) happens in the CLI or the app.
     const plugins = await realServices.plugins.list().catch(() => []);
     const lines: string[] = plugins.length
       ? [
-          "**Plugins**",
+          "**Augments**",
           "",
           ...plugins.map((p) => {
             const state = p.problem ? `! ${p.problem}` : p.enabled ? (p.folders ? "on in some folders" : "on") : "off";
@@ -37,8 +37,8 @@ export async function accountCommandText(
           }),
           "",
         ]
-      : ["No plugins installed.", ""];
-    lines.push("Add, update or remove plugins with `/plugins` in the Atlarix CLI, or in the app's Settings → Plugins.");
+      : ["No augments installed.", ""];
+    lines.push("Add, update or remove augments with `/augments` in the Atlarix CLI, or in the app's Integrations → Augments.");
     return lines.join("\n");
   }
   if (cmd === "mcp") {

@@ -539,7 +539,7 @@ ToolRegistry.register({
       isPluginMcpTag((server as { registryId?: string | null }).registryId)
     ) {
       return {
-        error: `MCP server "${args.server}" comes from a plugin and is off. Ask the user to turn it on in /mcp or Settings → MCP servers.`,
+        error: `MCP server "${args.server}" comes from an augment and is off. Ask the user to turn it on in /mcp or Settings → MCP servers.`,
       };
     }
     const ctx = args._mcpInvocationContext;

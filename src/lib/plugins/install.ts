@@ -143,12 +143,12 @@ export function commitPluginInstall(
   }
   if (preview.runnables.length > 0 && !opts.runnablesConfirmed) {
     throw new PluginInstallError(
-      "This plugin runs code; confirm what it runs first",
+      "This augment runs code; confirm what it runs first",
     );
   }
   const name = preview.contents.name;
   if (!isValidPluginName(name))
-    throw new PluginInstallError(`"${name}" is not a usable plugin name`);
+    throw new PluginInstallError(`"${name}" is not a usable augment name`);
 
   // What lands must be what was shown.
   const changed = diffTrees(preview.files, hashTree(pkg));
