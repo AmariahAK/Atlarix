@@ -18,9 +18,9 @@ vi.mock("@/lib/mcp/account-connectors", () => ({
   listConnectorRows: async () => [],
 }));
 vi.mock("@/lib/mcp/mcp-add", () => ({ mcpOnCount: async () => 0 }));
-const getClient = vi.fn(async () => ({ tools: async () => ({ ping: { execute: async () => "pong" } }) }));
+const getClient = vi.fn(async (_id: number) => ({ tools: async () => ({ ping: { execute: async () => "pong" } }) }));
 vi.mock("@/ipc/utils/mcp_manager", () => ({
-  mcpManager: { listSessionServers: () => [], getClient: (...a: unknown[]) => getClient(...a) },
+  mcpManager: { listSessionServers: () => [], getClient: (id: number) => getClient(id) },
   McpNeedsAuthError: class extends Error {},
   McpNeedsOAuthError: class extends Error {},
 }));
@@ -42,7 +42,7 @@ beforeEach(() => {
 
 describe("mcp_call on a switched-off server", () => {
   it("asks first, and a 'no' leaves the server off and never started", async () => {
-    const requireConsent = vi.fn(async () => false);
+    const requireConsent = vi.fn(async (_req: { serverName: string; toolName: string }) => false);
     const out = await tool().handler({
       server: "imported",
       tool: "ping",

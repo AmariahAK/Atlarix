@@ -51,24 +51,18 @@ export function AnalyticsConsentModal() {
             that was wrong, not the collection. If either string changes, change
             both; the two drifting apart is how the first correction happened. */}
         <p className="mt-2 text-sm text-muted-foreground">
-          Share usage data — which features get used, and whether things work —
-          to help us understand what matters most.
+          Share usage data — which features get used and whether they work.
         </p>
         <p className="mt-3 text-sm text-foreground">
-          Never your code, prompts, file names, or file contents. Anonymous when
-          signed out. When signed in, it&apos;s linked to your account and
-          includes your email and name, so your usage counts once across your
-          devices. Includes your approximate location (country and city), worked
-          out from your connection; the address itself isn&apos;t kept. You can
-          change this anytime in Settings.
+          Never your code, prompts or files. Anonymous when signed out. Signed
+          in, it&apos;s tied to your account (email and name) and includes your
+          rough location from your connection, never the address itself. Change
+          it anytime in Settings.
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
-          Crash and error reports are sent separately and are not covered by
-          this choice — they carry stack traces and device info, never your code
-          or prompts. Signed-in accounts also record which Atlarix you use (app,
-          CLI, editor), the provider type and model, how many turns and their
-          size in tokens — never prompts, code or keys — and this is not covered
-          by this choice either.
+          Not covered by this choice: crash reports (stack traces and device
+          info), and for signed-in accounts a daily count of turns by surface,
+          provider type, model and token size. Never prompts, code or keys.
         </p>
         <div className="mt-6 flex gap-3 justify-end">
           <Button variant="secondary" onClick={handleNo}>

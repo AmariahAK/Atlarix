@@ -31,10 +31,9 @@ describe("the editor asks about usage analytics once", () => {
     const cli = readFileSync(join(__dirname, "..", "cli", "tui", "screens.ts"), "utf8");
     // Each paragraph the CLI shows appears word for word in the editor's details.
     for (const line of [
-      "Never your code, prompts, file names, or file contents.",
-      "Includes your approximate location (country and city), worked out from your connection; the address itself isn't kept.",
-      "Crash and error reports are sent separately and are not covered by this choice",
-      "Signed-in accounts also record which Atlarix you use (app, CLI, editor), the provider type and model, how many turns and their size in tokens — never prompts, code or keys — and this is not covered by this choice either.",
+      "Share usage data — which features get used and whether they work.",
+      "Never your code, prompts or files. Anonymous when signed out. Signed in, it's tied to your account (email and name) and includes your rough location from your connection, never the address itself.",
+      "Not covered by this choice: crash reports (stack traces and device info), and for signed-in accounts a daily count of turns by surface, provider type, model and token size. Never prompts, code or keys.",
     ]) {
       expect(cli).toContain(line);
       expect(CONSENT_DETAIL).toContain(line);
