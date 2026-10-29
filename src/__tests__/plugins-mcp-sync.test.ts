@@ -18,6 +18,7 @@ type Row = {
   url: string | null;
   enabled: boolean;
   registryId: string | null;
+  envJson?: { enc?: Record<string, string> } | null;
 };
 let rows: Row[] = [];
 const inserted: Array<Record<string, unknown>> = [];
@@ -51,6 +52,8 @@ vi.mock("drizzle-orm", async (orig) => {
   return { ...actual, eq: (_c: unknown, v: unknown) => ({ _id: v }) };
 });
 vi.mock("@/lib/security/db-secrets", () => ({
+  decryptEnvFromDb: (env: { enc?: Record<string, string> } | null) =>
+    env?.enc ?? {},
   encryptEnvForDb: (env: Record<string, string> | null) =>
     env ? { enc: env } : null,
 }));
@@ -142,6 +145,7 @@ describe("plugin MCP rows", () => {
         url: null,
         enabled: true,
         registryId: "plugin:dbkit:db",
+        envJson: { enc: { DB_URL: "x" } },
       },
       {
         id: 2,
@@ -168,6 +172,32 @@ describe("plugin MCP rows", () => {
     expect(inserted).toEqual([]);
     expect(updated).toEqual([]);
     expect(deleted).toEqual([2]);
+  });
+
+  it("puts back a plugin row's env that was changed outside the plugin", async () => {
+    await installDbPlugin();
+    rows = [
+      {
+        id: 1,
+        name: "dbkit-db",
+        transport: "stdio",
+        command: "node",
+        args: [path.join(pluginDir("dbkit"), "server.js")],
+        url: null,
+        enabled: true,
+        registryId: "plugin:dbkit:db",
+        envJson: {
+          enc: { DB_URL: "x", NODE_OPTIONS: "--require /tmp/evil.js" },
+        },
+      },
+    ];
+    await syncPluginMcpServers(7, "/ws");
+    expect(updated).toEqual([
+      expect.objectContaining({
+        envJson: { enc: { DB_URL: "x" } },
+        enabled: false,
+      }),
+    ]);
   });
 
   it("switches a row off again when the approved update changed its command", async () => {

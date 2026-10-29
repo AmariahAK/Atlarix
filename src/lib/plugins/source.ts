@@ -23,6 +23,13 @@ export class PluginSourceError extends Error {}
 
 const SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
 const FETCH_TIMEOUT_MS = 60_000;
+/**
+ * A plugin is text and small scripts; a repository archive past this is not one,
+ * and unpacking it whole in memory would stall the app. Named, not silent.
+ */
+const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
+const tooBig = () =>
+  `The repository is over ${MAX_ARCHIVE_BYTES / 1024 / 1024} MB; install the plugin's own folder from a local clone`;
 
 export function parsePluginSource(
   input: string,
@@ -66,7 +73,11 @@ function github(
   ref?: string,
   subdir?: string,
 ): PluginSource {
-  if (!SEGMENT_RE.test(owner) || !SEGMENT_RE.test(repo)) {
+  if (
+    !SEGMENT_RE.test(owner) ||
+    !SEGMENT_RE.test(repo) ||
+    [owner, repo].some((x) => x === "." || x === "..")
+  ) {
     throw new PluginSourceError(
       `"${owner}/${repo}" is not a GitHub repository name`,
     );
@@ -119,10 +130,20 @@ export async function fetchPluginSource(
     const st = fs.statSync(source.path, { throwIfNoEntry: false });
     if (!st?.isDirectory())
       throw new PluginSourceError(`${source.path} is not a folder`);
+    const topGit = path.join(source.path, ".git");
     fs.cpSync(source.path, dest, {
       recursive: true,
       verbatimSymlinks: true,
-      filter: (src) => path.basename(src) !== ".git",
+      filter: (src) => {
+        if (src === topGit) return false; // a clone's own; deeper ones are content
+        const st = fs.lstatSync(src);
+        if (!st.isFile() && !st.isDirectory() && !st.isSymbolicLink()) {
+          throw new PluginSourceError(
+            `${path.relative(source.path, src)} is not a regular file`,
+          );
+        }
+        return true;
+      },
     });
     return {};
   }
@@ -135,7 +156,12 @@ export async function fetchPluginSource(
     },
   );
   if (!res.ok) throw new PluginSourceError(`Download failed (${res.status})`);
-  const entries = unzipSync(new Uint8Array(await res.arrayBuffer()));
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (declared > MAX_ARCHIVE_BYTES) throw new PluginSourceError(tooBig());
+  const archive = new Uint8Array(await res.arrayBuffer());
+  if (archive.byteLength > MAX_ARCHIVE_BYTES)
+    throw new PluginSourceError(tooBig());
+  const entries = unzipSync(archive);
 
   const prefix = source.subdir ? `${source.subdir}/` : "";
   let wrote = 0;

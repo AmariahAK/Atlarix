@@ -445,9 +445,13 @@ export function describeRunnables(c: PluginContents): string[] {
   for (const h of c.hooks) lines.push(`hook ${describeHook(h)}`);
   for (const s of c.mcpServers) {
     if (s.transport === "stdio") {
+      // Values too: `NODE_OPTIONS`, `PATH` or `DYLD_*` change what the command
+      // runs. Only a value whose NAME says it is a secret is hidden.
       const env =
         s.env && Object.keys(s.env).length
-          ? ` (env: ${Object.keys(s.env).join(", ")})`
+          ? ` (env: ${Object.entries(s.env)
+              .map(([k, v]) => `${k}=${SECRET_NAME_RE.test(k) ? "…" : v}`)
+              .join(" ")})`
           : "";
       lines.push(
         `MCP server ${s.name}: ${[s.command, ...(s.args ?? [])].join(" ")}${env}`,
@@ -467,7 +471,20 @@ export function describeRunnables(c: PluginContents): string[] {
     lines.push(
       `mod ${c.mod.main}: ${c.mod.capabilities.join(", ") || "no capabilities"}`,
     );
-  return lines;
+  // Shown on a terminal: an escape sequence in a plugin's text must not be able
+  // to redraw what the person reads at the confirm.
+  return lines.map(visible);
+}
+
+const SECRET_NAME_RE = /key|token|secret|passw|auth|credential|cookie/i;
+
+/** Control characters as `\\xNN`, so nothing in a line is invisible or acts on the screen. */
+export function visible(text: string): string {
+  return text.replace(
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\u007f-\u009f]/g,
+    (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  );
 }
 
 /** What the person approved: compared on every load (`registry.ts`). */

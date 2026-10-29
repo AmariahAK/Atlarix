@@ -17,6 +17,7 @@ import {
   touchesPluginControl,
 } from "@/lib/plugins/control-guard";
 import { pluginControlDenyPaths } from "@/lib/sandbox/deny-paths";
+import { _normalizeForCompare } from "@/lib/plugins/paths";
 
 let home: string;
 let saved: string | undefined;
@@ -65,6 +66,17 @@ describe("file writes", () => {
     expect(guardPluginControl(req, "/tmp").refusal).not.toBeNull();
   });
 
+  it("refuses an edit to the person's ~/.agents skills", () => {
+    const skill = path.join(
+      path.dirname(home),
+      ".agents",
+      "skills",
+      "x",
+      "SKILL.md",
+    );
+    expect(guardPluginControl(edit(skill), "/p").refusal).not.toBeNull();
+  });
+
   it("leaves ordinary writes alone", () => {
     const g = guardPluginControl(edit("src/index.ts"), "/some/project");
     expect(g).toEqual({
@@ -108,10 +120,7 @@ describe("links", () => {
       process.env.ATLARIX_HOME_DIR = linked;
       const real = fs.realpathSync(realHome);
       expect(pluginControlDenyPaths()).toEqual(
-        expect.arrayContaining([
-          path.join(real, "hooks.json"),
-          path.join(real, "plugins"),
-        ]),
+        expect.arrayContaining([linked, real]),
       );
       expect(
         guardPluginControl(edit(path.join(real, "hooks.json")), "/p").refusal,
@@ -129,6 +138,9 @@ describe("commands", () => {
       `echo '{}' > ${path.join(home, "hooks.json")}`,
       "cp evil.json ~/.atlarix/hooks.json",
       "rm -rf $HOME/.atlarix/plugins/acme",
+      "cd ~/.atlarix && echo '{}' > hooks.json",
+      "cp x.json ~/.atl*/hooks.json",
+      "mv ~/.atlarix /tmp/x",
     ]) {
       const g = guardPluginControl(cmd(c), "/p");
       expect(g.pluginControl, c).toBe(true);
@@ -138,6 +150,12 @@ describe("commands", () => {
         canAlwaysAllow: false,
       });
     }
+  });
+
+  it("leave reads of the home folder alone", () => {
+    expect(
+      guardPluginControl(cmd("ls ~/.atlarix/projects"), "/p").pluginControl,
+    ).toBe(false);
   });
 
   it("outranks auto-approve and 'Allow all this turn'", () => {
@@ -171,14 +189,8 @@ describe("commands", () => {
 });
 
 describe("sandbox", () => {
-  it("denies the control paths on every run", () => {
-    expect(pluginControlDenyPaths()).toEqual(
-      expect.arrayContaining([
-        path.join(home, "plugins"),
-        path.join(home, "plugins.json"),
-        path.join(home, "hooks.json"),
-      ]),
-    );
+  it("denies the whole home folder on every run", () => {
+    expect(pluginControlDenyPaths()).toEqual(expect.arrayContaining([home]));
   });
 
   it("never offers a grant that would cover them", () => {
@@ -187,7 +199,24 @@ describe("sandbox", () => {
     );
     expect(grantCoversPluginControl(home)).toBe(true);
     expect(grantCoversPluginControl(path.dirname(home))).toBe(true);
-    expect(grantCoversPluginControl(path.join(home, "memory"))).toBe(false);
+    // Anywhere in the home folder: the sandbox denies all of it.
+    expect(grantCoversPluginControl(path.join(home, "node_modules"))).toBe(
+      true,
+    );
+    expect(
+      grantCoversPluginControl(path.join(os.tmpdir(), "elsewhere-x")),
+    ).toBe(false);
     expect(grantCoversPluginControl("/opt/homebrew")).toBe(false);
+  });
+});
+
+describe("Windows spellings", () => {
+  it("compare hooks.json., hooks.json and hooks.json::$DATA as the same file", () => {
+    const n = (p: string) => _normalizeForCompare(p, "win32");
+    const want = n("C:\\Users\\p\\.atlarix\\hooks.json");
+    expect(n("C:\\Users\\p\\.atlarix\\hooks.json.")).toBe(want);
+    expect(n("C:\\Users\\p\\.atlarix\\hooks.json ")).toBe(want);
+    expect(n("C:\\Users\\p\\.atlarix\\hooks.json::$DATA")).toBe(want);
+    expect(n("c:\\users\\P\\.ATLARIX.\\HOOKS.json")).toBe(want);
   });
 });

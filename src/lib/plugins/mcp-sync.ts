@@ -21,13 +21,18 @@ import log from "electron-log";
 import { db } from "@/db";
 import { apps, mcpServers } from "@/db/schema";
 import { resolveAppPath } from "@/paths/paths";
-import { encryptEnvForDb } from "@/lib/security/db-secrets";
+import { decryptEnvFromDb, encryptEnvForDb } from "@/lib/security/db-secrets";
 import type { PluginMcpServer } from "./manifest";
 import { loadPlugins } from "./registry";
 
 const logger = log.scope("plugins");
 
 const TAG_PREFIX = "plugin:";
+
+/** A row that came from a plugin: only the person may turn it on. */
+export function isPluginMcpTag(registryId: string | null | undefined): boolean {
+  return !!registryId?.startsWith(TAG_PREFIX);
+}
 
 export function pluginMcpTag(plugin: string, server: string): string {
   return `${TAG_PREFIX}${plugin}:${server}`;
@@ -97,6 +102,8 @@ export async function syncPluginMcpServers(
     }
     desired.delete(row.registryId);
     const changed =
+      JSON.stringify(decryptEnvFromDb(row.envJson)) !==
+        JSON.stringify(want.env ?? {}) ||
       row.transport !== want.transport ||
       row.command !== want.command ||
       JSON.stringify(row.args ?? null) !== JSON.stringify(want.args) ||

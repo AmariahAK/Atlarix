@@ -19,6 +19,7 @@
  * the old sentence would look for a preload that does not exist on either side.
  */
 
+import { isPluginMcpTag } from "@/lib/plugins/mcp-sync";
 import log from "electron-log";
 import { ToolRegistry } from "./registry";
 import {
@@ -530,6 +531,17 @@ ToolRegistry.register({
      * before anything is switched on, and a run with nobody to ask (an
      * unattended automation) refuses instead of activating.
      */
+    // A plugin's server never switches itself on here: the person turns it on
+    // (plugins/mcp-sync.ts). Activating it would spawn the plugin's command
+    // before any consent card.
+    if (
+      !server.enabled &&
+      isPluginMcpTag((server as { registryId?: string | null }).registryId)
+    ) {
+      return {
+        error: `MCP server "${args.server}" comes from a plugin and is off. Ask the user to turn it on in /mcp or Settings → MCP servers.`,
+      };
+    }
     const ctx = args._mcpInvocationContext;
     let consented = false;
     if (!server.enabled) {

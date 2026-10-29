@@ -24,11 +24,14 @@
  * - `post_tool_use`: fire and forget.
  * - A timeout or a spawn failure never blocks; it is logged.
  *
- * Hooks run as the person's own commands — unsandboxed, like Claude Code's —
- * because the person approved exactly these command strings.
+ * Hooks run in the agent's command sandbox (`sandboxedSpawn`): the person approved
+ * the command string, not whatever project code it ends up running.
  */
 
 import { spawn } from "node:child_process";
+import { readSettings } from "@/main/settings";
+import { wrapCommandInSandbox } from "@/lib/sandbox/wrap-command";
+import { getAcceptableShell } from "@/lib/shell/resolve-shell";
 import path from "node:path";
 import log from "electron-log";
 import {
@@ -201,14 +204,24 @@ function runOne(
     ? r.hook.command.replace(/\$\{(CLAUDE|ATLARIX)_PLUGIN_ROOT\}/g, root)
     : r.hook.command;
   const cwd = ctx.workspacePath || r.pluginRoot || process.cwd();
+  const how = sandboxedSpawn(command, cwd);
+  if ("refused" in how) {
+    logger.warn(`hook not run: ${how.refused}: ${r.hook.command}`);
+    return Promise.resolve({
+      code: null,
+      stdout: "",
+      stderr: how.refused,
+      timedOut: false,
+    });
+  }
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
     let timedOut = false;
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(command, {
-        shell: true,
+      child = spawn(how.file, how.args, {
+        shell: how.shell,
         cwd,
         env: {
           ...process.env,
@@ -253,6 +266,42 @@ function runOne(
     child.stdin?.on("error", () => {}); // a hook that never reads stdin
     child.stdin?.end(stdin);
   });
+}
+
+/**
+ * Hooks run in the SAME OS sandbox as the agent's own commands, source-protected
+ * (`readOnly`): the folder stays writable for a hook that runs the tests, but
+ * `.git/hooks`, `.git/config`, `.atlarix/` and the plugin files are not, and
+ * nothing outside the folder is. A hook often runs project code (`npm test`,
+ * a linter's config) that the agent may have just edited; unsandboxed, that
+ * would turn an in-folder edit into an unconfined process.
+ *
+ * Where the person turned the sandbox off, hooks run as their commands do.
+ * Where they require it and this machine has none, a hook does not run.
+ */
+function sandboxedSpawn(
+  command: string,
+  cwd: string,
+): { file: string; args: string[]; shell: boolean } | { refused: string } {
+  const settings = readSettings();
+  if (settings.sandboxRunCommand === false)
+    return { file: command, args: [], shell: true };
+  const cfg = settings.sandboxRunCommandConfig;
+  const wrapped = wrapCommandInSandbox({
+    command,
+    shell: getAcceptableShell(),
+    workspacePath: cwd,
+    extraWritablePaths: cfg?.extraWritablePaths,
+    readOnly: true,
+  });
+  if (!wrapped.sandboxed && cfg?.enforce === true) {
+    return {
+      refused: `the command sandbox is required but unavailable (${wrapped.note})`,
+    };
+  }
+  return wrapped.useShellOption
+    ? { file: command, args: [], shell: true }
+    : { file: wrapped.file, args: wrapped.args, shell: false };
 }
 
 /** The reason a hook denied, or null when it let things through. */

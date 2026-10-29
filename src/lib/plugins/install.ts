@@ -183,7 +183,7 @@ export function commitPluginInstall(
     enabled: preview.replaces?.enabled ?? true,
     folders:
       opts.folders !== undefined
-        ? opts.folders
+        ? normalizeFolders(opts.folders)
         : (preview.replaces?.folders ?? null),
     model: preview.replaces?.model,
   };
@@ -261,8 +261,23 @@ export function setPluginFolders(
 ): PluginRecord | null {
   return updatePluginRecord(name, (r) => ({
     ...r,
-    folders: folders ? [...new Set(folders.map((f) => path.resolve(f)))] : null,
+    folders: normalizeFolders(folders),
   }));
+}
+
+/**
+ * Absolute, resolved, de-duplicated; a blank entry is dropped, and a list left
+ * empty means "every folder" (null) — never a scope that matches every path by
+ * accident (`""`) or none because of a trailing slash.
+ */
+function normalizeFolders(folders: string[] | null): string[] | null {
+  if (!folders) return null;
+  const clean = [
+    ...new Set(
+      folders.filter((f) => f.trim()).map((f) => path.resolve(f.trim())),
+    ),
+  ];
+  return clean.length ? clean : null;
 }
 
 export function setPluginModel(

@@ -984,7 +984,11 @@ export function registerChatStreamHandlers() {
             );
             userModelContent = withMemoryContext(
               userModelContent ?? userPrompt,
-              systemReminder(hookContext.join("\n\n")),
+              // Labelled as the hooks' output: it can echo the project's own
+              // text, which must not read as Atlarix speaking.
+              systemReminder(
+                `Output of the user's hooks (prompt_submit/session_start):\n\n${hookContext.join("\n\n")}`,
+              ),
             );
           }
         }

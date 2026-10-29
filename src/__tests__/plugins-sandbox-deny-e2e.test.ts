@@ -33,6 +33,9 @@ describe.runIf(process.platform === "darwin")(
       process.env.ATLARIX_HOME_DIR = home;
     });
     afterEach(() => {
+      fs.rmSync(path.join(path.dirname(home), "beside-home.md"), {
+        force: true,
+      });
       if (saved === undefined) delete process.env.ATLARIX_HOME_DIR;
       else process.env.ATLARIX_HOME_DIR = saved;
       fs.rmSync(home, { recursive: true, force: true });
@@ -44,7 +47,7 @@ describe.runIf(process.platform === "darwin")(
         command,
         shell: "/bin/sh",
         workspacePath: ws,
-        extraWritablePaths: [home],
+        extraWritablePaths: [path.dirname(home)],
       });
       expect(w.sandboxed).toBe(true);
       return spawnSync(w.file, w.args, { encoding: "utf8", cwd: ws });
@@ -53,7 +56,7 @@ describe.runIf(process.platform === "darwin")(
     it("refuses the control paths and allows the rest of a writable folder", () => {
       expect(
         run(
-          `printf x > "${path.join(home, "notes.md")}" && echo ok`,
+          `printf x > "${path.join(path.dirname(home), "beside-home.md")}" && echo ok`,
         ).stdout.trim(),
       ).toBe("ok");
 
@@ -62,6 +65,7 @@ describe.runIf(process.platform === "darwin")(
         path.join(home, "plugins.json"),
         path.join(home, "plugins", "acme", "evil.sh"),
         path.join(home, "plugins", "new-plugin", "x"),
+        path.join(home, "memory.md"),
       ]) {
         const r = run(
           `mkdir -p "${path.dirname(target)}" 2>/dev/null; printf evil > "${target}" && echo WROTE`,

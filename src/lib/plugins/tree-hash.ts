@@ -37,12 +37,16 @@ export function hashTree(root: string): TreeHashes {
         );
       }
       if (entry.isDirectory()) {
-        if (SKIPPED_DIRS.has(entry.name)) continue;
+        // Only the plugin's own top-level `.git` (a clone's); one deeper is content.
+        if (!rel && SKIPPED_DIRS.has(entry.name)) continue;
         walk(abs, relPath);
       } else if (entry.isFile()) {
         out[relPath] = createHash("sha256")
           .update(fs.readFileSync(abs))
           .digest("hex");
+      } else {
+        // A FIFO, socket or device would never hash, so it could never be checked.
+        throw new PluginTreeError(`${relPath} is not a regular file`);
       }
     }
   };

@@ -24,7 +24,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { atlarixHomeDir } from "@/paths/atlarix-home";
+import { isMutatingCommand } from "@/lib/mutating-commands";
 import {
+  controlRootDirs,
   isPluginControlPath,
   pluginRecordsPath,
   pluginsRootDir,
@@ -72,7 +75,8 @@ export function realTarget(abs: string): string {
   const rest: string[] = [];
   for (;;) {
     try {
-      return path.join(fs.realpathSync(dir), ...rest);
+      // `.native`: on Windows it also expands 8.3 names (`ATLARI~1`).
+      return path.join(fs.realpathSync.native(dir), ...rest);
     } catch {
       const parent = path.dirname(dir);
       if (parent === dir) return path.resolve(abs);
@@ -90,10 +94,27 @@ export function realTarget(abs: string): string {
 function commandNamesPluginControl(command: string): boolean {
   if (!command) return false;
   const norm = command.replace(/\\/g, "/").toLowerCase();
-  const literals = [pluginsRootDir(), pluginRecordsPath(), userHooksPath()].map(
-    (p) => p.replace(/\\/g, "/").toLowerCase(),
-  );
-  if (literals.some((l) => norm.includes(l))) return true;
+  const lower = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  // Naming a control file outright always asks, read or write.
+  if (
+    [pluginsRootDir(), pluginRecordsPath(), userHooksPath()].some((p) =>
+      norm.includes(lower(p)),
+    )
+  ) {
+    return true;
+  }
+  if (norm.includes(lower(atlarixHomeDir())) && isMutatingCommand(command))
+    return true;
+  if (namesControlFile(norm)) return true;
+  // Any write that mentions the home folder at all, however it gets there:
+  // `cd ~/.atlarix && … > hooks.json`, `~/.atl*/hooks.json`. A read
+  // (`cat ~/.atlarix/…`) is not stopped; the sandbox denies the whole folder
+  // anyway, and this is the layer for machines and runs without one.
+  const mentionsHome = /\.atlarix\b|\.atl[a-z]*[*?[]/.test(norm);
+  return mentionsHome && isMutatingCommand(command);
+}
+
+function namesControlFile(norm: string): boolean {
   return /\.atlarix\/(plugins\b|plugins\.json|hooks\.json)/.test(norm);
 }
 
@@ -148,17 +169,22 @@ export function guardPluginControl<
 export function grantCoversPluginControl(grantPath: string): boolean {
   const grants = [path.resolve(grantPath), realTarget(grantPath)];
   if (grants.some(isPluginControlPath)) return true;
+  // Nothing at, inside or above `<atlarixHomeDir>`: the sandbox denies that whole
+  // folder (deny-paths.ts), and a grant there (`~/.atlarix/node_modules`, which
+  // a plugin's `node` would resolve packages from) would undercut it.
   // Configured and resolved spellings on both sides: `/var` vs `/private/var`,
   // or a linked `~/.atlarix`.
-  const controls = [
-    pluginsRootDir(),
-    pluginRecordsPath(),
-    userHooksPath(),
-  ].flatMap((p) => [p, realTarget(p)]);
+  const homes = [atlarixHomeDir(), ...controlRootDirs()].flatMap((h) => [
+    h,
+    realTarget(h),
+  ]);
   return grants.some((grant) =>
-    controls.some((p) => {
-      const rel = path.relative(grant, p);
-      return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+    homes.some((h) => {
+      const down = path.relative(grant, h);
+      const up = path.relative(h, grant);
+      const inside = (rel: string) =>
+        !rel.startsWith("..") && !path.isAbsolute(rel);
+      return inside(down) || inside(up);
     }),
   );
 }

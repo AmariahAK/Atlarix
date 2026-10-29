@@ -49,37 +49,56 @@ export function isPluginControlPath(absPath: string): boolean {
   const target = normalizeForCompare(path.resolve(absPath));
   // The control paths as configured AND as they really are: `~/.atlarix` can
   // itself be a link (a dotfiles repo), and a resolved target must still match.
-  return controlPathSpellings().some(({ root, files }) => {
-    if (target === root || target.startsWith(root + path.sep)) return true;
-    return files.includes(target);
-  });
+  const { roots, files } = controlPathSpellings();
+  return (
+    files.includes(target) ||
+    roots.some((root) => target === root || target.startsWith(root + path.sep))
+  );
 }
 
-function controlPathSpellings(): Array<{ root: string; files: string[] }> {
-  const configured = {
-    root: pluginsRootDir(),
-    files: [pluginRecordsPath(), userHooksPath()],
-  };
+/**
+ * Folders whose whole content is control: the plugins, and `~/.agents/skills`
+ * (listed for the model in every folder, so an agent-written skill there would
+ * carry an injection across projects).
+ */
+export function controlRootDirs(): string[] {
+  return [pluginsRootDir(), path.join(userAgentSkillsParentDir(), "skills")];
+}
+
+function controlPathSpellings(): { roots: string[]; files: string[] } {
   const real = (p: string) => {
     try {
-      return path.join(fs.realpathSync(path.dirname(p)), path.basename(p));
+      return path.join(
+        fs.realpathSync.native(path.dirname(p)),
+        path.basename(p),
+      );
     } catch {
       return p;
     }
   };
-  return [
-    configured,
-    { root: real(configured.root), files: configured.files.map(real) },
-  ].map((s) => ({
-    root: normalizeForCompare(s.root),
-    files: s.files.map(normalizeForCompare),
-  }));
+  const roots = controlRootDirs();
+  const files = [pluginRecordsPath(), userHooksPath()];
+  return {
+    roots: [...roots, ...roots.map(real)].map((r) => normalizeForCompare(r)),
+    files: [...files, ...files.map(real)].map((f) => normalizeForCompare(f)),
+  };
 }
 
-function normalizeForCompare(p: string): string {
-  const resolved = path.resolve(p);
-  // macOS and Windows file systems are case-insensitive by default.
-  return process.platform === "linux" ? resolved : resolved.toLowerCase();
+function normalizeForCompare(
+  p: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const resolved =
+    platform === "win32" ? path.win32.resolve(p) : path.resolve(p);
+  if (platform === "linux") return resolved;
+  if (platform !== "win32") return resolved.toLowerCase();
+  // Win32 opens `hooks.json.`, `hooks.json ` and `hooks.json::$DATA` as
+  // `hooks.json`: drop a stream suffix and trailing dots/spaces per component.
+  const [drive, ...parts] = resolved.split(/[\\/]/);
+  const clean = parts.map((seg) =>
+    seg.replace(/:.*$/, "").replace(/[. ]+$/, ""),
+  );
+  return [drive, ...clean].join("\\").toLowerCase();
 }
 
 /** Plugin names are folder names: lowercase, no separators, no dot-leading. */
@@ -98,3 +117,6 @@ export function isValidPluginName(name: string): boolean {
 export function userAgentSkillsParentDir(): string {
   return path.join(path.dirname(atlarixHomeDir()), ".agents");
 }
+
+/** For tests: the comparison form on another OS. */
+export const _normalizeForCompare = normalizeForCompare;

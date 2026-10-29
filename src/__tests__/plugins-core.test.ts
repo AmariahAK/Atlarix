@@ -15,7 +15,7 @@ import {
   reviewPluginRunnables,
   setPluginFolders,
 } from "@/lib/plugins/install";
-import { readPluginContents } from "@/lib/plugins/manifest";
+import { describeRunnables, readPluginContents } from "@/lib/plugins/manifest";
 import { isPluginControlPath, pluginDir } from "@/lib/plugins/paths";
 import { loadPlugins } from "@/lib/plugins/registry";
 import { parsePluginSource } from "@/lib/plugins/source";
@@ -189,6 +189,52 @@ describe("layouts", () => {
   });
 });
 
+describe("what the second confirm shows", () => {
+  it("shows env values (masking secret-named ones) and escapes control characters", () => {
+    const dir = path.join(work, "envy");
+    writeTree(dir, {
+      "atlarix-plugin.json": JSON.stringify({ name: "envy" }),
+      ".mcp.json": JSON.stringify({
+        mcpServers: {
+          s: {
+            command: "npx",
+            args: ["srv"],
+            env: { NODE_OPTIONS: "--require /x.js", API_TOKEN: "t0p" },
+          },
+        },
+      }),
+      "hooks/hooks.json": JSON.stringify({
+        hooks: [{ event: "stop", command: "echo hi\u001b[2K\rhidden" }],
+      }),
+    });
+    const lines = describeRunnables(readPluginContents(dir, "x"));
+    expect(lines).toContain(
+      "MCP server s: npx srv (env: NODE_OPTIONS=--require /x.js API_TOKEN=…)",
+    );
+    expect(lines[0]).toBe("hook stop: echo hi\\x1b[2K\\x0dhidden");
+  });
+});
+
+describe("tree hashing", () => {
+  it("hashes a nested .git folder (only the top-level one is a clone's)", async () => {
+    const dir = atlarixPlugin();
+    writeTree(dir, { "skills/lint-guide/.git/hooks/post-checkout": "evil" });
+    const preview = await preparePluginInstall(dir);
+    expect(Object.keys(preview.files)).toContain(
+      "skills/lint-guide/.git/hooks/post-checkout",
+    );
+  });
+
+  it.runIf(process.platform !== "win32")("refuses a FIFO", async () => {
+    const dir = atlarixPlugin();
+    const { execFileSync } = await import("node:child_process");
+    execFileSync("mkfifo", [path.join(dir, "pipe")]);
+    await expect(preparePluginInstall(dir)).rejects.toThrow(
+      /not a regular file/,
+    );
+  });
+});
+
 describe("install", () => {
   it("needs the second confirm when the plugin runs anything", async () => {
     const preview = await preparePluginInstall(atlarixPlugin());
@@ -279,6 +325,14 @@ describe("verify on every load", () => {
     const shown = reviewPluginRunnables("acme");
     approvePluginRunnables("acme", shown);
     expect(loadPlugins(null).plugins).toHaveLength(1);
+  });
+
+  it("never treats a blank folder as every path", async () => {
+    await install(atlarixPlugin());
+    setPluginFolders("acme", ["", "  "]);
+    expect(readPluginRecords()[0]!.folders).toBeNull();
+    setPluginFolders("acme", [`${work}/`]);
+    expect(readPluginRecords()[0]!.folders).toEqual([path.resolve(work)]);
   });
 
   it("only loads in the folders it is on for", async () => {
