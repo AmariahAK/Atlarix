@@ -21,6 +21,49 @@ not trust it.
 
 ---
 
+## 🚨 Attack 2026-10-28 (19:12–02:30 MYT): what held, what was closed, what is left
+
+One throwaway account (`istevens599@6gdfg.zone.id`, user `88e201ae…`, one Google Cloud IP 34.145.17.47) fuzzed every
+endpoint for ~7 h. The owner's notes are in the calendar ("Atlarix alerts fixes", 2026-10-29). Facts checked 2026-10-29:
+
+- **Money:** 14 `debit_wallet` calls with `p_cents` up to 2^31 took its wallet to −8,589,934,601 cents (int32-shaped
+  fuzz; the column is bigint, nothing overflowed). No other wallet is negative. The owner reset its balance to 0, so
+  its ledger rows (sum −8.59e9, kind `debit`, source `app`) no longer match its balance: anything that SUMS debits
+  (revenue or spend charts) must exclude this user or get a compensating `adjustment` row of +8,589,934,601.
+- **Proxy (Railway http log, 501 requests from the IP):** 110 free-Auto chats answered 200, then 123 × 402 and 2 × 429,
+  so the per-user share held. 45 `/v1/mcp/call` returned HTTP 200, but 33 of 238 logged calls were `ok`, ALL to the
+  attacker's own public test servers (httpbingo canned JSON, webhook.site). The ~230 connectors it registered were an
+  SSRF suite (169.254.169.254 and metadata.google.internal, Railway-internal hosts, nip.io/sslip.io/1u.ms/rbndr.us
+  rebinding, NAT64, 6to4, hex/octal/decimal IPs, redirect-to, userinfo tricks): every private target was refused or
+  unreachable. `POST /v1/connectors/probe1/credential` → 200 was `{ok:false,error:"not_found"}` (ownership is
+  checked), not a stored credential.
+- **Supabase:** 148 forged Lemon webhooks 401; RLS held; `send-email` was an open relay (client chose `to`, subject
+  and body), 28 sends, none to a real person (Resend, owner).
+
+**Closed 2026-10-29 (ai-2c):**
+- Migration `20261029030000_harden_wallet_and_usage_after_attack.sql`, APPLIED: `account_is_banned(uuid)` reads
+  both `users.banned_at` and `auth.users.banned_until`; `debit_wallet` refuses banned accounts, caps one call at
+  5,000 cents and refuses a debit that would take the wallet below −5,000 cents; `get_credit_balance`,
+  `record_client_usage`, `record_client_seen` refuse banned accounts. ACLs verified (authenticated keeps
+  `debit_wallet`; the helper is service_role only).
+- `public.users.banned_at` set for the attacker (the auth-level ban alone was invisible to app checks).
+- `send-email` edge function REPLACED by a stub answering 410 (version 49): nothing in the app, website or reviewer
+  calls it (`src/lib/email/resend.ts` is dead code). If transactional email returns, the server picks the recipient
+  (the signed-in user) and a fixed template, never the client.
+- Proxy SSRF guard (atlarix-proxy main): IPv6 judged by global-unicast (2000::/3) minus 6to4, Teredo and
+  documentation, mapped/translated addresses judged as their IPv4; IPv4 adds 198.18.0.0/15 and the TEST-NETs. Tests
+  for every probe spelling. Residual, written in `ssrf.ts`: DNS rebinding between check and fetch (rbndr.us) needs
+  resolve-then-pin.
+
+**Left for the proper fix (owner):**
+- Delete or keep the attacker's ~230 `account_mcp_servers` rows (inert: banned on both levels).
+- The ledger compensation row or an exclusion in every spend chart (above).
+- PostHog token leak + revocations and the CLI handoff to PKCE (the 2026-10-28 plan; unchanged).
+- Resolve-then-pin in the proxy's connector fetches; rate-limit connector creation per account (230 in one night).
+- An alert when one account's refusals, failed webhooks or edge-function calls pass a threshold in an hour: this ran
+  for 7 h before anyone looked.
+- Bedrock/free-Auto cost for the IP: not checked here (110 free chats at most; the daily digest has the number).
+
 ## 🔨 Queued 2026-10-28 (planned today, built 2026-10-29 with the two calendar events)
 
 - **Peer messaging: a one-shot "tell me when it's done" (owner, 2026-10-28).** Today a session that messages another
