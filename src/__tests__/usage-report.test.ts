@@ -287,8 +287,7 @@ describe("as text (CLI and ACP)", () => {
       NOW,
     );
     for (const lines of [Fm.tokensText(r), Fm.toolsText(r), Fm.autoText(r)]) {
-      for (const l of lines.filter((x) => !x.tone))
-        expect(l.text.length).toBeLessThanOrEqual(80);
+      for (const l of lines) expect(l.text.length).toBeLessThanOrEqual(80);
     }
   });
 
@@ -312,6 +311,22 @@ describe("as text (CLI and ACP)", () => {
     expect(lines.some((l) => l.includes("x]0;pwned"))).toBe(true);
     // eslint-disable-next-line no-control-regex -- looking for them is the point
     for (const l of lines) expect(l).not.toMatch(/[\u0000-\u001f\u007f]/);
+  });
+
+  it("packs the key onto lines that fit, never breaking a model's name", () => {
+    const lines = Fm.legend(
+      [
+        "Claude Opus 5.5 (anthropic)",
+        "DeepSeek Flash (deepseek)",
+        "Claude Haiku 5.5 (anthropic)",
+        "Other",
+      ],
+      60,
+    ).map((l) => l.text);
+    expect(lines).toEqual([
+      "█ Claude Opus 5.5 (anthropic)   ▓ DeepSeek Flash (deepseek)",
+      "▒ Claude Haiku 5.5 (anthropic)   ░ Other",
+    ]);
   });
 
   it("draws a stacked bar in proportion, scaled to the busiest day", () => {
@@ -348,6 +363,14 @@ describe("the share card", () => {
     expect(svg).toContain("4 days");
     expect(svg).toContain("9 days");
     expect(svg).toContain("1.2M");
+    // The partial first month gives way to the next one: never "OctNov".
+    const labels = [
+      ...svg.matchAll(
+        /<text x="(\d+)" y="\d+" font-size="16" fill="#8b9a90">([A-Z][a-z]{2})<\/text>/g,
+      ),
+    ].map((m) => Number(m[1]));
+    for (let i = 1; i < labels.length; i++)
+      expect(labels[i]! - labels[i - 1]!).toBeGreaterThanOrEqual(3 * 21);
     for (const secret of [
       "Secret project",
       "private-release-skill",

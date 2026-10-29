@@ -78,14 +78,20 @@ const dayRows = (
   });
 };
 
-const legend = (labels: readonly string[]): UsageTextLine => ({
-  text: labels
-    .map(
-      (l, i) => `${SERIES_GLYPHS[Math.min(i, SERIES_GLYPHS.length - 1)]} ${l}`,
-    )
-    .join("   "),
-  tone: "muted",
-});
+/** The series key, packed onto as few lines as fit `width`; an item never breaks. */
+export function legend(labels: readonly string[], width = 76): UsageTextLine[] {
+  const items = labels.map(
+    (l, i) => `${SERIES_GLYPHS[Math.min(i, SERIES_GLYPHS.length - 1)]} ${l}`,
+  );
+  const lines: string[] = [];
+  for (const item of items) {
+    const last = lines.at(-1);
+    if (last != null && last.length + 3 + item.length <= width)
+      lines[lines.length - 1] = `${last}   ${item}`;
+    else lines.push(item);
+  }
+  return lines.map((text) => ({ text, tone: "muted" as const }));
+}
 
 /** Tokens per day, stacked by model, for the last `days` days of the report's window. */
 export function tokensText(
@@ -107,7 +113,7 @@ export function tokensText(
       bold: true,
     },
     ...dayRows(r.tokens.byDay.slice(-days), width, compactCount),
-    legend(r.tokens.series.map((s) => s.label)),
+    ...legend(r.tokens.series.map((s) => s.label)),
   ];
   if (r.byok) {
     out.push(
@@ -155,7 +161,7 @@ export function toolsText(
       width,
       (n) => String(n),
     ),
-    legend(["MCP", "Skills"]),
+    ...legend(["MCP", "Skills"]),
   ];
   for (const [title, list, unit] of [
     ["MCP servers", r.tools.mcp, "call"],
@@ -259,7 +265,7 @@ export function creditsText(
       width,
       dollars,
     ),
-    legend([
+    ...legend([
       "Auto",
       "Core",
       ...(hasOther || hasUnsplit ? ["Search, reviewer, cloud"] : []),

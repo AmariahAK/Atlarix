@@ -308,9 +308,17 @@ export const realServices: CliServices = {
     const [{ promises: fs }, os, path] = await Promise.all([import("node:fs"), import("node:os"), import("node:path")]);
     const dir = path.join(os.homedir(), "Downloads");
     await fs.mkdir(dir, { recursive: true });
-    const file = path.join(dir, `atlarix-usage-${new Date().toISOString().slice(0, 10)}.svg`);
-    await fs.writeFile(file, svg, "utf8");
-    return file;
+    const stem = path.join(dir, `atlarix-usage-${new Date().toISOString().slice(0, 10)}`);
+    // Never over a file that is already there (an earlier card, or anything else).
+    for (let n = 1; ; n++) {
+      const file = n === 1 ? `${stem}.svg` : `${stem}-${n}.svg`;
+      try {
+        await fs.writeFile(file, svg, { encoding: "utf8", flag: "wx" });
+        return file;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST" || n >= 100) throw e;
+      }
+    }
   },
   automations: {
     async list(appId) {

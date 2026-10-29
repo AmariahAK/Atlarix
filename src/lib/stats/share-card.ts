@@ -48,12 +48,15 @@ export function shareCardSvg(
       );
     }),
   );
+  // A name that would run into the next month's gives way to it (the partial
+  // first month), as in the text calendar.
   const months = s.monthLabels
-    .map((m, w) =>
-      m && w < cols - 1
-        ? `<text x="${left + w * (cell + gap)}" y="${top - 12}" font-size="16" fill="#8b9a90">${esc(m)}</text>`
-        : "",
-    )
+    .map((m, w) => {
+      if (!m || w >= cols - 1) return "";
+      const next = s.monthLabels.findIndex((x, j) => j > w && !!x);
+      if (next !== -1 && next - w < 3) return "";
+      return `<text x="${left + w * (cell + gap)}" y="${top - 12}" font-size="16" fill="#8b9a90">${esc(m)}</text>`;
+    })
     .join("");
   const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
   const stats = [
