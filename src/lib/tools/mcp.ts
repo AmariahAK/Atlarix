@@ -187,6 +187,13 @@ async function listConfiguredMcps(
    */
   if (workspaceId == null) return [];
 
+  // Installed plugins' servers become this folder's rows (switched off until the
+  // person turns one on) before the list is read.
+  {
+    const { syncPluginMcpServersForApp } = await import("@/lib/plugins/mcp-sync");
+    await syncPluginMcpServersForApp(workspaceId);
+  }
+
   /**
    * EVERY configured server, enabled or not.
    *
@@ -462,6 +469,13 @@ ToolRegistry.register({
     // Per-workspace only — see listConfiguredMcps. Without a workspace there is
     // no LOCAL server to find, but an account connector is not per-workspace, so
     // this can no longer return early without looking.
+    // A plugin's server exists only while its plugin verifies and is on for
+    // this folder: sync first, so a removed or changed plugin's row is gone
+    // before it can be started.
+    if (args.workspaceId != null && !fromEditor) {
+      const { syncPluginMcpServersForApp } = await import("@/lib/plugins/mcp-sync");
+      await syncPluginMcpServersForApp(args.workspaceId);
+    }
     if (args.workspaceId == null && !fromEditor) {
       const viaAccount = await runAccountConnector();
       if (viaAccount) return viaAccount;
