@@ -1000,7 +1000,7 @@ export function App({
             detail: alias ? o.providerName : undefined,
             keywords: `${o.providerName} ${o.name}`,
             gutter: isCurrent ? { text: "●", tone: "accent" } : fav ? { text: "★", tone: "heading" } : undefined,
-            right: o.free ? { text: "Free", tone: "accent" } : o.context ? { text: o.context, tone: "muted" } : undefined,
+            right: o.free ? { text: "Free", tone: "accent" } : o.credit ? { text: "Credit", tone: "muted" } : o.context ? { text: o.context, tone: "muted" } : undefined,
           });
         }
       }

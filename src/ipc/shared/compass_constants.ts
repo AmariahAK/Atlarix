@@ -16,6 +16,8 @@ import {
 import { CORE_TIER_ROWS } from "../../shared/compass_product_copy";
 import {
   getCoreAuto,
+  getCoreZenith,
+  isCoreTierRetired,
   getCoreModelOverrideId,
   getCoreTierRouting,
 } from "@/ipc/shared/core-model-override-store";
@@ -29,6 +31,10 @@ export const CORE_TIER_2 = "core-2";
 export const CORE_TIER_3 = "core-3";
 export const CORE_TIER_4 = "core-4";
 export const CORE_TIER_5 = "core-5";
+export const CORE_TIER_6 = "core-6";
+export const CORE_TIER_7 = "core-7";
+export const CORE_TIER_8 = "core-8";
+export const CORE_TIER_9 = "core-9";
 
 /**
  * Atlarix Auto: a FREE Core option (OpenAI complimentary tokens, a $0 floor
@@ -40,6 +46,14 @@ export const CORE_TIER_5 = "core-5";
  * chosen on purpose.
  */
 export const CORE_TIER_AUTO = "core-auto";
+
+/**
+ * Atlarix Zenith: paid Auto on the top lane (owner, 2026-10-29), offered when
+ * the hosted `auto.zenith` block exists. Like Auto it is never a default, a
+ * fallback or a substitute; unlike Auto it is never free, so it carries no
+ * free-share consent and no daily limit.
+ */
+export const CORE_TIER_ZENITH = "core-zenith";
 
 /** The Auto consent wording now in force (see `atlarixAutoConsentVersion`). */
 export const ATLARIX_AUTO_CONSENT_VERSION = 2;
@@ -73,6 +87,10 @@ export const CORE_TIER_ORDER = [
   CORE_TIER_3,
   CORE_TIER_4,
   CORE_TIER_5,
+  CORE_TIER_6,
+  CORE_TIER_7,
+  CORE_TIER_8,
+  CORE_TIER_9,
 ] as const;
 
 /** Pre-v11 persisted selections (`compass-*`) keep resolving forever. */
@@ -91,7 +109,8 @@ export function isCoreTierId(internalTierId: string): boolean {
   const norm = normalizeCoreTierId(internalTierId);
   return (
     (CORE_TIER_ORDER as readonly string[]).includes(norm) ||
-    norm === CORE_TIER_AUTO
+    norm === CORE_TIER_AUTO ||
+    norm === CORE_TIER_ZENITH
   );
 }
 
@@ -107,6 +126,16 @@ export function isCoreTierFromNewerBuild(internalTierId: string): boolean {
 /** True for the free Atlarix Auto tier. */
 export function isCoreAutoTier(internalTierId: string | undefined): boolean {
   return !!internalTierId && normalizeCoreTierId(internalTierId) === CORE_TIER_AUTO;
+}
+
+/** True for Atlarix Zenith (paid Auto, top lane). */
+export function isCoreZenithTier(internalTierId: string | undefined): boolean {
+  return !!internalTierId && normalizeCoreTierId(internalTierId) === CORE_TIER_ZENITH;
+}
+
+/** Auto or Zenith: the router picks the model per turn, so no effort control. */
+export function isCoreRouterTier(internalTierId: string | undefined): boolean {
+  return isCoreAutoTier(internalTierId) || isCoreZenithTier(internalTierId);
 }
 
 function compassProviderSlug(openRouterModelId: string): string {
@@ -132,7 +161,7 @@ export function getCompassSyntheticModels(): LanguageModel[] {
         {
           apiName: CORE_TIER_AUTO,
           displayName: auto.label,
-          description: "Free · prompts are shared with model providers",
+          description: "Most cost effective for capable intelligence",
           type: "cloud" as const,
           dollarSigns: 0,
           maxOutputTokens: 32_000,
@@ -142,7 +171,25 @@ export function getCompassSyntheticModels(): LanguageModel[] {
         },
       ]
     : [];
+  const zenith = getCoreZenith();
+  // Last in the Core group (owner, 2026-10-29). Paid only.
+  const zenithRow: LanguageModel[] = zenith
+    ? [
+        {
+          apiName: CORE_TIER_ZENITH,
+          displayName: zenith.label,
+          description: "Frontier intelligence at a higher cost",
+          type: "cloud" as const,
+          dollarSigns: 0,
+          maxOutputTokens: 32_000,
+          contextWindow: 200_000,
+        },
+      ]
+    : [];
   return [...autoRow, ...CORE_TIER_ROWS.flatMap((row) => {
+    // A retired slot still answers for older builds' pinned chats (as Auto,
+    // proxy-side) but is never offered again.
+    if (isCoreTierRetired(row.id)) return [];
     const openRouterModelId =
       getOpenRouterModelIdForCoreTier(row.id)?.trim() ?? "";
     // A slot with no configured model is NOT shown. There are five slots but the
@@ -166,7 +213,7 @@ export function getCompassSyntheticModels(): LanguageModel[] {
       // proposal handler) reads the same conservative ceiling the stream uses.
       contextWindow: 200_000,
     };
-  })];
+  }), ...zenithRow];
 }
 
 /** Main-process only; renderer has no `process.env`. */
@@ -264,6 +311,7 @@ export function getCoreModelIdForCoreTier(
   const norm = normalizeCoreTierId(internalTierId);
   // Auto has no env fallback: it exists only while the hosted config offers it.
   if (norm === CORE_TIER_AUTO) return getCoreAuto()?.id;
+  if (norm === CORE_TIER_ZENITH) return getCoreZenith()?.id;
   // Runtime override (hosted core-models.json) wins over the build-time env, so
   // Core models can change without repackaging. Null/absent → env fallback.
   const override = getCoreModelOverrideId(norm);
@@ -283,6 +331,14 @@ export function getCoreModelIdForCoreTier(
             return trimEnv(process.env.ATLARIX_CORE_MODEL_4);
           case CORE_TIER_5:
             return trimEnv(process.env.ATLARIX_CORE_MODEL_5);
+          case CORE_TIER_6:
+            return trimEnv(process.env.ATLARIX_CORE_MODEL_6);
+          case CORE_TIER_7:
+            return trimEnv(process.env.ATLARIX_CORE_MODEL_7);
+          case CORE_TIER_8:
+            return trimEnv(process.env.ATLARIX_CORE_MODEL_8);
+          case CORE_TIER_9:
+            return trimEnv(process.env.ATLARIX_CORE_MODEL_9);
           default:
             return undefined;
         }
@@ -307,7 +363,7 @@ export const getOpenRouterModelIdForCoreTier = getCoreModelIdForCoreTier;
  * broke the BYOK-fallback path and any persisted selection pointing at it.
  */
 export function getFirstConfiguredCoreTier(): string | undefined {
-  return DEFAULT_CORE_TIER_ORDER.find(
+  return DEFAULT_CORE_TIER_ORDER.filter((t) => !isCoreTierRetired(t)).find(
     (tier) => !!getCoreModelIdForCoreTier(tier)?.trim(),
   );
 }
@@ -364,41 +420,35 @@ export const DEFAULT_NEW_USER_CORE_TIER: string = CORE_TIER_AUTO;
 /**
  * Resolve a requested Core tier to one that is actually configured.
  *
- * Returns the tier unchanged when it has a model. When it does not — a slot removed
- * from the lineup, or a selection persisted before the lineup changed — this falls
- * forward to a configured tier instead of failing the turn. Changing the lineup would
- * otherwise break every user whose saved selection pointed at the removed slot, on
- * their very next message.
+ * Returns the tier unchanged when it has a model and is not retired. A paid slot
+ * that is retired or no longer mapped moves to ATLARIX AUTO, never to another paid
+ * slot (owner, 2026-10-29: "map everyone from now on to default atlarix auto …
+ * then nothing is broken"). The user picks onward from there; the app's one-time
+ * "your Core model changed" notice says so (core-slot-change.ts).
  *
- * SUBSTITUTION WALKS SLOT ORDER, NOT THE DEFAULT PREFERENCE — deliberately, and this
- * is not the same question as `getFirstConfiguredCoreTier`. That one answers "a caller
- * has no opinion, give it our best tier". This one answers "a caller's opinion no
- * longer resolves", and those want opposite things: the user DID choose, their choice
- * is gone, and silently promoting them to the top of the lineup is a bill they did not
- * ask for. Slot order is ascending by capability and price, so this lands on the
- * nearest cheaper option instead.
+ * It used to fall forward in slot order to the next PAID slot, which 15.11.1 still
+ * does: dropping GLM and Luna would have moved those chats onto GPT-6.1 Sol at
+ * Sol's price, with only a log line. Auto is what a new install starts on, it is
+ * free for an account with nothing to pay with, and it is routed for one that pays.
  *
- * It mattered little while the preference was core-2 and the lineup was flat-ish. It
- * matters now: core-3 can be several times the price of core-1, so a dropped budget
- * slot would otherwise move a cost-sensitive user straight onto the dearest model.
+ * Auto and Zenith themselves NEVER move: a withdrawn Auto errors ("isn't offered
+ * right now"), and so does a withdrawn Zenith. Nobody who chose a router lands on
+ * a model they did not choose.
  */
 export function resolveConfiguredCoreTier(
   internalTierId: string,
 ): { tier: string; substituted: boolean } | undefined {
   const norm = normalizeCoreTierId(internalTierId);
-  // A slot this build doesn't know never falls forward either: it is a model a
-  // newer Atlarix offered (settings are shared between the app, the terminal and
-  // the editors), and answering on another one bills a model nobody picked.
+  // A slot this build doesn't know never moves either: it is a model a newer
+  // Atlarix offered (settings are shared between the app, the terminal and the
+  // editors), and answering on another one bills a model nobody picked.
   if (isCoreTierFromNewerBuild(norm)) return undefined;
-  if (getCoreModelIdForCoreTier(norm)?.trim())
+  if (norm === CORE_TIER_AUTO || norm === CORE_TIER_ZENITH) {
+    return getCoreModelIdForCoreTier(norm)?.trim() ? { tier: norm, substituted: false } : undefined;
+  }
+  if (!isCoreTierRetired(norm) && getCoreModelIdForCoreTier(norm)?.trim())
     return { tier: norm, substituted: false };
-  // A withdrawn Auto NEVER falls forward: every other tier is paid, and moving a
-  // user who chose "free" onto a billed model is a charge they did not agree to.
-  if (norm === CORE_TIER_AUTO) return undefined;
-  const fallback = CORE_TIER_ORDER.find(
-    (tier) => !!getCoreModelIdForCoreTier(tier)?.trim(),
-  );
-  return fallback ? { tier: fallback, substituted: true } : undefined;
+  return getCoreAuto()?.id ? { tier: CORE_TIER_AUTO, substituted: true } : undefined;
 }
 
 /**

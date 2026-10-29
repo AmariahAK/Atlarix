@@ -56,7 +56,11 @@ import {
 } from "@/ipc/shared/compass_constants";
 import { fetchAccountKind, useAccountKind } from "@/hooks/useAccountKind";
 import { useTranslation } from "react-i18next";
-import { UpgradeActions } from "@/components/billing/UpgradeActions";
+import { UpgradeButtons } from "@/components/billing/UpgradeActions";
+import { coreRefusalMessage } from "@/shared/billing_copy";
+
+/** "Atlarix Core models run on credit. Add credit or get Pro …, or switch to Atlarix Auto, which is free." */
+const NEVER_FUNDED_LINE = coreRefusalMessage({ requiredCents: null, plan: "free", everFunded: false, renewsAt: null });
 
 const COMPASS_ID = "compass";
 /** Rows rendered per provider before the list offers search instead. */
@@ -396,9 +400,11 @@ export function ModelPicker({
           {lockedPick && (
             <div
               data-testid="model-picker-locked"
-              className="border-b border-border bg-muted/40 p-3"
+              className="space-y-2 border-b border-border bg-muted/40 p-3 text-sm"
             >
-              <UpgradeActions />
+              {/* The refusal a $0 account would get, before it is sent. */}
+              <p className="text-muted-foreground">{NEVER_FUNDED_LINE}</p>
+              <UpgradeButtons />
             </div>
           )}
           <div className="max-h-[300px] overflow-y-auto p-1">

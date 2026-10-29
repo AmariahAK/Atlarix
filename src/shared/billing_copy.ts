@@ -375,13 +375,17 @@ export function accountBannedUserMessage(): string {
  */
 export const UPGRADE_LINE = `Get Atlarix Pro (${PRO_PRICE}), or add credit (from ${TOP_UP_FROM}) and pay only for what you use.`;
 export const UPGRADE_PRO_LABEL = "Upgrade to Pro";
-/** Picker badges for Core rows, by account (see useAccountKind). */
+/**
+ * Picker tags, only for an account with no Pro and no credit (owner,
+ * 2026-10-27/29): Auto "Free", every paid Core row and Zenith "Credit" (muted).
+ * Pro and anyone with a balance see no tag at all.
+ */
 export const CORE_BADGE = {
   free: "Free",
-  included: "Included",
-  credits: "Credits",
-  locked: "Pro / Credits",
+  credit: "Credit",
 } as const;
+/** The same tag as an ACP model description, where text is all an editor shows. */
+export const CORE_CREDIT_DESCRIPTION = "Uses credit";
 export const ADD_CREDIT_LABEL = "Add credit";
 
 /**

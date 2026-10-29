@@ -250,6 +250,11 @@ button.icon.small {
   padding: 0 7px;
   flex: none;
 }
+/* "Credit": a paid model on an account with nothing to pay with. Muted, not a call to act. */
+.badge--muted {
+  color: var(--muted);
+  background: var(--sunk);
+}
 .tag {
   font-size: 11px;
   color: var(--muted);

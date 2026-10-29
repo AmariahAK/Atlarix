@@ -91,12 +91,15 @@ export async function resolveTitleModel(
   }
   const selected = turnModel ?? settings.selectedModel;
   if (selected.provider === "compass") {
-    const { isCoreAutoTier, getCoreModelIdForCoreTier, CORE_TIER_1 } =
+    const { isCoreAutoTier, getCoreModelIdForCoreTier, CORE_TIER_1, CORE_TIER_AUTO } =
       await import("@/ipc/shared/compass_constants");
+    const { isCoreTierRetired } = await import("@/ipc/shared/core-model-override-store");
     if (isCoreAutoTier(selected.name)) return selected;
-    return getCoreModelIdForCoreTier(CORE_TIER_1)?.trim()
-      ? { provider: "compass", name: CORE_TIER_1 }
-      : selected;
+    // The cheap slot when it is still offered; once it is retired (GLM left
+    // Core for good, 2026-10-29), Auto, which routes a title to a small model.
+    if (!isCoreTierRetired(CORE_TIER_1) && getCoreModelIdForCoreTier(CORE_TIER_1)?.trim())
+      return { provider: "compass", name: CORE_TIER_1 };
+    return getCoreModelIdForCoreTier(CORE_TIER_AUTO)?.trim() ? { provider: "compass", name: CORE_TIER_AUTO } : selected;
   }
   if (LOCAL_PROVIDERS.has(selected.provider)) return selected;
   return (await pickSmallSibling(selected.provider)) ?? selected;

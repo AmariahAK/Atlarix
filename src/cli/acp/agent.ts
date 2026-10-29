@@ -9,6 +9,7 @@
  * - updates are deltas (updates.ts);
  * - an approval is a question to the editor (permissions.ts).
  */
+import { CORE_CREDIT_DESCRIPTION } from "@/shared/billing_copy";
 import path from "node:path";
 import {
   RequestError,
@@ -1077,8 +1078,11 @@ export function modelGroups(
     options: g.options.map((o) => ({
       value: `${o.provider}/${o.name}`,
       name: o.label,
-      // "Free" once: Auto's own description already starts with it (QA: "Free · Free · …").
-      ...(o.detail || o.free ? { description: [o.free && !/^free\b/i.test(o.detail ?? "") ? "Free" : "", o.detail].filter(Boolean).join(" · ") } : {}),
+      // The tag first ("Free" on Auto, "Uses credit" on a paid row for an account
+      // with nothing to pay with), as the editor shows nothing but this text.
+      ...(o.detail || o.free || o.credit
+        ? { description: [o.free ? "Free" : o.credit ? CORE_CREDIT_DESCRIPTION : "", o.detail].filter(Boolean).join(" · ") }
+        : {}),
     })),
   }));
 }

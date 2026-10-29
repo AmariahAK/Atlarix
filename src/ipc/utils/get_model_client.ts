@@ -47,6 +47,7 @@ import {
   getCoreModelIdForCoreTier,
   isCoreTierFromNewerBuild,
   isCoreAutoTier,
+  isCoreZenithTier,
   resolveConfiguredCoreTier,
 } from "../shared/compass_constants";
 import {
@@ -358,6 +359,11 @@ async function getRegularModelClient(
           "Atlarix Auto isn't offered right now. Pick a Core model above, or add your own API key in Settings.",
         );
       }
+      if (!resolvedTier && isCoreZenithTier(model.name)) {
+        throw new Error(
+          "Atlarix Zenith isn't offered right now. Pick another model above, or add your own API key in Settings.",
+        );
+      }
       if (!resolvedTier && isCoreTierFromNewerBuild(model.name)) {
         throw new Error(CORE_TIER_NEWER_BUILD);
       }
@@ -378,6 +384,9 @@ async function getRegularModelClient(
       }
       const coreModelId = getCoreModelIdForCoreTier(resolvedTier.tier);
       const isAutoTier = isCoreAutoTier(resolvedTier.tier);
+      // Zenith is paid Auto on the top lane: Auto's routing headers, never the
+      // free-share consent, and no daily limit to hold.
+      const isZenithTier = isCoreZenithTier(resolvedTier.tier);
       if (!coreModelId) {
         throw new Error(
           `Atlarix Core model "${model.name}" is not configured for this build. Choose another Core model or add BYOK keys in Settings.`,
@@ -447,9 +456,11 @@ async function getRegularModelClient(
             // 'desktop' would split one product across two rows on the account
             // page and need every historical row backfilled.
             for (const [k, v] of Object.entries(surfaceHeaders())) headers.set(k, v);
-            if (isAutoTier) {
-              for (const [k, v] of Object.entries(autoHeaders))
+            if (isAutoTier || isZenithTier) {
+              for (const [k, v] of Object.entries(autoHeaders)) {
+                if (isZenithTier && /free-consent/i.test(k)) continue;
                 headers.set(k, v);
+              }
             }
             // The proxy, or its fallback when the proxy is down (item 10). Free
             // Auto's daily limit is held here until it lifts, so a resend gets
@@ -458,7 +469,7 @@ async function getRegularModelClient(
             const res = isAutoTier && !pinnedToken ? await throughFreeAutoGate(send) : await send();
             // Atlarix Auto says which model answered and how much free share is
             // left; hand that to the composer.
-            if (isAutoTier && res.ok) {
+            if ((isAutoTier || isZenithTier) && res.ok) {
               broadcastAutoStatus(res.headers);
               noteTurnAutoBilling(options?.chatId, autoStatusFromHeaders(res.headers)?.billing);
             }

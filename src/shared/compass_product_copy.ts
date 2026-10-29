@@ -29,14 +29,20 @@ export function isCompassTierId(tierId: string): boolean {
   );
 }
 
-// The Atlarix Core models (up to five slots), shown individually in the picker. The real
-// model name + provider (resolved from core-models.json) carries the meaning;
-// no fast/balanced/thinking framing. `label` is only a fallback when no
-// OpenRouter id resolves. Order = display order.
+// The Atlarix Core models, shown individually in the picker. The real model name
+// + provider (resolved from core-models.json) carries the meaning; no description
+// (owner, 2026-10-29). `label` is only a fallback when no id resolves.
+// Order = display order, the owner's roster of 2026-10-29: Auto first, then
+// Terra, Sonnet, Sol, Opus, Astra, Fable, then Zenith last. core-1/4/5 (GLM,
+// GLM-Flash, Luna) are retired and show only if a lineup maps them unretired.
 export const CORE_TIER_ROWS = [
-  { id: "core-1", label: "Core 1", description: "" },
+  { id: "core-6", label: "Core 6", description: "" },
+  { id: "core-7", label: "Core 7", description: "" },
   { id: "core-2", label: "Core 2", description: "" },
+  { id: "core-8", label: "Core 8", description: "" },
   { id: "core-3", label: "Core 3", description: "" },
+  { id: "core-9", label: "Core 9", description: "" },
+  { id: "core-1", label: "Core 1", description: "" },
   { id: "core-4", label: "Core 4", description: "" },
   { id: "core-5", label: "Core 5", description: "" },
 ] as const;

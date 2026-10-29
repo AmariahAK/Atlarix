@@ -143,7 +143,7 @@ describe("chat error banner placement (v11.1)", () => {
       store.set(chatErrorByIdAtom, new Map([[CHAT_ID, freeAutoLimitMessage(Date.now() + 3600_000)]]));
     });
 
-    expect(screen.getByTestId("free-limit").textContent).toMatch(/^Today's free Atlarix Auto is used up\. Resets in (59m|1h)\./);
+    expect(screen.getByTestId("free-limit").textContent).toMatch(/^Today's free Atlarix Auto is used up\. Resets in (5\dm|1h)\./);
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 

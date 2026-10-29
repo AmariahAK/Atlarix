@@ -136,10 +136,45 @@ export function getCoreAuto(): CoreAutoConfig | null {
   return CORE_AUTO;
 }
 
+/** Atlarix Zenith, from the hosted `auto.zenith` block; null when not offered. */
+export type CoreZenithConfig = {
+  id: string;
+  label: string;
+  /** Every model a Zenith step can land on (models.dev coordinates). */
+  models?: Array<{ providerId: string; modelId: string }>;
+};
+
+let CORE_ZENITH: CoreZenithConfig | null = null;
+
+export function setCoreZenith(zenith: CoreZenithConfig | null): void {
+  CORE_ZENITH = zenith ? { ...zenith } : null;
+}
+
+export function getCoreZenith(): CoreZenithConfig | null {
+  return CORE_ZENITH;
+}
+
+/**
+ * Slots the hosted config has RETIRED (top-level `retired`, 2026-10-29): still
+ * mapped so an older build's pinned chat keeps answering (the proxy serves it
+ * as Auto), but never offered here, and a chat pinned to one moves to Auto.
+ */
+let CORE_RETIRED: Set<string> = new Set();
+
+export function setCoreRetired(ids: readonly string[] | null): void {
+  CORE_RETIRED = new Set(ids ?? []);
+}
+
+export function isCoreTierRetired(normalizedTierId: string): boolean {
+  return CORE_RETIRED.has(normalizedTierId);
+}
+
 /** Test-only: clear the store between cases. */
 export function __resetCoreModelOverridesForTests(): void {
   CORE_MODEL_OVERRIDES = null;
   CORE_MODEL_WEB_SEARCH = null;
   CORE_MODEL_ROUTING = null;
   CORE_AUTO = null;
+  CORE_ZENITH = null;
+  CORE_RETIRED = new Set();
 }
