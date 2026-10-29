@@ -243,6 +243,44 @@ describe("mods", () => {
     expect(await modsRunCommand(ctx(), "/read link.txt")).toMatch(/^refused/);
   });
 
+  it("are bounded in what they add to a turn", async () => {
+    await installMod(
+      `export function register(on) {
+        for (let i = 0; i < 20; i++) on("prompt.compose", () => ({ section: "x".repeat(10000) }));
+        on("prompt.submit", () => ({ text: "y".repeat(1e6) }));
+      }`,
+      ["prompt"],
+    );
+    const sections = await modsPromptSections(ctx());
+    expect(sections).toHaveLength(5);
+    expect(sections[0]!.length).toBeLessThan(4100);
+    expect((await modsPromptSubmit(ctx(), "hi")).length).toBe(100_000);
+  });
+
+  it("read the folder of the chat that asked, with two chats at once", async () => {
+    const other = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-mods-ws2-")),
+    );
+    try {
+      fs.writeFileSync(path.join(ws, "who.txt"), "first");
+      fs.writeFileSync(path.join(other, "who.txt"), "second");
+      await installMod(
+        `export function register(on, $) {
+          $.command.register({ name: "who" });
+          on("command.run", () => ({ text: $.fs.read("who.txt") }));
+        }`,
+        ["command", "fs"],
+      );
+      const [a, b] = await Promise.all([
+        modsRunCommand({ workspacePath: ws }, "/who"),
+        modsRunCommand({ workspacePath: other }, "/who"),
+      ]);
+      expect([a, b]).toEqual(["first", "second"]);
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
   it("do not load once their files change", async () => {
     await installMod(
       `export function register(on) { on("tool.call", () => ({ deny: "v1" })); }`,

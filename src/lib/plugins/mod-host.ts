@@ -54,6 +54,8 @@ export const MOD_EVENT_DEADLINE_MS = 200;
 const STATUS_MAX = 200;
 const TOAST_MAX = 300;
 const SECTION_MAX = 4000;
+const SECTIONS_PER_MOD = 5;
+const PROMPT_MAX = 100_000;
 const STORE_MAX_BYTES = 64 * 1024;
 const FS_READ_MAX_BYTES = 256 * 1024;
 const TREE_MAX_BYTES = 64 * 1024;
@@ -495,6 +497,10 @@ async function dispatch(
     const inst = await instanceFor(p, ctx);
     if (!inst) continue;
     try {
+      // Set HERE, synchronously before the call: `instanceFor` awaited, and a
+      // dispatch for another chat could have set its own context in between —
+      // `fs.read` would then read the other chat's folder.
+      inst.ctx = ctx;
       const json = withDeadline(inst, MOD_EVENT_DEADLINE_MS, () => {
         const fn = inst.vm.getProp(inst.vm.global, "__dispatch");
         const ev = inst.vm.newString(event);
@@ -565,7 +571,7 @@ export async function modsPromptSubmit(
       p.contents.name,
     );
     const next = (r?.answer as { text?: unknown } | null)?.text;
-    if (typeof next === "string") current = next;
+    if (typeof next === "string") current = next.slice(0, PROMPT_MAX);
   }
   return current;
 }
@@ -580,7 +586,7 @@ export async function modsPromptSections(ctx: ModContext): Promise<string[]> {
   for (const { plugin, answer } of await dispatch("prompt.compose", {}, ctx)) {
     const sections = (answer as { sections?: unknown } | null)?.sections;
     if (!Array.isArray(sections)) continue;
-    for (const s of sections) {
+    for (const s of sections.slice(0, SECTIONS_PER_MOD)) {
       if (typeof s === "string" && s.trim())
         out.push(`From the ${plugin} mod:\n${s.slice(0, SECTION_MAX)}`);
     }
