@@ -68,6 +68,11 @@ describe("free Auto's limit is held until it lifts", () => {
     expect(ok).toHaveBeenCalledTimes(1);
   });
 
+  it("never holds longer than a day, whatever resets_at says", async () => {
+    await throughFreeAutoGate(async () => limit(Date.now() + 365 * 24 * 3600_000));
+    expect(freeAutoResetsAt()!).toBeLessThanOrEqual(Date.now() + 25 * 3600_000);
+  });
+
   it("holds nothing for any other refusal (busy, credit, rate limit)", async () => {
     for (const body of [{ error: "free_busy" }, { error: "insufficient_credit" }, { error: "core_rate_limited", retry_after_seconds: 30 }]) {
       await throughFreeAutoGate(async () => new Response(JSON.stringify(body), { status: 429 }));

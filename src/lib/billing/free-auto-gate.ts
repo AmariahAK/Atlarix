@@ -30,9 +30,16 @@ export function freeAutoResetsAtFromBody(bodyStr: string, now: number = Date.now
   return secs ? now + Number(secs) * 1000 : null;
 }
 
+/**
+ * The free share resets daily (00:00 UTC), so no hold is ever longer than a
+ * day: a malformed far-future `resets_at` must not lock free Auto here for
+ * longer than the proxy itself could.
+ */
+const MAX_HOLD_MS = 25 * 3600_000;
+
 /** Record the limit from the proxy's 429 body; ignores anything else. */
-export function noteFreeAutoLimit(at: number | null | undefined): void {
-  if (typeof at === "number" && Number.isFinite(at) && at > Date.now()) resetsAt = at;
+export function noteFreeAutoLimit(at: number | null | undefined, now: number = Date.now()): void {
+  if (typeof at === "number" && Number.isFinite(at) && at > now) resetsAt = Math.min(at, now + MAX_HOLD_MS);
 }
 
 /** When the limit lifts (epoch ms), or null when nothing is held. */
