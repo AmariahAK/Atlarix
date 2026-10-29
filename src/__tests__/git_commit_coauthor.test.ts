@@ -89,7 +89,7 @@ describe("gitCommit co-authored-by live settings", () => {
     expect(commitCall).toBeDefined();
     expect(commitCall![0]).toContain("--author");
     expect(commitCall![0].join(" ")).toContain(
-      "atlarix-agent <agent@atlarix.dev>",
+      "atlarix-agent <261929375+atlarix-agent@users.noreply.github.com>",
     );
   });
 

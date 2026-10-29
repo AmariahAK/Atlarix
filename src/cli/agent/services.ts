@@ -204,6 +204,14 @@ export interface CliServices {
     track(event: string, properties?: Record<string, unknown>): void;
   };
   /**
+   * `/co-author`: the app's `includeAtlarixCoAuthor` (one setting for both).
+   * Optional so test fakes need not answer it.
+   */
+  coAuthor?: {
+    get(): Promise<boolean>;
+    set(on: boolean): Promise<void>;
+  };
+  /**
    * The session rating and `/feedback` (lib/feedback/session-rating.ts).
    * Optional so test fakes need not answer it; without it nothing is asked.
    */
@@ -753,6 +761,16 @@ export const realServices: CliServices = {
       void import("@/main/lib/analytics")
         .then((m) => (event === "session_started" ? m.trackSessionStarted(properties) : m.captureSafe(event, properties)))
         .catch(() => {});
+    },
+  },
+  coAuthor: {
+    async get() {
+      const { readSettings } = await import("@/main/settings");
+      return readSettings().includeAtlarixCoAuthor !== false;
+    },
+    async set(on) {
+      const { writeSettings } = await import("@/main/settings");
+      writeSettings({ includeAtlarixCoAuthor: on });
     },
   },
   account: {

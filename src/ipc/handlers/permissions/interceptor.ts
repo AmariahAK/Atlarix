@@ -71,8 +71,6 @@ import { isAgentMemoryDisabled, memoryDirFor } from "@/lib/agent-memory";
 import { isAutoWritablePath } from "@/lib/auto-writable-paths";
 import { agentScratchDirFor } from "@/lib/agent-scratch";
 import { isOutsidePathOnlySystemScope } from "@/lib/system-scope-commands";
-import { injectAgentGitIdentity } from "../../utils/git_author";
-import { hasConfiguredGitIdentity } from "../../utils/git_utils";
 
 const logger = log.scope("permission-interceptor");
 
@@ -2504,22 +2502,10 @@ export class PermissionInterceptor extends EventEmitter {
       );
     }
 
-    // Commits are authored by the user's own git config (Atlarix is credited
-    // via the co-author trailer only). Fall back to attributing a bare
-    // `git commit` to the agent identity ONLY when the machine has no git
-    // identity configured, so the commit still succeeds instead of failing.
-    if (
-      /\bgit\s+commit\b/.test(commandToRun) &&
-      !(await hasConfiguredGitIdentity(workingDir))
-    ) {
-      const withAgentIdentity = injectAgentGitIdentity(commandToRun);
-      if (withAgentIdentity !== commandToRun) {
-        logger.log(
-          `[executeRunCommand] No git identity configured — injected agent identity into commit command`,
-        );
-        commandToRun = withAgentIdentity;
-      }
-    }
+    // A `git commit` runs as written: the user's own git config is the author
+    // (Atlarix is credited only by the co-author trailer). With no identity
+    // configured, git's own "tell me who you are" reaches the model, which asks
+    // the user. It used to author those commits as the agent (owner, 2026-10-29).
 
     // NOTE: there is no longer a "dangerous command" hard-floor throw here.
     // Danger is handled entirely by the regular permission gate up front
