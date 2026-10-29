@@ -127,7 +127,7 @@ describe("hooks (the person's hooks.json) at the funnel and the stop gate", () =
       ".atlarix/hooks/hooks.json",
       JSON.stringify({
         hooks: [
-          { event: "pre_tool_use", command: "echo repo-hook 1>&2; exit 1" },
+          { event: "pre_tool_use", command: "echo REPO_HOOK_RAN 1>&2; exit 1" },
         ],
       }),
     );
@@ -135,7 +135,7 @@ describe("hooks (the person's hooks.json) at the funnel and the stop gate", () =
       ".atlarix/hooks.json",
       JSON.stringify({
         hooks: [
-          { event: "pre_tool_use", command: "echo repo-hook 1>&2; exit 1" },
+          { event: "pre_tool_use", command: "echo REPO_HOOK_RAN 1>&2; exit 1" },
         ],
       }),
     );
@@ -155,7 +155,7 @@ describe("hooks (the person's hooks.json) at the funnel and the stop gate", () =
     });
     expectNoStreamError(fakeIpc.sends, chatId);
     const blob = JSON.stringify(ctx.server.requestsFor("repo-hook-ignored"));
-    expect(blob).not.toContain("repo-hook");
+    expect(blob).not.toContain("REPO_HOOK_RAN");
     expect(blob).toContain("export const info");
   }, 30_000);
 });
