@@ -7,7 +7,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
-import { chatErrorByIdAtom } from "@/atoms/chatAtoms";
+import { chatErrorByIdAtom, zenithOfferChatIdsAtom } from "@/atoms/chatAtoms";
 import {
   COMPASS_REACHABILITY_ERROR,
   autoConsentRequiredUserMessage,
@@ -190,6 +190,17 @@ describe("chat error banner placement (v11.1)", () => {
     expect(screen.getByTestId("free-limit").textContent).toMatch(/Resets in 3h (19|20)m/);
     expect(screen.getByTestId("upgrade-to-pro")).toBeTruthy();
     expect(screen.getByText("Use your own key")).toBeTruthy();
+  });
+
+  it("after a turn that answered, the Zenith offer shows with its button, and goes when dismissed", () => {
+    const { store } = renderWithProviders(<SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />);
+    act(() => {
+      store.set(zenithOfferChatIdsAtom, new Set([CHAT_ID]));
+    });
+    expect(screen.getByTestId("zenith-offer").textContent).toMatch(/Atlarix Zenith uses frontier models at a higher cost/);
+    expect(screen.getByTestId("use-atlarix-zenith")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /dismiss|close/i }));
+    expect(screen.queryByTestId("zenith-offer")).toBeNull();
   });
 
   it("KEEPS Retry when Core was merely unreachable — that one is transient", () => {

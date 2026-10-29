@@ -488,7 +488,8 @@ async function getRegularModelClient(
             const res = isAutoTier && !pinnedToken ? await throughFreeAutoGate(send) : await send();
             // Atlarix Auto says which model answered and how much free share is
             // left; hand that to the composer.
-            // Auto's top rung failed too: the turn's error offers Zenith once.
+            // Auto's top rung kept failing (a quality signal, sent on a normal
+            // 200): the turn's end offers Zenith, once per chat.
             if (isAutoTier) noteLadderTop(options?.chatId, res.headers);
             if ((isAutoTier || isZenithTier) && res.ok) {
               broadcastAutoStatus(res.headers);

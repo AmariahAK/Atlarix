@@ -1,11 +1,13 @@
 /**
- * Atlarix Auto's top rung failed too (`X-Atlarix-Ladder: top` on the proxy's
- * reply, Auto only): offer Atlarix Zenith, once per chat (owner, 2026-10-29).
+ * Atlarix Auto's top rung kept failing (`X-Atlarix-Ladder: top`, Auto only):
+ * offer Atlarix Zenith, once per chat (owner, 2026-10-29).
  *
- * The header arrives in the Core fetch wrapper, which knows the chat but not the
- * outcome; the turn's error handler knows the outcome but not the header. So
- * the wrapper notes it here and the error handler takes it, which also makes it
- * once: a taken offer is not offered again for that chat in this process.
+ * A QUALITY signal, not an HTTP one (ai-34): the session is already on the top
+ * model of both providers and keeps failing (the same tool calls again, an edit
+ * that errors, the user's Retry), so the header comes on a normal 200 reply.
+ * The Core fetch wrapper notes it; the turn's end takes it (safe_sender.ts, the
+ * one place every end passes), or the turn's error when the turn failed. Taken
+ * once: a chat is not offered Zenith again in this process.
  */
 import { getCoreZenith } from "@/ipc/shared/core-model-override-store";
 

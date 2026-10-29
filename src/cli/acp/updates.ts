@@ -7,6 +7,7 @@
  * and an update when its status or output changes. Pure (no I/O), so the edge
  * cases are unit-tested without an editor.
  */
+import { ZENITH_OFFER_MARKER } from "@/shared/billing_copy";
 import type { SessionUpdate, ToolCallContent, ToolKind, ToolCallStatus } from "@agentclientprotocol/sdk";
 import type { Cell, EditDiff, ToolLine } from "../agent/transcript";
 import { glyph } from "../tui/glyphs";
@@ -291,6 +292,12 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       // A turn's error kept in the CLI transcript once the next turn starts
       // (session.ts turnNotices): the editor showed it when that turn failed.
       // Sent again it landed in the NEXT turn, beside its "Interrupted" (QA).
+      // Except the Zenith offer, which is made once, at the end of its own turn.
+      if (c.id.includes(":turn-notice") && c.text.includes(ZENITH_OFFER_MARKER)) {
+        const text = c.text.replace(/^◇\s*/, "").replace("/model Atlarix Zenith", "Pick it in the model list");
+        out.push({ sessionUpdate: "tool_call", toolCallId: c.id, title: text, kind: "other", status: "completed" });
+        continue;
+      }
       if (c.id.includes(":turn-notice")) continue;
       if (c.level === "error") {
         out.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n${c.text}` } });

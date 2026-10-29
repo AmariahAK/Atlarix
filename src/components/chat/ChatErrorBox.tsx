@@ -406,6 +406,21 @@ function UseAutoButton({ onDone }: { onDone: () => void }) {
   );
 }
 
+/**
+ * The Zenith offer after a turn that ENDED (no error): Auto's top rung kept
+ * failing, so Zenith (frontier models, higher cost) may get further.
+ */
+export function ZenithOfferNotice({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <ChatInfoContainer onDismiss={onDismiss}>
+      <span data-testid="zenith-offer">{ZENITH_OFFER_LINE}</span>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <UseZenithButton onDone={onDismiss} />
+      </div>
+    </ChatInfoContainer>
+  );
+}
+
 /** Switches the chat in front to Atlarix Zenith. */
 function UseZenithButton({ onDone }: { onDone: () => void }) {
   const selectModel = useSelectModel();
@@ -510,6 +525,8 @@ function ChatInfoContainer({
   return (
     <div className="relative mt-2 bg-sky-500/10 border border-sky-500/40 rounded-md shadow-sm p-2 mx-4">
       <button
+        type="button"
+        aria-label="Dismiss"
         onClick={onDismiss}
         className="absolute top-2.5 left-2 p-1 hover:bg-sky-500/20 rounded"
       >

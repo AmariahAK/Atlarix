@@ -18,6 +18,7 @@ import {
   isStreamingForChatAtom,
   pendingUserQuestionByChatIdAtom,
   chatErrorByIdAtom,
+  zenithOfferChatIdsAtom,
   turnSnapshotTurnIdByMessageIdAtom,
   streamThreadForChatAtom,
   completedStreamThreadByAssistantMessageIdAtom,
@@ -35,7 +36,7 @@ import { useStreamChat } from "@/hooks/useStreamChat";
 import { useFollowRunningSession } from "@/hooks/useFollowRunningSession";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import type { FileAttachment, Message } from "@/ipc/ipc_types";
-import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
+import { ChatErrorBox, ZenithOfferNotice } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { chatIdToSessionIdAtom, pendingSessionHandoffAtom } from "@/atoms/sessionAtoms";
@@ -102,6 +103,9 @@ export function SimpleInlineChat({
   const streamCountById = useAtomValue(chatStreamCountByIdAtom);
   const errorById = useAtomValue(chatErrorByIdAtom);
   const setErrorById = useSetAtom(chatErrorByIdAtom);
+  const zenithOffers = useAtomValue(zenithOfferChatIdsAtom);
+  const setZenithOffers = useSetAtom(zenithOfferChatIdsAtom);
+  const zenithOffered = zenithOffers.has(chatId);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setPendingUserQuestionByChatId = useSetAtom(
     pendingUserQuestionByChatIdAtom,
@@ -672,6 +676,19 @@ export function SimpleInlineChat({
       <div className="flex-shrink-0 px-4 pb-2 space-y-2">
         {/* Stream failure: pinned just above the input (never scrolled away),
                     aligned with the slow-stream warning — not at the top of the page. */}
+        {!error && zenithOffered && (
+          <div data-testid="zenith-offer-bottom">
+            <ZenithOfferNotice
+              onDismiss={() =>
+                setZenithOffers((prev) => {
+                  const next = new Set(prev);
+                  next.delete(chatId);
+                  return next;
+                })
+              }
+            />
+          </div>
+        )}
         {error && (
           <div data-testid="chat-error-bottom">
             <ChatErrorBox

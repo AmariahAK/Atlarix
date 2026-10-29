@@ -60,7 +60,7 @@ import { showError } from "@/lib/toast";
 import { classifyContent } from "@/lib/file-content-type";
 import { DeepLinkData } from "./deep_link_data";
 import { getDefaultStore } from "jotai";
-import { autonomousSessionReviewAtom } from "@/atoms/chatAtoms";
+import { autonomousSessionReviewAtom, zenithOfferChatIdsAtom } from "@/atoms/chatAtoms";
 
 export interface ChatStreamCallbacks {
   onUpdate: (messages: Message[]) => void;
@@ -569,6 +569,10 @@ export class IpcClient {
       // callbacks/state (observed: frozen inline chat after an error +
       // model-switch continue crossed in flight).
       if (this.shouldDropStreamEvent(chatId, streamId)) return;
+      // Atlarix Auto's top rung kept failing: the chat shows the Zenith offer.
+      if ((payload as unknown as ChatResponseEnd).zenithOffer === true) {
+        getDefaultStore().set(zenithOfferChatIdsAtom, (prev) => new Set([...prev, chatId]));
+      }
       this.streamMessages.delete(chatId);
       this.streamPhaseHandlers.forEach((h) =>
         h({ chatId, phase: "done", label: "" }),

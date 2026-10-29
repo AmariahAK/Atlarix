@@ -172,6 +172,11 @@ export interface ChatResponseEnd {
   userCancelled?: boolean;
   /** True when the completed turn used the managed Atlarix Core provider (for usage refresh). */
   usedCompass?: boolean;
+  /**
+   * Atlarix Auto's top rung kept failing this turn (proxy `X-Atlarix-Ladder:
+   * top`): offer Atlarix Zenith. Set once per chat.
+   */
+  zenithOffer?: boolean;
   /** v10: auxiliary LLM tokens this turn (sub-agents, compaction) — counted toward usage. */
   auxTokens?: number;
   /**

@@ -41,3 +41,25 @@ describe("the Zenith offer", () => {
     expect(n.detail).toMatch(/higher cost/);
   });
 });
+
+describe("the offer at the end of a turn that answered (ai-34: the header comes on a 200)", () => {
+  it("the turn's end carries it once, and never on the user's stop", async () => {
+    const { safeSend } = await import("@/ipc/utils/safe_sender");
+    const sent: unknown[] = [];
+    const sender = { isDestroyed: () => false, send: (_c: string, p: unknown) => sent.push(p) } as never;
+    noteLadderTop(9, top);
+    safeSend(sender, "chat:response:end", { chatId: 9, userCancelled: true, updatedFiles: false });
+    safeSend(sender, "chat:response:end", { chatId: 9, updatedFiles: false });
+    safeSend(sender, "chat:response:end", { chatId: 9, updatedFiles: false });
+    expect(sent.map((p) => (p as { zenithOffer?: boolean }).zenithOffer)).toEqual([undefined, true, undefined]);
+  });
+
+  it("ACP editors (Zed, the VS Code panel) get it as a finished step, in words that fit them", async () => {
+    const { diffUpdates } = await import("@/cli/acp/updates");
+    const text = `◇ ${ZENITH_OFFER_LINE.replace("Pick it in the model list", "/model Atlarix Zenith")}`;
+    const out = diffUpdates([{ kind: "notice", id: "12:turn-notice0", level: "info", text }] as never, new Map());
+    expect(out).toEqual([
+      expect.objectContaining({ sessionUpdate: "tool_call", status: "completed", title: ZENITH_OFFER_LINE }),
+    ]);
+  });
+});
