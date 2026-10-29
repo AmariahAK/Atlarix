@@ -13,6 +13,7 @@ import {
   setMcpOAuthRedirectHandler,
 } from "./atlarix-oauth-provider";
 import { createMcpOAuthLoopbackServer } from "./oauth-loopback-server";
+import { describeMcpOAuthError, needsPreRegisteredClient } from "./oauth-error-message";
 import {
   clearPendingMcpOAuthSession,
   getPendingMcpOAuthSession,
@@ -35,7 +36,9 @@ export class McpOAuthError extends Error {
       | "needs_oauth"
       | "in_progress"
       | "invalid_state"
-      | "not_oauth",
+      | "not_oauth"
+      /** The server refuses dynamic client registration: a pre-registered app is needed (the guide says how). */
+      | "needs_registration",
   ) {
     super(message);
     this.name = "McpOAuthError";
@@ -306,6 +309,11 @@ export async function startMcpOAuthFlow(
     }
     clearPendingMcpOAuthSession(serverId);
     logger.error("startMcpOAuthFlow failed", error);
+    // A server that refuses dynamic registration (Slack's) is not a transient
+    // failure: say what to do, the same words on every surface.
+    if (needsPreRegisteredClient(error)) {
+      throw new McpOAuthError(describeMcpOAuthError(error), "needs_registration");
+    }
     throw error;
   }
 }
@@ -332,12 +340,13 @@ export async function finishMcpOAuthCallback(
     return { serverId: pending.serverId, serverName: pending.serverName };
   } catch (error) {
     clearPendingMcpOAuthSession(pending.serverId);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeMcpOAuthError(error);
     broadcastMcpOAuthEvent("mcp:oauth-error", {
       serverId: pending.serverId,
       serverName: pending.serverName,
       error: message,
     });
+    if (needsPreRegisteredClient(error)) throw new McpOAuthError(message, "needs_registration");
     throw error;
   }
 }

@@ -94,6 +94,44 @@ describe("headless trajectory writer", () => {
     expect(tools.every((t) => t.toolName === "run_command")).toBe(true);
   });
 
+  it("keeps a sub-agent's own id and its delegation, so a consumer can pair its calls and tell them from the agent's", () => {
+    const w = createTrajectoryWriter(file, META);
+    // The parent's `task` call: an ordinary tool call with a toolCallId.
+    w.onSend(
+      send("chat:activity", {
+        type: "tool_use",
+        toolCallId: "call_task",
+        toolName: "task",
+        status: "running",
+        toolArgs: { description: "channels", prompt: "look" },
+        timestamp: 1000,
+      }),
+    );
+    // The helper's own call: no toolCallId, its own id, and the delegation it belongs to.
+    for (const status of ["running", "done"]) {
+      w.onSend(
+        send("chat:activity", {
+          type: "tool_use",
+          id: "nested_1",
+          parentDelegationId: "del_1",
+          toolName: "grep",
+          status,
+          toolArgs: { pattern: "login" },
+          timestamp: 2000,
+        }),
+      );
+    }
+    w.close();
+
+    const tools = readLines().filter((l) => l.type === "tool_use");
+    expect(tools).toHaveLength(3);
+    expect(tools[0]).toMatchObject({ toolCallId: "call_task", toolName: "task" });
+    expect(tools[0].parentDelegationId).toBeUndefined();
+    expect(tools[1]).toMatchObject({ id: "nested_1", parentDelegationId: "del_1", status: "running" });
+    expect(tools[2]).toMatchObject({ id: "nested_1", parentDelegationId: "del_1", status: "done" });
+    expect(tools[1].toolCallId).toBeUndefined();
+  });
+
   it("drops the UI token ESTIMATE and keeps only real provider usage", () => {
     const w = createTrajectoryWriter(file, META);
     // The throttled renderer ticker: inputTokens null, output GUESSED as chars/4.
