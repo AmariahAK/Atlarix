@@ -22,6 +22,7 @@ import {
 import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
 import { resolveAppPath } from "../../paths/paths";
+import { systemReminder } from "@/lib/streaming/system-reminder";
 import { readSettings } from "../../main/settings";
 import type { ChatResponseEnd, ChatStreamParams } from "../ipc_types";
 import { streamTestResponse } from "./testing_chat_handlers";
@@ -935,6 +936,46 @@ export function registerChatStreamHandlers() {
           );
           if (memoryReminders) {
             userModelContent = withMemoryContext(userPrompt, memoryReminders);
+          }
+        }
+
+        // prompt_submit / session_start hooks: the person's hooks.json and
+        // installed plugins' (lib/plugins/hooks.ts). What they print joins this
+        // message's model content, like memory above; a prompt_submit hook can
+        // stop the message before anything is saved or sent.
+        if (
+          !req.continueAfterQuestions &&
+          !req.continueInterrupted &&
+          !req.prompt.startsWith("Summarize from chat-id=")
+        ) {
+          const { runPromptSubmitHooks, runSessionStartHooks } = await import(
+            "@/lib/plugins/hooks"
+          );
+          const hookCtx = {
+            workspacePath: chat.app?.path ? resolveAppPath(chat.app.path) : null,
+            sessionId: req.workspaceSessionId ?? undefined,
+          };
+          const firstTurn = !(getStreamTransport(req.chatId)?.messages ?? []).some(
+            (m) => m.role === "assistant",
+          );
+          const startContext = firstTurn
+            ? await runSessionStartHooks(hookCtx)
+            : [];
+          const promptHooks = await runPromptSubmitHooks(hookCtx, userPrompt);
+          if (promptHooks.blocked) {
+            throw new Error(
+              `A prompt_submit hook stopped this message (${promptHooks.blocked})`,
+            );
+          }
+          const hookContext = [...startContext, ...promptHooks.context];
+          if (hookContext.length > 0) {
+            const { withMemoryContext } = await import(
+              "@/lib/memory/session-context"
+            );
+            userModelContent = withMemoryContext(
+              userModelContent ?? userPrompt,
+              systemReminder(hookContext.join("\n\n")),
+            );
           }
         }
 

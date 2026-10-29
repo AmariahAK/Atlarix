@@ -9,6 +9,7 @@
  */
 
 import { guardPluginControl } from "@/lib/plugins/control-guard";
+import { hasHooksFor, runStopHooks } from "@/lib/plugins/hooks";
 import { rememberWritePrevious } from "@/lib/chat/write-previous";
 import type { IpcMainInvokeEvent } from "electron";
 import { recordFileWrite, resolveReadScope } from "@/lib/tools/file-read-log";
@@ -1975,6 +1976,18 @@ export async function runBuildBranch(
             ? {
                 planCompletionGate: () =>
                   getPlanCompletionFeedback(req.workspaceSessionId),
+              }
+            : {}),
+          // Stop hooks (the person's and installed plugins'): "not done until
+          // the tests pass". Attached only when one applies to this folder.
+          ...(effectiveWorkMode !== "plan" &&
+          hasHooksFor("stop", { workspacePath })
+            ? {
+                taskCompleteGate: () =>
+                  runStopHooks({
+                    workspacePath,
+                    sessionId: req.workspaceSessionId ?? undefined,
+                  }),
               }
             : {}),
         },
