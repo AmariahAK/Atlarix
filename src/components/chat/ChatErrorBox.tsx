@@ -377,14 +377,19 @@ const firstShown = new Map<string, number>();
 
 /** The free-limit text with its "Resets in …" ticking down each minute. */
 function LiveCountdown({ text }: { text: string }) {
-  const [now, setNow] = useState(() => Date.now());
+  // The tick only re-renders; the time is read here, AFTER `firstShown` may be
+  // set below. A `now` captured at mount ran a few ms behind it, and the
+  // rounded-up minute then read one more than the message said ("3h 21m" for
+  // a fresh "3h 20m"; seen as a flaky test).
+  const [, setTick] = useState(0);
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    const id = window.setInterval(() => setTick((n) => n + 1), 30_000);
     return () => window.clearInterval(id);
   }, []);
   const m = RESETS_IN_PATTERN.exec(text);
   if (!m) return <>{text}</>;
   if (!firstShown.has(text)) firstShown.set(text, Date.now());
+  const now = Date.now();
   const left = (Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60_000;
   const resetsAt = firstShown.get(text)! + left;
   const live = resetsAt > now ? `Resets in ${formatResetsIn(resetsAt, now)}` : "Free Atlarix Auto is back";
