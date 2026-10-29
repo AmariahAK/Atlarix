@@ -156,3 +156,55 @@ describe("every list shows the tree", () => {
     expect((await call<{ parent: unknown }>("sessions:get", "kid")).parent).toBeNull();
   });
 });
+
+describe("the app opens a chat another surface started, the way its list does", () => {
+  /**
+   * The app's own path, below its React list: sessions:list (WorkspaceSessionList),
+   * then a row's click (handleSelectSession → hydrateSessionIntoChat):
+   * allocate-transport → get → hydrate-transport. The same handlers the CLI and
+   * the editors call in-process, so a child made by the CLI opens in the app with
+   * its whole conversation and its parent, and the reverse.
+   */
+  async function openLikeTheApp(appId: number, sessionId: string) {
+    const listed = await call<Array<Listed & { origin: { via: string } | null }>>("sessions:list", appId);
+    const { chatId } = await call<{ chatId: number }>("sessions:allocate-transport", sessionId);
+    const got = await call<{ session: { id: string; parentSessionId: string | null }; parent: { id: string; title: string } | null; messages: Array<{ id: string }> }>(
+      "sessions:get",
+      sessionId,
+    );
+    const { hydrated } = await call<{ hydrated: number }>("sessions:hydrate-transport", {
+      chatId,
+      sessionId,
+      rows: got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id })),
+    });
+    return { listed, got, hydrated };
+  }
+
+  it("a session a CLI peer started opens in the app under its parent, whole", async () => {
+    const { appId } = await ctx.testDb.seedApp({ path: "/tmp/lineage-cli-to-app", name: "lineage-cli-to-app" });
+    await seed(appId, "cli-lead", { minutesAgo: 30 });
+    await seed(appId, "cli-worker", {
+      minutesAgo: 10,
+      parent: "cli-lead",
+      origin: { via: "peer", surface: "cli", by: { sessionId: "cli-lead", name: "Lead", surface: "cli" } },
+    });
+    const { listed, got, hydrated } = await openLikeTheApp(appId, "cli-worker");
+    expect(listed.map((r) => [r.id, r.depth])).toEqual([
+      ["cli-lead", 0],
+      ["cli-worker", 1],
+    ]);
+    expect(got.session.parentSessionId).toBe("cli-lead");
+    expect(got.parent).toEqual({ id: "cli-lead", title: "cli-lead" });
+    expect(hydrated).toBe(1);
+  });
+
+  it("a fork the app made opens anywhere as its source's child", async () => {
+    const { appId } = await ctx.testDb.seedApp({ path: "/tmp/lineage-app-to-cli", name: "lineage-app-to-cli" });
+    await seed(appId, "app-chat");
+    const fork = await call<{ id: string }>("sessions:fork", "app-chat");
+    const { listed, got, hydrated } = await openLikeTheApp(appId, fork.id);
+    expect(listed.find((r) => r.id === fork.id)).toMatchObject({ depth: 1 });
+    expect(got.parent).toEqual({ id: "app-chat", title: "app-chat" });
+    expect(hydrated).toBe(1);
+  });
+});
