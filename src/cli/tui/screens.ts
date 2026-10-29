@@ -1954,7 +1954,7 @@ export function openAnalytics(ctx: ScreenContext, firstRun = false): void {
             text: "Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.",
             tone: "muted",
           },
-          { text: "Signed-in accounts also record which Atlarix you use (app, CLI, editor), the provider type and model, and how many turns — never prompts, code or keys — and this is not covered by this choice either.", tone: "muted" },
+          { text: "Signed-in accounts also record which Atlarix you use (app, CLI, editor), the provider type and model, how many turns and their size in tokens — never prompts, code or keys — and this is not covered by this choice either.", tone: "muted" },
           { text: "The same setting as the Atlarix app: one answer covers both.", tone: "muted" },
         ],
         footer: firstRun ? "↑↓ move · enter choose · /analytics changes it later" : "↑↓ move · enter choose · esc close",

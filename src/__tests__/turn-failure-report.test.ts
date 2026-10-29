@@ -57,6 +57,7 @@ describe("which failed turns are reported", () => {
     reportTurnFailure(failed("provider_5xx", { fellBackToCore: true }), capture);
     reportTurnFailure({ end: { outcome: "ok" }, provider: "openai" }, capture);
     reportTurnFailure({ end: { outcome: "stopped" }, provider: "openai" }, capture);
+    reportTurnFailure({ end: { outcome: "gate", gateKind: "free_usage_limit", errorKind: "quota", httpStatus: 429 }, provider: "openai" }, capture);
     await flush();
     expect(capture).not.toHaveBeenCalled();
   });

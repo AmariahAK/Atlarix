@@ -363,9 +363,9 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               error reports are sent separately and are not covered by
               this choice — they carry stack traces and device info, never your
               code or prompts. Signed-in accounts also record which Atlarix you
-              use (app, CLI, editor), the provider type and model, and how many
-              turns — never prompts, code or keys — and this is not covered by
-              this choice either.
+              use (app, CLI, editor), the provider type and model, how many
+              turns and their size in tokens — never prompts, code or keys — and
+              this is not covered by this choice either.
             </p>
           </div>
           <Switch

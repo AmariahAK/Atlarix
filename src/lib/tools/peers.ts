@@ -130,6 +130,7 @@ async function resultOf(to: string, own: string | undefined): Promise<string> {
 
 function endedText(outcome: string, errorKind?: string): string {
   if (outcome === "error") return `failed${errorKind ? ` (${errorKind.replace(/_/g, " ")})` : ""}`;
+  if (outcome === "gate") return "paused: the free share is used up, Auto is busy, or credit is needed";
   if (outcome === "stopped" || outcome === "aborted") return "stopped";
   if (outcome === "ask_user") return "waiting for the user's answer";
   return "done";
