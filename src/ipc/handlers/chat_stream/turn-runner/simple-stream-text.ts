@@ -621,8 +621,15 @@ export async function simpleStreamText(
         : undefined,
     maxOutputTokens,
     temperature,
+    // Atlarix Core never takes the SDK's own retries: its gates (free limit,
+    // free_busy, core_rate_limited) are answers, not faults, and the SDK
+    // retries any 429/503 regardless of body. Our network retry handles the
+    // transient ones by code.
     maxRetries:
-      tools != null && Object.keys(tools as object).length > 0 ? 0 : 2,
+      (tools != null && Object.keys(tools as object).length > 0) ||
+      modelClient.builtinProviderId === "compass"
+        ? 0
+        : 2,
     model: modelClient.model,
     // The optional step cap (interactive build only) bounds an
     // in-round runaway so it returns to the round boundary instead of

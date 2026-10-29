@@ -47,7 +47,9 @@ import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
 import { discardedTurnSnapshotIds } from "@/lib/chat/discarded-turn-snapshots";
 import {
   CORE_EXHAUSTED_MARKER,
+  CORE_NEVER_FUNDED_MARKER,
   FREE_LIMIT_MARKER,
+  PRO_ALLOWANCE_MARKER,
 } from "@/shared/billing_copy";
 import { useTranslation } from "react-i18next";
 import { useChatModel } from "@/hooks/useChatModel";
@@ -710,8 +712,9 @@ export function SimpleInlineChat({
                           the failure is transient. Only an exhausted balance is a state
                           that a repeat request cannot change.
                         */}
-            {!error.includes(CORE_EXHAUSTED_MARKER) &&
-              !error.includes(FREE_LIMIT_MARKER) && (
+            {![CORE_EXHAUSTED_MARKER, CORE_NEVER_FUNDED_MARKER, PRO_ALLOWANCE_MARKER, FREE_LIMIT_MARKER].some((m) =>
+              error.includes(m),
+            ) && (
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button
                   type="button"

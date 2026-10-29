@@ -174,18 +174,22 @@ export class CoreError extends Error {
   readonly code: string;
   /** Set on a 402: what the balance would have to be. */
   readonly requiredCents?: number;
+  /** Set on free Auto's daily limit: when it lifts (epoch ms). */
+  readonly resetsAt?: number;
 
   constructor(
     status: number,
     code: string,
     message: string,
     requiredCents?: number,
+    resetsAt?: number,
   ) {
     super(message);
     this.name = "CoreError";
     this.status = status;
     this.code = code;
     this.requiredCents = requiredCents;
+    this.resetsAt = resetsAt;
   }
 
   /**
@@ -203,6 +207,10 @@ export class CoreError extends Error {
    * twice and being charged for the asking.
    */
   get retryable(): boolean {
+    // `free_busy` is a 503 that means "every free pool is full", not a fault:
+    // retrying it waited ~15 s per attempt at the proxy and looked like a stall
+    // (2026-10-28). It is shown once; the user sends again when they choose.
+    if (this.code === "free_busy" || this.code === "core_rate_limited") return false;
     return this.status === 0 || this.status === 502 || this.status === 503;
   }
 }
@@ -219,9 +227,7 @@ function coreErrorFrom(
   // 402 that does not say what it would take is the blunt version of this.
   const message =
     code === "insufficient_credit"
-      ? required !== undefined
-        ? `Not enough credit to start a turn — you need at least ${formatCents(required)}. ${CREDIT_FIRST_LINE}`
-        : `Not enough credit to start a turn. ${CREDIT_FIRST_LINE}`
+      ? creditRefusalMessage(body, required)
       : code === "account_banned"
         ? "This account cannot use Atlarix Core. Contact support if that is unexpected."
         : code === "model_not_permitted"
@@ -229,38 +235,78 @@ function coreErrorFrom(
           : code === "free_usage_limit"
             ? freeLimitMessage(body)
             : code === "free_busy"
-              ? "Atlarix Auto's free models are busy right now. Try again in a moment, or pick a Core model."
-              : code === "core_unavailable"
-                ? "Atlarix Core is temporarily unavailable. Try again shortly."
-                : status === 401
-                  ? "Your session expired. Sign in again."
-                  : `Core request failed (${code}).`;
+              ? `Atlarix Auto's free models are busy right now. Try again in a moment, or ${CREDIT_FIRST_LINE[0].toLowerCase()}${CREDIT_FIRST_LINE.slice(1)}`
+              : code === "core_rate_limited"
+                ? `This model is busy. Try again ${secondsPhrase(body.retry_after_seconds)}, or pick another model.`
+                : code === "core_unavailable"
+                  ? "Atlarix Core is temporarily unavailable. Try again shortly."
+                  : status === 401
+                    ? "Your session expired. Sign in again."
+                    : `Core request failed (${code}).`;
 
-  return new CoreError(status, code, message, required);
+  return new CoreError(status, code, message, required, resetsAtFrom(body));
 }
 
 /**
- * Atlarix Auto's daily limit, with when it comes back ON THE USER'S CLOCK —
- * the free tokens reset at 00:00 UTC, a different hour everywhere — and the
- * credit-first line. The desktop's `freeUsageLimitUserMessage` also offers your
- * own key; the extension has no key path, so it does not.
+ * The 402 in the account's own state (the desktop's `coreRefusalMessage`,
+ * without the routes this panel has no way to take: no own key, no Auto here):
+ * never added credit, Pro with the month's allowance spent, or spent credit.
+ * An older proxy sends none of the fields and gets the spent-credit sentence.
+ */
+export function creditRefusalMessage(
+  body: Record<string, unknown>,
+  required?: number,
+  timeZone?: string,
+): string {
+  const needs = required !== undefined ? ` You need at least ${formatCents(required)}.` : "";
+  if (body.plan === "pro") {
+    const renews = typeof body.renews_at === "string" && Number.isFinite(Date.parse(body.renews_at)) ? body.renews_at : null;
+    const when = renews
+      ? ` It resets on ${new Date(renews).toLocaleDateString(undefined, { month: "long", day: "numeric", ...(timeZone ? { timeZone } : {}) })}.`
+      : "";
+    return `Your Pro allowance for this month is used up.${when} Add credit to keep going.`;
+  }
+  if (body.ever_funded === false) return `Atlarix Core runs on credit. ${CREDIT_FIRST_LINE}${needs}`;
+  return `Your Atlarix Core balance is used up. ${CREDIT_FIRST_LINE}${needs}`;
+}
+
+/** "in 40s", "in 2m", "in a moment". */
+function secondsPhrase(v: unknown): string {
+  const s = typeof v === "number" && v > 0 ? Math.ceil(v) : 0;
+  if (!s) return "in a moment";
+  return s < 60 ? `in ${s}s` : `in ${countdown(s * 1000)}`;
+}
+
+/** When free Auto's limit lifts, epoch ms: `resets_at`, else `retry_after_seconds` from now. */
+function resetsAtFrom(body: Record<string, unknown>, now: number = Date.now()): number | undefined {
+  if (body.error !== "free_usage_limit") return undefined;
+  const iso = typeof body.resets_at === "string" ? Date.parse(body.resets_at) : NaN;
+  if (Number.isFinite(iso)) return iso;
+  const secs = typeof body.retry_after_seconds === "number" ? body.retry_after_seconds : 0;
+  return secs > 0 ? now + secs * 1000 : undefined;
+}
+
+/** Time left as a countdown reads: "3h 20m", "20m"; rounded up, never "0m". */
+export function countdown(msLeft: number): string {
+  const minutes = Math.max(1, Math.ceil(msLeft / 60_000));
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+}
+
+/**
+ * Atlarix Auto's daily limit: when it comes back as a countdown (the free
+ * tokens reset at 00:00 UTC, a different hour everywhere) and the credit-first
+ * line. The desktop's `freeAutoLimitMessage` also offers your own key; the
+ * extension has no key path, so it does not.
  */
 export function freeLimitMessage(
   body: Record<string, unknown>,
   now: number = Date.now(),
-  timeZone?: string,
 ): string {
-  const secs =
-    typeof body.retry_after_seconds === "number" ? body.retry_after_seconds : 0;
-  const when =
-    secs > 0
-      ? ` · resets at ${new Date(now + secs * 1000).toLocaleTimeString(undefined, {
-          hour: "numeric",
-          minute: "2-digit",
-          ...(timeZone ? { timeZone } : {}),
-        })}`
-      : " · resets at midnight UTC";
-  return `Today's free share is used up${when}. ${CREDIT_FIRST_LINE}`;
+  const at = resetsAtFrom({ ...body, error: "free_usage_limit" }, now);
+  const when = at !== undefined && at > now ? `Resets in ${countdown(at - now)}.` : "Resets at midnight UTC.";
+  return `Today's free Atlarix Auto is used up. ${when} ${CREDIT_FIRST_LINE}`;
 }
 
 function formatCents(cents: number): string {

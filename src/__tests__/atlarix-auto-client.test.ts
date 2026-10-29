@@ -31,7 +31,7 @@ import {
   AUTO_CONSENT_MARKER,
   CORE_EXHAUSTED_MARKER,
   FREE_LIMIT_MARKER,
-  freeUsageLimitUserMessage,
+  FREE_BUSY_MARKER,
 } from "@/shared/billing_copy";
 import { autoRequestHeaders } from "@/ipc/utils/get_model_client";
 
@@ -88,21 +88,34 @@ describe("Auto's limit is a limit", () => {
     upgrade: "pro",
   });
 
-  it("says come back tomorrow and when it resets, nothing more, and is not our outage", () => {
+  it("says when it resets and the ways to keep going, and is not our outage", () => {
     const c = classifyCompassFailure(429, body);
     expect(c.message).toContain(FREE_LIMIT_MARKER);
-    expect(c.message).toMatch(/^Today's usage is over\. Come back tomorrow \(it resets at \d{1,2}:\d{2}/);
-    expect(c.message).not.toMatch(/credit|Pro|API key/);
+    expect(c.message).toMatch(/^Today's free Atlarix Auto is used up\. Resets in (4h 59m|5h)\. Keep going with Pro \(\$19\/month\) or credit \(from \$10\), or use your own key \(free\)\.$/);
     expect(c.isCompassInfraError).toBe(false);
+    expect(c.freeAutoResetsAt).toBeGreaterThan(Date.now() + 4 * 3600 * 1000);
   });
 
-  it("names the reset on the user's own clock — 00:00 UTC is 3:00 AM in Nairobi", () => {
-    const midnightUtc = Date.UTC(2026, 8, 24, 0, 0, 0);
-    const fiveHoursBefore = midnightUtc - 5 * 3600 * 1000;
-    const m = freeUsageLimitUserMessage(5 * 3600, fiveHoursBefore, "Africa/Nairobi");
-    // The hour, in whatever form this machine's locale writes it ("3:00 AM",
-    // "03:00"): the time is the point, not the US format (it failed under en-GB).
-    expect(m).toMatch(/resets at 0?3:00(\s?AM|\s?am)?\b/);
+  it("counts down to the proxy's resets_at when it sends one", () => {
+    const resetsAt = new Date(Date.now() + (2 * 60 + 30) * 60_000).toISOString();
+    const c = classifyCompassFailure(429, JSON.stringify({ error: "free_usage_limit", resets_at: resetsAt, retry_after_seconds: 1 }));
+    expect(c.freeAutoResetsAt).toBe(Date.parse(resetsAt));
+    expect(c.message).toMatch(/Resets in 2h 3\dm\./);
+  });
+
+  it("busy is not the limit: no countdown, and the same ways out", () => {
+    const c = classifyCompassFailure(503, JSON.stringify({ error: "free_busy" }));
+    expect(c.message).toContain(FREE_BUSY_MARKER);
+    expect(c.message).not.toContain(FREE_LIMIT_MARKER);
+    expect(c.message).toMatch(/Pro \(\$19\/month\) or credit \(from \$10\), or use your own key/);
+    expect(c.freeAutoResetsAt).toBeUndefined();
+  });
+
+  it("a paid 429 core_rate_limited says the model is busy, not the balance or an outage", () => {
+    const c = classifyCompassFailure(429, JSON.stringify({ error: "core_rate_limited", retry_after_seconds: 40 }));
+    expect(c.message).toBe("This model is busy. Try again in 40s, or pick another model.");
+    expect(c.isCompassInfraError).toBe(false);
+    expect(c.freeAutoResetsAt).toBeUndefined();
   });
 
   it("a 402 that offers free Auto asks for consent instead of a top-up", () => {
@@ -128,6 +141,32 @@ describe("Auto's limit is a limit", () => {
     const c = classifyCompassFailure(503, JSON.stringify({ error: "free_busy" }));
     expect(c.message).toMatch(/busy/);
     expect(c.isCompassInfraError).toBe(false);
+  });
+
+  it("free_busy and core_rate_limited are never retried — one send, one request", () => {
+    for (const [statusCode, code] of [[503, "free_busy"], [429, "core_rate_limited"]] as const) {
+      const err = Object.assign(new Error("gate"), {
+        name: "APICallError",
+        statusCode,
+        isRetryable: true,
+        responseBody: JSON.stringify({ error: code, retry_after_seconds: 30 }),
+      });
+      expect(isNetworkStreamError(err)).toBe(false);
+      // Delivered inside the SDK's `{ error }` envelope, the same.
+      expect(isNetworkStreamError({ error: err })).toBe(false);
+    }
+  });
+
+  it("any other 503 — the edge, or core_unavailable — is still retried", () => {
+    for (const body of ["", "<html>Bad gateway</html>", JSON.stringify({ error: "core_unavailable" })]) {
+      const err = Object.assign(new Error("Service Unavailable"), {
+        name: "APICallError",
+        statusCode: 503,
+        isRetryable: true,
+        responseBody: body,
+      });
+      expect(isNetworkStreamError(err)).toBe(true);
+    }
   });
 
   it("an ordinary 429 is still retried", () => {
