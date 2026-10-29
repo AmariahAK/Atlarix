@@ -2284,9 +2284,14 @@ async function nameConversation(model: string): Promise<void> {
 function describeError(error: CoreError): string {
   // The upgrade line is already in these messages; the two addresses become
   // the buttons (see error-link.ts, which links only these constants).
+  // A Pro account whose allowance is spent is never sent to buy Pro.
+  if (error.code === "insufficient_credit" && error.message.startsWith("Your Pro allowance")) {
+    return `${error.message} Add credit at atlarix.dev/account.`;
+  }
   if (
     error.code === "insufficient_credit" ||
-    error.code === "free_usage_limit"
+    error.code === "free_usage_limit" ||
+    error.code === "free_busy"
   ) {
     return `${error.message} Add credit at atlarix.dev/account · Pro at atlarix.dev/pricing.`;
   }
