@@ -162,22 +162,22 @@ describe("layouts", () => {
     ]);
   });
 
-  it("reads a skills-only repo (Cloudflare's security-audit shape) with nothing to run", async () => {
-    const dir = path.join(work, "security-audit-skill");
+  it("reads a skills-only repo (the Agent Skills layout) with nothing to run", async () => {
+    const dir = path.join(work, "docs-kit");
     writeTree(dir, {
-      "skills/security-audit/SKILL.md":
-        "---\nname: security-audit\ndescription: Security review.\n---\nBody\n",
-      "skills/security-audit/validate-findings.cjs": "module.exports = 1;\n",
+      "skills/changelog/SKILL.md":
+        "---\nname: changelog\ndescription: Write the changelog.\n---\nBody\n",
+      "skills/changelog/check.cjs": "module.exports = 1;\n",
     });
     const preview = await preparePluginInstall(dir);
     expect(preview.contents).toMatchObject({
       format: "skills",
-      name: "security-audit-skill",
+      name: "docs-kit",
     });
     expect(preview.runnables).toEqual([]);
     commitPluginInstall(preview, { runnablesConfirmed: false });
     expect(loadPlugins(null).plugins.map((p) => p.contents.name)).toEqual([
-      "security-audit-skill",
+      "docs-kit",
     ]);
   });
 
@@ -373,12 +373,10 @@ describe("verify on every load", () => {
 
 describe("GitHub source", () => {
   it("parses the forms people paste", () => {
-    expect(
-      parsePluginSource("https://github.com/cloudflare/security-audit-skill"),
-    ).toEqual({
+    expect(parsePluginSource("https://github.com/acme/docs-kit")).toEqual({
       kind: "github",
-      owner: "cloudflare",
-      repo: "security-audit-skill",
+      owner: "acme",
+      repo: "docs-kit",
       ref: undefined,
       subdir: undefined,
     });
@@ -403,36 +401,32 @@ describe("GitHub source", () => {
     (async (url: string | URL) => {
       const u = String(url);
       if (u.startsWith("https://api.github.com/")) return new Response(SHA);
-      if (
-        u ===
-        `https://codeload.github.com/cloudflare/security-audit-skill/zip/${SHA}`
-      )
+      if (u === `https://codeload.github.com/acme/docs-kit/zip/${SHA}`)
         return new Response(zip as unknown as BodyInit);
       return new Response("", { status: 404 });
     }) as typeof fetch;
 
   it("pins the commit and installs that archive", async () => {
     const zip = zipSync({
-      [`security-audit-skill-${SHA}/skills/security-audit/SKILL.md`]: strToU8(
-        "---\nname: security-audit\ndescription: Audit.\n---\nBody\n",
+      [`docs-kit-${SHA}/skills/changelog/SKILL.md`]: strToU8(
+        "---\nname: changelog\ndescription: Write the changelog.\n---\nBody\n",
       ),
     });
-    const preview = await preparePluginInstall(
-      "cloudflare/security-audit-skill",
-      { fetchImpl: fakeFetch(zip) },
-    );
+    const preview = await preparePluginInstall("acme/docs-kit", {
+      fetchImpl: fakeFetch(zip),
+    });
     expect(preview.sha).toBe(SHA);
     const record = commitPluginInstall(preview, { runnablesConfirmed: false });
     expect(record).toMatchObject({
       sha: SHA,
-      source: { kind: "github", owner: "cloudflare" },
+      source: { kind: "github", owner: "acme" },
     });
   });
 
   it("refuses an archive entry that climbs out of the plugin", async () => {
     const zip = zipSync({ [`r-${SHA}/../../escape.txt`]: strToU8("x") });
     await expect(
-      preparePluginInstall("cloudflare/security-audit-skill", {
+      preparePluginInstall("acme/docs-kit", {
         fetchImpl: fakeFetch(zip),
       }),
     ).rejects.toThrow(/outside the plugin/);

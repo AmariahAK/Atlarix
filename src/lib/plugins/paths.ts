@@ -109,8 +109,7 @@ export function isValidPluginName(name: string): boolean {
 }
 
 /**
- * `~/.agents/skills`, where `npx skills add` installs Agent Skills (Cloudflare's
- * security-audit among them). Read-only, listed in the skill index; Atlarix never
+ * `~/.agents/skills`, where `npx skills add` installs Agent Skills. Read-only, listed in the skill index; Atlarix never
  * writes there. Beside `atlarixHomeDir()` so a scratch profile or a test run gets
  * its own (`<profile>/.agents/skills`) instead of the person's.
  */

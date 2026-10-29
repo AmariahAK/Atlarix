@@ -71,8 +71,8 @@ describe("installed skills", () => {
   it("lists plugin skills and ~/.agents/skills with their paths", async () => {
     await installReviewKit();
     write(path.join(root, ".agents"), {
-      "skills/security-audit/SKILL.md":
-        "---\nname: security-audit\ndescription: Security review.\n---\nBody\n",
+      "skills/changelog/SKILL.md":
+        "---\nname: changelog\ndescription: Write the changelog.\n---\nBody\n",
     });
     const entries = await buildSkillIndex(ws, "build");
     expect(entries.filter((e) => e.source === "installed")).toEqual([
@@ -88,15 +88,9 @@ describe("installed skills", () => {
         source: "installed",
       },
       {
-        name: "security-audit",
-        description: "Security review.",
-        readPath: path.join(
-          root,
-          ".agents",
-          "skills",
-          "security-audit",
-          "SKILL.md",
-        ),
+        name: "changelog",
+        description: "Write the changelog.",
+        readPath: path.join(root, ".agents", "skills", "changelog", "SKILL.md"),
         source: "installed",
       },
     ]);
