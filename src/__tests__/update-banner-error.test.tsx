@@ -27,6 +27,7 @@ const { ipc } = vi.hoisted(() => {
         onUpdateDownloaded: on(subs.downloaded),
         onUpdateStatus: on(subs.status),
         onUpdateAvailable: () => () => {},
+        getUpdateStatus: vi.fn(async () => ({ currentVersion: "15.11.0", lastCheckAt: null, lastResult: "idle" })),
         installUpdateNow: () => {},
         deferUpdate: async () => {},
         openExternalUrl: async () => {},
@@ -87,5 +88,29 @@ describe("UpdateBanner after a failure", () => {
     const { container } = render(<UpdateBanner />);
     emit.status("error");
     expect(container.textContent).toBe("");
+  });
+
+  // EC2 Linux run 2026-10-30: 15.11.1 downloaded in 2 s, before the window
+  // subscribed, so update:downloaded was missed and the banner never showed.
+  it("a window that opens after the download finished still says it is ready", async () => {
+    ipc.client.getUpdateStatus.mockResolvedValueOnce({
+      currentVersion: "15.11.0",
+      lastCheckAt: 1,
+      lastResult: "downloaded",
+      availableVersion: "15.11.1",
+    });
+    render(<UpdateBanner />);
+    expect(await screen.findByText(/15\.11\.1 is ready to install/)).toBeTruthy();
+  });
+
+  it("a window that opens mid-download shows the download", async () => {
+    ipc.client.getUpdateStatus.mockResolvedValueOnce({
+      currentVersion: "15.11.0",
+      lastCheckAt: 1,
+      lastResult: "downloading",
+      availableVersion: "15.11.1",
+    });
+    render(<UpdateBanner />);
+    expect(await screen.findByText(/Downloading update 15\.11\.1/)).toBeTruthy();
   });
 });

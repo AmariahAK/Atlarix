@@ -63,7 +63,29 @@ export function UpdateBanner() {
         }
       },
     );
+    // The events are sent once: one that went out before this window subscribed
+    // (a 2 s download at startup, EC2 2026-10-30) is read back from the status.
+    let live = true;
+    void IpcClient.getInstance()
+      .getUpdateStatus()
+      .then(({ lastResult, availableVersion }) => {
+        if (!live || !availableVersion) return;
+        if (lastResult === "downloading") {
+          showingRef.current = true;
+          setDownloadingVersion((v) => v ?? availableVersion);
+        } else if (
+          lastResult === "downloaded" &&
+          !localStorage.getItem(
+            `atlarix_update_banner_dismissed_${availableVersion}`,
+          )
+        ) {
+          showingRef.current = true;
+          setDownloadedVersion((v) => v ?? availableVersion);
+        }
+      })
+      .catch(() => {});
     return () => {
+      live = false;
       unsub1();
       unsub2();
       unsub3();
