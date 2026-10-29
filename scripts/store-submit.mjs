@@ -7,10 +7,10 @@
  *
  * Flow:
  *  1. Authenticate via Azure AD client credentials
- *  2. If a submission is pending: REUSE a draft (PendingCommit, or Canceled:
- *     one whose certification was cancelled in Partner Center), replace one
+ *  2. If a submission is pending: REUSE a draft (PendingCommit), replace one
  *     that failed, and WAIT for one Microsoft is processing or certifying. If
- *     it is still there after the wait, this release skips the Store
+ *     it is still there after the wait, this release skips the Store. A
+ *     cancelled one (Canceled) is left alone: only Partner Center can refill it
  *  3. Create a new submission (clones the published one — all listing info,
  *     screenshots, age rating, etc. carry forward automatically). A deleted
  *     submission can never be reused, so it is always a new one
@@ -67,14 +67,17 @@ const REPLACEABLE = new Set([
 
 /**
  * A draft is REUSED rather than replaced: a new submission clones the published
- * one, so anything set by hand on the draft would be lost. That includes a
- * submission whose certification was cancelled in Partner Center: the API
- * reports it as "Canceled", not "PendingCommit", and 15.11.0 deleted one with
- * the support info set on it (2026-10-24).
- * @returns {"wait" | "replace" | "reuse"}
+ * one, so anything set by hand on the draft would be lost.
+ *
+ * A submission whose certification was cancelled in Partner Center ("Canceled")
+ * is neither: 15.11.0 deleted one and lost the support info set on it
+ * (2026-10-24), and the API refuses to refill one (2026-10-25: PUT → 409
+ * InvalidState "PreProcessing"). It is "manual": upload in Partner Center.
+ * @returns {"wait" | "replace" | "reuse" | "manual"}
  */
 export function pendingSubmissionAction(status) {
-  if (status === "PendingCommit" || status === "Canceled") return "reuse";
+  if (status === "PendingCommit") return "reuse";
+  if (status === "Canceled") return "manual";
   return REPLACEABLE.has(status) ? "replace" : "wait";
 }
 
@@ -167,7 +170,7 @@ export async function api(token, method, path, body, { fetchImpl = fetch, wait =
 /**
  * Clear the one pending-submission slot for a new submission. Returns true when
  * it is free, a draft's id when that draft should be reused, and false when it
- * is still taken after waiting (this release then skips the Store).
+ * is still taken after waiting or was cancelled (this release then skips the Store).
  */
 export async function clearPending(call, appId, { wait = sleep, waitMs = WAIT_MS, pollMs = POLL_MS } = {}) {
   const deadline = Date.now() + waitMs;
@@ -181,6 +184,13 @@ export async function clearPending(call, appId, { wait = sleep, waitMs = WAIT_MS
     if (action === "reuse") {
       console.log(`Reusing draft submission ${old}.`);
       return old;
+    }
+    if (action === "manual") {
+      console.log(
+        `::error::Microsoft Store: submission ${old} was cancelled, and the API can't refill a cancelled submission, so this release is not submitted. Upload the .msixupload in Partner Center. It was not deleted, which would lose what was set on it by hand.`,
+      );
+      console.log(`Upload: https://partner.microsoft.com/en-us/dashboard/products/${appId}/submissions/${old}`);
+      return false;
     }
     if (action === "replace") {
       console.log(`Deleting pending submission ${old} (${status})...`);

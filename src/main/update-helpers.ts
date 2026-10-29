@@ -204,3 +204,65 @@ export function windowAlive<W extends { isDestroyed(): boolean; webContents: { i
 ): win is W {
   return !!win && !win.isDestroyed() && !win.webContents.isDestroyed();
 }
+
+/** The re-check cadence while updates are working (long-running sessions). */
+export const UPDATE_RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+/** The first re-check after a failure; each failure in a row doubles it, up to the cadence. */
+export const UPDATE_RETRY_FIRST_MS = 2 * 60 * 1000;
+
+/** How long until the next check, after `failuresInARow` failed ones (0 = the last one worked). */
+export function nextUpdateCheckDelayMs(failuresInARow: number): number {
+  if (failuresInARow <= 0) return UPDATE_RECHECK_INTERVAL_MS;
+  return Math.min(
+    UPDATE_RETRY_FIRST_MS * 2 ** (failuresInARow - 1),
+    UPDATE_RECHECK_INTERVAL_MS,
+  );
+}
+
+/**
+ * When electron-updater checks again. A download that died at 17% on a network
+ * change waited the full 4 h for the next check (owner's Mac, 2026-10-26): now
+ * a failure (check, download or install) re-checks after 2 min, doubling up to
+ * 4 h, and a good result goes back to every 4 h. A check is always pending, so
+ * one whose result never arrives is retried on the same clock.
+ */
+export function createUpdateRechecker(
+  check: () => void,
+  timers: {
+    set: (fn: () => void, ms: number) => unknown;
+    clear: (t: unknown) => void;
+  } = {
+    set: (fn, ms) => setTimeout(fn, ms),
+    clear: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+  },
+) {
+  let failures = 0;
+  let timer: unknown = null;
+  const schedule = (): number => {
+    if (timer != null) timers.clear(timer);
+    const ms = nextUpdateCheckDelayMs(failures);
+    timer = timers.set(() => {
+      schedule();
+      check();
+    }, ms);
+    return ms;
+  };
+  return {
+    /** Start the clock (the first check is made by the caller). */
+    start: schedule,
+    /** A check, download or install failed: returns the wait before the retry. */
+    failed: (): number => {
+      failures++;
+      return schedule();
+    },
+    /** Up to date, or an update is downloaded. */
+    succeeded: (): number => {
+      failures = 0;
+      return schedule();
+    },
+    stop: (): void => {
+      if (timer != null) timers.clear(timer);
+      timer = null;
+    },
+  };
+}

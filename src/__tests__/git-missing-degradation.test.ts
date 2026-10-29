@@ -26,11 +26,10 @@ vi.mock("@/main/settings", () => ({
 }));
 
 vi.mock("@/ipc/utils/git_author", () => ({
-  ATLARIX_CO_AUTHOR_TRAILER: "Co-authored-by: Atlarix <agent@atlarix.dev>",
-  getGitAuthor: vi.fn(async () => ({
-    name: "atlarix-agent",
-    email: "agent@atlarix.dev",
-  })),
+  ATLARIX_CO_AUTHOR_TRAILER:
+    "Co-authored-by: atlarix-agent <261929375+atlarix-agent@users.noreply.github.com>",
+  ATLARIX_GIT_AUTHOR_NAME: "atlarix-agent",
+  ATLARIX_GIT_AUTHOR_EMAIL: "261929375+atlarix-agent@users.noreply.github.com",
 }));
 
 vi.mock("node:fs", () => {
