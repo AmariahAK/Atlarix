@@ -1,6 +1,10 @@
 import { app, ipcMain, IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
 import * as Sentry from "@sentry/electron/main";
+import {
+  ExpectedUserError,
+  expectedErrorMessage,
+} from "@/shared/expected_error";
 
 const verboseIpc = process.env.ATLARIX_VERBOSE_IPC === "1";
 
@@ -45,6 +49,11 @@ export function createLoggedHandler(logger: log.LogFunctions) {
           }
           return result;
         } catch (error) {
+          // The user's own doing (a moved folder): logged, never reported.
+          if (error instanceof ExpectedUserError) {
+            logger.warn(`IPC ${channel}: ${error.message}`);
+            throw new Error(expectedErrorMessage(error));
+          }
           logger.error(
             `Error in ${fn.name}: args: ${JSON.stringify(args)}`,
             error,

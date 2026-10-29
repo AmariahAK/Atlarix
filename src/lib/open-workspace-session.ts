@@ -27,7 +27,8 @@ import {
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { loadedSessionTruncatedAtom } from "@/atoms/sessionAtoms";
 import { pushRecentWorkspace } from "@/lib/workspace-recents";
-import { showError } from "@/lib/toast";
+import { showError, toast } from "@/lib/toast";
+import { expectedErrorOf } from "@/shared/expected_error";
 import { resetTerminalInstancesForNewChat } from "@/lib/reset-terminal-instances";
 import { clearChatAtomsForChat } from "@/lib/chat/clear-chat-atoms";
 
@@ -205,6 +206,8 @@ export type StartNewWorkspaceConversationOptions = {
   workspacePath?: string;
   navigate?: (opts: NavigateOptions) => void;
   refreshApps?: () => Promise<void>;
+  /** Offered as "Remove…" when the folder no longer exists (the caller confirms). */
+  onFolderMissing?: () => void;
 };
 
 /**
@@ -472,6 +475,17 @@ export async function openWorkspaceFolder(
       name: app.name,
     };
   } catch (e) {
+    const expected = expectedErrorOf(e);
+    if (expected?.kind === "folder-missing") {
+      const { onFolderMissing } = options;
+      toast.error(expected.message, {
+        description: folderPath,
+        ...(onFolderMissing
+          ? { action: { label: "Remove…", onClick: onFolderMissing } }
+          : {}),
+      });
+      return null;
+    }
     const msg = e instanceof Error ? e.message : String(e);
     showError(msg);
     return null;
