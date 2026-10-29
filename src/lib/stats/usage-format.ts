@@ -6,7 +6,7 @@
 
 import type { UsageCredits, UsageReport } from "./usage-types";
 import { compactCount } from "./activity-format";
-import { usageSourceLabel, usdLabel } from "./usage-labels";
+import { printableName, usageSourceLabel, usdLabel } from "./usage-labels";
 
 /** The windows a Usage page can show, in days. */
 export const USAGE_RANGES = [30, 90, 365] as const;
@@ -120,7 +120,7 @@ export function toolsText(r: UsageReport, days = 30, width = 40): UsageTextLine[
   ] as const) {
     if (!list.length) continue;
     out.push({ text: "" }, { text: title, bold: true });
-    for (const x of list) out.push({ text: `  ${x.name.slice(0, 40).padEnd(40)}  ${x.runs} ${unit}${x.runs === 1 ? "" : "s"}` });
+    for (const x of list) out.push({ text: `  ${printableName(x.name, 40).padEnd(40)}  ${x.runs} ${unit}${x.runs === 1 ? "" : "s"}` });
   }
   return out;
 }

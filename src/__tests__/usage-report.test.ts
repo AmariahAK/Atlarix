@@ -172,6 +172,13 @@ describe("as text (CLI and ACP)", () => {
     }
   });
 
+  it("draws a name recorded before names were cleaned without its escape codes", () => {
+    const r = R.buildUsageReport(overview, [], [{ day: "2026-10-29", kind: "mcp", name: "x\u001b]0;pwned\u0007", runs: 1 }], [], {}, NOW);
+    const lines = Fm.toolsText(r).map((l) => l.text);
+    expect(lines.some((l) => l.includes("x]0;pwned"))).toBe(true);
+    for (const l of lines) expect(l).not.toMatch(/[\u0000-\u001f\u007f]/);
+  });
+
   it("draws a stacked bar in proportion, scaled to the busiest day", () => {
     expect(Fm.stackedBar([30, 10], 40, 8)).toBe("██████▓▓");
     expect(Fm.stackedBar([10], 40, 8)).toBe("██");

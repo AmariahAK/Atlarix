@@ -26,6 +26,7 @@ import { db } from "@/db";
 import { usageAutoPicks, usageRollup, usageStats, usageToolStats } from "@/db/schema";
 import { localDayKey } from "./edit-stats";
 import type { ActivityDay, ActivityStats } from "./usage-types";
+import { printableName } from "./usage-labels";
 import {
   bucketThresholds,
   levelFor,
@@ -61,8 +62,10 @@ export function toolRunsFrom(messages: readonly unknown[]): {
 } {
   const skills = new Map<string, number>();
   const mcp = new Map<string, number>();
-  const bump = (m: Map<string, number>, k: string) =>
-    m.set(k, (m.get(k) ?? 0) + 1);
+  const bump = (m: Map<string, number>, raw: string) => {
+    const k = printableName(raw);
+    if (k) m.set(k, (m.get(k) ?? 0) + 1);
+  };
   for (const msg of messages) {
     const content = (msg as { role?: unknown; content?: unknown })?.content;
     if (!Array.isArray(content)) continue;
@@ -161,7 +164,7 @@ const nonNeg = (n: number | undefined) =>
 
 /** The editor running this agent (ACP), normalised for grouping; '' outside one. */
 export function currentEditor(): string {
-  return (process.env.ATLARIX_ACP_EDITOR ?? "").trim().toLowerCase().slice(0, 40);
+  return printableName(process.env.ATLARIX_ACP_EDITOR ?? "", 40).toLowerCase();
 }
 
 async function addRow(row: {

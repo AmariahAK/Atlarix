@@ -4,7 +4,7 @@
  */
 
 import type { ActivityStats } from "./usage-types";
-import { usageModelLabel, usageSurfaceLabel } from "./usage-labels";
+import { printableName, usageModelLabel, usageSurfaceLabel } from "./usage-labels";
 
 /** 472.4M, 68.7K, 950. */
 export function compactCount(n: number): string {
@@ -130,14 +130,14 @@ export function activitySections(s: ActivityStats): ActivitySection[] {
     {
       title: "Most used skills",
       rows: s.skills.map((x) => ({
-        label: x.name,
+        label: printableName(x.name),
         value: plural(x.runs, "run", "runs"),
       })),
     },
     {
       title: "Most used MCP servers",
       rows: s.mcp.map((x) => ({
-        label: x.name,
+        label: printableName(x.name),
         value: plural(x.runs, "call", "calls"),
       })),
     },

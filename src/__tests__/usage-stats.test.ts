@@ -106,6 +106,33 @@ describe("recording a turn", () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM usage_stats").get()).toEqual({ n: 0 });
   });
 
+  it("never stores a control character a tool call put in a name (a terminal would run it)", async () => {
+    await U.recordTurnUsage({
+      model: null,
+      mode: "build",
+      deep: false,
+      inputTokens: 0,
+      outputTokens: 0,
+      now: TODAY,
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "tool-call", toolName: "mcp_call", input: { server: "evil\u001b]52;c;aGk=\u0007" } },
+            { type: "tool-call", toolName: "mcp_call", input: { server: "\u001b[2J" } },
+            { type: "tool-call", toolName: "read_file", input: { path: ".atlarix/skills/a\u202eb.md" } },
+          ],
+        },
+      ],
+    });
+    const rows = sqlite.prepare("SELECT kind, name FROM usage_tool_stats ORDER BY kind").all();
+    expect(rows).toEqual([
+      { kind: "mcp", name: "evil]52;c;aGk=" },
+      { kind: "mcp", name: "[2J" },
+      { kind: "skill", name: "ab" },
+    ]);
+  });
+
   it("adds a stopped turn's tokens but does not count it as a turn", async () => {
     const base = {
       model: { provider: "anthropic", name: "claude-sonnet-5-5" },
