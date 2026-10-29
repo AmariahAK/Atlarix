@@ -509,10 +509,34 @@ ToolRegistry.register({
      * silently rewrites a configuration the user set and could kill an in-flight
      * session; naming what to turn off leaves that decision where it belongs.
      *
-     * This is not a security gate. Consent is: `requireConsent` still runs per tool on
-     * first use, below, and that is what the user actually approves.
+     * THE CONSENT COMES FIRST. Until 2026-10-30 the server was enabled and its
+     * process spawned by `getClient` before `requireConsent` ran, so an imported,
+     * switched-off stdio config started its command with no card in front of it
+     * (found by the plugins session's security review). Now the card is shown
+     * before anything is switched on, and a run with nobody to ask (an
+     * unattended automation) refuses instead of activating.
      */
+    const ctx = args._mcpInvocationContext;
+    let consented = false;
     if (!server.enabled) {
+      if (!ctx?.requireConsent) {
+        return {
+          error:
+            `MCP server "${args.server}" is configured but not enabled, and this run has ` +
+            `nobody to ask. Ask the user to enable it in Settings → MCP first.`,
+        };
+      }
+      const ok = await ctx.requireConsent({
+        serverId: server.id,
+        serverName: server.name,
+        toolName: args.tool!,
+        toolDescription: `Switch on "${server.name}" and run ${args.tool}`,
+        inputPreview: JSON.stringify(args.arguments ?? {}).slice(0, 500),
+      });
+      if (!ok) {
+        return { error: `User declined switching on MCP server ${server.name} for ${args.tool}.` };
+      }
+      consented = true;
       // The same count as every other switch: this folder's plus the account's.
       const { mcpOnCount } = await import("@/lib/mcp/mcp-add");
       const activeCount = await mcpOnCount(args.workspaceId!);
@@ -533,7 +557,6 @@ ToolRegistry.register({
       );
     }
 
-    const ctx = args._mcpInvocationContext;
     const { mcpManager } = await import("../../ipc/utils/mcp_manager");
 
     // Single invocation attempt (may throw McpNeedsAuthError before the call).
@@ -553,7 +576,7 @@ ToolRegistry.register({
         };
       }
 
-      if (ctx?.requireConsent) {
+      if (ctx?.requireConsent && !consented) {
         const ok = await ctx.requireConsent({
           serverId: server.id,
           serverName: server.name,
