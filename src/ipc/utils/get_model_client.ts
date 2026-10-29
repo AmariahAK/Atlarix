@@ -1,5 +1,6 @@
 import { throughFreeAutoGate } from "@/lib/billing/free-auto-gate";
 import { coreSessionId } from "@/lib/core/session-header";
+import { noteLadderTop } from "@/lib/core/zenith-offer";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   getPinnedProviderKey,
@@ -487,6 +488,8 @@ async function getRegularModelClient(
             const res = isAutoTier && !pinnedToken ? await throughFreeAutoGate(send) : await send();
             // Atlarix Auto says which model answered and how much free share is
             // left; hand that to the composer.
+            // Auto's top rung failed too: the turn's error offers Zenith once.
+            if (isAutoTier) noteLadderTop(options?.chatId, res.headers);
             if ((isAutoTier || isZenithTier) && res.ok) {
               broadcastAutoStatus(res.headers);
               noteTurnAutoBilling(options?.chatId, autoStatusFromHeaders(res.headers)?.billing);

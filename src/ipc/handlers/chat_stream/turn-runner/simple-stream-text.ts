@@ -26,6 +26,8 @@ import {
   totalTokensFromAiUsage,
 } from "@/lib/usage/ai-usage";
 import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
+import { takeZenithOffer } from "@/lib/core/zenith-offer";
+import { ZENITH_OFFER_LINE } from "@/shared/billing_copy";
 import { isInsufficientCreditError } from "@/lib/billing/insufficient-credit";
 import { markCreditExhausted } from "@/lib/agents/credit-halt";
 import { failQueuedDelegationsForChat } from "@/lib/agents/delegation-limiter";
@@ -1170,6 +1172,8 @@ export async function simpleStreamText(
         // arrives as 403 and MUST NOT be reported as an expired session.
         const classified = classifyCompassFailure(statusCode, bodyStr);
         message = classified.message;
+        // Auto's whole ladder failed: offer Zenith, once per chat.
+        if (takeZenithOffer(req.chatId)) message = `${message} ${ZENITH_OFFER_LINE}`;
         isCompassInfraError = classified.isCompassInfraError;
         /**
          * The PARENT ran out of credit — so its children must stop too.

@@ -451,6 +451,15 @@ export function freeAutoBusyMessage(): string {
   return `${FREE_BUSY_MARKER}. Try again in a moment, or ${FREE_WAY_OUT}.`;
 }
 
+export const ZENITH_OFFER_MARKER = "Atlarix Zenith uses frontier models";
+
+/**
+ * Appended once per chat when Atlarix Auto's top rung failed too (proxy
+ * `X-Atlarix-Ladder: top`): the one place Zenith is offered. Names its cost,
+ * never what it includes.
+ */
+export const ZENITH_OFFER_LINE = `${ZENITH_OFFER_MARKER} at a higher cost, and may get further with this. Pick it in the model list to try again.`;
+
 export const CORE_RATE_LIMIT_MARKER = "This model is busy";
 
 /**

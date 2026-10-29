@@ -21,6 +21,7 @@ import {
   RESETS_IN_PATTERN,
   UPGRADE_LINE,
   USE_OWN_KEY_LABEL,
+  ZENITH_OFFER_LINE,
   formatResetsIn,
 } from "@/shared/billing_copy";
 import { useEffect, useState } from "react";
@@ -29,7 +30,7 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "@/hooks/useSettings";
 import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
 import { UpgradeButtons } from "@/components/billing/UpgradeActions";
-import { CORE_TIER_AUTO, autoConsentAccepted } from "@/ipc/shared/compass_constants";
+import { CORE_TIER_AUTO, CORE_TIER_ZENITH, autoConsentAccepted } from "@/ipc/shared/compass_constants";
 
 /** Open Settings → AI so the user can switch provider / model or add an API key. */
 function openAiSettings() {
@@ -57,7 +58,25 @@ function openAiSettings() {
  * `TokenBar.tsx`) and is theme-agnostic by construction rather than by duplication.
  */
 
-export function ChatErrorBox({
+/**
+ * The error, plus Atlarix Zenith when the proxy offered it: Auto's top rung
+ * failed too, and Zenith (frontier models, higher cost) may get further. Shown
+ * once per chat; main decides that (zenith-offer.ts).
+ */
+export function ChatErrorBox(props: Parameters<typeof ChatErrorBoxBody>[0]) {
+  if (!props.error.includes(ZENITH_OFFER_LINE)) return <ChatErrorBoxBody {...props} />;
+  return (
+    <>
+      <ChatErrorBoxBody {...props} error={props.error.replace(` ${ZENITH_OFFER_LINE}`, "")} />
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm" data-testid="zenith-offer">
+        <span className="text-muted-foreground">{ZENITH_OFFER_LINE}</span>
+        <UseZenithButton onDone={props.onDismiss} />
+      </div>
+    </>
+  );
+}
+
+function ChatErrorBoxBody({
   onDismiss,
   onRetry,
   error,
@@ -383,6 +402,21 @@ function UseAutoButton({ onDone }: { onDone: () => void }) {
       onClick={() => void selectModel({ provider: "compass", name: CORE_TIER_AUTO }).then(onDone)}
     >
       Use Atlarix Auto (free)
+    </button>
+  );
+}
+
+/** Switches the chat in front to Atlarix Zenith. */
+function UseZenithButton({ onDone }: { onDone: () => void }) {
+  const selectModel = useSelectModel();
+  return (
+    <button
+      type="button"
+      data-testid="use-atlarix-zenith"
+      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+      onClick={() => void selectModel({ provider: "compass", name: CORE_TIER_ZENITH }).then(onDone)}
+    >
+      Use Atlarix Zenith
     </button>
   );
 }

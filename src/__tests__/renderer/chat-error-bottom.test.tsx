@@ -100,6 +100,7 @@ describe("chat error banner placement (v11.1)", () => {
       prompt: "",
       chatId: CHAT_ID,
       continueAfterQuestions: true,
+      userRetry: true,
     });
     expect(store.get(chatErrorByIdAtom).get(CHAT_ID)).toBeUndefined();
   });

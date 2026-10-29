@@ -16,6 +16,7 @@ import {
   FREE_BUSY_MARKER,
   FREE_LIMIT_MARKER,
   PRO_ALLOWANCE_MARKER,
+  ZENITH_OFFER_LINE,
 } from "@/shared/billing_copy";
 import { AI_STREAMING_ERROR_MESSAGE_PREFIX, BYOK_CREDIT_MARKER, BYOK_KEY_MARKER, BYOK_RATE_MARKER } from "@/shared/texts";
 
@@ -36,6 +37,16 @@ function split(text: string): [string, string] {
 }
 
 export function errorNotice(raw: string): ErrorNotice {
+  // Auto's whole ladder failed and Zenith is offered (once per chat): the
+  // notice for the failure itself, plus the way to Zenith.
+  if (raw.includes(ZENITH_OFFER_LINE)) {
+    const base = errorNotice(raw.replace(` ${ZENITH_OFFER_LINE}`, "").replace(ZENITH_OFFER_LINE, ""));
+    return {
+      ...base,
+      detail: [base.detail, "Atlarix Zenith uses frontier models at a higher cost, and may get further."].filter(Boolean).join(" "),
+      actions: [base.actions, "/model Atlarix Zenith"].filter(Boolean).join(" · "),
+    };
+  }
   const text = raw.startsWith(AI_STREAMING_ERROR_MESSAGE_PREFIX) ? raw.slice(AI_STREAMING_ERROR_MESSAGE_PREFIX.length) : raw;
   const [first, rest] = split(text);
   const said = /\(It said: "(.*)"\)/.exec(text)?.[1];

@@ -13,6 +13,7 @@ import {
   FREE_BUSY_MARKER,
   FREE_LIMIT_MARKER,
   PRO_ALLOWANCE_MARKER,
+  ZENITH_OFFER_MARKER,
 } from "../../../src/shared/billing_copy";
 import type { SessionUpdate } from "@agentclientprotocol/sdk";
 import * as S from "./chat/suggestions";
@@ -288,6 +289,15 @@ function turnError(text: string): void {
         : /api key|rejected|unauthori[sz]ed|\b401\b/i.test(text)
           ? [button("Models & keys", "small", () => go({ name: "settings", tab: "keys" }))]
           : [];
+  // Auto's whole ladder failed and Zenith is offered (once per chat).
+  if (text.includes(ZENITH_OFFER_MARKER)) {
+    actions.push(
+      button("Use Atlarix Zenith", "small", () => {
+        state.modelValue = "compass/core-zenith";
+        post({ type: "set-option", configId: "model", value: state.modelValue });
+      }),
+    );
+  }
   T.showError(text, actions);
 }
 
