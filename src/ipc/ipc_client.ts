@@ -3,6 +3,7 @@ import {
   type UserSettings,
   AppSearchResultsSchema,
 } from "../lib/schemas";
+import type { PluginListItem, PluginPreviewView } from "./handlers/plugin_handlers";
 import {
   applyLiveTextPatch,
   type LiveTextPatch,
@@ -2608,6 +2609,59 @@ export class IpcClient {
   /** Whether the main process has initialized the database (for loading gate). */
   public async getDbReady(): Promise<boolean> {
     return this.ipcRenderer.invoke("get-db-ready");
+  }
+
+  // --- Plugins (plugin_handlers.ts) ---
+  public async listPlugins(): Promise<PluginListItem[]> {
+    return this.ipcRenderer.invoke("plugins:list");
+  }
+
+  public async pluginProblems(workspacePath: string | null): Promise<Array<{ name: string; message: string }>> {
+    return this.ipcRenderer.invoke("plugins:problems", { workspacePath });
+  }
+
+  public async preparePluginInstall(source: string): Promise<PluginPreviewView> {
+    return this.ipcRenderer.invoke("plugins:prepare", { source });
+  }
+
+  public async preparePluginUpdate(name: string): Promise<PluginPreviewView> {
+    return this.ipcRenderer.invoke("plugins:prepare-update", { name });
+  }
+
+  public async commitPluginInstall(params: {
+    stagingId: string;
+    runnablesConfirmed: boolean;
+    folders?: string[] | null;
+  }): Promise<{ name: string }> {
+    return this.ipcRenderer.invoke("plugins:commit", params);
+  }
+
+  public async discardPluginInstall(stagingId: string): Promise<void> {
+    return this.ipcRenderer.invoke("plugins:discard", { stagingId });
+  }
+
+  public async removePlugin(name: string): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:remove", { name });
+  }
+
+  public async setPluginEnabled(name: string, enabled: boolean): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:set-enabled", { name, enabled });
+  }
+
+  public async setPluginFolders(name: string, folders: string[] | null): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:set-folders", { name, folders });
+  }
+
+  public async setPluginModel(name: string, model: string | null): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:set-model", { name, model });
+  }
+
+  public async reviewPlugin(name: string): Promise<string[]> {
+    return this.ipcRenderer.invoke("plugins:review", { name });
+  }
+
+  public async approvePlugin(name: string, shown: string[]): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:approve", { name, shown });
   }
 
   // --- MCP Client Methods ---

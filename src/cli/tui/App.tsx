@@ -19,6 +19,7 @@
  * prompts …) is a dialog on one stack (dialogs.ts, screens.ts): while one is
  * open it owns the keyboard, and esc closes it.
  */
+import { openPlugins } from "./plugins";
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
@@ -43,7 +44,7 @@ import type { AgentSession, LiveTask, SessionState, WorkMode } from "../agent/se
 import { Approval, approvalChoices, approvalKey } from "./Approval";
 import { decodePasteBytes, type PasteEvent } from "@opentui/core";
 import { AUTO_CONSENT_MARKER } from "@/shared/billing_copy";
-import { COMMANDS, matchCommands, parseCommandLine } from "./commands";
+import { COMMANDS, matchCommands, parseCommandLine, type SlashCommand } from "./commands";
 import { DialogHost, InputDialog, ListDialog, type Line, type ListItem } from "./dialogs";
 import { DialogOverlay, DialogPanel } from "./Dialog";
 import { Toast, type ToastState, type ToastVariant } from "./Toast";
@@ -948,10 +949,33 @@ export function App({
     });
   }, []);
 
+  // Installed plugins' commands: listed in the palette, sent as a message
+  // (chat:stream expands them). Re-read each time the palette opens.
+  const [pluginCommands, setPluginCommands] = useState<SlashCommand[]>([]);
+  const paletteOpening = draft === "/";
+  useEffect(() => {
+    if (!paletteOpening && pluginCommands.length) return;
+    svc()
+      .plugins.commands(session.workspaceDir)
+      .then((list) =>
+        setPluginCommands(
+          list.map((c) => ({
+            name: `/${c.name}`,
+            description: `${c.description}${c.argumentHint ? ` ${c.argumentHint}` : ""} · ${c.plugin}`,
+            group: "plugin" as const,
+          })),
+        ),
+      )
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paletteOpening]);
+  const isPluginCommand = (name: string) =>
+    pluginCommands.some((c) => c.name === name) && !COMMANDS.some((c) => c.name === name);
+
   const approval = state.approvals[0] ?? null;
   const palette = useMemo(
-    () => (!approval && draft.startsWith("/") && !draft.includes("\n") ? matchCommands(draft) : []),
-    [draft, approval],
+    () => (!approval && draft.startsWith("/") && !draft.includes("\n") ? matchCommands(draft, pluginCommands) : []),
+    [draft, approval, pluginCommands],
   );
 
   /**
@@ -1373,6 +1397,8 @@ export function App({
         return openAutomations(ctx);
       case "/mcp":
         return openMcp(ctx);
+      case "/plugins":
+        return openPlugins(ctx);
       case "/computer":
         return void openComputer(rest);
       case "/permissions":
@@ -1560,6 +1586,13 @@ export function App({
       if ((key.name === "tab" && !key.shift) || key.name === "return") {
         const typed = parseCommandLine(composer.current?.text() ?? "");
         const chosen = palette[Math.min(paletteIndex, palette.length - 1)]!.name;
+        if (isPluginCommand(chosen)) {
+          // A plugin's command is a message: put it in the box for its text.
+          composer.current?.setText(`${chosen} `);
+          setPaletteIndex(0);
+          key.preventDefault();
+          return;
+        }
         runCommand(chosen, typed?.name === chosen ? typed.rest : "");
         setPaletteIndex(0);
         key.preventDefault();
@@ -1750,7 +1783,7 @@ export function App({
     // message (it answered "/commands" with a page of guesses). "/" alone, or
     // "/commands", opens the list.
     const slash = /^\/(\S*)\s*$/.exec(s.display.trim());
-    if (slash && !s.display.trim().includes("/", 1)) {
+    if (slash && !s.display.trim().includes("/", 1) && !isPluginCommand(`/${slash[1]}`)) {
       composer.current?.clear();
       if (!slash[1] || slash[1] === "commands") {
         composer.current?.setText("/");

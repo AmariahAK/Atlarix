@@ -1,4 +1,5 @@
 import { registerRecapHandlers } from "./handlers/recap_handlers";
+import { registerPluginHandlers } from "./handlers/plugin_handlers";
 import { registerAppHandlers } from "./handlers/app_handlers";
 import { registerChatHandlers } from "./handlers/chat_handlers";
 import { registerChatStreamHandlers } from "./handlers/chat_stream_handlers";
@@ -90,6 +91,7 @@ export function registerIpcHandlers() {
   registerPortalHandlers();
   registerMcpHandlers();
   registerMcpOAuthHandlers();
+  registerPluginHandlers();
   registerSkillsHandlers();
   // Atlarix handlers
   registerFolderDialogHandler();

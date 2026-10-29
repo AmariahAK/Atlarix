@@ -163,6 +163,8 @@ class Thread {
   private lastPlan: string | null = null;
   /** This folder's skills and the account's, offered as / commands. */
   private skills: Array<{ name: string; description: string; readPath: string }> = [];
+  /** Installed plugins' commands for this folder, listed beside the skills. */
+  private pluginCommands: Array<{ name: string; description: string; argumentHint?: string }> = [];
   private lastMode: WorkMode;
   /** The shared computer-use switch as last shown (it can be flipped in the app). */
   private lastComputerUse = false;
@@ -752,7 +754,7 @@ class Thread {
     // CLI's /status, /billing and /mcp, answered as a message.
     // `/automations`, `/automations run <name>`, `/automations on|off <name>`.
     const automations = /^\/automations(?:\s+([\s\S]+))?$/i.exec(text.trim());
-    if (automations || (slash && (slash[1] === "status" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout"))) {
+    if (automations || (slash && (slash[1] === "status" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "plugins" || slash[1] === "logout"))) {
       const { accountCommandText } = await import("./account-commands");
       const cmd = automations ? `automations ${automations[1]?.trim() ?? ""}`.trim() : slash![1]!;
       const reply = await accountCommandText(cmd, this.session, this.editorMcpServers).catch((e: Error) => `Couldn't read that: ${e.message}`);
@@ -918,7 +920,7 @@ class Thread {
     const plan = s.planReady?.planId ?? null;
     if (plan !== this.lastPlan) {
       this.lastPlan = plan;
-      void this.send(commandsUpdate(!!plan, this.skills));
+      void this.send(commandsUpdate(!!plan, this.skills, this.pluginCommands));
     }
   }
 
@@ -934,7 +936,15 @@ class Thread {
     } catch {
       this.skills = [];
     }
-    await this.send(commandsUpdate(!!this.session.state.planReady, this.skills));
+    try {
+      const { listPluginCommands } = await import("@/lib/plugins/commands");
+      const builtin = new Set(BUILTIN_COMMANDS);
+      const skillNames = new Set(this.skills.map((s) => s.name));
+      this.pluginCommands = listPluginCommands(this.cwd).filter((c) => !builtin.has(c.name) && !skillNames.has(c.name));
+    } catch {
+      this.pluginCommands = [];
+    }
+    await this.send(commandsUpdate(!!this.session.state.planReady, this.skills, this.pluginCommands));
   }
 
   /** "/deploy fix the staging url" → ask for the deploy skill, with the rest as the task. */
@@ -1003,9 +1013,13 @@ class Thread {
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "feedback", "build"];
+const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "plugins", "automations", "handoff", "logout", "feedback", "build"];
 
-function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
+function commandsUpdate(
+  planReady: boolean,
+  skills: Array<{ name: string; description: string }> = [],
+  pluginCommands: Array<{ name: string; description: string; argumentHint?: string }> = [],
+): SessionUpdate {
   return {
     sessionUpdate: "available_commands_update",
     availableCommands: [
@@ -1018,12 +1032,15 @@ function commandsUpdate(planReady: boolean, skills: Array<{ name: string; descri
       { name: "stats", description: "Your activity on this computer: tokens, streaks, models, skills and MCP." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
+      { name: "plugins", description: "Plugins you installed, and whether each is on here." },
       { name: "automations", description: "Scheduled and triggered tasks in this folder; run one, or turn it on or off." },
       { name: "handoff", description: "Continue this chat in the Atlarix app." },
       { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },
       { name: "feedback", description: "Tell us what to improve; 1, 2 or 3 first also rates this chat.", input: { hint: "1|2|3 (optional), then what to improve" } },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),
       ...skills.map((s) => ({ name: s.name, description: `Skill: ${s.description || s.name}`, input: { hint: "what to do (optional)" } })),
+      // Sent to the model as typed; chat:stream expands them (plugins/commands.ts).
+      ...pluginCommands.map((c) => ({ name: c.name, description: c.description, input: { hint: c.argumentHint ?? "(optional)" } })),
     ],
   };
 }

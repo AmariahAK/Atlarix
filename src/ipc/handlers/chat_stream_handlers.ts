@@ -888,6 +888,16 @@ export function registerChatStreamHandlers() {
         if (!req.continueAfterQuestions && !req.continueInterrupted) {
           userDisplayContent = req.displayPrompt ?? req.prompt;
           userPrompt = req.prompt;
+          // `/<name> …` naming an installed plugin's command: the model gets its
+          // prompt, the message shown stays what was typed (plugins/commands.ts).
+          if (userPrompt.trimStart().startsWith("/")) {
+            const { expandPluginCommand } = await import("@/lib/plugins/commands");
+            const expanded = expandPluginCommand(
+              userPrompt,
+              chat.app?.path ? resolveAppPath(chat.app.path) : null,
+            );
+            if (expanded) userPrompt = expanded;
+          }
         }
         // v14.8.11 (W9): every live chat is a negative-id stream-transport chat —
         // renderer, headless CLI, and evals all mint them. The legacy positive-id
