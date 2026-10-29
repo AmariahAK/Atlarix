@@ -1,3 +1,4 @@
+import { throughFreeAutoGate } from "@/lib/billing/free-auto-gate";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   getPinnedProviderKey,
@@ -450,8 +451,11 @@ async function getRegularModelClient(
               for (const [k, v] of Object.entries(autoHeaders))
                 headers.set(k, v);
             }
-            // The proxy, or its fallback when the proxy is down (item 10).
-            const res = await coreProxyFetch(input as string, { ...init, headers });
+            // The proxy, or its fallback when the proxy is down (item 10). Free
+            // Auto's daily limit is held here until it lifts, so a resend gets
+            // the countdown without a request (free-auto-gate.ts).
+            const send = () => coreProxyFetch(input as string, { ...init, headers });
+            const res = isAutoTier && !pinnedToken ? await throughFreeAutoGate(send) : await send();
             // Atlarix Auto says which model answered and how much free share is
             // left; hand that to the composer.
             if (isAutoTier && res.ok) {

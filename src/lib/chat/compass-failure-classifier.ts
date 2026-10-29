@@ -26,8 +26,8 @@ import {
   freeAutoBusyMessage,
   freeAutoLimitMessage,
   parseCreditRefusal,
-  resetsAtMs,
 } from "@/shared/billing_copy";
+import { freeAutoResetsAtFromBody } from "@/lib/billing/free-auto-gate";
 
 export interface CompassFailureClassification {
   message: string;
@@ -38,15 +38,6 @@ export interface CompassFailureClassification {
    * tick the countdown and send nothing until then.
    */
   freeAutoResetsAt?: number;
-}
-
-/** When free Auto's limit lifts: `resets_at`, else `retry_after_seconds` from now. */
-export function freeAutoResetsAtFromBody(bodyStr: string, now: number = Date.now()): number | null {
-  const iso = /"resets_at"\s*:\s*"([^"]+)"/.exec(bodyStr)?.[1];
-  const at = resetsAtMs(iso);
-  if (at != null) return at;
-  const secs = /"retry_after_seconds"\s*:\s*(\d+)/.exec(bodyStr)?.[1];
-  return secs ? now + Number(secs) * 1000 : null;
 }
 
 export function classifyCompassFailure(

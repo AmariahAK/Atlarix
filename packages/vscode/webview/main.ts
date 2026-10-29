@@ -7,6 +7,13 @@
  * never goes through innerHTML (the markdown renderer builds nodes). The only
  * markup set as HTML is our own SVG.
  */
+import {
+  CORE_EXHAUSTED_MARKER,
+  CORE_NEVER_FUNDED_MARKER,
+  FREE_BUSY_MARKER,
+  FREE_LIMIT_MARKER,
+  PRO_ALLOWANCE_MARKER,
+} from "../../../src/shared/billing_copy";
 import type { SessionUpdate } from "@agentclientprotocol/sdk";
 import * as S from "./chat/suggestions";
 import type { HostMessage } from "../src/protocol";
@@ -263,15 +270,24 @@ function onUpdate(u: SessionUpdate): void {
 
 /** Out of free share or credit, or a key that stopped working: the way on is right here. */
 function turnError(text: string): void {
-  const actions = /free share|insufficient.credit|add credit|out of credit|balance|free usage/i.test(text)
-    ? [
-        button("Add credit", "primary small", () => post({ type: "checkout", kind: "credit" })),
-        button("Get Pro", "small", () => post({ type: "checkout", kind: "pro" })),
-        button("Use your own key", "link small", () => go({ name: "settings", tab: "keys" })),
-      ]
-    : /api key|rejected|unauthori[sz]ed|\b401\b/i.test(text)
-      ? [button("Models & keys", "small", () => go({ name: "settings", tab: "keys" }))]
-      : [];
+  const credit = () => button("Add credit", "primary small", () => post({ type: "checkout", kind: "credit" }));
+  const pro = () => button("Get Pro", "small", () => post({ type: "checkout", kind: "pro" }));
+  const ownKey = () => button("Use your own key", "link small", () => go({ name: "settings", tab: "keys" }));
+  const auto = () =>
+    button("Use Atlarix Auto (free)", "small", () => {
+      state.modelValue = "compass/core-auto";
+      post({ type: "set-option", configId: "model", value: state.modelValue });
+    });
+  const actions = text.includes(PRO_ALLOWANCE_MARKER)
+    ? [credit(), ownKey()] // never "Get Pro" to a Pro account
+    : text.includes(CORE_NEVER_FUNDED_MARKER)
+      ? [credit(), pro(), auto()]
+      : [FREE_LIMIT_MARKER, FREE_BUSY_MARKER, CORE_EXHAUSTED_MARKER].some((m) => text.includes(m)) ||
+          /insufficient.credit|out of credit/i.test(text)
+        ? [credit(), pro(), ownKey()]
+        : /api key|rejected|unauthori[sz]ed|\b401\b/i.test(text)
+          ? [button("Models & keys", "small", () => go({ name: "settings", tab: "keys" }))]
+          : [];
   T.showError(text, actions);
 }
 

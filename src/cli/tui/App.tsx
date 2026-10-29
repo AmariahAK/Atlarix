@@ -42,7 +42,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession, LiveTask, SessionState, WorkMode } from "../agent/session";
 import { Approval, approvalChoices, approvalKey } from "./Approval";
 import { decodePasteBytes, type PasteEvent } from "@opentui/core";
-import { AUTO_CONSENT_MARKER } from "@/shared/billing_copy";
+import { AUTO_CONSENT_MARKER, FREE_LIMIT_MARKER, formatResetsIn } from "@/shared/billing_copy";
+import { freeAutoResetsAt } from "@/lib/billing/free-auto-gate";
 import { COMMANDS, matchCommands, parseCommandLine } from "./commands";
 import { DialogHost, InputDialog, ListDialog, type Line, type ListItem } from "./dialogs";
 import { DialogOverlay, DialogPanel } from "./Dialog";
@@ -221,7 +222,27 @@ export function lastRelic(cells: SessionState["cells"]): string | null {
 }
 
 /** A failed turn: what happened, and the way out (limits.ts). */
-function ErrorBlock({ notice }: { notice: ErrorNotice }) {
+/**
+ * Free Auto's "Resets in …", ticking. The agent runs in this process, so the
+ * held limit (free-auto-gate.ts) is the live reset time; every resend before
+ * it is answered from there without a request.
+ */
+function useFreeLimitCountdown(notice: ErrorNotice): string | undefined {
+  const live = notice.title === FREE_LIMIT_MARKER;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [live]);
+  if (!live) return notice.detail;
+  const at = freeAutoResetsAt(now);
+  if (at == null) return notice.detail?.startsWith("Resets in") ? "Free Atlarix Auto is back. Send again." : notice.detail;
+  return `Resets in ${formatResetsIn(at, now)}.`;
+}
+
+function ErrorBlock({ notice: given }: { notice: ErrorNotice }) {
+  const notice = { ...given, detail: useFreeLimitCountdown(given) };
   const fg = notice.tone === "warn" ? color.warn : color.error;
   return (
     <box flexDirection="column" flexShrink={0} border={["left"]} borderColor={fg} paddingLeft={1} marginTop={1}>
