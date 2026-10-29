@@ -1,4 +1,9 @@
 import path from "node:path";
+import {
+  pluginRecordsPath,
+  pluginsRootDir,
+  userHooksPath,
+} from "@/lib/plugins/paths";
 
 /**
  * The paths a source-protected run must not write, even though the workspace
@@ -63,4 +68,13 @@ export function readOnlyDenyPaths(workspacePath: string): string[] {
   if (!workspacePath) return [];
   const root = path.resolve(workspacePath);
   return PROTECTED_RELATIVE.map((rel) => path.join(root, rel));
+}
+
+/**
+ * Denied on every sandboxed run, whatever the mode or a granted folder says: the
+ * plugins folder, the install record and the person's hooks file. Kept even when
+ * missing, for the reason above — a deny is what stops them being CREATED.
+ */
+export function pluginControlDenyPaths(): string[] {
+  return [pluginsRootDir(), pluginRecordsPath(), userHooksPath()];
 }

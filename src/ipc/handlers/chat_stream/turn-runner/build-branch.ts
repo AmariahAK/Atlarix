@@ -8,6 +8,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { guardPluginControl } from "@/lib/plugins/control-guard";
 import { rememberWritePrevious } from "@/lib/chat/write-previous";
 import type { IpcMainInvokeEvent } from "electron";
 import { recordFileWrite, resolveReadScope } from "@/lib/tools/file-read-log";
@@ -732,6 +733,14 @@ export async function runBuildBranch(
               );
               if (filePref.earlyReturn) return filePref.earlyReturn;
               permRequest = filePref.permRequest;
+              // Plugin files and hooks.json: a file write is refused, a command
+              // always asks, whatever else would have approved it.
+              const pluginGuard = guardPluginControl(permRequest, workspacePath);
+              if (pluginGuard.refusal) {
+                activityStatus = "error";
+                return recordActivityResult(pluginGuard.refusal);
+              }
+              permRequest = pluginGuard.permRequest;
               // Denied once this turn: refused again without a card, whoever
               // makes it (a retry, or a writer sub-agent's accepted proposal).
               if (permissionInterceptor.isDeniedChange(permRequest)) {
@@ -745,6 +754,7 @@ export async function runBuildBranch(
                     "")
                   : "";
               const skipPermissionWait = shouldSkipPermissionWait(permRequest, {
+                pluginControl: pluginGuard.pluginControl,
                 reviewOverridden: permissionInterceptor.overridesEditReview(permRequest),
                 autoApproved:
                   filePref.skipPermissionWait ||
@@ -1689,6 +1699,15 @@ export async function runBuildBranch(
                 continue;
               }
               permRequest = filePref.permRequest;
+              const pluginGuard = guardPluginControl(permRequest, workspacePath);
+              if (pluginGuard.refusal) {
+                iterationResults.push({
+                  tool: toolCall.toolName,
+                  result: pluginGuard.refusal,
+                });
+                continue;
+              }
+              permRequest = pluginGuard.permRequest;
               if (permissionInterceptor.isDeniedChange(permRequest)) {
                 iterationResults.push({
                   tool: toolCall.toolName,
@@ -1703,6 +1722,7 @@ export async function runBuildBranch(
                     "")
                   : "";
               const skipPermissionWait = shouldSkipPermissionWait(permRequest, {
+                pluginControl: pluginGuard.pluginControl,
                 reviewOverridden: permissionInterceptor.overridesEditReview(permRequest),
                 autoApproved:
                   filePref.skipPermissionWait ||

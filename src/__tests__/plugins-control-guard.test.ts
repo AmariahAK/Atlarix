@@ -1,0 +1,147 @@
+/**
+ * The agent never changes plugin files, plugins.json or hooks.json on its own:
+ * file writes are refused, commands always ask, the sandbox never grants them.
+ */
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  enrichPermissionRequestForUi,
+  shouldSkipPermissionWait,
+} from "@/ipc/handlers/chat_stream/permission-ui";
+import {
+  grantCoversPluginControl,
+  guardPluginControl,
+  touchesPluginControl,
+} from "@/lib/plugins/control-guard";
+import { pluginControlDenyPaths } from "@/lib/sandbox/deny-paths";
+
+let home: string;
+let saved: string | undefined;
+
+beforeEach(() => {
+  home = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-guard-home-"));
+  saved = process.env.ATLARIX_HOME_DIR;
+  process.env.ATLARIX_HOME_DIR = home;
+});
+afterEach(() => {
+  if (saved === undefined) delete process.env.ATLARIX_HOME_DIR;
+  else process.env.ATLARIX_HOME_DIR = saved;
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+const edit = (p: string) => ({ operation: "edit_file", preview: { path: p } });
+const cmd = (command: string) => ({
+  operation: "run_command",
+  preview: { command },
+});
+
+describe("file writes", () => {
+  it("refuses an edit to the person's hooks.json, by absolute path", () => {
+    const g = guardPluginControl(
+      edit(path.join(home, "hooks.json")),
+      "/some/project",
+    );
+    expect(g.pluginControl).toBe(true);
+    expect(g.refusal).toMatch(/changed by the person/);
+  });
+
+  it("refuses an edit inside an installed plugin when the workspace IS the home folder", () => {
+    // A relative path in a workspace that contains the plugins folder.
+    const g = guardPluginControl(edit("plugins/acme/hooks/hooks.json"), home);
+    expect(g.refusal).not.toBeNull();
+  });
+
+  it("refuses a rename into the plugins folder", () => {
+    const req = {
+      operation: "rename_file",
+      preview: {
+        fromPath: "/tmp/x.json",
+        toPath: path.join(home, "plugins.json"),
+      },
+    };
+    expect(guardPluginControl(req, "/tmp").refusal).not.toBeNull();
+  });
+
+  it("leaves ordinary writes alone", () => {
+    const g = guardPluginControl(edit("src/index.ts"), "/some/project");
+    expect(g).toEqual({
+      permRequest: edit("src/index.ts"),
+      pluginControl: false,
+      refusal: null,
+    });
+    // A workspace's own .atlarix/hooks.json is not the person's hooks file.
+    expect(
+      touchesPluginControl(edit(".atlarix/hooks.json"), "/some/project"),
+    ).toBe(false);
+  });
+});
+
+describe("commands", () => {
+  it("always ask, unattended approvers refuse, and no 'always allow' is offered", () => {
+    for (const c of [
+      `echo '{}' > ${path.join(home, "hooks.json")}`,
+      "cp evil.json ~/.atlarix/hooks.json",
+      "rm -rf $HOME/.atlarix/plugins/acme",
+    ]) {
+      const g = guardPluginControl(cmd(c), "/p");
+      expect(g.pluginControl, c).toBe(true);
+      expect(g.refusal).toBeNull();
+      expect(g.permRequest.preview).toMatchObject({
+        systemScope: true,
+        canAlwaysAllow: false,
+      });
+    }
+  });
+
+  it("outranks auto-approve and 'Allow all this turn'", () => {
+    expect(
+      shouldSkipPermissionWait(cmd("x"), {
+        pluginControl: true,
+        reviewOverridden: true,
+        autoApproved: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldSkipPermissionWait(cmd("x"), {
+        reviewOverridden: true,
+        autoApproved: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps its marking after the card's enrichment recomputes systemScope", () => {
+    const enriched = enrichPermissionRequestForUi(
+      cmd("cat x > ~/.atlarix/hooks.json"),
+      null,
+      "/p",
+      false,
+    );
+    expect(enriched.preview).toMatchObject({
+      systemScope: true,
+      canAlwaysAllow: false,
+    });
+  });
+});
+
+describe("sandbox", () => {
+  it("denies the control paths on every run", () => {
+    expect(pluginControlDenyPaths()).toEqual([
+      path.join(home, "plugins"),
+      path.join(home, "plugins.json"),
+      path.join(home, "hooks.json"),
+    ]);
+  });
+
+  it("never offers a grant that would cover them", () => {
+    expect(grantCoversPluginControl(path.join(home, "plugins", "acme"))).toBe(
+      true,
+    );
+    expect(grantCoversPluginControl(home)).toBe(true);
+    expect(grantCoversPluginControl(path.dirname(home))).toBe(true);
+    expect(grantCoversPluginControl(path.join(home, "memory"))).toBe(false);
+    expect(grantCoversPluginControl("/opt/homebrew")).toBe(false);
+  });
+});

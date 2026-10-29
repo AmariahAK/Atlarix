@@ -69,6 +69,7 @@ import {
 } from "../../../lib/terminal-instance-store";
 import { isAgentMemoryDisabled, memoryDirFor } from "@/lib/agent-memory";
 import { isAutoWritablePath } from "@/lib/auto-writable-paths";
+import { grantCoversPluginControl } from "@/lib/plugins/control-guard";
 import { agentScratchDirFor } from "@/lib/agent-scratch";
 import { isOutsidePathOnlySystemScope } from "@/lib/system-scope-commands";
 import { injectAgentGitIdentity } from "../../utils/git_author";
@@ -2286,6 +2287,9 @@ export class PermissionInterceptor extends EventEmitter {
     granted: ReadonlySet<string>,
   ): boolean {
     if (granted.has(p)) return true;
+    // Never offer a grant that would open plugin files or hooks.json to the
+    // sandbox: a persisted grant outlives the card that asked for it.
+    if (grantCoversPluginControl(p)) return true;
     const workspaceReal = this.workspacePath;
     return !!(
       workspaceReal &&

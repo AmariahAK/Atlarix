@@ -9,6 +9,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { guardPluginControl } from "@/lib/plugins/control-guard";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import type { ModelMessage, ToolSet } from "ai";
@@ -650,6 +651,9 @@ export async function runAskBranch(
               );
               if (filePref.earlyReturn) return filePref.earlyReturn;
               permRequest = filePref.permRequest;
+              const pluginGuard = guardPluginControl(permRequest, appPath);
+              if (pluginGuard.refusal) return pluginGuard.refusal;
+              permRequest = pluginGuard.permRequest;
               const operationId =
                 askPermissionInterceptor.generateOperationId();
               const runCmd =
@@ -658,7 +662,8 @@ export async function runAskBranch(
                     "")
                   : "";
               const skipPermissionWait =
-                filePref.skipPermissionWait ||
+                !pluginGuard.pluginControl &&
+                (filePref.skipPermissionWait ||
                 (permRequest.operation === "run_command" &&
                   shouldSkipPermissionWaitForRunCommand(
                     runCmd,
@@ -668,8 +673,8 @@ export async function runAskBranch(
                     appPath,
                     isReadOnlyWorkMode(liveWorkMode),
                   )) ||
-                shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
-                askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest);
+                  shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
+                  askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest));
               // System-scope marker — attended-only (mirror build-branch).
               if (permRequest.operation === "run_command") {
                 (

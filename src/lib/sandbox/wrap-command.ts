@@ -21,7 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import log from "electron-log";
 import { wrapWsl } from "./wsl";
-import { readOnlyDenyPaths } from "./deny-paths";
+import { pluginControlDenyPaths, readOnlyDenyPaths } from "./deny-paths";
 
 const logger = log.scope("command-sandbox");
 
@@ -645,7 +645,12 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
     req.extraWritablePaths,
     createMissingCaches,
   );
-  const deny = req.readOnly ? readOnlyDenyPaths(workspaceReal) : [];
+  // Plugin files, the plugin record and hooks.json are denied on EVERY run, not
+  // only source-protected ones: they decide what runs next (plugins/control-guard.ts).
+  const deny = [
+    ...(req.readOnly ? readOnlyDenyPaths(workspaceReal) : []),
+    ...pluginControlDenyPaths(),
+  ];
 
   let wrapped: WrappedSpawn | null = null;
   let unavailableNote = "";
@@ -723,7 +728,9 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
     logger.info(
       `Sandboxing run_command (${process.platform}); ${writable.length} writable roots; source-protection deny: ${denyStatus}`,
     );
-    return wrapped;
+    // `denyEnforced` reports the SOURCE-PROTECTION set; the plugin-control paths
+    // are denied on every run and are not what it describes.
+    return { ...wrapped, denyEnforced: !!req.readOnly && wrapped.denyEnforced };
   }
 
   return {

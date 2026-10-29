@@ -99,7 +99,7 @@ export function ruleMatchTarget(
   return typeof p === "string" ? p : "";
 }
 
-function ruleMatches(
+export function ruleMatches(
   rule: CompiledRule,
   toolName: string,
   target: string,
