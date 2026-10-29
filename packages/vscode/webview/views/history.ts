@@ -2,7 +2,7 @@
  * Past chats: search; this folder's, every folder's, or the starred ones;
  * newest or oldest first, grouped by day; rename and delete in place, and ★.
  */
-import { dayGroup } from "../logic";
+import { chatTrees, dayGroup } from "../logic";
 import { expectSession } from "../chat/composer";
 import { post, rpc } from "../rpc";
 import { state } from "../state";
@@ -17,6 +17,10 @@ interface Row {
   starred: boolean;
   folder?: string;
   folderName?: string;
+  /** Under its parent at this depth (0: a root). */
+  depth?: number;
+  /** Where it came from ("fork", "from <session>"), when another session started it. */
+  lineage?: string;
 }
 
 let scope: "here" | "all" | "starred" = "here";
@@ -121,8 +125,15 @@ export async function renderHistory(page: HTMLElement, nav: Nav): Promise<void> 
   const draw = () => {
     list.textContent = "";
     const q = query.trim().toLowerCase();
+    const filtered = !!q || scope === "starred";
     let shown = rows.filter((r) => (scope !== "starred" || r.starred) && (!q || (r.title ?? "untitled").toLowerCase().includes(q)));
-    shown = [...shown].sort((a, b) => (sort === "newest" ? 1 : -1) * (new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+    // Filtered, a match stands alone (its row says where it came from); else each child under its parent.
+    const trees = filtered
+      ? [...shown]
+          .sort((a, b) => (sort === "newest" ? 1 : -1) * (new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()))
+          .map((r) => ({ newest: r.updatedAt, rows: [{ ...r, depth: 0 }] }))
+      : chatTrees(shown, sort);
+    shown = trees.flatMap((t) => t.rows);
     if (!rows.length) return void list.append(el("div", "empty-note", scope === "all" ? "No chats yet." : "No past chats in this folder yet."));
     if (!shown.length) {
       // With a search, say nothing matched it, even among starred chats (QA).
@@ -130,13 +141,13 @@ export async function renderHistory(page: HTMLElement, nav: Nav): Promise<void> 
       return void list.append(el("div", "empty-note", none));
     }
     let group = "";
-    for (const r of shown) {
-      const g = dayGroup(r.updatedAt);
+    for (const t of trees) {
+      const g = dayGroup(t.newest);
       if (g !== group) {
         group = g;
         list.append(el("div", "eyebrow", g.toUpperCase()));
       }
-      list.append(row(r));
+      for (const r of t.rows) list.append(row(r));
     }
   };
 
@@ -148,8 +159,17 @@ export async function renderHistory(page: HTMLElement, nav: Nav): Promise<void> 
       // page again and cover the chat it opened (QA E15).
       nav.go({ name: "chat" });
     });
-    const meta = [r.mode ? (MODE_NAME[r.mode] ?? r.mode) : "", relTime(r.updatedAt), scope === "all" && r.folderName ? r.folderName : ""].filter(Boolean).join(" · ");
-    open.append(el("span", "hrow__title", r.title || "Untitled"), el("span", "hrow__meta", meta));
+    const meta = [
+      r.mode ? (MODE_NAME[r.mode] ?? r.mode) : "",
+      relTime(r.updatedAt),
+      r.lineage ?? "",
+      scope === "all" && r.folderName ? r.folderName : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const depth = r.depth ?? 0;
+    if (depth > 0) open.style.paddingLeft = `${10 + depth * 14}px`;
+    open.append(el("span", "hrow__title", `${depth > 0 ? "↳ " : ""}${r.title || "Untitled"}`), el("span", "hrow__meta", meta));
     const acts = el("div", "hrow__acts");
     const rename = button("", "icon small", () => editName(), "Rename");
     rename.innerHTML = icon("pencil", 13);

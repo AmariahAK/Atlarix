@@ -128,10 +128,16 @@ async function showHome(): Promise<void> {
   big.innerHTML = rixGlyph(96);
   home.append(big, el("h1", "home__title", "What are we building?"));
   T.log.append(home);
-  const r = await rpc<{ sessions: Array<{ sessionId: string; title: string | null; updatedAt: string; mode: string | null }> }>("_atlarix/sessions", {
+  const r = await rpc<{
+    sessions: Array<{ sessionId: string; title: string | null; updatedAt: string; mode: string | null; via?: string | null }>;
+  }>("_atlarix/sessions", {
     cwd: state.workspace,
   }).catch(() => ({ sessions: [] }));
-  const recent = r.sessions.filter((s) => s.sessionId !== state.sessionId && s.title && !/^untitled$/i.test(s.title)).slice(0, 3);
+  // The chats last worked in; the list comes as trees, and an automation's runs are not chats you worked in.
+  const recent = r.sessions
+    .filter((s) => s.sessionId !== state.sessionId && s.title && !/^untitled$/i.test(s.title) && s.via !== "automation")
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 3);
   if (!recent.length || !home.isConnected) return;
   const sec = el("section", "home__recent");
   const head = el("div", "row between");
@@ -323,6 +329,15 @@ onHost((m: HostMessage) => {
         // After a replay its last reply stays open: a turn still running in
         // the CLI carries on in it, not in a second reply (QA E14).
         if (!replayed) T.endTurn();
+        // Where it came from: one line above the conversation that opens it.
+        T.log.querySelector(".from-parent")?.remove();
+        if (m.parent) {
+          const parent = m.parent;
+          const crumb = button(`↳ from ${parent.title || "Untitled"}`, "from-parent link small", () =>
+            post({ type: "load-session", sessionId: parent.id }),
+          );
+          T.log.prepend(crumb);
+        }
         void showHome();
         void C.refreshApproveLine();
         C.sessionArrived();

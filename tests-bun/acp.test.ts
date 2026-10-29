@@ -259,7 +259,10 @@ describe("atlarix acp", () => {
     expect(r.stopReason).toBe("end_turn");
     expect(plain.text(a.sessionId)).toContain("Forked as 'My copy': open it from your session history");
     const list = await plain.conn.agent.request("session/list", { cwd: ws });
-    expect(list.sessions.some((x) => x.title === "My copy")).toBe(true);
+    // Listed under the chat it was forked from, so an editor that shows only titles shows where it came from.
+    const copy = list.sessions.find((x) => x.title === "↳ My copy");
+    expect(copy?._meta?.atlarix).toMatchObject({ parentSessionId: a.sessionId, via: "fork", depth: 1 });
+    expect(list.sessions.findIndex((x) => x === copy)).toBe(list.sessions.findIndex((x) => x.sessionId === a.sessionId) + 1);
     // Not a turn: the model ran one, for "hello" (titles ask it too, without tools).
     expect(plain.llm.requests.filter((q) => q.tools?.length)).toHaveLength(1);
 

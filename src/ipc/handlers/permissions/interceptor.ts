@@ -1912,7 +1912,11 @@ export class PermissionInterceptor extends EventEmitter {
 
     if (preview.action === "create") {
       if (this.workspaceId == null) throw new Error("Workspace required");
-      const { id } = await svc.createAutomation(this.workspaceId, input);
+      // The chat whose agent set it up: its runs list under that chat.
+      const { sessionForTransport } = await import("@/lib/chat/stream-transport");
+      const { id } = await svc.createAutomation(this.workspaceId, input, {
+        sessionId: sessionForTransport(this.activeChatId) ?? null,
+      });
       // Stash the new id on the preview so getExecutionResult can report it
       // back to the model (same mechanism as `verified` for file writes).
       // Logging it alone left the model unable to run what it just created.

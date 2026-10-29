@@ -19,7 +19,7 @@ import {
   type Surface,
 } from "./peers";
 import { isChatStreamLive, onStreamLiveChange } from "@/ipc/handlers/chat_stream/stream-state";
-import { recordUserInterjection } from "@/lib/agent/user-interjections";
+import { listPendingUserInterjections, recordUserInterjection } from "@/lib/agent/user-interjections";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import { readSettings } from "@/main/settings";
 import { parseSessionModel, serializeSessionModel } from "@/lib/session-choices";
@@ -293,6 +293,7 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
         stop: (chatId) => {
           broadcastToAllWindows("chat:remote-stop", { chatId });
         },
+        pending: (chatId, id) => listPendingUserInterjections(chatId).some((m) => m.id === `peer-${id}`),
         ...(surface === "app" ? { openSession: (id: string) => openSessionInApp(id) } : {}),
         applySettings: applyPeerSettings,
         inbound: () => {

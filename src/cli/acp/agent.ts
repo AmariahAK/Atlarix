@@ -44,6 +44,7 @@ import { diffUpdates, type Emitted } from "./updates";
 import { handler } from "../agent/ipc";
 import { groupOptions, type ModelOption } from "../agent/models";
 import { chosenLevel, effortAfterModelChange, effortSettingsPatch } from "@/lib/routing/model-reasoning-profile";
+import { treeLabel, type SessionOrigin } from "@/shared/session-lineage";
 
 const MODES: Array<{ id: WorkMode; name: string; description: string }> = [
   { id: "build", name: "Build", description: "Make changes; every edit and command waits for your yes." },
@@ -80,8 +81,17 @@ export interface AcpDeps {
    * open on sign-in, not after a prompt fails (owner, 2026-10-24).
    */
   signedIn?(): Promise<boolean>;
-  /** This folder's stored sessions, newest first (the TUI's /resume list). */
-  listSessions(cwd: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date | string }>>;
+  /** This folder's stored sessions, each child under its parent (the TUI's /resume list). */
+  listSessions(cwd: string): Promise<
+    Array<{
+      id: string;
+      title: string | null;
+      updatedAt: Date | string;
+      parentSessionId?: string | null;
+      origin?: SessionOrigin | null;
+      depth?: number;
+    }>
+  >;
   /** Rename or delete a stored session (the editor's Past chats). */
   changeSession?(sessionId: string, change: { rename: string } | { delete: true }): Promise<void>;
   /**
@@ -142,6 +152,8 @@ class Thread {
   private readonly openCards = new Map<string, AbortController>();
   /** Where another process runs this session's turn, as last told to the editor. */
   private followingSent: string | null = null;
+  /** The chat this one was started from, for the panel's crumb (session/load). */
+  parent: { id: string; title: string } | null = null;
   /** `/fork`: a copy of this session, made by the agent (it may not be open here). */
   forkTo: ((title?: string) => Promise<{ id: string; title: string }>) | null = null;
   private turn: { done: () => void; cancelled: boolean } | null = null;
@@ -1246,13 +1258,14 @@ export class AcpAgent {
     if (!path.isAbsolute(cwd)) throw RequestError.invalidParams(undefined, "cwd must be an absolute path");
     let session: AgentSession | null = null;
     let id = sessionId ?? "";
+    let parent: { id: string; title: string } | null = null;
     try {
       session = await this.deps.createSession(cwd);
       // A new chat gets its id now; the stored session is made at its first prompt.
       if (!sessionId) id = (await session.open()).sessionId;
       else {
         try {
-          await session.resume(sessionId);
+          parent = (await session.resume(sessionId)).parent ?? null;
         } catch (e) {
           // A new chat that never got a message isn't stored: an editor that
           // reopens it after the agent restarted gets it back, still empty.
@@ -1280,6 +1293,7 @@ export class AcpAgent {
     );
     t.setOption = (configId, value) => this.setConfigOption(t.id, configId, value);
     t.forkTo = (title) => this.forkCopy(t.id, title);
+    t.parent = parent;
     this.threads.set(t.id, t);
     void this.syncStoreWatch();
     return t;
@@ -1363,7 +1377,12 @@ export class AcpAgent {
       void t.refreshCommands();
       t.resendWorking();
     }, 0);
-    return { configOptions: await this.configOptions(t), modes: this.modes(t) };
+    return {
+      configOptions: await this.configOptions(t),
+      modes: this.modes(t),
+      // Where it came from, for the panel's crumb.
+      ...(this.atlarixClient && t.parent ? { _meta: { atlarix: { parent: t.parent } } } : {}),
+    };
   }
 
   /**
@@ -1400,12 +1419,17 @@ export class AcpAgent {
   async listSessions(cwd: string | undefined): Promise<ListSessionsResponse> {
     if (!cwd) return { sessions: [] };
     const rows = await this.deps.listSessions(cwd);
+    // In tree order, a child indented under its parent: an editor that shows
+    // only titles still shows where each came from.
     return {
       sessions: rows.map((r) => ({
         sessionId: r.id,
         cwd,
-        title: r.title,
+        title: r.depth ? treeLabel(r.title?.trim() || "Untitled", r.depth) : r.title,
         updatedAt: new Date(r.updatedAt).toISOString(),
+        ...(r.parentSessionId
+          ? { _meta: { atlarix: { parentSessionId: r.parentSessionId, via: r.origin?.via ?? null, depth: r.depth ?? 0 } } }
+          : {}),
       })),
     };
   }

@@ -3142,3 +3142,10 @@ li.md-task {
   color: var(--danger, var(--vscode-errorForeground));
   font-size: 12px;
 }
+
+/* A chat started from another one: the line above it that opens the parent. */
+.from-parent {
+  align-self: flex-start;
+  margin: 4px 0 8px;
+  color: var(--muted);
+}
