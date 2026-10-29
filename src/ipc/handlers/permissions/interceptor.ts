@@ -70,6 +70,9 @@ import {
 import { isAgentMemoryDisabled, memoryDirFor } from "@/lib/agent-memory";
 import { isAutoWritablePath } from "@/lib/auto-writable-paths";
 import { grantCoversPluginControl } from "@/lib/plugins/control-guard";
+import { runPostToolUseHooks } from "@/lib/plugins/hooks";
+
+const POST_HOOK_OPS = new Set(["edit_file", "delete_file", "rename_file"]);
 import { agentScratchDirFor } from "@/lib/agent-scratch";
 import { isOutsidePathOnlySystemScope } from "@/lib/system-scope-commands";
 import { injectAgentGitIdentity } from "../../utils/git_author";
@@ -1003,6 +1006,17 @@ export class PermissionInterceptor extends EventEmitter {
       // hold the model back. Failures are recorded in the catch below.
       if (this.snapshotTurnId && CONTENT_WRITE_OPS.has(request.operation)) {
         recordMutationOutcome(this.snapshotTurnId, true);
+      }
+
+      // post_tool_use hooks for a write fire HERE, once it has landed — at the
+      // tool funnel the file was not written yet (tool-execute.ts).
+      if (POST_HOOK_OPS.has(request.operation)) {
+        runPostToolUseHooks(
+          { workspacePath: this.workspacePath || null },
+          request.operation,
+          { ...(request.preview as Record<string, unknown>) },
+          { success: true },
+        );
       }
 
       const preview = request.preview as FileOperationPreview;

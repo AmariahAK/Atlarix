@@ -55,7 +55,7 @@ const CLAUDE_EVENT_MAP: Readonly<Record<string, HookEvent>> = {
 /**
  * Atlarix tool → the Claude Code tool name(s) a Claude matcher would use for it.
  * One table, used both ways: hook matchers here, plugin agents' `tools:` lists in
- * `claude-layout.ts`.
+ * `manifest.ts`.
  */
 export const CLAUDE_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = {
   run_command: ["Bash"],
@@ -78,6 +78,13 @@ export type HookMatch =
   | { kind: "claude"; regex: string };
 
 export interface PluginHook {
+  /**
+   * Which file shape it came from, which decides how it is run: an Atlarix hook
+   * denies on any non-zero exit; a Claude Code hook on exit 2 or a JSON
+   * `decision: "block"` / `permissionDecision: "deny"`, and is sent Claude Code's
+   * event and tool names.
+   */
+  dialect: "atlarix" | "claude";
   event: HookEvent;
   match: HookMatch;
   command: string;
@@ -146,6 +153,7 @@ function parseAtlarixHooks(
       match = { kind: "rule", rule: h.match.trim() };
     }
     hooks.push({
+      dialect: "atlarix",
       event: event as HookEvent,
       match,
       command,
@@ -194,6 +202,7 @@ function parseClaudeHooks(
         if (!command) continue;
         // Claude Code's `timeout` is in seconds.
         hooks.push({
+          dialect: "claude",
           event,
           match,
           command,

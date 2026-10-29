@@ -142,6 +142,7 @@ describe("layouts", () => {
     });
     expect(c.hooks).toEqual([
       {
+        dialect: "claude",
         event: "pre_tool_use",
         match: { kind: "claude", regex: "Bash" },
         command: "${CLAUDE_PLUGIN_ROOT}/x.sh",

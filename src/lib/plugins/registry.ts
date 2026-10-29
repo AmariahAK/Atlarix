@@ -119,7 +119,7 @@ export function verifyInstalledPlugin(
   return { record, dir, contents };
 }
 
-function loadUserHooks(): { hooks: PluginHook[]; problems: PluginProblem[] } {
+export function loadUserHooks(): { hooks: PluginHook[]; problems: PluginProblem[] } {
   let raw: string;
   try {
     raw = fs.readFileSync(userHooksPath(), "utf8");
