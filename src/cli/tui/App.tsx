@@ -135,7 +135,7 @@ const MODE_HINT: Record<WorkMode, string> = {
   ask: "read, search and run; no edits",
   plan: "write a plan to agree on first",
   debug: "find the cause, then fix it",
-  review: "review changes and point out problems",
+  review: "review what you name and what it touches",
 };
 
 export interface AppProps {

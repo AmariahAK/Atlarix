@@ -51,7 +51,7 @@ const MODES: Array<{ id: WorkMode; name: string; description: string }> = [
   { id: "ask", name: "Explore", description: "Read and answer; changes nothing." },
   { id: "plan", name: "Plan", description: "Write a plan to review before building." },
   { id: "debug", name: "Debug", description: "Find the cause before fixing it." },
-  { id: "review", name: "Review", description: "Review the changes in this folder." },
+  { id: "review", name: "Review", description: "Review what you name and everything it touches." },
 ];
 
 export interface AcpDeps {
