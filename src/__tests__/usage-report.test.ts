@@ -145,6 +145,19 @@ describe("tokens", () => {
     expect(f.models.map((m) => m.label)).toContain("Atlarix Auto");
   });
 
+  it("labels your own provider's models with its name", () => {
+    const r = R.buildUsageReport(
+      { ...overview, providerNames: { "custom::qa": "My Proxy" } },
+      [row({ provider: "custom::qa", modelId: "some-model" })],
+      [],
+      [],
+      {},
+      NOW,
+    );
+    expect(r.filters.models[0]!.label).toContain("My Proxy");
+    expect(r.tokens.series[0]!.label).not.toContain("custom::");
+  });
+
   it("takes 90 or 365 days, and anything else as 30", () => {
     expect(
       R.buildUsageReport(overview, [], [], [], { days: 365 }, NOW).days,

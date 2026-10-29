@@ -45,6 +45,8 @@ export interface ActivityStats {
   skills: Array<{ name: string; runs: number }>;
   mcp: Array<{ name: string; runs: number }>;
   linesWritten: number;
+  /** Your own providers' names by id (`custom::…`), for labels; built-in ids aren't here. */
+  providerNames?: Record<string, string>;
   asOf: string;
 }
 

@@ -2,6 +2,7 @@
  * How the Usage page names what it groups by. Renderer-safe: no database, no Node.
  */
 
+import { formatModelApiNameForDisplay } from "@/lib/format-openrouter-model-label";
 import { editStatsModelLabel } from "./edit-stats-label";
 
 /**
@@ -19,15 +20,19 @@ export function printableName(name: string, max = 80): string {
 }
 
 /** A rollup model as the user reads it; Auto and history's Core slots by product name. */
-export function usageModelLabel(row: {
-  provider: string;
-  modelId: string;
-}): string {
+export function usageModelLabel(
+  row: { provider: string; modelId: string },
+  /** Your own providers' names by id, so "custom::qa-bedrock" reads as the name you gave it. */
+  providerNames?: Readonly<Record<string, string>>,
+): string {
   if (row.provider === "compass" && row.modelId === "atlarix/auto")
     return "Atlarix Auto";
   if (row.provider === "compass" && row.modelId === "atlarix/core")
     return "Atlarix Core";
   if (row.provider === "unknown") return "Unknown model";
+  // A name you typed reads as you typed it (the shared label lower-cases a slug).
+  const name = providerNames?.[row.provider];
+  if (name) return `${formatModelApiNameForDisplay(row.modelId)} (${name})`;
   return editStatsModelLabel(row);
 }
 

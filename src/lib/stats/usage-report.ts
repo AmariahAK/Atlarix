@@ -98,7 +98,10 @@ export function buildUsageReport(
   for (const r of rows) {
     const t = r.inputTokens + r.outputTokens;
     const k = modelKey(r);
-    const m = models.get(k) ?? { label: usageModelLabel(r), tokens: 0 };
+    const m = models.get(k) ?? {
+      label: usageModelLabel(r, overview.providerNames),
+      tokens: 0,
+    };
     m.tokens += t;
     models.set(k, m);
     const sk = usageSurfaceKey(r);

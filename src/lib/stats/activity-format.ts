@@ -115,7 +115,7 @@ export function activitySections(s: ActivityStats): ActivitySection[] {
     {
       title: "Favourite models",
       rows: s.models.map((m) => ({
-        label: usageModelLabel(m),
+        label: usageModelLabel(m, s.providerNames),
         value: `${m.share}%`,
       })),
     },

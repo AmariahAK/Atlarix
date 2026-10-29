@@ -545,6 +545,18 @@ export async function getActivityStats(
       "SELECT COUNT(DISTINCT session_id) AS n FROM session_messages WHERE role = 'user'",
     )
     .all() as Array<{ n: number }>;
+  const providerNames = Object.fromEntries(
+    (
+      raw
+        .prepare("SELECT id, name FROM language_model_providers")
+        .all() as Array<{
+        id: string;
+        name: string | null;
+      }>
+    )
+      .filter((p) => p.name?.trim())
+      .map((p) => [p.id, printableName(p.name!, 40)]),
+  );
   const lines = raw
     .prepare(
       "SELECT COALESCE(SUM(lines_added + lines_removed), 0) AS n FROM edit_stats",
@@ -640,6 +652,7 @@ export async function getActivityStats(
     skills: top("skill"),
     mcp: top("mcp"),
     linesWritten: Number(lines[0]?.n ?? 0),
+    providerNames,
     asOf: localDayKey(now),
   };
 }

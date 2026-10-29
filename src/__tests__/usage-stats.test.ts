@@ -543,6 +543,32 @@ describe("the stats page", () => {
     expect(s.models[0]!.share).toBe(50);
   });
 
+  it("names your own providers by the name you gave them, not their id", async () => {
+    sqlite
+      .prepare(
+        "INSERT INTO language_model_providers (id, name, api_base_url) VALUES ('custom::qa-bedrock', 'My Bedrock', 'https://x')",
+      )
+      .run();
+    await U.recordTurnUsage({
+      model: { provider: "custom::qa-bedrock", name: "zai.glm-4.7-flash" },
+      mode: "build",
+      deep: false,
+      inputTokens: 10,
+      outputTokens: 1,
+      messages: [],
+      surface: "app",
+      now: TODAY,
+    });
+    const s = await U.getActivityStats(TODAY);
+    expect(s.providerNames).toEqual({ "custom::qa-bedrock": "My Bedrock" });
+    const { activitySections } = await import("@/lib/stats/activity-format");
+    const label = activitySections(s).find(
+      (x) => x.title === "Favourite models",
+    )!.rows[0]!.label;
+    expect(label).toContain("My Bedrock");
+    expect(label).not.toContain("custom::");
+  });
+
   it("is empty, not broken, on a new install", async () => {
     const s = await U.getActivityStats(TODAY);
     expect(s.since).toBeNull();
