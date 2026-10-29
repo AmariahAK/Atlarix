@@ -784,6 +784,12 @@ async function runAgentTurnInner(
         role: "user" as const,
         content: systemReminder(gateFeedback),
       });
+      // The reply goes on in the SAME message: end this round's text with a
+      // paragraph break, or every surface shows "All finished.Now it is done."
+      // (an editor over ACP most plainly — QA 2, a stop hook keeping a turn going).
+      if (fullResponse.trim() && !/\n\s*$/.test(fullResponse)) {
+        fullResponse += "\n\n";
+      }
       agenticIteration++;
       logger.log(
         `${L} ${usePlanGate ? "Plan not complete" : "Completion gate not satisfied"} — nudge ${gateStreak + 1} of ${gateCap} allowed; continuing`,

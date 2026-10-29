@@ -120,6 +120,22 @@ describe("hooks (the person's hooks.json) at the funnel and the stop gate", () =
     const requests = ctx.server.requestsFor("user-hook-stop") as Array<unknown>;
     expect(requests.length).toBeGreaterThanOrEqual(2);
     expect(JSON.stringify(requests)).toContain("tests not green");
+
+    // The two answers are two paragraphs, not "All done.Now it is ready."
+    const lastFull = [...fakeIpc.sends]
+      .reverse()
+      .find(
+        (s: any) =>
+          s.channel === "chat:response:chunk" &&
+          s.payload?.chatId === chatId &&
+          Array.isArray(s.payload?.messages),
+      ) as any;
+    const reply =
+      (lastFull?.payload.messages as Array<{ role: string; content?: string }>)
+        .filter((m) => m.role === "assistant")
+        .at(-1)?.content ?? "";
+    expect(reply).toContain("All done.\n\n");
+    expect(reply).not.toContain("All done.Now");
   }, 30_000);
 
   it("a workspace's .atlarix hooks file runs nothing", async () => {
