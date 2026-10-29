@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import {
   pluginRecordsPath,
@@ -76,5 +77,20 @@ export function readOnlyDenyPaths(workspacePath: string): string[] {
  * missing, for the reason above — a deny is what stops them being CREATED.
  */
 export function pluginControlDenyPaths(): string[] {
-  return [pluginsRootDir(), pluginRecordsPath(), userHooksPath()];
+  const out: string[] = [];
+  for (const p of [pluginsRootDir(), pluginRecordsPath(), userHooksPath()]) {
+    out.push(p);
+    // Seatbelt matches the path a write RESOLVES to: when `~/.atlarix` is a link,
+    // deny its real location as well.
+    try {
+      const real = path.join(
+        fs.realpathSync(path.dirname(p)),
+        path.basename(p),
+      );
+      if (real !== p) out.push(real);
+    } catch {
+      // parent missing: nothing to resolve yet
+    }
+  }
+  return out;
 }

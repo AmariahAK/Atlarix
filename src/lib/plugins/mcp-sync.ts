@@ -146,9 +146,18 @@ export async function syncPluginMcpServers(
 
 /** Every folder's rows from one plugin, for /plugins remove and off. */
 export async function removePluginMcpRows(plugin: string): Promise<void> {
-  await db
-    .delete(mcpServers)
-    .where(like(mcpServers.registryId, `${TAG_PREFIX}${plugin}:%`));
+  // An exact prefix, compared here: in LIKE, the `_` a plugin name may hold
+  // matches any character, so "a_b" would also take "axb"'s rows.
+  const prefix = `${TAG_PREFIX}${plugin}:`;
+  const rows = await db
+    .select({ id: mcpServers.id, registryId: mcpServers.registryId })
+    .from(mcpServers)
+    .where(like(mcpServers.registryId, `${TAG_PREFIX}%`));
+  for (const r of rows) {
+    if (r.registryId?.startsWith(prefix)) {
+      await db.delete(mcpServers).where(eq(mcpServers.id, r.id));
+    }
+  }
 }
 
 /**

@@ -22,6 +22,7 @@
  * `protected-path`.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import {
   isPluginControlPath,
@@ -52,11 +53,33 @@ export function touchesPluginControl(
       }
     }
   }
-  return paths.some((p) =>
-    isPluginControlPath(
-      path.isAbsolute(p) ? p : path.resolve(workspacePath || process.cwd(), p),
-    ),
-  );
+  return paths.some((p) => {
+    const abs = path.isAbsolute(p)
+      ? p
+      : path.resolve(workspacePath || process.cwd(), p);
+    // Both spellings: a link inside the workspace (`link -> ~/.atlarix`) names
+    // a control path only once resolved.
+    return isPluginControlPath(abs) || isPluginControlPath(realTarget(abs));
+  });
+}
+
+/**
+ * The path with every link in its existing part resolved: the longest prefix that
+ * exists is realpath'd and the rest (a file about to be created) appended.
+ */
+export function realTarget(abs: string): string {
+  let dir = path.resolve(abs);
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...rest);
+    } catch {
+      const parent = path.dirname(dir);
+      if (parent === dir) return path.resolve(abs);
+      rest.unshift(path.basename(dir));
+      dir = parent;
+    }
+  }
 }
 
 /**
@@ -123,10 +146,19 @@ export function guardPluginControl<
  * of them (`~/.atlarix`, `~`). Such a grant is never offered.
  */
 export function grantCoversPluginControl(grantPath: string): boolean {
-  const grant = path.resolve(grantPath);
-  if (isPluginControlPath(grant)) return true;
-  return [pluginsRootDir(), pluginRecordsPath(), userHooksPath()].some((p) => {
-    const rel = path.relative(grant, p);
-    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
-  });
+  const grants = [path.resolve(grantPath), realTarget(grantPath)];
+  if (grants.some(isPluginControlPath)) return true;
+  // Configured and resolved spellings on both sides: `/var` vs `/private/var`,
+  // or a linked `~/.atlarix`.
+  const controls = [
+    pluginsRootDir(),
+    pluginRecordsPath(),
+    userHooksPath(),
+  ].flatMap((p) => [p, realTarget(p)]);
+  return grants.some((grant) =>
+    controls.some((p) => {
+      const rel = path.relative(grant, p);
+      return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+    }),
+  );
 }

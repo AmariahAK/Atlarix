@@ -79,6 +79,50 @@ describe("file writes", () => {
   });
 });
 
+describe("links", () => {
+  it("refuses an edit through a link in the workspace that points at the control files", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-guard-ws-"));
+    try {
+      fs.symlinkSync(home, path.join(ws, "cfg"));
+      expect(
+        guardPluginControl(edit("cfg/hooks.json"), ws).refusal,
+      ).not.toBeNull();
+      expect(
+        guardPluginControl(edit("cfg/plugins/acme/x.sh"), ws).refusal,
+      ).not.toBeNull();
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("denies the real location too when the home folder is itself a link", () => {
+    const realHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "atlarix-guard-real-"),
+    );
+    const linkParent = fs.mkdtempSync(
+      path.join(os.tmpdir(), "atlarix-guard-link-"),
+    );
+    try {
+      const linked = path.join(linkParent, ".atlarix");
+      fs.symlinkSync(realHome, linked);
+      process.env.ATLARIX_HOME_DIR = linked;
+      const real = fs.realpathSync(realHome);
+      expect(pluginControlDenyPaths()).toEqual(
+        expect.arrayContaining([
+          path.join(real, "hooks.json"),
+          path.join(real, "plugins"),
+        ]),
+      );
+      expect(
+        guardPluginControl(edit(path.join(real, "hooks.json")), "/p").refusal,
+      ).not.toBeNull();
+    } finally {
+      fs.rmSync(realHome, { recursive: true, force: true });
+      fs.rmSync(linkParent, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("commands", () => {
   it("always ask, unattended approvers refuse, and no 'always allow' is offered", () => {
     for (const c of [
@@ -128,11 +172,13 @@ describe("commands", () => {
 
 describe("sandbox", () => {
   it("denies the control paths on every run", () => {
-    expect(pluginControlDenyPaths()).toEqual([
-      path.join(home, "plugins"),
-      path.join(home, "plugins.json"),
-      path.join(home, "hooks.json"),
-    ]);
+    expect(pluginControlDenyPaths()).toEqual(
+      expect.arrayContaining([
+        path.join(home, "plugins"),
+        path.join(home, "plugins.json"),
+        path.join(home, "hooks.json"),
+      ]),
+    );
   });
 
   it("never offers a grant that would cover them", () => {

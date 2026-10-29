@@ -15,6 +15,7 @@
  * QA run never loads (or installs into) the person's.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import { atlarixHomeDir } from "@/paths/atlarix-home";
 
@@ -46,12 +47,33 @@ export function userHooksPath(): string {
  */
 export function isPluginControlPath(absPath: string): boolean {
   const target = normalizeForCompare(path.resolve(absPath));
-  const root = normalizeForCompare(pluginsRootDir());
-  if (target === root || target.startsWith(root + path.sep)) return true;
-  return (
-    target === normalizeForCompare(pluginRecordsPath()) ||
-    target === normalizeForCompare(userHooksPath())
-  );
+  // The control paths as configured AND as they really are: `~/.atlarix` can
+  // itself be a link (a dotfiles repo), and a resolved target must still match.
+  return controlPathSpellings().some(({ root, files }) => {
+    if (target === root || target.startsWith(root + path.sep)) return true;
+    return files.includes(target);
+  });
+}
+
+function controlPathSpellings(): Array<{ root: string; files: string[] }> {
+  const configured = {
+    root: pluginsRootDir(),
+    files: [pluginRecordsPath(), userHooksPath()],
+  };
+  const real = (p: string) => {
+    try {
+      return path.join(fs.realpathSync(path.dirname(p)), path.basename(p));
+    } catch {
+      return p;
+    }
+  };
+  return [
+    configured,
+    { root: real(configured.root), files: configured.files.map(real) },
+  ].map((s) => ({
+    root: normalizeForCompare(s.root),
+    files: s.files.map(normalizeForCompare),
+  }));
 }
 
 function normalizeForCompare(p: string): string {

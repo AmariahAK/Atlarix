@@ -55,7 +55,9 @@ vi.mock("@/lib/security/db-secrets", () => ({
     env ? { enc: env } : null,
 }));
 
-const { syncPluginMcpServers } = await import("@/lib/plugins/mcp-sync");
+const { removePluginMcpRows, syncPluginMcpServers } = await import(
+  "@/lib/plugins/mcp-sync"
+);
 const { commitPluginInstall, preparePluginInstall, removePlugin } =
   await import("@/lib/plugins/install");
 const { pluginDir } = await import("@/lib/plugins/paths");
@@ -229,5 +231,25 @@ describe("plugin MCP rows", () => {
     await syncPluginMcpServers(7, "/ws");
     expect(inserted).toEqual([]);
     expect(deleted).toEqual([]);
+  });
+
+  it("removes exactly one plugin's rows (an underscore is not a wildcard)", async () => {
+    const r = (id: number, registryId: string): Row => ({
+      id,
+      name: `n${id}`,
+      transport: "stdio",
+      command: "x",
+      args: [],
+      url: null,
+      enabled: true,
+      registryId,
+    });
+    rows = [
+      r(1, "plugin:a_b:db"),
+      r(2, "plugin:axb:db"),
+      r(3, "plugin:a_bc:db"),
+    ];
+    await removePluginMcpRows("a_b");
+    expect(deleted).toEqual([1]);
   });
 });
