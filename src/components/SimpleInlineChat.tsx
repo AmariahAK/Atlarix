@@ -730,6 +730,7 @@ export function SimpleInlineChat({
                       prompt: "",
                       chatId,
                       continueAfterQuestions: true,
+                      userRetry: true,
                     });
                   }}
                 >

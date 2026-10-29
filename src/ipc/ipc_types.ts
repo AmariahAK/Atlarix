@@ -83,6 +83,12 @@ export interface ChatStreamParams {
   /** "Try with a stronger model": paid Atlarix Auto answers this turn one level up. */
   escalate?: boolean;
   /**
+   * The user asked for this turn again (the Retry button): its first Core
+   * request carries `X-Atlarix-Retry: 1`, so the Auto/Zenith ladder can step
+   * up. Never set by an automatic retry.
+   */
+  userRetry?: boolean;
+  /**
    * Set when this turn IS an automation run (unattended, no human responder).
    * `unattended` drops the human-handoff tools.
    */

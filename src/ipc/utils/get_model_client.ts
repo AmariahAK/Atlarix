@@ -1,4 +1,5 @@
 import { throughFreeAutoGate } from "@/lib/billing/free-auto-gate";
+import { coreSessionId } from "@/lib/core/session-header";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   getPinnedProviderKey,
@@ -99,6 +100,13 @@ export interface GetModelClientOptions {
   escalate?: boolean;
   /** The chat whose turn this is: an Auto reply's free/paid is noted against it (turn_completed). */
   chatId?: number;
+  /**
+   * The chat a side call belongs to (title, compaction, sub-agent), for
+   * `X-Atlarix-Session` only, without the turn bookkeeping `chatId` drives.
+   */
+  sessionChatId?: number;
+  /** A turn the user asked for again: its first Core request says so (`X-Atlarix-Retry`). */
+  userRetry?: boolean;
 }
 
 const logger = log.scope("getModelClient");
@@ -427,6 +435,11 @@ async function getRegularModelClient(
         // kept as the construction-time default and as the fallback if a session
         // read fails mid-turn — never worse than today's behaviour.
         const autoHeaders = autoRequestHeaders(settings, options);
+        // One id per chat on every Core request of it (session-header.ts).
+        const sessionId = coreSessionId(options?.sessionChatId ?? options?.chatId);
+        // Only the FIRST request of a user's retry says so: the steps after it,
+        // and any automatic network retry, are ordinary requests.
+        let retryPending = options?.userRetry === true;
         const core = createOpenAICompatible({
           name: COMPASS_PROVIDER_ID,
           baseURL: proxyBaseUrl,
@@ -456,6 +469,11 @@ async function getRegularModelClient(
             // 'desktop' would split one product across two rows on the account
             // page and need every historical row backfilled.
             for (const [k, v] of Object.entries(surfaceHeaders())) headers.set(k, v);
+            if (sessionId) headers.set("X-Atlarix-Session", sessionId);
+            if (retryPending) {
+              headers.set("X-Atlarix-Retry", "1");
+              retryPending = false;
+            }
             if (isAutoTier || isZenithTier) {
               for (const [k, v] of Object.entries(autoHeaders)) {
                 if (isZenithTier && /free-consent/i.test(k)) continue;

@@ -1212,6 +1212,7 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
     );
     const { modelClient } = await getModelClient(summarizationModel, settings, {
       purpose: "compaction",
+      ...(params.chatId != null ? { sessionChatId: params.chatId } : {}),
     });
 
     const result = await generateText({

@@ -130,7 +130,10 @@ export async function generateSessionTitle(
     const settings = readSettings();
     const model = await resolveTitleModel(settings, await turnModelForChat(opts.chatId, settings));
     // No key for the provider: getModelClient throws, and there is no title.
-    const { modelClient } = await getModelClient(model, settings, { purpose: "title" });
+    const { modelClient } = await getModelClient(model, settings, {
+      purpose: "title",
+      ...(opts.chatId != null ? { sessionChatId: opts.chatId } : {}),
+    });
 
     const reasons = catalogSaysReasons(model.provider, model.name) === true;
     const call = (withReasoningOff: boolean) =>

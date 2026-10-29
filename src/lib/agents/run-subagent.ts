@@ -290,6 +290,7 @@ export async function runSubagent(
     const { modelClient } = await getModelClient(effectiveModel, settings, {
       delegationRole: "subagent" as const,
       delegationDepth: 1,
+      ...(args.chatId != null ? { sessionChatId: args.chatId } : {}),
     });
 
     // System prompt: a user-defined agent when named, else the generic scout.

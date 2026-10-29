@@ -1836,6 +1836,8 @@ export class IpcClient {
       effortOverride?: { effort: string; deepThinking: boolean };
       /** "Try with a stronger model" (paid Atlarix Auto). */
       escalate?: boolean;
+      /** The user's Retry (`X-Atlarix-Retry` on the first Core request). */
+      userRetry?: boolean;
     },
   ): void {
     const {
@@ -1855,6 +1857,7 @@ export class IpcClient {
       workModeOverride,
       effortOverride,
       escalate,
+      userRetry,
       displayPrompt,
       pasteAttachments,
     } = options;
@@ -1886,6 +1889,7 @@ export class IpcClient {
               workModeOverride: workModeOverride ?? undefined,
               effortOverride: effortOverride ?? undefined,
               escalate: escalate || undefined,
+              userRetry: userRetry || undefined,
             })
             .then((res) => this.endStreamDispatch(chatId, res))
             .catch((err) => {
@@ -1922,6 +1926,7 @@ export class IpcClient {
           workModeOverride: workModeOverride ?? undefined,
               effortOverride: effortOverride ?? undefined,
           escalate: escalate || undefined,
+          userRetry: userRetry || undefined,
         })
         .then((res) => this.endStreamDispatch(chatId, res))
         .catch((err) => {
