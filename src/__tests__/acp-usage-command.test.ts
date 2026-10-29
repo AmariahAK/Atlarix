@@ -64,6 +64,9 @@ describe("/usage in an editor chat", () => {
     expect(text).toContain("**Your activity**");
     expect(text).toContain("Sign in to see Atlarix credits.");
     expect(text).not.toContain("You're not signed in");
+    // An empty tab says why in one line, with no empty code block under it.
+    expect(text).toContain("_Atlarix Auto hasn't answered yet._");
+    expect(text).not.toMatch(/```\n```/);
   });
 
   it("still answers /stats, the old name", async () => {

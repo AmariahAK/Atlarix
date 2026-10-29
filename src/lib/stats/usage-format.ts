@@ -283,6 +283,8 @@ export function usageMarkdown(
 ): string {
   const block = (lines: UsageTextLine[]) => {
     const [head, ...rest] = lines;
+    // An empty tab is one line saying why: no heading, no empty code block.
+    if (!rest.length) return `_${head?.text ?? ""}_`;
     return [
       `**${head?.text ?? ""}**`,
       "",
