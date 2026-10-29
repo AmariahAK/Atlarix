@@ -19,7 +19,7 @@
  * prompts …) is a dialog on one stack (dialogs.ts, screens.ts): while one is
  * open it owns the keyboard, and esc closes it.
  */
-import { openMods, openPlugins } from "./plugins";
+import { augmentsChanged, openMods, openPlugins } from "./plugins";
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
@@ -1000,6 +1000,26 @@ export function App({
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paletteOpening]);
+  useEffect(() => {
+    const reload = () =>
+      void svc()
+        .plugins.commands(session.workspaceDir)
+        .then((list) =>
+          setPluginCommands(
+            list.map((c) => ({
+              name: `/${c.name}`,
+              description: `${c.description}${c.argumentHint ? ` ${c.argumentHint}` : ""} · ${c.plugin}`,
+              group: "plugin" as const,
+            })),
+          ),
+        )
+        .catch(() => {});
+    augmentsChanged.on("change", reload);
+    return () => {
+      augmentsChanged.off("change", reload);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const isPluginCommand = (name: string) =>
     pluginCommands.some((c) => c.name === name) && !COMMANDS.some((c) => c.name === name);
 
@@ -1621,7 +1641,12 @@ export function App({
         const typed = parseCommandLine(composer.current?.text() ?? "");
         const chosen = palette[Math.min(paletteIndex, palette.length - 1)]!.name;
         if (isPluginCommand(chosen)) {
-          // A plugin's command is a message: put it in the box for its text.
+          // An augment's command is a message. Typed in full, Enter sends it as
+          // one (the composer submits; A1: Enter only ever refilled "/count ",
+          // which still matched, so a command with no text could never run).
+          // Otherwise tab or enter fills it in for its text.
+          const typedNow = (composer.current?.text() ?? "").trim();
+          if (key.name === "return" && typedNow === chosen) return;
           composer.current?.setText(`${chosen} `);
           setPaletteIndex(0);
           key.preventDefault();

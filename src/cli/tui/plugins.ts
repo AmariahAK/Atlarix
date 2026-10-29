@@ -14,6 +14,14 @@ import type {
 } from "@/ipc/handlers/plugin_handlers";
 import { InputDialog, ListDialog, type Line, type ListItem } from "./dialogs";
 import type { ScreenContext } from "./screens";
+import { EventEmitter } from "node:events";
+
+/**
+ * Something about installed augments changed here (installed, removed, on/off,
+ * scope, review): the palette reloads their commands at once instead of on the
+ * next "/" (ai-31: "There's no /count command" right after installing).
+ */
+export const augmentsChanged = new EventEmitter();
 
 const counts = (p: {
   skills: string[];
@@ -80,6 +88,7 @@ export function openPlugins(ctx: ScreenContext): void {
         const p = plugins.find((x) => x.name === item.id);
         if (!p) return;
         await ctx.services.plugins.setEnabled(p.name, !p.enabled);
+        augmentsChanged.emit("change");
         await dialog.reload();
         return `${p.name} is ${p.enabled ? "off" : "on"}.`;
       },
@@ -167,11 +176,17 @@ function confirmInstall(
   done: () => void,
 ): void {
   const verb = preview.update ? "Update" : "Install";
-  const cancel = () => {
+  // The staged copy goes unless it is installed, however the dialogs close:
+  // "Not now", or esc on either step (A2: esc left it in augments/.staging).
+  let settled = false;
+  const discard = () => {
+    if (settled) return;
+    settled = true;
     void ctx.services.plugins.discard(preview.stagingId);
-    ctx.host.pop();
   };
+  const cancel = () => ctx.host.pop();
   const commit = async (runnablesConfirmed: boolean) => {
+    settled = true;
     try {
       await ctx.services.plugins.commit(preview.stagingId, runnablesConfirmed);
       ctx.host.closeAll();
@@ -180,56 +195,54 @@ function confirmInstall(
         4000,
         "success",
       );
+      augmentsChanged.emit("change");
       done();
     } catch (e) {
       ctx.host.closeAll();
       ctx.flash((e as Error).message, 6000, "error");
     }
   };
-  ctx.host.push(
-    new ListDialog({
-      title: `${verb} ${preview.name}?`,
-      intro: previewLines(preview),
-      footer: "↑↓ move · enter choose · esc not now",
-      items: [
-        { id: "no", label: "Not now" },
-        { id: "yes", label: preview.runnables.length ? "Continue" : verb },
-      ],
-      onChoose: async (item) => {
-        if (item.id !== "yes") return cancel();
-        if (!preview.runnables.length) return commit(false);
-        ctx.host.push(
-          new ListDialog({
-            title: `${preview.name} runs code`,
-            asking: true,
-            intro: [
-              {
-                text: "Once on, it can run these on this computer:",
-                bold: true,
-              },
-              ...preview.runnables.map((r) => ({ text: r })),
-              {
-                text: "Tool calls still ask you, as your own do.",
-                tone: "muted" as const,
-              },
-            ],
-            footer: "↑↓ move · enter choose · esc not now",
-            items: [
-              { id: "no", label: "Not now" },
-              { id: "yes", label: `${verb} and allow these` },
-            ],
-            onChoose: async (second) => {
-              if (second.id !== "yes") {
-                void ctx.services.plugins.discard(preview.stagingId);
-                return void ctx.host.closeAll();
-              }
-              await commit(true);
+  const first: ListDialog = new ListDialog({
+    title: `${verb} ${preview.name}?`,
+    intro: previewLines(preview),
+    footer: "↑↓ move · enter choose · esc not now",
+    items: [
+      { id: "no", label: "Not now" },
+      { id: "yes", label: preview.runnables.length ? "Continue" : verb },
+    ],
+    onChoose: async (item) => {
+      if (item.id !== "yes") return cancel();
+      if (!preview.runnables.length) return commit(false);
+      ctx.host.push(
+        new ListDialog({
+          title: `${preview.name} runs code`,
+          asking: true,
+          intro: [
+            {
+              text: "Once on, it can run these on this computer:",
+              bold: true,
             },
-          }),
-        );
-      },
-    }),
-  );
+            ...preview.runnables.map((r) => ({ text: r })),
+            {
+              text: "Tool calls still ask you, as your own do.",
+              tone: "muted" as const,
+            },
+          ],
+          footer: "↑↓ move · enter choose · esc not now",
+          items: [
+            { id: "no", label: "Not now" },
+            { id: "yes", label: `${verb} and allow these` },
+          ],
+          onChoose: async (second) => {
+            if (second.id !== "yes") return void ctx.host.closeAll();
+            await commit(true);
+          },
+        }),
+      );
+    },
+  });
+  first.onClose = discard;
+  ctx.host.push(first);
 }
 
 function confirmRemove(
@@ -249,6 +262,7 @@ function confirmRemove(
         ctx.host.pop();
         if (item.id !== "yes") return;
         await ctx.services.plugins.remove(name);
+        augmentsChanged.emit("change");
         ctx.flash(`${name} removed.`);
         done();
       },
@@ -300,6 +314,7 @@ function openPluginDetail(
       );
       if (!p) return;
       const refresh = async (say: string) => {
+        augmentsChanged.emit("change");
         await detail.reload();
         detail.say(say);
         done();
