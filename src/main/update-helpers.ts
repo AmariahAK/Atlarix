@@ -266,3 +266,39 @@ export function createUpdateRechecker(
     },
   };
 }
+
+/**
+ * Start this app again once the current process has exited, from a detached
+ * shell rather than `app.relaunch()`.
+ *
+ * Electron launches its relauncher with no-new-privs (Chromium's process
+ * launcher sets it), so the relaunched app cannot use the setuid
+ * `chrome-sandbox`: "The setuid sandbox is not running as root", then a fatal
+ * zygote check. On Ubuntu 24.04, where AppArmor blocks the namespace sandbox,
+ * every deb update installed by "Restart Now" left the app closed (EC2 run
+ * 2026-10-30; stock Electron 43.4.1 does the same). A child spawned through
+ * Node does not get the flag. The shell waits for this pid to be gone first,
+ * so the new process gets the single-instance lock.
+ */
+export function relaunchAfterExit(
+  pid: number,
+  execPath: string,
+  args: string[],
+  spawn: (
+    cmd: string,
+    argv: string[],
+    opts: { detached: true; stdio: "ignore" },
+  ) => { unref(): void },
+): void {
+  spawn(
+    "/bin/sh",
+    [
+      "-c",
+      'while kill -0 "$0" 2>/dev/null; do sleep 0.2; done; exec "$@"',
+      String(pid),
+      execPath,
+      ...args,
+    ],
+    { detached: true, stdio: "ignore" },
+  ).unref();
+}
