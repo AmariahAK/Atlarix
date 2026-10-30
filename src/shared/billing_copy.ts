@@ -32,6 +32,7 @@
  */
 
 import { ATLARIX_CORE_CATEGORY_LABEL } from "./compass_product_copy";
+import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "./texts";
 
 /** `$1.23`, or `-$1.23`. Negative balances are real — see the refund note below. */
 export function formatCents(cents: number): string {
@@ -555,3 +556,26 @@ export const AUTO_CONSENT_TERMS = [
   "Don't use it for code you can't share. Pro, credit and your own keys stay private.",
 ] as const;
 export const CORE_REACHABILITY_MARKER = "trouble reaching Atlarix Core";
+
+/**
+ * Atlarix Core's refusals that are ANSWERS, not failures: the wallet (never
+ * funded / spent / Pro allowance), free Auto's daily limit and full pools, and a
+ * paid model the provider made wait. A surface shows them as they are, never as
+ * "Sorry, there was an error from the AI: …" (QA B1/C2, 2026-10-31).
+ */
+export function isGateRefusal(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return [
+    CORE_NEVER_FUNDED_MARKER,
+    CORE_EXHAUSTED_MARKER,
+    PRO_ALLOWANCE_MARKER,
+    FREE_LIMIT_MARKER,
+    FREE_BUSY_MARKER,
+    CORE_RATE_LIMIT_MARKER,
+  ].some((m) => text.includes(m));
+}
+
+/** The text a failed turn sends: a gate refusal alone, anything else with the AI-error prefix. */
+export function turnErrorText(message: string): string {
+  return isGateRefusal(message) ? message : `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${message}`;
+}

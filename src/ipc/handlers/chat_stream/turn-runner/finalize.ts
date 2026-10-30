@@ -11,6 +11,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { turnErrorText } from "@/shared/billing_copy";
 import type { IpcMainInvokeEvent } from "electron";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
 import type { StreamTurnContext } from "@/ipc/handlers/chat_stream/turn-context";
@@ -773,7 +774,7 @@ export async function handleTurnError(
       safeSend(event.sender, "chat:response:error", {
         chatId: req.chatId,
         streamId,
-        error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${error instanceof Error ? error.message : String(error)}`,
+        error: turnErrorText(error instanceof Error ? error.message : String(error)),
       });
       safeSend(event.sender, "chat:response:end", {
         chatId: req.chatId,

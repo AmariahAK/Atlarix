@@ -9,7 +9,6 @@
  * - updates are deltas (updates.ts);
  * - an approval is a question to the editor (permissions.ts).
  */
-import { CORE_CREDIT_DESCRIPTION } from "@/shared/billing_copy";
 import path from "node:path";
 import {
   RequestError,
@@ -40,7 +39,8 @@ import {
   mcpConsentDecision,
   mcpConsentToolCall,
 } from "./permissions";
-import { AUTO_CONSENT_MARKER, AUTO_CONSENT_TERMS } from "@/shared/billing_copy";
+import { AUTO_CONSENT_MARKER, AUTO_CONSENT_TERMS, CORE_CREDIT_DESCRIPTION } from "@/shared/billing_copy";
+import { type ErrorMark, refusalDelivery, turnErrorSince } from "./turn-error";
 import { diffUpdates, type Emitted } from "./updates";
 import { handler } from "../agent/ipc";
 import { groupOptions, type ModelOption } from "../agent/models";
@@ -582,7 +582,7 @@ class Thread {
     this.turn = turn;
     this.emitted.clear();
     this.replayAll = true;
-    const errorBefore = this.session.state.lastError;
+    const before = this.errorMark();
     let kept: string[] = [];
     try {
       ({ kept } = await this.session.resendEdited(messageId, text, preview?.turnIds.length ? preview.turnIds : null));
@@ -598,8 +598,9 @@ class Thread {
     await this.afterTurn();
     await this.flush();
     if (this.stopped(turn, cellsBefore)) return { stopReason: "cancelled" };
-    const err = this.session.state.lastError;
-    if (err && err !== errorBefore) throw RequestError.internalError(undefined, err);
+    const err = this.turnError(before);
+    if (err && refusalDelivery(err, this.extras()) === "reply") return this.refusalAsReply(err);
+    if (err) throw RequestError.internalError(undefined, err);
     // Files the restore left alone (changed since): Atlarix's extension says so.
     return {
       stopReason: "end_turn",
@@ -708,7 +709,7 @@ class Thread {
     const { text, images } = promptInput(blocks, this.cwd);
     // Cells already on screen (the user's own message among them) are not news.
     diffUpdates(this.session.state.cells, this.emitted);
-    const errorBefore = this.session.state.lastError;
+    const before = this.errorMark();
     const slash = /^\/(\w+)\s*$/.exec(text);
     const skill = this.skillFor(text);
     // `/feedback [1|2|3] [text]`: to Atlarix, never to the model.
@@ -832,12 +833,29 @@ class Thread {
     await this.afterTurn();
     await this.flush();
     if (this.stopped(turn, cellsBefore)) return { stopReason: "cancelled" };
-    const err = this.session.state.lastError;
-    if (err && err !== errorBefore && err.includes(AUTO_CONSENT_MARKER)) return this.autoConsent();
-    if (err && err !== errorBefore) {
+    const err = this.turnError(before);
+    if (err && err.includes(AUTO_CONSENT_MARKER)) return this.autoConsent();
+    if (err) {
       if (isAuthError(err)) throw RequestError.authRequired(undefined, "Sign in to Atlarix first (`atlarix login`).");
+      if (refusalDelivery(err, this.extras()) === "reply") return this.refusalAsReply(err);
       throw RequestError.internalError(undefined, err);
     }
+    return { stopReason: "end_turn" };
+  }
+
+  /** Where the session's error stood: its text, and the last turn's start. */
+  private errorMark(): ErrorMark {
+    return { error: this.session.state.lastError, startedAt: this.session.state.turnStartedAt ?? null };
+  }
+
+  /** The error this turn ended with (turn-error.ts). */
+  private turnError(before: ErrorMark): string | null {
+    return turnErrorSince(before, this.errorMark());
+  }
+
+  /** A gate refusal as the agent's reply, ending the turn normally. */
+  private async refusalAsReply(text: string): Promise<PromptResponse> {
+    await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
     return { stopReason: "end_turn" };
   }
 

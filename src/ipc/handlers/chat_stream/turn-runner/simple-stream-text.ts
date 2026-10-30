@@ -27,7 +27,7 @@ import {
 } from "@/lib/usage/ai-usage";
 import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
 import { takeZenithOffer } from "@/lib/core/zenith-offer";
-import { ZENITH_OFFER_LINE } from "@/shared/billing_copy";
+import { ZENITH_OFFER_LINE, turnErrorText } from "@/shared/billing_copy";
 import { isInsufficientCreditError } from "@/lib/billing/insufficient-credit";
 import { markCreditExhausted } from "@/lib/agents/credit-halt";
 import { failQueuedDelegationsForChat } from "@/lib/agents/delegation-limiter";
@@ -110,7 +110,6 @@ import { isCustomAnthropicFormat } from "@/lib/routing/custom-provider-format";
 import { systemReminder } from "@/lib/streaming/system-reminder";
 import { buildStepMessages } from "@/lib/streaming/step-messages";
 import {
-  AI_STREAMING_ERROR_MESSAGE_PREFIX,
   byokLimitUserMessage,
   modelFailureUserMessage,
 } from "@/shared/texts";
@@ -1298,7 +1297,7 @@ export async function simpleStreamText(
       safeSend(event.sender, "chat:response:error", {
         chatId: req.chatId,
         streamId,
-        error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${message}`,
+        error: turnErrorText(message),
       });
       // Clean up the abort controller
       if (activeStreamId.get(req.chatId) === streamId)
