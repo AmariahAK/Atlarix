@@ -23,7 +23,6 @@ import {
   setCoreModelOverrides,
   __resetCoreModelOverridesForTests,
   setCoreAuto,
-  setCoreRetired,
 } from "@/ipc/shared/core-model-override-store";
 import {
   computeCoreSlotChange,
@@ -52,15 +51,13 @@ describe("the model a selection actually resolves to", () => {
     );
   });
 
-  it("a dropped or retired paid slot reports Atlarix Auto, the model that will really answer", () => {
+  it("a dropped paid slot reports Atlarix Auto, the model that will really answer", () => {
     // The whole reason it resolves rather than reads: the notice names the
-    // model that answers now. A dropped or retired paid slot moves to Auto,
+    // model that answers now. A dropped paid slot moves to Auto,
     // never to another paid slot (owner, 2026-10-29).
     setCoreModelOverrides({ "core-1": GLM });
     setCoreAuto({ id: "atlarix/auto", label: "Atlarix Auto" });
     expect(effectiveCoreModelId({ provider: "compass", name: "core-3" })).toBe("atlarix/auto");
-    setCoreRetired(["core-1"]);
-    expect(effectiveCoreModelId({ provider: "compass", name: "core-1" })).toBe("atlarix/auto");
   });
 
   it("says nothing for a BYOK user — their model did not change", () => {

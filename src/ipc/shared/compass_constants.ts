@@ -17,7 +17,6 @@ import { CORE_TIER_ROWS } from "../../shared/compass_product_copy";
 import {
   getCoreAuto,
   getCoreZenith,
-  isCoreTierRetired,
   getCoreModelOverrideId,
   getCoreTierRouting,
 } from "@/ipc/shared/core-model-override-store";
@@ -32,9 +31,6 @@ export const CORE_TIER_3 = "core-3";
 export const CORE_TIER_4 = "core-4";
 export const CORE_TIER_5 = "core-5";
 export const CORE_TIER_6 = "core-6";
-export const CORE_TIER_7 = "core-7";
-export const CORE_TIER_8 = "core-8";
-export const CORE_TIER_9 = "core-9";
 
 /**
  * Atlarix Auto: a FREE Core option (OpenAI complimentary tokens, a $0 floor
@@ -88,9 +84,6 @@ export const CORE_TIER_ORDER = [
   CORE_TIER_4,
   CORE_TIER_5,
   CORE_TIER_6,
-  CORE_TIER_7,
-  CORE_TIER_8,
-  CORE_TIER_9,
 ] as const;
 
 /** Pre-v11 persisted selections (`compass-*`) keep resolving forever. */
@@ -187,9 +180,6 @@ export function getCompassSyntheticModels(): LanguageModel[] {
       ]
     : [];
   return [...autoRow, ...CORE_TIER_ROWS.flatMap((row) => {
-    // A retired slot still answers for older builds' pinned chats (as Auto,
-    // proxy-side) but is never offered again.
-    if (isCoreTierRetired(row.id)) return [];
     const openRouterModelId =
       getOpenRouterModelIdForCoreTier(row.id)?.trim() ?? "";
     // A slot with no configured model is NOT shown. There are five slots but the
@@ -333,12 +323,6 @@ export function getCoreModelIdForCoreTier(
             return trimEnv(process.env.ATLARIX_CORE_MODEL_5);
           case CORE_TIER_6:
             return trimEnv(process.env.ATLARIX_CORE_MODEL_6);
-          case CORE_TIER_7:
-            return trimEnv(process.env.ATLARIX_CORE_MODEL_7);
-          case CORE_TIER_8:
-            return trimEnv(process.env.ATLARIX_CORE_MODEL_8);
-          case CORE_TIER_9:
-            return trimEnv(process.env.ATLARIX_CORE_MODEL_9);
           default:
             return undefined;
         }
@@ -363,7 +347,7 @@ export const getOpenRouterModelIdForCoreTier = getCoreModelIdForCoreTier;
  * broke the BYOK-fallback path and any persisted selection pointing at it.
  */
 export function getFirstConfiguredCoreTier(): string | undefined {
-  return DEFAULT_CORE_TIER_ORDER.filter((t) => !isCoreTierRetired(t)).find(
+  return DEFAULT_CORE_TIER_ORDER.find(
     (tier) => !!getCoreModelIdForCoreTier(tier)?.trim(),
   );
 }
@@ -420,15 +404,15 @@ export const DEFAULT_NEW_USER_CORE_TIER: string = CORE_TIER_AUTO;
 /**
  * Resolve a requested Core tier to one that is actually configured.
  *
- * Returns the tier unchanged when it has a model and is not retired. A paid slot
- * that is retired or no longer mapped moves to ATLARIX AUTO, never to another paid
- * slot (owner, 2026-10-29: "map everyone from now on to default atlarix auto …
+ * Returns the tier unchanged when it has a model. A paid slot that is no longer
+ * mapped moves to ATLARIX AUTO, never to another paid slot (owner, 2026-10-29: "map everyone from now on to default atlarix auto …
  * then nothing is broken"). The user picks onward from there; the app's one-time
  * "your Core model changed" notice says so (core-slot-change.ts).
  *
  * It used to fall forward in slot order to the next PAID slot, which 15.11.1 still
  * does: dropping GLM and Luna would have moved those chats onto GPT-6.1 Sol at
- * Sol's price, with only a log line. Auto is what a new install starts on, it is
+ * Sol's price, with only a log line. (The lineup was renumbered instead on
+ * 2026-10-30, with no paying users to move; this stays for any slot that goes.) Auto is what a new install starts on, it is
  * free for an account with nothing to pay with, and it is routed for one that pays.
  *
  * Auto and Zenith themselves NEVER move: a withdrawn Auto errors ("isn't offered
@@ -446,8 +430,7 @@ export function resolveConfiguredCoreTier(
   if (norm === CORE_TIER_AUTO || norm === CORE_TIER_ZENITH) {
     return getCoreModelIdForCoreTier(norm)?.trim() ? { tier: norm, substituted: false } : undefined;
   }
-  if (!isCoreTierRetired(norm) && getCoreModelIdForCoreTier(norm)?.trim())
-    return { tier: norm, substituted: false };
+  if (getCoreModelIdForCoreTier(norm)?.trim()) return { tier: norm, substituted: false };
   return getCoreAuto()?.id ? { tier: CORE_TIER_AUTO, substituted: true } : undefined;
 }
 

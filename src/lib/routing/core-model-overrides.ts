@@ -26,7 +26,6 @@ import {
 } from "@/ipc/shared/compass_constants";
 import {
   setCoreAuto,
-  setCoreRetired,
   setCoreZenith,
   setCoreModelOverrides,
   setCoreModelWebSearch,
@@ -118,8 +117,6 @@ function applyOverridesAndNotify(raw: unknown): void {
   setCoreAuto(auto);
   const zenith = parseCoreZenith(raw);
   setCoreZenith(zenith);
-  const retired = parseCoreRetired(raw);
-  setCoreRetired(retired);
   const efforts = parseModelEfforts(raw);
   registerEffortOverrides(efforts);
   // The proxy's fallback (item 10): here first, so it changes without a release.
@@ -133,7 +130,6 @@ function applyOverridesAndNotify(raw: unknown): void {
         Object.entries(map).sort(([a], [b]) => a.localeCompare(b)),
         auto,
         zenith,
-        retired,
         efforts,
       ])
     : null;
@@ -301,17 +297,6 @@ export function parseCoreZenith(raw: unknown): CoreZenithConfig | null {
     })
     .filter((x): x is { providerId: string; modelId: string } => x !== null);
   return { id, label, ...(models.length ? { models } : {}) };
-}
-
-/** Top-level `retired`: slot ids still mapped for older builds, never offered here. */
-export function parseCoreRetired(raw: unknown): string[] {
-  if (!raw || typeof raw !== "object") return [];
-  const r = (raw as { retired?: unknown }).retired;
-  if (!Array.isArray(r)) return [];
-  return r
-    .filter((x): x is string => typeof x === "string")
-    .map((x) => normalizeCoreTierId(x.trim()))
-    .filter((x) => CORE_TIER_IDS.has(x));
 }
 
 /** Read + JSON-parse the cached raw payload, or null on miss/invalid. */

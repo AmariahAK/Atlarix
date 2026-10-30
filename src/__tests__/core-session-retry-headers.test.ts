@@ -49,14 +49,14 @@ import { getModelClient } from "@/ipc/utils/get_model_client";
 import { __resetCoreModelOverridesForTests, setCoreModelOverrides } from "@/ipc/shared/core-model-override-store";
 import { __setCoreSessionSecretForTests, coreSessionId } from "@/lib/core/session-header";
 
-const SONNET = { provider: "compass", name: "core-7" } as const;
+const SONNET = { provider: "compass", name: "core-2" } as const;
 const ask = (model: { doGenerate: (o: unknown) => Promise<unknown> }) =>
   model.doGenerate({ prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }] });
 
 beforeEach(() => {
   seen.length = 0;
   __resetCoreModelOverridesForTests();
-  setCoreModelOverrides({ "core-7": "anthropic/claude-sonnet-5-5" });
+  setCoreModelOverrides({ "core-2": "anthropic/claude-sonnet-5-5" });
   __setCoreSessionSecretForTests(null);
   require("node:fs").rmSync(TMP, { recursive: true, force: true });
   delete process.env.ATLARIX_CORE_SESSION;

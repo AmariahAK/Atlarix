@@ -91,14 +91,12 @@ export async function resolveTitleModel(
   }
   const selected = turnModel ?? settings.selectedModel;
   if (selected.provider === "compass") {
-    const { isCoreAutoTier, getCoreModelIdForCoreTier, CORE_TIER_1, CORE_TIER_AUTO } =
+    const { isCoreAutoTier, getCoreModelIdForCoreTier, CORE_TIER_AUTO } =
       await import("@/ipc/shared/compass_constants");
-    const { isCoreTierRetired } = await import("@/ipc/shared/core-model-override-store");
     if (isCoreAutoTier(selected.name)) return selected;
-    // The cheap slot when it is still offered; once it is retired (GLM left
-    // Core for good, 2026-10-29), Auto, which routes a title to a small model.
-    if (!isCoreTierRetired(CORE_TIER_1) && getCoreModelIdForCoreTier(CORE_TIER_1)?.trim())
-      return { provider: "compass", name: CORE_TIER_1 };
+    // Auto, which routes a title (X-Atlarix-Purpose: title) to the cheapest
+    // model of the turn's family (owner, 2026-10-30). core-1 used to be the
+    // cheap slot; since the renumbering it is GPT-6.1 Terra.
     return getCoreModelIdForCoreTier(CORE_TIER_AUTO)?.trim() ? { provider: "compass", name: CORE_TIER_AUTO } : selected;
   }
   if (LOCAL_PROVIDERS.has(selected.provider)) return selected;

@@ -98,9 +98,6 @@ for (const key of [
   "ATLARIX_CORE_MODEL_4",
   "ATLARIX_CORE_MODEL_5",
   "ATLARIX_CORE_MODEL_6",
-  "ATLARIX_CORE_MODEL_7",
-  "ATLARIX_CORE_MODEL_8",
-  "ATLARIX_CORE_MODEL_9",
 ]) {
   delete process.env[key];
 }
