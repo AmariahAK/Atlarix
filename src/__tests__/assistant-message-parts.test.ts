@@ -353,3 +353,27 @@ describe("parseAssistantMessageParts pure-prose fast path", () => {
     expect(parts.some((p) => p.type === "thought")).toBe(true);
   });
 });
+
+describe("a thought left open across a tool call (gpt-oss on Bedrock, CLI QA 2026-10-30)", () => {
+  const shape =
+    '<reasoning>Create the DONE file.<atlarix-tool-call tool="edit_file" call="c1" status="running">\n{"path":"DONE"}\n</atlarix-tool-call>\n' +
+    '<atlarix-tool-result tool="edit_file" call="c1" status="complete">\n{"success":true}\n</atlarix-tool-result>\n<reasoning>';
+  it("closes the thought where the tool begins, so the tool shows and no closer leaks (live)", () => {
+    const parts = parseAssistantMessageParts(shape, true);
+    expect(parts.map((p) => p.type)).toEqual(["thought", "tool"]);
+    expect(parts.some((p) => p.type === "markdown")).toBe(false);
+  });
+  it("the same once the second thought has text, and when the turn is over", () => {
+    for (const streaming of [true, false]) {
+      const parts = parseAssistantMessageParts(shape + "Done.</reasoning>All set.", streaming);
+      expect(parts.map((p) => p.type)).toEqual(["thought", "tool", "thought", "markdown"]);
+      expect((parts[3] as { content: string }).content).toBe("All set.");
+    }
+  });
+  it("a thought opened again without a closer starts a new one, never prose", () => {
+    const parts = parseAssistantMessageParts("<reasoning>one<reasoning>two</reasoning>Answer.", false);
+    // Adjacent thoughts merge into one; what matters is that nothing became prose but the answer.
+    expect(parts.filter((p) => p.type === "markdown").map((p) => (p as { content: string }).content)).toEqual(["Answer."]);
+    expect(parts[0]!.type).toBe("thought");
+  });
+});

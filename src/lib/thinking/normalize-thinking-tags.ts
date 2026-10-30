@@ -52,7 +52,9 @@ const ORPHAN_CLOSER_TAGS = [CANONICAL_THOUGHT_TAG, "reasoning"] as const;
  * M3: a bare `</think>` rendered in the middle of the reply).
  */
 function stripUnmatchedClosers(content: string, tagName: string): string {
-  const scan = new RegExp(`<${tagName}(?:\\s[^>]*)?>|</${tagName}>`, "gi");
+  // `</\n reasoning >` is a closer too: gpt-oss over Bedrock broke a closer across
+  // a newline and the stray half rendered as prose (CLI QA, 2026-10-30).
+  const scan = new RegExp(`<\\s*${tagName}(?:\\s[^>]*)?>|<\\s*/\\s*${tagName}\\s*>`, "gi");
   const drop: Array<[number, number]> = [];
   let depth = 0;
   let m: RegExpExecArray | null;
@@ -86,11 +88,11 @@ export function normalizeThinkingTags(content: string): string {
   for (const variant of THOUGHT_TAG_VARIANTS) {
     out = out
       .replace(
-        new RegExp(`<${variant}(\\s[^>]*)?>`, "gi"),
+        new RegExp(`<\\s*${variant}(\\s[^>]*)?>`, "gi"),
         (_m, attrs = "") => `<${CANONICAL_THOUGHT_TAG}${attrs}>`,
       )
       .replace(
-        new RegExp(`</${variant}>`, "gi"),
+        new RegExp(`<\\s*/\\s*${variant}\\s*>`, "gi"),
         `</${CANONICAL_THOUGHT_TAG}>`,
       );
   }
