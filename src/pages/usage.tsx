@@ -36,11 +36,12 @@ import { cn } from "@/lib/utils";
 
 /** Series colours, then Other. */
 const SERIES_BG = [
-  "bg-(--chart-1)",
-  "bg-(--chart-2)",
-  "bg-(--chart-3)",
-  "bg-(--chart-4)",
-  "bg-(--chart-5)",
+  // Five hues far apart (QA A23: the chart tokens are two greens and two ambers).
+  "bg-emerald-500",
+  "bg-sky-500",
+  "bg-amber-500",
+  "bg-rose-500",
+  "bg-violet-500",
   "bg-muted-foreground/40",
 ] as const;
 const seriesBg = (i: number) => SERIES_BG[Math.min(i, SERIES_BG.length - 1)];
@@ -169,7 +170,13 @@ async function cardPng(svg: string): Promise<{ blob: Blob; dataUrl: string }> {
   canvas.height = img.naturalHeight || 630;
   canvas.getContext("2d")?.drawImage(img, 0, 0);
   const dataUrl = canvas.toDataURL("image/png");
-  const blob = await (await fetch(dataUrl)).blob();
+  // Not fetch(dataUrl): the app's CSP refuses data: URLs to fetch (QA A20).
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("toBlob"))),
+      "image/png",
+    ),
+  );
   return { blob, dataUrl };
 }
 

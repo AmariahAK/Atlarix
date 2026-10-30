@@ -172,6 +172,30 @@ export interface SimpleStreamTextDeps {
   abortController: AbortController;
 }
 
+/**
+ * The tokens of a stopped round's FINISHED steps, added to the turn's tallies
+ * (onAbort; onEnd, which adds them otherwise, never runs after a stop).
+ */
+export function addFinishedStepsUsage(
+  ctx: Pick<
+    StreamTurnContext,
+    | "turnInputTokens"
+    | "turnOutputTokens"
+    | "turnCachedInputTokens"
+    | "turnCacheCreationTokens"
+  >,
+  steps: ReadonlyArray<{ usage?: unknown }>,
+): void {
+  for (const s of steps) {
+    const split = inputOutputTokensFromUsage(s.usage);
+    if (!split) continue;
+    ctx.turnInputTokens += split.inputTokens;
+    ctx.turnOutputTokens += split.outputTokens;
+    ctx.turnCachedInputTokens += split.cachedInputTokens ?? 0;
+    ctx.turnCacheCreationTokens += split.cacheCreationInputTokens ?? 0;
+  }
+}
+
 export async function simpleStreamText(
   ctx: StreamTurnContext,
   deps: SimpleStreamTextDeps,
@@ -953,6 +977,10 @@ export async function simpleStreamText(
     // step. This is the authoritative completed-step set — prefer it
     // over the incremental onStepFinish buffer if it carries more.
     onAbort: ({ steps }) => {
+      // A stopped round never reaches onEnd, so its finished steps' tokens
+      // (spent, and billed) would go uncounted. The step in flight at the
+      // stop has no usage: providers send it only at the end of a reply.
+      addFinishedStepsUsage(ctx, steps);
       const fromAbort = steps.flatMap(
         (s) => (s.response?.messages ?? []) as ModelMessage[],
       );

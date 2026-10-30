@@ -3097,11 +3097,12 @@ li.md-task {
 .use-bars__seg {
   min-height: 1px;
 }
+/* Hues far apart: primary-line was a second green beside primary. */
 .ser0 { background: var(--primary); }
 .ser1 { background: var(--code); }
 .ser2 { background: var(--warn); }
-.ser3 { background: var(--primary-line); }
-.ser4 { background: var(--danger-soft); }
+.ser3 { background: var(--danger-soft); }
+.ser4 { background: #b39ddb; }
 .ser5 { background: var(--faint); }
 .use-legend {
   display: flex;
