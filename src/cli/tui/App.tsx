@@ -96,6 +96,7 @@ import {
   topLevel,
   type EffortChoices,
 } from "@/lib/routing/model-reasoning-profile";
+import { ratingAnswerFor, ratingSnoozesOn } from "./rating-keys";
 import { filterEntries, listWorkspaceEntries, mentionAt, mentionInsert } from "../agent/file-index";
 import { parseShellInput } from "../agent/shell-mode";
 import { abbreviatePath, activityLabel, formatTokens, oneLine } from "./format";
@@ -802,6 +803,8 @@ export function App({
   });
   /** The next line typed goes to /feedback, not the model (after a rating, or a bare /feedback). */
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  /** The turn count at which typing snoozed the rating prompt; it may ask again after the next turn. */
+  const [ratingSnoozedTurn, setRatingSnoozedTurn] = useState(-1);
   useEffect(() => {
     if (!services?.feedback) return; // without it (test fakes) nothing is asked
     void services.feedback.askedAt().then(setRatedAt, () => setRatedAt(undefined));
@@ -818,6 +821,7 @@ export function App({
     !host.open &&
     !draft &&
     !feedbackOpen &&
+    ratingSnoozedTurn !== turnsDone &&
     shouldAskRating({
       turns: turnsDone,
       ratedAt,
@@ -1647,9 +1651,14 @@ export function App({
       key.preventDefault();
       return setFeedbackOpen(false);
     }
-    if (askRating && !key.ctrl && !key.meta && ["0", "1", "2", "3"].includes(key.name ?? "")) {
-      key.preventDefault();
-      return answerRating(key.name as "0" | "1" | "2" | "3");
+    if (askRating) {
+      const answer = ratingAnswerFor(key, { asking: true, composerText: composer.current?.text() ?? "" });
+      if (answer) {
+        key.preventDefault();
+        return answerRating(answer);
+      }
+      // Typing: the prompt steps aside until the next turn ends (QA 2026-10-30).
+      if (ratingSnoozesOn(key)) setRatingSnoozedTurn(turnsDone);
     }
     if (planShown && !host.open && (key.name === "pageup" || key.name === "pagedown")) {
       key.preventDefault();
