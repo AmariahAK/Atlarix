@@ -110,7 +110,15 @@ export function parseUsageTeam(
     if (!r || typeof r.day !== "string") continue;
     const c = cents(r.cents);
     addToMonth(members, text(r.member, "Unknown"), r.day, c, months);
-    addToMonth(channels, text(r.channel, "Direct messages"), r.day, c, months);
+    // A DM comes as no channel or as "dm".
+    const channel = text(r.channel, "Direct messages");
+    addToMonth(
+      channels,
+      channel.toLowerCase() === "dm" ? "Direct messages" : channel,
+      r.day,
+      c,
+      months,
+    );
   }
   const tasks = new Map<string, number>();
   for (const m of (Array.isArray(d.members) ? d.members : []) as Array<

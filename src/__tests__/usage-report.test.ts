@@ -601,6 +601,25 @@ describe("workspace pays (Slack) in the Credits tab", () => {
     ).toBeUndefined();
   });
 
+  it('reads a DM sent as "dm" the same as one with no channel', () => {
+    const team = parseUsageTeam(
+      {
+        ok: true,
+        rows: [
+          { day: "2026-10-02", member: "dana", channel: null, cents: 20 },
+          { day: "2026-10-03", member: "dana", channel: "dm", cents: 10 },
+          { day: "2026-10-03", member: "dana", channel: "#eng", cents: 5 },
+        ],
+        members: [],
+      },
+      now,
+    );
+    expect(team?.channels.map((c) => [c.channel, c.thisMonthCents])).toEqual([
+      ["Direct messages", 30],
+      ["#eng", 5],
+    ]);
+  });
+
   it("shows what a workspace paid for you, and the payer's team, in the text", () => {
     const paid = parsePaidForMe(
       {
