@@ -167,4 +167,24 @@ export interface UsageTeam {
     thisMonthCents: number;
     lastMonthCents: number;
   }>;
+  /**
+   * One block per Slack workspace, when the account pays for more than one
+   * (owner: a pot can pay for several Slacks). Absent with a single workspace.
+   */
+  workspaces?: Array<{
+    teamName: string;
+    people: number;
+    thisMonthCents: number;
+    lastMonthCents: number;
+    members: Array<{
+      member: string;
+      thisMonthCents: number;
+      lastMonthCents: number;
+    }>;
+    channels: Array<{
+      channel: string;
+      thisMonthCents: number;
+      lastMonthCents: number;
+    }>;
+  }>;
 }
