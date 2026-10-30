@@ -50,6 +50,11 @@ function PreviewBody({ p }: { p: PluginPreviewView }) {
       {p.skills.length ? <div>Skills: {p.skills.join(", ")}</div> : null}
       {p.agents.length ? <div>Agents: {p.agents.join(", ")}</div> : null}
       {p.commands.length ? <div>Commands: {p.commands.join(", ")}</div> : null}
+      {p.update?.installedChanged ? (
+        <div className="text-amber-600 dark:text-amber-400">
+          Puts back the files that changed on disk
+        </div>
+      ) : null}
       {p.update ? (
         <div className="space-y-1">
           <div className="text-muted-foreground">
@@ -152,7 +157,11 @@ export function PluginsSettingsPage() {
   const update = (name: string) =>
     run(async () => {
       const preview = await ipc.preparePluginUpdate(name);
-      if (preview.update && preview.update.changedFiles.length === 0) {
+      if (
+        preview.update &&
+        preview.update.changedFiles.length === 0 &&
+        !preview.update.installedChanged
+      ) {
         void ipc.discardPluginInstall(preview.stagingId);
         setError(`${name} is up to date.`);
         return;

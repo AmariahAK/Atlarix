@@ -110,13 +110,13 @@ export function collectHooks(
     if (candidates.length === 0) continue;
     const verified = verifyInstalledPlugin(record);
     if ("problem" in verified) {
-      logger.warn(`hooks of ${record.name} skipped: ${verified.problem}`);
+      logger.warn(`edicts of ${record.name} skipped: ${verified.problem}`);
       continue;
     }
     for (const hook of verified.contents.hooks.filter(applies)) {
       if (!record.approvedHooks.includes(sha256(hook.command))) {
         logger.warn(
-          `hook of ${record.name} skipped: command not approved: ${hook.command}`,
+          `edict of ${record.name} skipped: command not approved: ${hook.command}`,
         );
         continue;
       }
@@ -206,7 +206,7 @@ function runOne(
   const cwd = ctx.workspacePath || r.pluginRoot || process.cwd();
   const how = sandboxedSpawn(command, cwd);
   if ("refused" in how) {
-    logger.warn(`hook not run: ${how.refused}: ${r.hook.command}`);
+    logger.warn(`edict not run: ${how.refused}: ${r.hook.command}`);
     return Promise.resolve({
       code: null,
       stdout: "",
@@ -237,7 +237,7 @@ function runOne(
         windowsHide: true,
       });
     } catch (err) {
-      logger.warn(`hook failed to start (${r.hook.command}): ${String(err)}`);
+      logger.warn(`edict failed to start (${r.hook.command}): ${String(err)}`);
       resolve({ code: null, stdout: "", stderr: String(err), timedOut: false });
       return;
     }
@@ -259,7 +259,7 @@ function runOne(
       clearTimeout(timer);
       if (timedOut)
         logger.warn(
-          `hook timed out after ${r.hook.timeoutMs}ms: ${r.hook.command}`,
+          `edict timed out after ${r.hook.timeoutMs}ms: ${r.hook.command}`,
         );
       resolve({ code, stdout, stderr, timedOut });
     });

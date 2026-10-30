@@ -90,7 +90,7 @@ export function verifyPluginFiles(record: PluginRecord): string | null {
   }
   if (changed.length === 0) return null;
   logger.warn(
-    `plugin ${record.name} changed on disk: ${changed.slice(0, 5).join(", ")}`,
+    `silk ${record.name} changed on disk: ${changed.slice(0, 5).join(", ")}`,
   );
   const more = changed.length > 1 ? ` +${changed.length - 1}` : "";
   return `${record.name} changed on disk since you installed it (${changed[0]}${more}); reinstall or update to use it`;

@@ -97,7 +97,7 @@ export async function syncPluginMcpServers(
     const want = desired.get(row.registryId);
     if (!want) {
       await db.delete(mcpServers).where(eq(mcpServers.id, row.id));
-      logger.info(`plugin MCP server removed from folder: ${row.name}`);
+      logger.info(`silk MCP server removed from folder: ${row.name}`);
       continue;
     }
     desired.delete(row.registryId);
@@ -129,7 +129,7 @@ export async function syncPluginMcpServers(
   for (const want of desired.values()) {
     if (names.has(want.name.toLowerCase())) {
       logger.warn(
-        `plugin MCP server ${want.tag} not added: this folder already has a server named ${want.name}`,
+        `silk MCP server ${want.tag} not added: this folder already has a server named ${want.name}`,
       );
       continue;
     }
@@ -180,6 +180,6 @@ export async function syncPluginMcpServersForApp(appId: number): Promise<void> {
     if (!app?.path) return;
     await syncPluginMcpServers(appId, resolveAppPath(app.path));
   } catch (err) {
-    logger.warn(`plugin MCP sync failed for folder ${appId}: ${String(err)}`);
+    logger.warn(`silk MCP sync failed for folder ${appId}: ${String(err)}`);
   }
 }

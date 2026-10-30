@@ -132,7 +132,11 @@ function startUpdate(ctx: ScreenContext, name: string, done: () => void): void {
   ctx.services.plugins
     .prepareUpdate(name)
     .then((preview) => {
-      if (preview.update && preview.update.changedFiles.length === 0) {
+      if (
+        preview.update &&
+        preview.update.changedFiles.length === 0 &&
+        !preview.update.installedChanged
+      ) {
         void ctx.services.plugins.discard(preview.stagingId);
         return void ctx.flash(`${name} is up to date.`);
       }
@@ -155,6 +159,12 @@ export function previewLines(p: PluginPreviewView): Line[] {
   if (p.agents.length) lines.push({ text: `Agents: ${p.agents.join(", ")}` });
   if (p.commands.length)
     lines.push({ text: `Commands: ${p.commands.join(", ")}` });
+  if (p.update?.installedChanged) {
+    lines.push({
+      text: "Puts back the files that changed on disk",
+      tone: "warn",
+    });
+  }
   if (p.update) {
     lines.push({
       text: `${p.update.changedFiles.length} file(s) changed`,

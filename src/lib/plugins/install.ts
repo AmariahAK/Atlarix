@@ -58,6 +58,12 @@ export interface PluginInstallPreview {
   /** Set for an update. */
   replaces: PluginRecord | null;
   changedFiles: string[];
+  /**
+   * The installed copy no longer matches its record (changed on disk). An
+   * update then restores it even when the source has not moved (A3: "up to
+   * date" left a broken silk broken).
+   */
+  installedChanged: boolean;
   runnablesAdded: string[];
   runnablesRemoved: string[];
 }
@@ -109,6 +115,7 @@ export async function preparePluginInstall(
       files,
       replaces: existing ?? null,
       changedFiles: existing ? diffTrees(existing.files, files) : [],
+      installedChanged: existing ? verifyPluginFiles(existing) !== null : false,
       runnablesAdded: runnables.filter((r) => !before.includes(r)),
       runnablesRemoved: before.filter((r) => !runnables.includes(r)),
     };
@@ -190,7 +197,7 @@ export function commitPluginInstall(
   const records = readPluginRecords().filter((r) => r.name !== name);
   writePluginRecords([...records, record]);
   logger.info(
-    `plugin ${preview.replaces ? "updated" : "installed"}: ${name} (${preview.sha ?? "local"})`,
+    `silk ${preview.replaces ? "updated" : "installed"}: ${name} (${preview.sha ?? "local"})`,
   );
   return record;
 }

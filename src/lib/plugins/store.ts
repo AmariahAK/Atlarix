@@ -49,9 +49,20 @@ export interface PluginRecord {
   model?: string;
 }
 
+/**
+ * On disk the person may read and edit: `{ version, silks: [...] }`, each with
+ * `approvedEdicts` (users call plugins silks and hooks edicts). The first files
+ * written said `plugins` / `approvedHooks`; those still read.
+ */
+type StoredRecord = Omit<PluginRecord, "approvedHooks"> & {
+  approvedEdicts?: string[];
+  approvedHooks?: string[];
+};
+
 interface RecordFile {
   version: 1;
-  plugins: PluginRecord[];
+  silks?: StoredRecord[];
+  plugins?: StoredRecord[];
 }
 
 export function readPluginRecords(): PluginRecord[] {
@@ -64,7 +75,21 @@ export function readPluginRecords(): PluginRecord[] {
   }
   try {
     const data = JSON.parse(raw) as Partial<RecordFile>;
-    return Array.isArray(data.plugins) ? data.plugins.filter(isRecord) : [];
+    const list = Array.isArray(data.silks)
+      ? data.silks
+      : Array.isArray(data.plugins)
+        ? data.plugins
+        : [];
+    return list
+      .map((r) => {
+        if (!r || typeof r !== "object") return r;
+        const { approvedEdicts, approvedHooks, ...rest } = r;
+        return {
+          ...rest,
+          approvedHooks: approvedEdicts ?? approvedHooks,
+        } as unknown;
+      })
+      .filter(isRecord);
   } catch (err) {
     logger.warn(`silks.json unreadable; every silk stays off: ${String(err)}`);
     return [];
@@ -89,7 +114,12 @@ export function writePluginRecords(records: PluginRecord[]): void {
   const tmp = `${file}.${process.pid}.tmp`;
   const body: RecordFile = {
     version: 1,
-    plugins: [...records].sort((a, b) => a.name.localeCompare(b.name)),
+    silks: [...records]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(({ approvedHooks, ...rest }) => ({
+        ...rest,
+        approvedEdicts: approvedHooks,
+      })),
   };
   fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(tmp, file);

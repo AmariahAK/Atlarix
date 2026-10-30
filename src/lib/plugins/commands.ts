@@ -10,7 +10,14 @@
  * message shown stays what the person typed; the model gets the expansion.
  */
 
-import { loadPlugins } from "./registry";
+import { readPluginContents } from "./manifest";
+import { pluginDir } from "./paths";
+import {
+  appliesToFolder,
+  loadPlugins,
+  verifyInstalledPlugin,
+} from "./registry";
+import { readPluginRecords } from "./store";
 
 export interface InstalledCommand {
   /** What follows the `/`: the bare name, or `<plugin>:<name>` when two plugins share one. */
@@ -65,4 +72,45 @@ export function expandPluginCommand(
     : args
       ? `${cmd.template}\n\n${args}`
       : cmd.template;
+}
+
+/**
+ * Why `/<name>` does nothing here, when it is a command of an INSTALLED silk that
+ * is not loaded: off, scoped to other folders, or changed on disk. Null when no
+ * installed silk has that command. Asked only after expansion found nothing, so
+ * a stale `/` menu can never send the raw text to the model as a message (A4).
+ * Only command names are read from a silk that failed verification.
+ */
+export function unavailableCommandReason(
+  prompt: string,
+  workspacePath: string | null | undefined,
+): string | null {
+  const m = /^\/([a-z0-9][a-z0-9._-]*)(?::([a-z0-9][a-z0-9_-]*))?(?:\s|$)/.exec(
+    prompt.trim(),
+  );
+  if (!m) return null;
+  const [silkPart, cmdPart] = m[2] ? [m[1]!, m[2]] : [null, m[1]!];
+  for (const record of readPluginRecords()) {
+    if (silkPart && record.name !== silkPart) continue;
+    let names: string[];
+    try {
+      names = readPluginContents(
+        pluginDir(record.name),
+        record.name,
+      ).commands.map((c) => c.name);
+    } catch {
+      continue;
+    }
+    if (!names.includes(cmdPart)) continue;
+    const typed = `/${m[2] ? `${m[1]}:${m[2]}` : m[1]}`;
+    if (!record.enabled)
+      return `${typed} comes from ${record.name}, which is off. Turn it on in /silks.`;
+    if (!appliesToFolder(record, workspacePath)) {
+      return `${typed} comes from ${record.name}, which is not on in this folder. Change that in /silks.`;
+    }
+    const verified = verifyInstalledPlugin(record);
+    if ("problem" in verified)
+      return `${typed} comes from ${record.name}: ${verified.problem}`;
+  }
+  return null;
 }

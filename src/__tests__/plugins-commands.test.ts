@@ -11,10 +11,13 @@ import { matchCommands } from "@/cli/tui/commands";
 import {
   expandPluginCommand,
   listPluginCommands,
+  unavailableCommandReason,
 } from "@/lib/plugins/commands";
 import {
   commitPluginInstall,
   preparePluginInstall,
+  setPluginEnabled,
+  setPluginFolders,
 } from "@/lib/plugins/install";
 import { pluginDir } from "@/lib/plugins/paths";
 
@@ -110,5 +113,32 @@ describe("plugin commands", () => {
     );
     expect(mcp).toHaveLength(1);
     expect(mcp[0]!.group).toBe("tools");
+  });
+
+  it("say why an off, scoped-away or changed silk's command does nothing (A4)", async () => {
+    await install("kit", { review: "Review $ARGUMENTS.\n" });
+    expect(unavailableCommandReason("/review a.ts", null)).toBeNull();
+    expect(unavailableCommandReason("/nothing", null)).toBeNull();
+
+    setPluginEnabled("kit", false);
+    expect(expandPluginCommand("/review a.ts", null)).toBeNull();
+    expect(unavailableCommandReason("/review a.ts", null)).toBe(
+      "/review comes from kit, which is off. Turn it on in /silks.",
+    );
+
+    setPluginEnabled("kit", true);
+    setPluginFolders("kit", [path.join(work, "elsewhere")]);
+    expect(unavailableCommandReason("/review", work)).toMatch(
+      /not on in this folder/,
+    );
+
+    setPluginFolders("kit", null);
+    fs.appendFileSync(
+      path.join(pluginDir("kit"), "commands", "review.md"),
+      "x",
+    );
+    expect(unavailableCommandReason("/kit:review", null)).toMatch(
+      /^\/kit:review comes from kit: kit changed on disk/,
+    );
   });
 });

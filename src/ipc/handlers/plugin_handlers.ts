@@ -65,6 +65,7 @@ export interface PluginPreviewView {
   unsupported: string[];
   update: {
     changedFiles: string[];
+    installedChanged: boolean;
     runnablesAdded: string[];
     runnablesRemoved: string[];
   } | null;
@@ -106,6 +107,7 @@ export function previewView(p: PluginInstallPreview): PluginPreviewView {
     update: p.replaces
       ? {
           changedFiles: p.changedFiles,
+          installedChanged: p.installedChanged,
           runnablesAdded: p.runnablesAdded,
           runnablesRemoved: p.runnablesRemoved,
         }

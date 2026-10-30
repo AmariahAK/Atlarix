@@ -35,7 +35,7 @@ import {
 } from "./paths";
 
 export const PLUGIN_CONTROL_EXPLANATION =
-  "Changes what your silks and edicts run";
+  "Changes what your silks and edicts run.";
 
 export function touchesPluginControl(
   permRequest: { operation: string; preview: unknown },

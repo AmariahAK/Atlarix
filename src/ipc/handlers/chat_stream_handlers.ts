@@ -890,7 +890,10 @@ export function registerChatStreamHandlers() {
           userPrompt = req.prompt;
           // `/<name> …` naming an installed plugin's command: the model gets its
           // prompt, the message shown stays what was typed (plugins/commands.ts).
-          if (userPrompt.trimStart().startsWith("/")) {
+          const typedSlash = userPrompt.trimStart().startsWith("/")
+            ? userPrompt
+            : null;
+          if (typedSlash) {
             const { expandPluginCommand } = await import("@/lib/plugins/commands");
             const expanded = expandPluginCommand(
               userPrompt,
@@ -912,6 +915,15 @@ export function registerChatStreamHandlers() {
             if (userPrompt.trimStart().startsWith("/")) {
               const fromMod = await modsRunCommand(modCtx, userPrompt);
               if (fromMod) userPrompt = fromMod;
+            }
+            // `/name` of an installed silk that is not loaded here: say why,
+            // rather than send the raw text as a message (QA 1 A4).
+            if (typedSlash !== null && userPrompt === typedSlash) {
+              const { unavailableCommandReason } = await import(
+                "@/lib/plugins/commands"
+              );
+              const reason = unavailableCommandReason(userPrompt, modCtx.workspacePath);
+              if (reason) throw new Error(reason);
             }
             userPrompt = await modsPromptSubmit(modCtx, userPrompt);
           }
