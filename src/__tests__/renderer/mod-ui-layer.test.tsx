@@ -25,7 +25,7 @@ const { ipc, emit } = vi.hoisted(() => {
           { type: "Button", props: { text: "Add", action: "add" } },
         ],
       })),
-      modAction: vi.fn(async () => {
+      modAction: vi.fn(async (_plugin: string, _action: string, _workspacePath: string | null, _paneId?: string) => {
         n += 1;
       }),
     },
