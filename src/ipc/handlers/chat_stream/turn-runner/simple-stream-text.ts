@@ -1300,8 +1300,17 @@ export async function simpleStreamText(
 /**
  * A 4xx the same request would get again: bad key, no access, bad request.
  * Not 408 (timeout), 409 or 429 (rate limit): those can pass on a retry.
+ *
+ * Except Atlarix Core's GATES, which are answers, not faults, whatever their
+ * status: free Auto's daily limit (429 `free_usage_limit`), its full pools (503
+ * `free_busy`) and a paid model the provider made wait (429
+ * `core_rate_limited`). Not refusals, they went through the empty-output retry:
+ * a second request, then "Something went wrong" instead of their own message
+ * (live QA 2026-10-30). Matched by the proxy's body code, never by status.
  */
 export function isProviderRefusal(error: unknown): boolean {
+  const body = (error as { responseBody?: unknown; error?: { responseBody?: unknown } } | null) ?? null;
+  if (/"error"\s*:\s*"(free_usage_limit|free_busy|core_rate_limited)"/.test(String(body?.responseBody ?? body?.error?.responseBody ?? ""))) return true;
   const e = error as { statusCode?: unknown; status?: unknown; error?: { statusCode?: unknown; status?: unknown } } | null;
   const status = [e?.statusCode, e?.status, e?.error?.statusCode, e?.error?.status].find((x) => typeof x === "number") as
     | number
