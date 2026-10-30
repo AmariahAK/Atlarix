@@ -158,8 +158,11 @@ function row(o: { value: string; name: string; description?: string | null }, fa
   if (current) check.innerHTML = icon("check", 13);
   item.append(check, el("span", "picker__name", o.name));
   const desc = o.description ?? "";
+  // The tag ACP puts first: "Free" (Auto) or "Uses credit" (a paid row on an
+  // account with nothing to pay with), shown as a badge, muted for credit.
   if (/^Free\b/.test(desc)) item.append(el("span", "badge", "Free"));
-  const rest = desc.replace(/^Free( · )?/, "");
+  else if (/^Uses credit\b/.test(desc)) item.append(el("span", "badge badge--muted", "Credit"));
+  const rest = desc.replace(/^(Free|Uses credit)( · )?/, "");
   if (rest) item.append(el("span", "picker__desc", rest));
   if (opts!.full && o.value) {
     const star = button("", `star${fav ? " on" : ""}`, (e) => {

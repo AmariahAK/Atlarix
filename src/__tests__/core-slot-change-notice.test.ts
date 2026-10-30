@@ -22,6 +22,7 @@ vi.mock("electron", () => ({ BrowserWindow: { getAllWindows: () => [] } }));
 import {
   setCoreModelOverrides,
   __resetCoreModelOverridesForTests,
+  setCoreAuto,
 } from "@/ipc/shared/core-model-override-store";
 import {
   computeCoreSlotChange,
@@ -50,13 +51,13 @@ describe("the model a selection actually resolves to", () => {
     );
   });
 
-  it("follows the same fall-forward the turn uses when a slot is dropped", () => {
-    // The whole reason it resolves rather than reads: a selection pointing at a
-    // slot the lineup no longer maps must report the model that will really answer.
+  it("a dropped paid slot reports Atlarix Auto, the model that will really answer", () => {
+    // The whole reason it resolves rather than reads: the notice names the
+    // model that answers now. A dropped paid slot moves to Auto,
+    // never to another paid slot (owner, 2026-10-29).
     setCoreModelOverrides({ "core-1": GLM });
-    expect(effectiveCoreModelId({ provider: "compass", name: "core-3" })).toBe(
-      GLM,
-    );
+    setCoreAuto({ id: "atlarix/auto", label: "Atlarix Auto" });
+    expect(effectiveCoreModelId({ provider: "compass", name: "core-3" })).toBe("atlarix/auto");
   });
 
   it("says nothing for a BYOK user — their model did not change", () => {

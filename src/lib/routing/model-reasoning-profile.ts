@@ -279,15 +279,9 @@ export function effortChoicesFor(providerId: string | undefined, modelId: string
  * Free Auto has none.
  */
 export const AUTO_EFFORT_LEVELS = ["low", "medium", "max"] as const;
-export type AutoEffort = (typeof AUTO_EFFORT_LEVELS)[number];
 
 /** The /effort choices for paid Auto. */
 export const AUTO_EFFORT_CHOICES: EffortChoices = { kind: "effort", levels: [...AUTO_EFFORT_LEVELS], defaultLevel: "medium" };
-
-/** The Auto level a request carries (`X-Atlarix-Effort`). */
-export function autoEffort(settings: { effort?: string; deepThinking?: boolean } | undefined): AutoEffort {
-  return chosenLevel(AUTO_EFFORT_CHOICES, settings?.effort, !!settings?.deepThinking) as AutoEffort;
-}
 
 /** The top of a model's list: what deep thinking and ctrl+t ask for. */
 export function topLevel(choices: EffortChoices): string {

@@ -91,12 +91,13 @@ export async function resolveTitleModel(
   }
   const selected = turnModel ?? settings.selectedModel;
   if (selected.provider === "compass") {
-    const { isCoreAutoTier, getCoreModelIdForCoreTier, CORE_TIER_1 } =
+    const { isCoreAutoTier, getCoreModelIdForCoreTier, CORE_TIER_AUTO } =
       await import("@/ipc/shared/compass_constants");
     if (isCoreAutoTier(selected.name)) return selected;
-    return getCoreModelIdForCoreTier(CORE_TIER_1)?.trim()
-      ? { provider: "compass", name: CORE_TIER_1 }
-      : selected;
+    // Auto, which routes a title (X-Atlarix-Purpose: title) to the cheapest
+    // model of the turn's family (owner, 2026-10-30). core-1 used to be the
+    // cheap slot; since the renumbering it is GPT-6.1 Terra.
+    return getCoreModelIdForCoreTier(CORE_TIER_AUTO)?.trim() ? { provider: "compass", name: CORE_TIER_AUTO } : selected;
   }
   if (LOCAL_PROVIDERS.has(selected.provider)) return selected;
   return (await pickSmallSibling(selected.provider)) ?? selected;
@@ -127,7 +128,10 @@ export async function generateSessionTitle(
     const settings = readSettings();
     const model = await resolveTitleModel(settings, await turnModelForChat(opts.chatId, settings));
     // No key for the provider: getModelClient throws, and there is no title.
-    const { modelClient } = await getModelClient(model, settings, { purpose: "title" });
+    const { modelClient } = await getModelClient(model, settings, {
+      purpose: "title",
+      ...(opts.chatId != null ? { sessionChatId: opts.chatId } : {}),
+    });
 
     const reasons = catalogSaysReasons(model.provider, model.name) === true;
     const call = (withReasoningOff: boolean) =>
@@ -141,6 +145,10 @@ export async function generateSessionTitle(
           : {}),
         ...(withReasoningOff ? { reasoning: "none" as const } : {}),
         abortSignal: AbortSignal.timeout(TITLE_TIMEOUT_MS),
+        // Atlarix Core takes no SDK retries: the SDK repeats any 429/503, and
+        // Core's are gates (busy, limits), answers that a repeat only queues
+        // behind (three title requests per busy turn, live QA 2026-10-30).
+        ...(modelClient.builtinProviderId === "compass" ? { maxRetries: 0 } : {}),
       });
 
     let result: Awaited<ReturnType<typeof call>>;

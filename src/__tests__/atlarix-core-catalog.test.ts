@@ -67,3 +67,17 @@ describe("atlarix-core-catalog", () => {
     expect(legacy.labelWithProvider).toBe(id.labelWithProvider);
   });
 });
+
+describe("model ids with no catalog name still read as names (Usage page + reply labels, 2026-10-30)", () => {
+  it("drops Bedrock's region and vendor prefix and version stamps, and keeps real versions", async () => {
+    const { formatModelApiNameForDisplay: f, formatModelWithProvider: w } = await import("@/lib/format-openrouter-model-label");
+    expect(f("us.anthropic.claude-haiku-4-5-20251001-v1:0")).toBe("Claude Haiku 4.5");
+    expect(f("zai.glm-4.7-flash")).toBe("GLM 4.7 Flash");
+    expect(f("z-ai/glm-5.3-flash")).toBe("GLM 5.3 Flash");
+    expect(f("qwen.qwen3-coder-30b-a3b-v1:0")).toBe("Qwen3 Coder 30b A3b");
+    expect(f("claude-sonnet-4-6")).toBe("Claude Sonnet 4.6");
+    expect(f("openai/gpt-4.1")).toBe("GPT 4.1");
+    expect(f("gpt-6.1-terra")).toBe("GPT 6.1 Terra");
+    expect(w("Claude Haiku 4.5", "custom::bedrock-qa")).toBe("Claude Haiku 4.5 (bedrock-qa)");
+  });
+});

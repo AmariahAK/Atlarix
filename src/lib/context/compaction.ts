@@ -1212,6 +1212,7 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
     );
     const { modelClient } = await getModelClient(summarizationModel, settings, {
       purpose: "compaction",
+      ...(params.chatId != null ? { sessionChatId: params.chatId } : {}),
     });
 
     const result = await generateText({
@@ -1219,6 +1220,8 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
       system: CONTEXT_COMPACTION_SYSTEM,
       messages: [{ role: "user" as const, content: userPrompt }],
       maxOutputTokens: COMPACTION_MAX_OUTPUT_TOKENS,
+      // Atlarix Core takes no SDK retries: its gates (busy, limits) are answers.
+      ...(modelClient.builtinProviderId === "compass" ? { maxRetries: 0 } : {}),
     });
     recordAuxUsage(params.chatId, result.usage, "compaction");
 

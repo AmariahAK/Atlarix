@@ -2449,6 +2449,12 @@ export class AgentSession extends EventEmitter {
     if (wasInterrupted && lastReply) this.interrupted.add(String(lastReply.id));
     else if (wasInterrupted && turnUser) this.addTurnNotice(turnUser, "info", "Interrupted. Tell Atlarix what to do instead.");
     this.lastTurnOwner = lastReply ? String(lastReply.id) : turnUser;
+    // Auto's top rung kept failing: offer Zenith once, under this turn.
+    if (this.lastEnd.zenithOffer === true && this.lastTurnOwner) {
+      this.lastEnd = { ...this.lastEnd, zenithOffer: false };
+      const { ZENITH_OFFER_LINE } = await import("@/shared/billing_copy");
+      this.addTurnNotice(this.lastTurnOwner, "info", `◇ ${ZENITH_OFFER_LINE.replace("Pick it in the model list", "/model Atlarix Zenith")}`);
+    }
     if (lastReply && this.state.turnStartedAt) {
       const secs = Math.max(1, Math.round((Date.now() - this.state.turnStartedAt) / 1000));
       const took = secs >= 60 ? `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, "0")}s` : `${secs}s`;

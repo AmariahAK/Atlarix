@@ -1,5 +1,6 @@
 import type { WebContents } from "electron";
 import log from "electron-log";
+import { takeZenithOffer } from "@/lib/core/zenith-offer";
 
 /**
  * Sends an IPC message to the renderer only if the provided `WebContents` is
@@ -25,7 +26,18 @@ export function safeSend(
       coalesced.delete(key);
     }
   }
+  // Auto's top rung kept failing this turn (X-Atlarix-Ladder: top): the turn's
+  // end offers Atlarix Zenith, once per chat. Here because every end, of every
+  // path, passes through here (zenith-offer.ts).
+  if (channel === "chat:response:end") args = withZenithOffer(args);
   rawSend(sender, channel, args);
+}
+
+function withZenithOffer(args: unknown[]): unknown[] {
+  const end = args[0] as { chatId?: unknown; userCancelled?: unknown } | undefined;
+  if (!end || typeof end.chatId !== "number" || end.userCancelled === true) return args;
+  if (!takeZenithOffer(end.chatId)) return args;
+  return [{ ...end, zenithOffer: true }, ...args.slice(1)];
 }
 
 /**

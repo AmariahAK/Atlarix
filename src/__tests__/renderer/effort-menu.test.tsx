@@ -57,23 +57,21 @@ beforeEach(() => {
 });
 
 describe("Effort in the composer menu", () => {
-  it("free Auto: no levels, one line saying how to get them", async () => {
-    state.cents = 0;
-    state.model = { provider: "compass", name: "core-auto" };
-    open();
-    expect(await screen.findByText(/Free Auto runs at one level/)).toBeTruthy();
-    expect(screen.queryByTestId("effort-low")).toBeNull();
-  });
-
-  it("paid Auto: low / medium / max, and a choice writes the level", async () => {
-    state.cents = 1500;
-    state.model = { provider: "compass", name: "core-auto" };
-    open();
-    expect(await screen.findByTestId("effort-low")).toBeTruthy();
-    expect(screen.getByTestId("effort-max")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("effort-low"));
-    // With the model it belongs to: the app's default is one model + its level.
-    expect(state.update).toHaveBeenCalledWith({ selectedModel: state.model, effort: "low", deepThinking: false });
+  it("Auto and Zenith offer no effort control, free or paid (owner, 2026-10-29)", async () => {
+    for (const [cents, name] of [[0, "core-auto"], [1500, "core-auto"], [1500, "core-zenith"]] as const) {
+      state.cents = cents;
+      state.model = { provider: "compass", name };
+      const { unmount } = renderWithProviders(
+        <TooltipProvider>
+          <ChatConfigDropdown />
+        </TooltipProvider>,
+      );
+      fireEvent.pointerDown(screen.getByTestId("chat-config-button"), { button: 0, ctrlKey: false, pointerType: "mouse" });
+      await screen.findByText(/Effort, voice|MCP/i).catch(() => null);
+      expect(screen.queryByTestId("effort-low")).toBeNull();
+      expect(screen.queryByText("Effort")).toBeNull();
+      unmount();
+    }
   });
 
   it("a model's own levels exactly as listed, xhigh included", async () => {

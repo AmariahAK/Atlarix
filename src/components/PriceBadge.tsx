@@ -1,4 +1,3 @@
-import { Lock } from "lucide-react";
 import type { AccountKind } from "@/hooks/useAccountKind";
 import { CORE_BADGE } from "@/shared/billing_copy";
 
@@ -15,10 +14,10 @@ const basePill =
 
 /**
  * Model price badge:
- *  - Atlarix Core → what it means for THIS account: Atlarix Auto is "Free" for
- *    a free account, "Included" on Pro, "Credits" on pay-as-you-go; a pinned
- *    Core model is "Included" / "Credits", or locked ("Pro / Credits") for a
- *    free account.
+ *  - Atlarix Core → only for an account with nothing to pay with: Atlarix Auto
+ *    reads "Free", every paid Core row and Zenith a muted "Credit". Pro and any
+ *    account with a balance see no tag (owner, 2026-10-29), and so does one
+ *    still loading — a wrong "Credit" on a paying account is worse than none.
  *  - Priced BYOK/catalog models → real output price per 1M tokens (models.dev).
  *  - Local models + genuinely $0 models → "Free".
  */
@@ -28,33 +27,19 @@ export function PriceBadge({
   account = "unknown",
 }: {
   cost?: { input: number; output: number };
-  /** Set for Atlarix Core rows. */
+  /** Set for Atlarix Core rows ("pinned" includes Zenith). */
   core?: "auto" | "pinned";
   account?: AccountKind;
 }) {
   if (core) {
-    const label =
-      account === "pro"
-        ? CORE_BADGE.included
-        : account === "payg"
-          ? CORE_BADGE.credits
-          : core === "auto"
-            ? CORE_BADGE.free
-            : account === "free"
-              ? CORE_BADGE.locked
-              : CORE_BADGE.credits;
-    const locked = core === "pinned" && account === "free";
+    if (account !== "free") return null;
+    const free = core === "auto";
     return (
       <span
         data-testid="core-badge"
-        className={`${basePill} inline-flex items-center gap-1 ${
-          label === CORE_BADGE.free
-            ? `${badgeText} border border-primary`
-            : `bg-primary/10 ${badgeText}`
-        }`}
+        className={`${basePill} ${free ? `${badgeText} border border-primary` : "bg-muted text-muted-foreground"}`}
       >
-        {locked && <Lock className="h-2.5 w-2.5" aria-hidden />}
-        {label}
+        {free ? CORE_BADGE.free : CORE_BADGE.credit}
       </span>
     );
   }

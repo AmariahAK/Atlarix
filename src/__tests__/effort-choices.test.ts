@@ -8,7 +8,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   __resetReasoningRegistryForTests,
   AUTO_EFFORT_CHOICES,
-  autoEffort,
   chosenLevel,
   effortAfterModelChange,
   effortChoicesFor,
@@ -171,13 +170,9 @@ describe("levels that turn reasoning off", () => {
 });
 
 describe("paid Auto's three levels", () => {
-  it("are low / medium / max, medium by default, max for the old deep-thinking switch", () => {
+  it("are low / medium / max, medium by default", () => {
     expect(AUTO_EFFORT_CHOICES.levels).toEqual(["low", "medium", "max"]);
-    expect(autoEffort({})).toBe("medium");
-    expect(autoEffort({ deepThinking: true })).toBe("max");
-    expect(autoEffort({ effort: "low" })).toBe("low");
-    // Another model's level is not Auto's: Auto runs its default.
-    expect(autoEffort({ effort: "xhigh" })).toBe("medium");
+    expect(AUTO_EFFORT_CHOICES.defaultLevel).toBe("medium");
   });
 });
 

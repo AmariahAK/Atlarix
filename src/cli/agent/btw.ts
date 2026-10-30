@@ -56,6 +56,8 @@ export async function answerAside(
     system: BTW_SYSTEM,
     prompt: `${context ? `<conversation>\n${context}\n</conversation>\n\n` : ""}Side question: ${question}`,
     abortSignal: AbortSignal.timeout(BTW_TIMEOUT_MS),
+    // Atlarix Core takes no SDK retries: its gates (busy, limits) are answers.
+    ...(modelClient.builtinProviderId === "compass" ? { maxRetries: 0 } : {}),
   });
   recordAuxUsage(chatId, result.usage, "btw");
   return result.text.trim() || "No answer came back.";

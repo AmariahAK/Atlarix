@@ -12,6 +12,17 @@ import {
   describeIncludedUsage,
   formatCents,
   lowBalanceNudge,
+  CORE_NEVER_FUNDED_MARKER,
+  CREDIT_FIRST_LINE,
+  FREE_BUSY_MARKER,
+  FREE_LIMIT_MARKER,
+  PRO_ALLOWANCE_MARKER,
+  RESETS_IN_PATTERN,
+  UPGRADE_LINE,
+  coreRefusalMessage,
+  freeAutoBusyMessage,
+  freeAutoLimitMessage,
+  parseCreditRefusal,
 } from "@/shared/billing_copy";
 import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
 
@@ -205,5 +216,96 @@ describe("describeAllowanceUsed — a share, never a dollar figure", () => {
 
   it("says nothing at all when there is no allowance to describe", () => {
     expect(describeAllowanceUsed(0, 0)).toBe("");
+  });
+});
+
+describe("the three refusals of a 402 (owner, 2026-10-27/28)", () => {
+  const body = (extra: Record<string, unknown>) =>
+    JSON.stringify({ error: "insufficient_credit", required_cents: 125, ...extra });
+
+  it("reads the optional fields from JSON, from JSON inside a wrapper, and never throws on junk", () => {
+    expect(parseCreditRefusal(body({ plan: "free", ever_funded: false }))).toEqual({
+      requiredCents: 125,
+      plan: "free",
+      everFunded: false,
+      renewsAt: null,
+    });
+    expect(
+      parseCreditRefusal(`Provider error: ${body({ plan: "pro", ever_funded: true, renews_at: "2026-11-05T00:00:00Z" })} (402)`),
+    ).toEqual({ requiredCents: 125, plan: "pro", everFunded: true, renewsAt: "2026-11-05T00:00:00Z" });
+    for (const junk of ["", "not json", "{", null, undefined, 42, '{"plan":"gold","ever_funded":"yes","renews_at":"soon"}']) {
+      expect(parseCreditRefusal(junk)).toMatchObject({ plan: null, everFunded: null, renewsAt: null });
+    }
+  });
+
+  it("a $0 account that never added credit hears Core runs on credit, and Auto is free", () => {
+    const m = coreRefusalMessage(parseCreditRefusal(body({ plan: "free", ever_funded: false })));
+    expect(m).toBe(
+      "Atlarix Core models run on credit. Add credit or get Pro to use them, or switch to Atlarix Auto, which is free. This model needs at least $1.25 of credit.",
+    );
+    expect(m).toContain(CORE_NEVER_FUNDED_MARKER);
+    expect(m).not.toContain(CORE_EXHAUSTED_MARKER);
+  });
+
+  it("an account that had credit and spent it keeps 'balance is used up', with the prices", () => {
+    const m = coreRefusalMessage(parseCreditRefusal(body({ plan: "free", ever_funded: true })));
+    expect(m).toMatch(/^Your Atlarix Core balance is used up\./);
+    expect(m).toContain("from $10");
+    expect(m).toContain("Pro ($19/month)");
+    expect(m).toContain("This turn needs at least $1.25 available.");
+  });
+
+  it("Pro with the allowance spent hears when it resets, and is never told to get Pro", () => {
+    const m = coreRefusalMessage(parseCreditRefusal(body({ plan: "pro", ever_funded: true, renews_at: "2026-11-05T12:00:00Z" })), "UTC");
+    expect(m).toMatch(/^Your Pro allowance for this month is used up\. It resets on (November 5|5 November)\. Add credit to keep going, or use your own key\.$/);
+    expect(m).toContain(PRO_ALLOWANCE_MARKER);
+    expect(m).not.toMatch(/get Pro|\$19/);
+    // No date known: the sentence is dropped, not filled with a guess.
+    expect(coreRefusalMessage(parseCreditRefusal(body({ plan: "pro" })))).toBe(
+      "Your Pro allowance for this month is used up. Add credit to keep going, or use your own key.",
+    );
+  });
+
+  it("an older proxy (no fields) gets exactly today's sentence", () => {
+    expect(coreRefusalMessage(parseCreditRefusal(body({})))).toBe(coreExhaustedUserMessage(125));
+    expect(coreRefusalMessage(parseCreditRefusal(body({ plan: "free" })))).toBe(coreExhaustedUserMessage(125));
+  });
+
+  it("the classifier picks the state from the 402 body", () => {
+    expect(classifyCompassFailure(402, body({ plan: "free", ever_funded: false })).message).toContain(CORE_NEVER_FUNDED_MARKER);
+    expect(classifyCompassFailure(402, body({ plan: "pro" })).message).toContain(PRO_ALLOWANCE_MARKER);
+  });
+});
+
+describe("banners name prices, never what a plan includes (owner, 2026-10-28)", () => {
+  it("upgrade lines show $10 and Pro ($19/month), and no surface list", () => {
+    for (const line of [UPGRADE_LINE, CREDIT_FIRST_LINE, freeAutoLimitMessage(null), freeAutoBusyMessage()]) {
+      expect(line).toContain("$10");
+      expect(line).toContain("$19/month");
+      expect(line).not.toMatch(/Reviewer|Chrome extension|Slack|includes/i);
+    }
+  });
+});
+
+describe("free Auto's limit and busy are different things", () => {
+  const now = Date.UTC(2026, 9, 29, 20, 40);
+
+  it("the limit counts down to the reset, rounded up so it never says 0m", () => {
+    expect(freeAutoLimitMessage(now + 200 * 60_000, now)).toMatch(/Resets in 3h 20m\./);
+    expect(freeAutoLimitMessage(now + 30_000, now)).toMatch(/Resets in 1m\./);
+    expect(freeAutoLimitMessage(new Date(now + 120 * 60_000).toISOString(), now)).toMatch(/Resets in 2h\./);
+    expect(freeAutoLimitMessage(null, now)).toMatch(/Resets at midnight UTC\./);
+    expect(freeAutoLimitMessage(now + 60_000, now)).toContain(FREE_LIMIT_MARKER);
+  });
+
+  it("the countdown pattern reads back what the message wrote", () => {
+    const m = RESETS_IN_PATTERN.exec(freeAutoLimitMessage(now + 200 * 60_000, now))!;
+    expect([m[1], m[2]]).toEqual(["3", "20"]);
+  });
+
+  it("busy has no reset time and never carries the limit's marker", () => {
+    expect(freeAutoBusyMessage()).toContain(FREE_BUSY_MARKER);
+    expect(freeAutoBusyMessage()).not.toContain(FREE_LIMIT_MARKER);
+    expect(freeAutoBusyMessage()).not.toMatch(/Resets/);
   });
 });

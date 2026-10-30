@@ -1,3 +1,6 @@
+import { throughFreeAutoGate } from "@/lib/billing/free-auto-gate";
+import { coreSessionId } from "@/lib/core/session-header";
+import { noteLadderTop } from "@/lib/core/zenith-offer";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   getPinnedProviderKey,
@@ -46,6 +49,7 @@ import {
   getCoreModelIdForCoreTier,
   isCoreTierFromNewerBuild,
   isCoreAutoTier,
+  isCoreZenithTier,
   resolveConfiguredCoreTier,
 } from "../shared/compass_constants";
 import {
@@ -61,7 +65,6 @@ import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
 import { trackLocalModelConnected } from "@/main/lib/analytics";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
-import { autoEffort } from "@/lib/routing/model-reasoning-profile";
 import { CORE_TIER_NEWER_BUILD } from "@/shared/texts";
 
 export interface ModelClient {
@@ -97,6 +100,13 @@ export interface GetModelClientOptions {
   escalate?: boolean;
   /** The chat whose turn this is: an Auto reply's free/paid is noted against it (turn_completed). */
   chatId?: number;
+  /**
+   * The chat a side call belongs to (title, compaction, sub-agent), for
+   * `X-Atlarix-Session` only, without the turn bookkeeping `chatId` drives.
+   */
+  sessionChatId?: number;
+  /** A turn the user asked for again: its first Core request says so (`X-Atlarix-Retry`). */
+  userRetry?: boolean;
 }
 
 const logger = log.scope("getModelClient");
@@ -111,15 +121,14 @@ export function autoRequestHeaders(
   settings: Pick<UserSettings, "deepThinking" | "effort" | "atlarixAutoConsentAt" | "atlarixAutoConsentVersion">,
   options?: GetModelClientOptions,
 ): Record<string, string> {
-  // /effort on Auto: low | medium | max choose the lanes. The thinking header
-  // stays for a proxy that predates the effort header (max = deep thinking).
-  const effort = autoEffort(settings);
+  // No effort or thinking hint (owner, 2026-10-29: no effort on Auto or Zenith;
+  // ai-34): the proxy runs every Auto/Zenith lane on high and picks the model
+  // from the purpose and the work mode. A saved level from before must not keep
+  // steering lanes the user can no longer see or change.
   const out: Record<string, string> = {
     "X-Atlarix-Purpose":
       options?.purpose ??
       (options?.delegationRole === "subagent" ? "subagent" : "main"),
-    "X-Atlarix-Effort": effort,
-    "X-Atlarix-Thinking": effort === "max" ? "1" : "0",
   };
   if (options?.workMode) out["X-Atlarix-Mode"] = options.workMode;
   if (options?.escalate) out["X-Atlarix-Escalate"] = "1";
@@ -357,6 +366,11 @@ async function getRegularModelClient(
           "Atlarix Auto isn't offered right now. Pick a Core model above, or add your own API key in Settings.",
         );
       }
+      if (!resolvedTier && isCoreZenithTier(model.name)) {
+        throw new Error(
+          "Atlarix Zenith isn't offered right now. Pick another model above, or add your own API key in Settings.",
+        );
+      }
       if (!resolvedTier && isCoreTierFromNewerBuild(model.name)) {
         throw new Error(CORE_TIER_NEWER_BUILD);
       }
@@ -377,6 +391,9 @@ async function getRegularModelClient(
       }
       const coreModelId = getCoreModelIdForCoreTier(resolvedTier.tier);
       const isAutoTier = isCoreAutoTier(resolvedTier.tier);
+      // Zenith is paid Auto on the top lane: Auto's routing headers, never the
+      // free-share consent, and no daily limit to hold.
+      const isZenithTier = isCoreZenithTier(resolvedTier.tier);
       if (!coreModelId) {
         throw new Error(
           `Atlarix Core model "${model.name}" is not configured for this build. Choose another Core model or add BYOK keys in Settings.`,
@@ -417,6 +434,11 @@ async function getRegularModelClient(
         // kept as the construction-time default and as the fallback if a session
         // read fails mid-turn — never worse than today's behaviour.
         const autoHeaders = autoRequestHeaders(settings, options);
+        // One id per chat on every Core request of it (session-header.ts).
+        const sessionId = coreSessionId(options?.sessionChatId ?? options?.chatId);
+        // Only the FIRST request of a user's retry says so: the steps after it,
+        // and any automatic network retry, are ordinary requests.
+        let retryPending = options?.userRetry === true;
         const core = createOpenAICompatible({
           name: COMPASS_PROVIDER_ID,
           baseURL: proxyBaseUrl,
@@ -446,15 +468,28 @@ async function getRegularModelClient(
             // 'desktop' would split one product across two rows on the account
             // page and need every historical row backfilled.
             for (const [k, v] of Object.entries(surfaceHeaders())) headers.set(k, v);
-            if (isAutoTier) {
-              for (const [k, v] of Object.entries(autoHeaders))
-                headers.set(k, v);
+            if (sessionId) headers.set("X-Atlarix-Session", sessionId);
+            if (retryPending) {
+              headers.set("X-Atlarix-Retry", "1");
+              retryPending = false;
             }
-            // The proxy, or its fallback when the proxy is down (item 10).
-            const res = await coreProxyFetch(input as string, { ...init, headers });
+            if (isAutoTier || isZenithTier) {
+              for (const [k, v] of Object.entries(autoHeaders)) {
+                if (isZenithTier && /free-consent/i.test(k)) continue;
+                headers.set(k, v);
+              }
+            }
+            // The proxy, or its fallback when the proxy is down (item 10). Free
+            // Auto's daily limit is held here until it lifts, so a resend gets
+            // the countdown without a request (free-auto-gate.ts).
+            const send = () => coreProxyFetch(input as string, { ...init, headers });
+            const res = isAutoTier && !pinnedToken ? await throughFreeAutoGate(send) : await send();
             // Atlarix Auto says which model answered and how much free share is
             // left; hand that to the composer.
-            if (isAutoTier && res.ok) {
+            // Auto's top rung kept failing (a quality signal, sent on a normal
+            // 200): the turn's end offers Zenith, once per chat.
+            if (isAutoTier) noteLadderTop(options?.chatId, res.headers);
+            if ((isAutoTier || isZenithTier) && res.ok) {
               broadcastAutoStatus(res.headers);
               noteTurnAutoBilling(options?.chatId, autoStatusFromHeaders(res.headers)?.billing);
             }

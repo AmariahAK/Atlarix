@@ -161,6 +161,108 @@ export function coreExhaustedUserMessage(
   return `${CORE_EXHAUSTED_MESSAGE}${needs}`;
 }
 
+// ─── The three refusals of a 402 ─────────────────────────────────────────────
+//
+// A 402 used to have one sentence, "your balance is used up", and the first
+// two CLI sign-ups of 2026-10-26 got it in their first minute for a balance
+// they never had (owner, 2026-10-27). The proxy now says which of three states
+// the account is in (optional fields on the same `insufficient_credit` 402,
+// agreed 2026-10-28); a proxy that does not send them gets today's sentence.
+
+/** What the plans cost, in the one place every banner reads them from. */
+export const TOP_UP_FROM = "$10";
+export const PRO_PRICE = "$19/month";
+
+/** The optional fields of the proxy's 402, read tolerantly. */
+export interface CreditRefusal {
+  /** The proxy's worst-case reserve: "at least", never "costs". */
+  requiredCents: number | null;
+  plan: "free" | "pro" | null;
+  /** Any top-up or grant, ever. */
+  everFunded: boolean | null;
+  /** Pro only: the next allowance grant, ISO. */
+  renewsAt: string | null;
+}
+
+/**
+ * The 402's fields out of a body that may be JSON, JSON inside a wrapper
+ * message, or nothing. Never throws: it runs inside error handlers, and a
+ * field it cannot read is simply absent (= today's behaviour).
+ */
+export function parseCreditRefusal(body: unknown): CreditRefusal {
+  let obj: Record<string, unknown> | null = null;
+  if (body && typeof body === "object") obj = body as Record<string, unknown>;
+  else if (typeof body === "string") {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (parsed && typeof parsed === "object") obj = parsed as Record<string, unknown>;
+    } catch {
+      // Not a bare JSON body; the substring form below reads it.
+    }
+  }
+  const raw = (key: string): unknown => {
+    if (obj && key in obj) return obj[key];
+    if (typeof body !== "string") return undefined;
+    const m = new RegExp(`"${key}"\\s*:\\s*(?:"([^"]*)"|(true|false)|(-?\\d+(?:\\.\\d+)?))`).exec(body);
+    if (!m) return undefined;
+    if (m[1] !== undefined) return m[1];
+    if (m[2] !== undefined) return m[2] === "true";
+    return Number(m[3]);
+  };
+  const cents = raw("required_cents");
+  const n = typeof cents === "string" ? Number(cents) : cents;
+  const plan = raw("plan");
+  const funded = raw("ever_funded");
+  const renews = raw("renews_at");
+  return {
+    requiredCents: typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null,
+    plan: plan === "free" || plan === "pro" ? plan : null,
+    everFunded: typeof funded === "boolean" ? funded : null,
+    renewsAt: typeof renews === "string" && Number.isFinite(Date.parse(renews)) ? renews : null,
+  };
+}
+
+export const CORE_NEVER_FUNDED_MARKER = `${ATLARIX_CORE_CATEGORY_LABEL} models run on credit`;
+export const PRO_ALLOWANCE_MARKER = "Pro allowance for this month is used up";
+
+/** "November 5", on the user's own calendar. */
+export function formatRenewDate(iso: string, timeZone?: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "long",
+    day: "numeric",
+    ...(timeZone ? { timeZone } : {}),
+  });
+}
+
+/** Pro with the month's allowance spent. Never tells a Pro user to get Pro. */
+export function proAllowanceUsedUpMessage(renewsAt?: string | null, timeZone?: string): string {
+  const when = renewsAt ? ` It resets on ${formatRenewDate(renewsAt, timeZone)}.` : "";
+  return `Your ${PRO_ALLOWANCE_MARKER}.${when} Add credit to keep going, or use your own key.`;
+}
+
+/**
+ * The refusal for this account's state:
+ *  - never added credit (and not Pro): Core runs on credit, Auto is free;
+ *  - Pro: the month's allowance is used up, and when it comes back;
+ *  - had credit and spent it, plan known: today's sentence, with the prices;
+ *  - anything unknown (an older proxy): today's sentence, unchanged.
+ */
+export function coreRefusalMessage(r: CreditRefusal, timeZone?: string): string {
+  if (r.plan === "pro") return proAllowanceUsedUpMessage(r.renewsAt, timeZone);
+  if (r.everFunded === false) {
+    const needs = r.requiredCents ? ` This model needs at least ${formatCents(r.requiredCents)} of credit.` : "";
+    return `${CORE_NEVER_FUNDED_MARKER}. Add credit or get Pro to use them, or switch to Atlarix Auto, which is free.${needs}`;
+  }
+  if (r.plan === "free" && r.everFunded === true) {
+    const needs = r.requiredCents ? ` This turn needs at least ${formatCents(r.requiredCents)} available.` : "";
+    return (
+      `Your ${ATLARIX_CORE_CATEGORY_LABEL} ${CORE_EXHAUSTED_MARKER}. Add credit (from ${TOP_UP_FROM}) or get Pro (${PRO_PRICE}) ` +
+      `to keep going, or use your own API key or a local model, which are always free.${needs}`
+    );
+  }
+  return coreExhaustedUserMessage(r.requiredCents);
+}
+
 /**
  * A negative balance, which is a real state rather than a bug: a refund claws
  * back what was credited even when it has already been spent, so the wallet can
@@ -267,20 +369,23 @@ export function accountBannedUserMessage(): string {
  * hint — and copied VERBATIM into the Chrome extension and the Reviewer's
  * out-of-credit comment (a test holds the extension's copy to this one).
  *
- * Two routes, both real: Pro (a monthly allowance that covers every surface)
- * and credit (pay only for what you use). There is no trial — the $1 signup
- * credit was removed on 2026-09-08 — so nothing here may promise one.
+ * Two routes, both real: Pro and credit. It names their prices and never
+ * lists what a plan includes (owner, 2026-10-28). There is no trial — the $1
+ * signup credit was removed on 2026-09-08 — so nothing here may promise one.
  */
-export const UPGRADE_LINE =
-  "Get more with Atlarix Pro — $19/month, includes Core usage across the app, the Chrome extension and Reviewer. Or add credit and pay only for what you use.";
+export const UPGRADE_LINE = `Get Atlarix Pro (${PRO_PRICE}), or add credit (from ${TOP_UP_FROM}) and pay only for what you use.`;
 export const UPGRADE_PRO_LABEL = "Upgrade to Pro";
-/** Picker badges for Core rows, by account (see useAccountKind). */
+/**
+ * Picker tags, only for an account with no Pro and no credit (owner,
+ * 2026-10-27/29): Auto "Free", every paid Core row and Zenith "Credit" (muted).
+ * Pro and anyone with a balance see no tag at all.
+ */
 export const CORE_BADGE = {
   free: "Free",
-  included: "Included",
-  credits: "Credits",
-  locked: "Pro / Credits",
+  credit: "Credit",
 } as const;
+/** The same tag as an ACP model description, where text is all an editor shows. */
+export const CORE_CREDIT_DESCRIPTION = "Uses credit";
 export const ADD_CREDIT_LABEL = "Add credit";
 
 /**
@@ -290,44 +395,81 @@ export const ADD_CREDIT_LABEL = "Add credit";
  * the Chrome extension (`packages/extension/src/core/upgrade-line.ts`), whose
  * side-panel agent is paid-only, so it never mentions a free route.
  */
-export const CREDIT_FIRST_LINE =
-  "Add credit from $10 and pay only for what you use, or get Atlarix Pro ($19/month), which includes Core usage across the app, the Chrome extension and Reviewer.";
+export const CREDIT_FIRST_LINE = `Add credit (from ${TOP_UP_FROM}) or get Pro (${PRO_PRICE}).`;
+
+/** The free limit's way out, in the order the owner wrote it (2026-10-28). */
+const FREE_WAY_OUT = `keep going with Pro (${PRO_PRICE}) or credit (from ${TOP_UP_FROM}), or use your own key (free)`;
 
 /**
- * A reset moment as the user's own clock shows it — "3:00 AM" — rather than a
- * countdown or a UTC time. Exported for tests, which pin the zone.
+ * Time left until `resetsAtMs`, as a countdown reads: "3h 20m", "20m", "1m".
+ * Rounded UP to the minute, so it never says "0m" while the limit still holds.
  */
-export function localResetTime(
-  retryAfterSeconds: number,
-  now: number = Date.now(),
-  timeZone?: string,
-): string {
-  return new Date(now + retryAfterSeconds * 1000).toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    ...(timeZone ? { timeZone } : {}),
-  });
+export function formatResetsIn(resetsAtMs: number, now: number = Date.now()): string {
+  const minutes = Math.max(1, Math.ceil((resetsAtMs - now) / 60_000));
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
 }
+
+/** An ISO time, epoch ms, or nothing, as epoch ms; null when unreadable. */
+export function resetsAtMs(resetsAt: string | number | null | undefined): number | null {
+  const ms = typeof resetsAt === "number" ? resetsAt : typeof resetsAt === "string" ? Date.parse(resetsAt) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
+export const FREE_LIMIT_MARKER = "Today's free Atlarix Auto is used up";
+/** The countdown inside the free-limit text, for a surface that ticks it. */
+export const RESETS_IN_PATTERN = /Resets in (?:(\d+)h)?\s?(?:(\d+)m)?/;
 
 /**
  * Atlarix Auto: today's free usage is all used (proxy 429 `free_usage_limit`).
  *
- * Says it plainly and says WHEN it comes back on the user's clock (the free
- * allowances reset at 00:00 UTC, a different hour everywhere), and nothing more:
- * no buttons, no upsell (owner, 2026-10-12: "just say daily usage is over, come
- * back tomorrow, and let it be"). Not an error the user caused, and not our
- * outage, so it is never reported to Sentry. Holds FREE_LIMIT_MARKER.
+ * When it comes back as a countdown (the free allowances reset at 00:00 UTC, a
+ * different hour everywhere), and the three ways to keep going now (owner,
+ * 2026-10-28; this replaces the 10-12 "come back tomorrow, and let it be").
+ * Each surface ticks the countdown and sends nothing until the reset or a
+ * switch of model or plan. Not an error the user caused, and not our outage,
+ * so it is never reported to Sentry.
  */
-export function freeUsageLimitUserMessage(
-  retryAfterSeconds?: number | null,
+export function freeAutoLimitMessage(
+  resetsAt?: string | number | null,
   now: number = Date.now(),
-  timeZone?: string,
 ): string {
-  const when =
-    typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
-      ? `it resets at ${localResetTime(retryAfterSeconds, now, timeZone)}`
-      : "it resets at midnight UTC";
-  return `Today's usage is over. Come back tomorrow (${when}).`;
+  const at = resetsAtMs(resetsAt);
+  const when = at != null && at > now ? `Resets in ${formatResetsIn(at, now)}.` : "Resets at midnight UTC.";
+  return `${FREE_LIMIT_MARKER}. ${when} ${FREE_WAY_OUT[0].toUpperCase()}${FREE_WAY_OUT.slice(1)}.`;
+}
+
+export const FREE_BUSY_MARKER = "Atlarix Auto's free models are busy right now";
+
+/**
+ * Atlarix Auto's free models are all busy (proxy 503 `free_busy`). No reset
+ * time exists, so no countdown: sending again is fine, and the same ways out
+ * as the limit keep a user at a full pool from pressing resend (ai-dd, 10-29).
+ */
+export function freeAutoBusyMessage(): string {
+  return `${FREE_BUSY_MARKER}. Try again in a moment, or ${FREE_WAY_OUT}.`;
+}
+
+export const ZENITH_OFFER_MARKER = "Atlarix Zenith uses frontier models";
+
+/**
+ * Appended once per chat when Atlarix Auto's top rung failed too (proxy
+ * `X-Atlarix-Ladder: top`): the one place Zenith is offered. Names its cost,
+ * never what it includes.
+ */
+export const ZENITH_OFFER_LINE = `${ZENITH_OFFER_MARKER} at a higher cost, and may get further with this. Pick it in the model list to try again.`;
+
+export const CORE_RATE_LIMIT_MARKER = "This model is busy";
+
+/**
+ * A paid Core/Auto/Zenith request the provider made wait longer than the proxy
+ * holds it (429 `core_rate_limited`). Not the user's balance, not an outage.
+ */
+export function coreRateLimitedMessage(retryAfterSeconds?: number | null): string {
+  const s = typeof retryAfterSeconds === "number" && retryAfterSeconds > 0 ? Math.ceil(retryAfterSeconds) : null;
+  const when = s == null ? "in a moment" : s < 60 ? `in ${s}s` : `in ${formatResetsIn(Date.now() + s * 1000)}`;
+  return `${CORE_RATE_LIMIT_MARKER}. Try again ${when}, or pick another model.`;
 }
 
 export const USE_OWN_KEY_LABEL = "Use your own key";
@@ -341,11 +483,6 @@ export const USE_OWN_KEY_LABEL = "Use your own key";
  */
 export function autoConsentRequiredUserMessage(): string {
   return `Atlarix Auto is free once you OK sharing its prompts with the AI providers that serve it, to improve their models. Review and accept to keep going. ${UPGRADE_LINE}`;
-}
-
-/** Atlarix Auto's free models are all busy right now (proxy 503 `free_busy`). */
-export function freeBusyUserMessage(): string {
-  return "Atlarix Auto's free models are busy right now. Try again in a moment, or pick a Core model above.";
 }
 
 /**
@@ -410,7 +547,6 @@ export function compassBadRequestUserMessage(detail?: string): string {
 // once someone edits either side.
 
 export const CORE_EXHAUSTED_MARKER = "balance is used up";
-export const FREE_LIMIT_MARKER = "Today's usage is over";
 export const AUTO_CONSENT_MARKER = "Atlarix Auto is free once you OK";
 
 /** Free Auto's consent, word for word, wherever a surface asks it (CLI dialog, ACP/VS Code card). */
