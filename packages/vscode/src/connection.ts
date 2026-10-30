@@ -108,6 +108,14 @@ export class AtlarixConnection {
   private child: ChildProcess | null = null;
   private conn: acp.ClientConnection | null = null;
   private readonly listeners = new Map<string, SessionListener>();
+  /**
+   * Updates for a session nobody listens to yet. A new chat learns its id from
+   * `session/new`'s answer, and the agent sends that session's first updates
+   * (the command list, QA E6) right behind the answer: before the panel could
+   * call `listen`, they were dropped and "/" showed no menu. Held briefly and
+   * replayed on `listen`; a session that is never listened to is forgotten.
+   */
+  private readonly early = new Map<string, { at: number; items: SessionNotification[] }>();
   init: InitializeResponse | null = null;
 
   constructor(private readonly opts: ConnectionOptions) {}
@@ -158,7 +166,9 @@ export class AtlarixConnection {
         return l.permission(ctx.params, ctx.signal);
       })
       .onNotification("session/update", (ctx) => {
-        this.listeners.get(ctx.params.sessionId)?.update(ctx.params);
+        const l = this.listeners.get(ctx.params.sessionId);
+        if (l) l.update(ctx.params);
+        else this.holdEarly(ctx.params);
       })
       .onNotification(
         "_atlarix/peer_waiting",
@@ -254,6 +264,23 @@ export class AtlarixConnection {
 
   listen(sessionId: string, l: SessionListener): void {
     this.listeners.set(sessionId, l);
+    const held = this.early.get(sessionId);
+    if (held) {
+      this.early.delete(sessionId);
+      for (const n of held.items) l.update(n);
+    }
+  }
+
+  /** Keep at most this many updates, for this long, per session nobody has claimed. */
+  static readonly EARLY_MAX = 50;
+  static readonly EARLY_TTL_MS = 30_000;
+
+  private holdEarly(n: SessionNotification): void {
+    const now = Date.now();
+    for (const [id, h] of this.early) if (now - h.at > AtlarixConnection.EARLY_TTL_MS) this.early.delete(id);
+    const h = this.early.get(n.sessionId) ?? { at: now, items: [] };
+    if (h.items.length < AtlarixConnection.EARLY_MAX) h.items.push(n);
+    this.early.set(n.sessionId, h);
   }
 
   /** Stop listening, unless another chat has taken this session over since. */

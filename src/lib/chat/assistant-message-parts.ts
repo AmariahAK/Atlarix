@@ -73,6 +73,41 @@ function parseAttributes(attributesStr: string): Record<string, string> {
 /** A whole tool call or result block, whatever it quotes inside. */
 const TOOL_BLOCK = /<(atlarix-(?:mcp-)?tool-(?:call|result))\b[^>]*>[\s\S]*?<\/\1>/g;
 
+const THOUGHT_OPEN_OR_CLOSE_OR_TOOL_START =
+  /<(\/?)(think|thinking|reasoning|redacted_thinking)(?:\s[^>]*)?>|<atlarix-(?:mcp-)?tool-(?:call|result)\b/gi;
+
+/**
+ * A thought that is still open when the next thought or a tool block begins is
+ * closed right there, not at the end of the message.
+ *
+ * gpt-oss (Bedrock, CLI QA 2026-10-30) writes `<reasoning>…` then calls a tool
+ * without closing it, and opens another `<reasoning>` after the result. Closing
+ * both at the very end made the first block swallow the tool call and result,
+ * and left the second closer over as prose: a reply that read "</reasoning>".
+ */
+function closeThoughtsAtBoundaries(content: string): string {
+  if (!/<(?:think|thinking|reasoning|redacted_thinking)\b/i.test(content)) return content;
+  let out = "";
+  let cursor = 0;
+  let open: string | null = null;
+  const re = new RegExp(THOUGHT_OPEN_OR_CLOSE_OR_TOOL_START.source, "gi");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const isThought = m[2] !== undefined;
+    if (isThought && m[1] === "/") {
+      if (open && m[2]!.toLowerCase() === open) open = null;
+      continue;
+    }
+    if (open) {
+      out += content.slice(cursor, m.index) + `</${open}>`;
+      cursor = m.index;
+      open = null;
+    }
+    if (isThought) open = m[2]!.toLowerCase();
+  }
+  return out + content.slice(cursor);
+}
+
 /** Minimal preprocess: close unclosed tool/thought tags so the scanner can pair them. */
 function preprocessForParse(content: string): string {
   const tagNames = [
@@ -85,7 +120,7 @@ function preprocessForParse(content: string): string {
     "atlarix-mcp-tool-call",
     "atlarix-mcp-tool-result",
   ];
-  let out = normalizeThinkingTags(content);
+  let out = closeThoughtsAtBoundaries(normalizeThinkingTags(content));
   // Thought tags are counted OUTSIDE tool calls and results only. A tool's
   // output can quote a thought tag (a session search returning an earlier
   // message), and counting that one appended a stray closer at the very end of
@@ -94,7 +129,7 @@ function preprocessForParse(content: string): string {
   for (const tagName of tagNames) {
     const counted = tagName.startsWith("atlarix-") ? out : outsideTools;
     const openTagPattern = new RegExp(`<${tagName}(?:\\s[^>]*)?>`, "g");
-    const closeTagPattern = new RegExp(`</${tagName}>`, "g");
+    const closeTagPattern = new RegExp(`<\\s*/\\s*${tagName}\\s*>`, "g");
     const openCount = (counted.match(openTagPattern) || []).length;
     const closeCount = (counted.match(closeTagPattern) || []).length;
     const missing = openCount - closeCount;
@@ -127,7 +162,7 @@ function parseRawPieces(segment: string): RawPiece[] {
     "atlarix-code-search-result",
   ];
   const tagPattern = new RegExp(
-    `<(${tagNames.join("|")})\\s*([^>]*)>([\\s\\S]*?)<\\/\\1>`,
+    `<(${tagNames.join("|")})\\s*([^>]*)>([\\s\\S]*?)<\\s*\\/\\s*\\1\\s*>`,
     "gi",
   );
   const pieces: RawPiece[] = [];

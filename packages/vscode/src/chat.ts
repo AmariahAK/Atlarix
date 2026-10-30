@@ -333,7 +333,8 @@ export class Chat {
         this.post({ type: "session", sessionId, title: null, modes: null, configOptions: [], replay: true });
         const r = await c.loadSession(cwd, sessionId);
         this.noteOptions(r?.configOptions ?? []);
-        this.post({ type: "session", sessionId, title: null, modes: r?.modes ?? null, configOptions: r?.configOptions ?? [], replay: false });
+        const parent = (r?._meta as { atlarix?: { parent?: { id: string; title: string } } } | undefined)?.atlarix?.parent ?? null;
+        this.post({ type: "session", sessionId, title: null, modes: r?.modes ?? null, configOptions: r?.configOptions ?? [], replay: false, parent });
       } else {
         const r = await c.newSession(cwd);
         this.sessionId = r.sessionId;

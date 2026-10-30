@@ -58,6 +58,12 @@ export function jitteredDelay(
   return Math.round(half + Math.random() * half);
 }
 
+/** The response body of an API error, here or one `.error`/`.cause` deep. */
+function gateBody(err: unknown): string {
+  const e = err as { responseBody?: unknown; error?: { responseBody?: unknown }; cause?: { responseBody?: unknown } } | null;
+  return String(e?.responseBody ?? e?.error?.responseBody ?? e?.cause?.responseBody ?? "");
+}
+
 /**
  * Distinguish a network/provider mid-stream failure (worth silently retrying)
  * from a user abort or a malformed-request error (must not be retried).
@@ -72,7 +78,14 @@ export function isNetworkStreamError(err: unknown, depth = 0): boolean {
   // Atlarix Auto's daily limit is a 429 with a Retry-After of HOURS. Retrying it
   // (capped at 60s) would spin, then surface as a disconnect instead of the
   // "resets in Xh" message the classifier gives it. A decision, not a fault.
-  if (/free_usage_limit/.test(String((err as { responseBody?: unknown })?.responseBody ?? ""))) {
+  //
+  // `free_busy` (every free pool full; 503) and `core_rate_limited` (a paid
+  // model the provider made wait; 429) are gates too, matched by the proxy's
+  // BODY CODE and never by status: a 503 from the edge or `core_unavailable`
+  // after upstream retries is still worth retrying. Retrying `free_busy` cost
+  // ~15 s per attempt at the proxy and showed "Couldn't connect, retrying…"
+  // for a full pool (13 refusals in 10 min, 2026-10-28).
+  if (/free_usage_limit|free_busy|core_rate_limited/.test(gateBody(err))) {
     return false;
   }
   // A provider error delivered as a successful finish reason (HTTP 200, clean

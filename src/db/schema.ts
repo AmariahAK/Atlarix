@@ -169,13 +169,25 @@ export const chatSessions = sqliteTable("chat_sessions", {
    * memory.
    */
   model: text("model"),
+  /**
+   * The chat this one was started from (a /fork's source, the session whose
+   * peer message started it, the chat that set up the automation behind a run).
+   * No foreign key: deleting a parent never deletes its forks, and a child whose
+   * parent is gone lists as a root. NULL for a chat the user started.
+   */
+  parentSessionId: text("parent_session_id"),
+  /**
+   * How it was started and where: JSON `SessionOrigin`
+   * (src/shared/session-lineage.ts). NULL for rows from before 0083.
+   */
+  origin: text("origin"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
-});
+}, (table) => [index("chat_sessions_parent_idx").on(table.parentSessionId)]);
 
 /**
  * What sort of row this is. THE source of truth — import this rather than
@@ -997,6 +1009,8 @@ export const automations = sqliteTable("automations", {
     .default(false),
   /** JSON {provider,name} model override; null → settings.selectedModel. */
   model: text("model"),
+  /** The chat whose agent created it; its runs list under that chat. NULL when made in the UI. */
+  sessionId: text("session_id"),
   /** JSON poller state (github cursors / mcp result hash); null until first poll. */
   cursor: text("cursor"),
   lastRunAt: integer("last_run_at", { mode: "timestamp" }),

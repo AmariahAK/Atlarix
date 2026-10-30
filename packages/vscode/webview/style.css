@@ -250,6 +250,11 @@ button.icon.small {
   padding: 0 7px;
   flex: none;
 }
+/* "Credit": a paid model on an account with nothing to pay with. Muted, not a call to act. */
+.badge--muted {
+  color: var(--muted);
+  background: var(--sunk);
+}
 .tag {
   font-size: 11px;
   color: var(--muted);
@@ -3215,4 +3220,11 @@ li.md-task {
   margin: 8px 0 0;
   color: var(--danger, var(--vscode-errorForeground));
   font-size: 12px;
+}
+
+/* A chat started from another one: the line above it that opens the parent. */
+.from-parent {
+  align-self: flex-start;
+  margin: 4px 0 8px;
+  color: var(--muted);
 }

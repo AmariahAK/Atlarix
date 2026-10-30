@@ -44,6 +44,15 @@ import {
 import { isChatStreamLive, lastStreamRequest } from "./chat_stream/stream-state";
 import { readSettings } from "@/main/settings";
 import { legacyChatWorkMode } from "@/main/backfill-session-choices";
+import { currentSurface } from "@/lib/stats/usage-stats";
+import {
+  orderSessionTree,
+  parseSessionLineage,
+  parseSessionOrigin,
+  serializeSessionOrigin,
+  type SessionLineage,
+  type SessionOrigin,
+} from "@/shared/session-lineage";
 import { WorkModeSchema, type WorkMode } from "@/lib/schemas";
 import {
   SessionModelChoiceSchema,
@@ -85,6 +94,9 @@ export type ChatSessionRow = {
   workMode: WorkMode | null;
   /** The model + effort this session runs on (`null`: the app's default). See `chat_sessions.model`. */
   model: SessionModelChoice | null;
+  /** The chat it was started from, and how (src/shared/session-lineage.ts). */
+  parentSessionId: string | null;
+  origin: SessionOrigin | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -137,6 +149,8 @@ function mapSession(row: typeof chatSessions.$inferSelect): ChatSessionRow {
     titleSource: (row.titleSource ?? "auto") as "auto" | "user",
     workMode: (row.workMode as WorkMode | null) ?? legacyChatWorkMode(readSettings),
     model: parseSessionModel(row.model),
+    parentSessionId: row.parentSessionId ?? null,
+    origin: parseSessionOrigin(row.origin),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -725,7 +739,7 @@ export async function startWorkspaceSession(
    * at its first message (a New chat no longer leaves an empty session behind,
    * QA 2026-10-22). Such a session is never swapped for a reused empty one.
    */
-  opts: { claim?: boolean; id?: string } = {},
+  opts: { claim?: boolean; id?: string; lineage?: SessionLineage } = {},
 ): Promise<{
   sessionId: string;
   chatId: number;
@@ -783,7 +797,8 @@ export async function startWorkspaceSession(
       if (verified.row && verified.empty) {
         // Nothing was ever said in it, so it is a new chat: it starts with what
         // was picked last, not what was the default when the row was made.
-        const fresh = appDefaultChoices();
+        // Started by another session: it is that one's child, as a new row would be.
+        const fresh = { ...appDefaultChoices(), ...(opts.lineage ? lineageColumns(opts.lineage) : {}) };
         const [restamped] = Object.keys(fresh).length
           ? await db.update(chatSessions).set(fresh).where(eq(chatSessions.id, reuseId)).returning()
           : [];
@@ -824,7 +839,7 @@ export async function startWorkspaceSession(
   }
 
   if (!session) {
-    session = await insertWorkspaceSession(workspaceId, opts.id);
+    session = await insertWorkspaceSession(workspaceId, opts.id, opts.lineage);
   }
   if (opts.claim) claimedSessions.add(session.id);
   const chatId = createStreamTransport(workspaceId);
@@ -881,9 +896,18 @@ function appDefaultChoices(): { workMode?: WorkMode; model?: string | null } {
   };
 }
 
+/** Where a new chat came from, stamped on its row: the surface it was made on, and its parent when another one started it. */
+function lineageColumns(lineage?: SessionLineage): { parentSessionId: string | null; origin: string } {
+  return {
+    parentSessionId: lineage?.parentSessionId ?? null,
+    origin: serializeSessionOrigin({ ...(lineage?.origin ?? { via: "user" }), surface: currentSurface() }),
+  };
+}
+
 async function insertWorkspaceSession(
   workspaceId: number,
   presetId?: string,
+  lineage?: SessionLineage,
 ): Promise<ChatSessionRow> {
   const now = new Date();
   const id = presetId ?? randomUUID();
@@ -894,6 +918,7 @@ async function insertWorkspaceSession(
       workspaceId,
       title: "Untitled",
       ...appDefaultChoices(),
+      ...lineageColumns(lineage),
       createdAt: now,
       updatedAt: now,
     })
@@ -1052,6 +1077,66 @@ export async function titleSessionFromFirstMessage(
   }
 }
 
+/** A row of a list of chats: where it sits in its tree, and the parent's title when that is not in the list. */
+export type ListedSession = ChatSessionRow & {
+  depth: number;
+  /** An automation's runs under one chat show as its latest run; how many there were. */
+  runs?: number;
+  /** The parent's title when the parent is not in this list (another folder, or past the limit). */
+  parentTitle?: string;
+};
+
+/**
+ * `rows` as a tree (src/shared/session-lineage.ts): each child under its
+ * parent, and under a listed chat the automation runs it set up, one row per
+ * automation (its latest run, with the count), so an hourly automation never
+ * floods the chat it came from.
+ */
+export async function asSessionTree<T extends ChatSessionRow>(
+  rows: T[],
+  extra: (parent: T) => Omit<T, keyof ChatSessionRow> = () => ({}) as Omit<T, keyof ChatSessionRow>,
+): Promise<Array<T & ListedSession>> {
+  if (rows.length === 0) return [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ids = [...byId.keys()];
+  const runs = new Map<string, { row: T; runs: number }>();
+  for (let i = 0; i < ids.length; i += 500) {
+    const background = await db
+      .select()
+      .from(chatSessions)
+      .where(and(eq(chatSessions.kind, "background"), inArray(chatSessions.parentSessionId, ids.slice(i, i + 500))));
+    for (const b of background) {
+      const parent = byId.get(b.parentSessionId!);
+      if (!parent) continue;
+      const mapped = { ...mapSession(b), ...extra(parent) } as T;
+      const key = `${b.parentSessionId}\0${mapped.origin?.automationId ?? b.id}`;
+      const seen = runs.get(key);
+      if (!seen) runs.set(key, { row: mapped, runs: 1 });
+      else {
+        seen.runs += 1;
+        if (mapped.updatedAt > seen.row.updatedAt) seen.row = mapped;
+      }
+    }
+  }
+  const all: Array<T & { runs?: number }> = [...rows, ...[...runs.values()].map((r) => ({ ...r.row, runs: r.runs }))];
+  const ordered = orderSessionTree(all);
+
+  // A child listed as a root: name where it came from.
+  const away = [...new Set(ordered.filter((r) => r.depth === 0 && r.parentSessionId).map((r) => r.parentSessionId!))];
+  const titles = new Map<string, string>();
+  for (let i = 0; i < away.length; i += 500) {
+    const found = await db
+      .select({ id: chatSessions.id, title: chatSessions.title })
+      .from(chatSessions)
+      .where(inArray(chatSessions.id, away.slice(i, i + 500)));
+    for (const f of found) titles.set(f.id, f.title);
+  }
+  return ordered.map((r) => {
+    const parentTitle = r.depth === 0 && r.parentSessionId ? titles.get(r.parentSessionId) : undefined;
+    return parentTitle != null ? { ...r, parentTitle } : r;
+  });
+}
+
 export function registerWorkspaceSessionHandlers(): void {
   handle("sessions:list", async (_event, workspaceId: number) => {
     const rows = await db
@@ -1061,12 +1146,12 @@ export function registerWorkspaceSessionHandlers(): void {
         and(
           eq(chatSessions.workspaceId, workspaceId),
           // Automation-run transcripts (kind="background") live in the
-          // automations feed, not the workspace session list.
+          // automations feed; only those an agent's chat set up list, under it.
           eq(chatSessions.kind, "normal"),
         ),
       )
       .orderBy(desc(chatSessions.updatedAt));
-    return rows.map((r) => mapSession(r));
+    return asSessionTree(rows.map((r) => mapSession(r)));
   });
 
   /**
@@ -1081,7 +1166,10 @@ export function registerWorkspaceSessionHandlers(): void {
       .where(eq(chatSessions.kind, "normal"))
       .orderBy(desc(chatSessions.updatedAt))
       .limit(Math.min(Math.max(1, Number(limit) || 200), 500));
-    return rows.map((r) => ({ ...mapSession(r.session), folder: r.folder, folderName: r.folderName }));
+    return asSessionTree(
+      rows.map((r) => ({ ...mapSession(r.session), folder: r.folder, folderName: r.folderName })),
+      (parent) => ({ folder: parent.folder, folderName: parent.folderName }),
+    );
   });
 
   handle(
@@ -1136,18 +1224,26 @@ export function registerWorkspaceSessionHandlers(): void {
     },
   );
 
-  handle("sessions:start", async (_event, workspaceId: number, opts?: { claim?: boolean; id?: string }) => {
+  handle(
+    "sessions:start",
+    async (_event, workspaceId: number, opts?: { claim?: boolean; id?: string; lineage?: unknown }) => {
     // Defense-in-depth: a workspace session may only be started by a signed-in
     // user (the UI gates selection too, but never trust the renderer).
     await requireAuthSession();
     const id = typeof opts?.id === "string" && /^[0-9a-f-]{36}$/i.test(opts.id) ? opts.id : undefined;
-    const started = await startWorkspaceSession(workspaceId, { claim: opts?.claim === true, ...(id ? { id } : {}) });
+    const lineage = parseSessionLineage(opts?.lineage);
+    const started = await startWorkspaceSession(workspaceId, {
+      claim: opts?.claim === true,
+      ...(id ? { id } : {}),
+      ...(lineage ? { lineage } : {}),
+    });
     logger.info(
       `sessions:start workspace=${workspaceId} session=${started.sessionId} transport=${started.chatId}`,
     );
     void noteSessionOpen(started.sessionId, started.chatId);
     return started;
-  });
+    },
+  );
 
   handle("sessions:allocate-transport", async (_event, sessionId: string) => {
     const session = await db.query.chatSessions.findFirst({
@@ -1237,7 +1333,10 @@ export function registerWorkspaceSessionHandlers(): void {
         isChatStreamLive(transportForSession(sessionId) ?? 0);
       const copied = last && running && last.status === "interrupted" ? rows.slice(0, -1) : rows;
 
-      const fork = await insertWorkspaceSession(source.workspaceId);
+      const fork = await insertWorkspaceSession(source.workspaceId, undefined, {
+        parentSessionId: source.id,
+        origin: { via: "fork" },
+      });
       const named = opts?.title?.trim();
       const [row] = await db
         .update(chatSessions)
@@ -1454,8 +1553,16 @@ export function registerWorkspaceSessionHandlers(): void {
             `displaySnapshot ${(b.displaySnapshot / 1_048_576).toFixed(2)}) across ${messages.length} messages`,
         );
       }
+      // Where it came from, for the crumb a child shows when opened.
+      const parent = session.parentSessionId
+        ? await db.query.chatSessions.findFirst({
+            where: eq(chatSessions.id, session.parentSessionId),
+            columns: { id: true, title: true },
+          })
+        : undefined;
       return {
         session: mapSession(session),
+        parent: parent ?? null,
         messages,
         truncated: totalCount > limit,
         totalCount,

@@ -2,8 +2,10 @@
  * list_sessions / send_message — talk to the user's other Atlarix sessions on
  * this machine (CLI or app). The machinery and its rules are in lib/peers.
  */
-import { ToolRegistry, createParameters, stringParam } from "./registry";
+import { ToolRegistry, booleanParam, createParameters, stringParam } from "./registry";
 import {
+  endedText,
+  filesChangedText,
   latestReply,
   listPeerSessions,
   localSession,
@@ -118,21 +120,9 @@ async function resultOf(to: string, own: string | undefined): Promise<string> {
     full.length > RESULT_REPLY_CAP
       ? `${full.slice(0, RESULT_REPLY_CAP)}…\n[${RESULT_REPLY_CAP.toLocaleString("en-US")} of ${full.length.toLocaleString("en-US")} characters; ask ${row.name} for the rest with send_message.]`
       : full || "(no text)";
-  let files = "";
-  if (reply.snapshotTurnId && row.workspace) {
-    const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
-    const changed = await listSnapshotFiles(row.workspace, reply.snapshotTurnId).catch(() => null);
-    files = changed?.filesChanged.length ? changed.filesChanged.join(", ") : "";
-  }
+  const files = await filesChangedText(row.workspace, reply.snapshotTurnId);
   const { wrapUntrustedData } = await import("@/lib/streaming/untrusted-data");
   return `${head}\nFiles changed: ${files || "none"}.\nIts reply (its words, not the user's):\n${wrapUntrustedData(`session:${row.name}`, shown)}`;
-}
-
-function endedText(outcome: string, errorKind?: string): string {
-  if (outcome === "error") return `failed${errorKind ? ` (${errorKind.replace(/_/g, " ")})` : ""}`;
-  if (outcome === "stopped" || outcome === "aborted") return "stopped";
-  if (outcome === "ask_user") return "waiting for the user's answer";
-  return "done";
 }
 
 /** " · Build · Atlarix Auto": its mode, and its model when known. */
@@ -161,10 +151,11 @@ ToolRegistry.register({
         "Its plan awaiting approval: approve (it starts building), reject (message says why) or update (plan_text replaces it).",
       ),
       plan_text: stringParam("The whole new plan, for plan: update."),
+      notify_when_done: booleanParam("One notice here when its turn ends."),
     },
     ["to"],
   ),
-  handler: async ({ to, message, mode, model, plan, plan_text, workspaceSessionId }) => {
+  handler: async ({ to, message, mode, model, plan, plan_text, notify_when_done, workspaceSessionId }) => {
     const own =
       typeof workspaceSessionId === "string" ? workspaceSessionId : undefined;
     const text = typeof message === "string" ? message.trim() : "";
@@ -180,6 +171,11 @@ ToolRegistry.register({
     }
     if (planAction === "reject" && !text) return { success: false, error: "A reject needs a message saying why." };
     if (planAction === "update" && !planBody) return { success: false, error: "update needs plan_text: the whole new plan." };
+    // A notice is about a turn: only a message or an approval starts one.
+    const notify = notify_when_done === true;
+    if (notify && !text && planAction !== "approve") {
+      return { success: false, error: "notify_when_done needs a message (or a plan approval) that starts a turn." };
+    }
     if (setMode && !parseMode(setMode)) {
       return { success: false, error: `No mode "${setMode}": build, explore, plan, debug or review.` };
     }
@@ -212,14 +208,18 @@ ToolRegistry.register({
             ...(planAction ? { plan: planAction, ...(planBody ? { planText: planBody } : {}) } : {}),
           }
         : undefined,
+      // A browser's result already comes back as a message.
+      { notify: notify && target.row.surface !== "chrome" },
     );
     if (!result.ok)
       return {
         success: false,
         error: `Not sent: ${result.error ?? "unknown error"}`,
       };
+    // Said only when the other side took it on (an older Atlarix ignores it).
+    const noticeNote = result.notify ? " Notice when its turn ends." : "";
     // A change alone: say what it now shows, rather than "it starts a turn".
-    if (!text) return { success: true, text: `${target.row.name}: ${result.applied ?? "changed"}` };
+    if (!text) return { success: true, text: `${target.row.name}: ${result.applied ?? "changed"}${noticeNote}` };
     const replyNote = peerInboxRunning()
       ? ""
       : " (This session has no inbox, so it cannot be replied to.)";
@@ -231,7 +231,7 @@ ToolRegistry.register({
     }
     return {
       success: true,
-      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : result.waits ? "idle: it reads it with the user's next prompt there" : "idle: it starts a turn with it"}).${result.applied ? ` ${result.applied}` : ""}${replyNote}`,
+      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : result.waits ? "idle: it reads it with the user's next prompt there" : "idle: it starts a turn with it"}).${result.applied ? ` ${result.applied}` : ""}${noticeNote}${replyNote}`,
     };
   },
 });

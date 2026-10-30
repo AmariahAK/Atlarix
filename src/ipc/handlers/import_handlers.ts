@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { ImportAppParams, ImportAppResult } from "../ipc_types";
 import { importWorkspaceFromPath } from "./import_workspace_core";
 import { resolveAppPath } from "@/paths/paths";
+import { ExpectedUserError } from "@/shared/expected_error";
 
 const logger = log.scope("import-handlers");
 const handle = createLoggedHandler(logger);
@@ -62,7 +63,10 @@ export function registerImportHandlers() {
         try {
           await fs.access(resolvedPath);
         } catch {
-          throw new Error("Source folder does not exist");
+          throw new ExpectedUserError(
+            "This folder no longer exists.",
+            "folder-missing",
+          );
         }
       }
       return importWorkspaceFromPath({

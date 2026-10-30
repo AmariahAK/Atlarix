@@ -33,10 +33,10 @@ import { estimateModelMessagesTokens } from "@/lib/ai/native-history";
 import { ToolRegistry } from "@/lib/tools/registry";
 import {
   isInsufficientCreditError,
-  requiredCentsFromError,
+  extractCoreErrorParts,
 } from "@/lib/billing/insufficient-credit";
 import { markCreditExhausted } from "@/lib/agents/credit-halt";
-import { coreExhaustedUserMessage } from "@/shared/billing_copy";
+import { coreRefusalMessage, parseCreditRefusal } from "@/shared/billing_copy";
 import { loadSkill } from "../skills/skill-loader";
 import { readSettings } from "../../main/settings";
 import {
@@ -290,6 +290,7 @@ export async function runSubagent(
     const { modelClient } = await getModelClient(effectiveModel, settings, {
       delegationRole: "subagent" as const,
       delegationDepth: 1,
+      ...(args.chatId != null ? { sessionChatId: args.chatId } : {}),
     });
 
     // System prompt: a user-defined agent when named, else the generic scout.
@@ -727,7 +728,7 @@ export async function runSubagent(
      * turn says the same thing, including the required amount.
      */
     if (isInsufficientCreditError(err)) {
-      const message = coreExhaustedUserMessage(requiredCentsFromError(err));
+      const message = coreRefusalMessage(parseCreditRefusal(extractCoreErrorParts(err).bodyStr));
       markCreditExhausted(args.chatId, message);
       return { success: false, error: message };
     }

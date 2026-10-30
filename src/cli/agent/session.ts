@@ -38,6 +38,7 @@ import { handler } from "./ipc";
 import { readCliState, turnModelFor } from "./models";
 import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
 import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
+import type { SessionLineage, SessionOrigin } from "@/shared/session-lineage";
 
 /** The desktop's five work modes (WorkModeSchema); "ask" is shown as Explore. */
 export type WorkMode = "build" | "ask" | "plan" | "debug" | "review";
@@ -141,6 +142,12 @@ export interface SessionSummary {
   title: string | null;
   updatedAt: Date | string;
   workMode: string | null;
+  /** Where it came from (src/shared/session-lineage.ts); lists put it under its parent. */
+  parentSessionId?: string | null;
+  origin?: SessionOrigin | null;
+  depth?: number;
+  runs?: number;
+  parentTitle?: string;
 }
 
 /** The desktop's answer for a question left unanswered (InlineUserQuestions). */
@@ -621,11 +628,15 @@ export class AgentSession extends EventEmitter {
    * next turn continues it, its mode back. The desktop's own sequence
    * (allocate-transport → get → hydrate-transport).
    */
-  async resume(sessionId: string): Promise<void> {
+  async resume(sessionId: string): Promise<{ parent?: { id: string; title: string } }> {
     if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it), then resume.");
     clearAccountMcpServers();
     const { chatId } = (await (await handler("sessions:allocate-transport"))({}, sessionId)) as { chatId: number };
-    const got = (await (await handler("sessions:get"))({}, sessionId)) as { session: SessionSummary; messages: SavedMessage[] };
+    const got = (await (await handler("sessions:get"))({}, sessionId)) as {
+      session: SessionSummary;
+      parent?: { id: string; title: string } | null;
+      messages: SavedMessage[];
+    };
     const rows = got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
     await (await handler("sessions:hydrate-transport"))({}, { chatId, sessionId, rows });
     await this.newSession({ opening: sessionId });
@@ -655,6 +666,7 @@ export class AgentSession extends EventEmitter {
         this.update({ contextUsed: last, contextLimit: this.contextWindow, contextPercent: Math.min(100, Math.round((last / this.contextWindow) * 100)) });
       }
     }
+    return got.parent ? { parent: got.parent } : {};
   }
 
   /** The session's saved messages as this session's own: what resume and a follow show. */
@@ -769,7 +781,10 @@ export class AgentSession extends EventEmitter {
 
   /** `atlarix -c`: the newest session in this folder, if there is one. */
   async resumeLatest(): Promise<boolean> {
-    const [latest] = await this.listSessions();
+    // The list comes as trees; the newest chat worked in, not an automation's run.
+    const [latest] = (await this.listSessions())
+      .filter((s) => s.origin?.via !== "automation")
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     if (!latest) return false;
     await this.resume(latest.id);
     return true;
@@ -1386,14 +1401,19 @@ export class AgentSession extends EventEmitter {
     this.removeAllListeners();
   }
 
-  private async ensureSession(): Promise<void> {
+  private async ensureSession(lineage?: SessionLineage): Promise<void> {
     if (this.sessionId) return;
     // An editor thread claims its session: opened before any message, it must
     // not be handed to (or pruned by) the next session started in this folder.
+    // Started by another session's message: it is that one's child.
+    const opts = {
+      ...(this.surface === "editor" ? { claim: true, ...(this.reservedId ? { id: this.reservedId } : {}) } : {}),
+      ...(lineage ? { lineage } : {}),
+    };
     const started = (await (await handler("sessions:start"))(
       {},
       this.appId,
-      this.surface === "editor" ? { claim: true, ...(this.reservedId ? { id: this.reservedId } : {}) } : undefined,
+      Object.keys(opts).length ? opts : undefined,
     )) as {
       sessionId: string;
       chatId: number;
@@ -1423,8 +1443,12 @@ export class AgentSession extends EventEmitter {
       chatId: 0,
       name: `New ${this.surface === "editor" ? "editor" : "CLI"} session (${path.basename(this.workspaceDir)})`,
       workspace: this.workspaceDir,
-      materialize: async () => {
-        await this.ensureSession();
+      materialize: async (from) => {
+        await this.ensureSession(
+          from.sessionId && from.sessionId !== "unknown"
+            ? { parentSessionId: from.sessionId, origin: { via: "peer", by: { sessionId: from.sessionId, name: from.name, surface: from.surface } } }
+            : undefined,
+        );
         return { sessionId: this.sessionId, chatId: this.chatId };
       },
     });
@@ -2425,6 +2449,12 @@ export class AgentSession extends EventEmitter {
     if (wasInterrupted && lastReply) this.interrupted.add(String(lastReply.id));
     else if (wasInterrupted && turnUser) this.addTurnNotice(turnUser, "info", "Interrupted. Tell Atlarix what to do instead.");
     this.lastTurnOwner = lastReply ? String(lastReply.id) : turnUser;
+    // Auto's top rung kept failing: offer Zenith once, under this turn.
+    if (this.lastEnd.zenithOffer === true && this.lastTurnOwner) {
+      this.lastEnd = { ...this.lastEnd, zenithOffer: false };
+      const { ZENITH_OFFER_LINE } = await import("@/shared/billing_copy");
+      this.addTurnNotice(this.lastTurnOwner, "info", `◇ ${ZENITH_OFFER_LINE.replace("Pick it in the model list", "/model Atlarix Zenith")}`);
+    }
     if (lastReply && this.state.turnStartedAt) {
       const secs = Math.max(1, Math.round((Date.now() - this.state.turnStartedAt) / 1000));
       const took = secs >= 60 ? `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, "0")}s` : `${secs}s`;

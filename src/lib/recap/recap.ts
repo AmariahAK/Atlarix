@@ -70,6 +70,8 @@ export async function generateRecap(
       system: RECAP_SYSTEM,
       prompt: `<conversation>\n${conversation}\n</conversation>${filesSection(opts.filesChanged)}\n\nThe recap:`,
       abortSignal: AbortSignal.timeout(RECAP_TIMEOUT_MS),
+      // Atlarix Core takes no SDK retries: its gates (busy, limits) are answers.
+      ...(modelClient.builtinProviderId === "compass" ? { maxRetries: 0 } : {}),
     });
     recordAuxUsage(opts.chatId, result.usage, "recap");
     const line = clampRecap(result.text);

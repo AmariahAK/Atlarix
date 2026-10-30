@@ -26,7 +26,16 @@ import {
 import { isContextOverflowError } from "@/lib/context/compaction";
 import { ATLARIX_AUTH_REQUIRED_PREFIX } from "@/shared/auth_ipc";
 
-export type TurnOutcome = "ok" | "ask_user" | "stopped" | "aborted" | "error";
+export type TurnOutcome = "ok" | "ask_user" | "stopped" | "aborted" | "error" | "gate";
+
+/**
+ * A turn the service refused ON PURPOSE, as policy, not a failure of anything:
+ * the free share is used up, every free source is busy, consent has not been
+ * given, or the account has no credit for the model it picked. Counted as a
+ * `gate` outcome, so the error-rate alert and the crash reports ignore them
+ * (2026-10-26/27: two such days paged the owner at 33–38% "errors").
+ */
+export type GateKind = "free_usage_limit" | "free_busy" | "consent_required" | "insufficient_credit";
 
 export type TurnErrorKind =
   | "auth"
@@ -54,6 +63,17 @@ export interface TurnEnd {
   outcome: TurnOutcome;
   errorKind?: TurnErrorKind;
   httpStatus?: number;
+  /** Set when `outcome` is "gate". */
+  gateKind?: GateKind;
+}
+
+/** The gate a classified failure is, if it is one. Shared with the stream-error swap in analytics.ts. */
+export function gateOf(kind: TurnErrorKind | string | undefined, httpStatus?: number, body = ""): GateKind | undefined {
+  if (kind === "consent_required") return "consent_required";
+  if (/free_usage_limit/.test(body) || (kind === "quota" && httpStatus === 429)) return "free_usage_limit";
+  if (/free_busy/.test(body) || (kind === "rate_limit" && httpStatus === 503)) return "free_busy";
+  if (/insufficient_credit/.test(body) || (kind === "quota" && httpStatus === 402)) return "insufficient_credit";
+  return undefined;
 }
 
 /** The error, then what the AI SDK wraps inside it. */
@@ -136,5 +156,8 @@ export function classifyTurnEnd(error: unknown, signal: AbortSignal): TurnEnd {
   }
   if (error === undefined) return { outcome: "ok" };
   const c = classifyTurnError(error);
-  return { outcome: "error", errorKind: c.kind, ...(c.httpStatus ? { httpStatus: c.httpStatus } : {}) };
+  const status = c.httpStatus ? { httpStatus: c.httpStatus } : {};
+  const gate = gateOf(c.kind, c.httpStatus, bodyOf(error));
+  if (gate) return { outcome: "gate", gateKind: gate, errorKind: c.kind, ...status };
+  return { outcome: "error", errorKind: c.kind, ...status };
 }

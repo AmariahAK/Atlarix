@@ -11,7 +11,7 @@ It runs in **VS Code, Cursor, Kiro, Windsurf, VSCodium** and other editors built
 - **Any model, your key or ours.** Atlarix Auto picks a good model for each task; Atlarix Core gives you named models; or connect your own provider key. The model list is the same one you set up in the [Atlarix desktop app and CLI](https://www.atlarix.dev/docs/guides/getting-started).
 - **Changes you approve.** Build mode asks before every file edit and every command. Edits open in VS Code's side-by-side diff: **Yes** applies, **No** leaves the file alone.
 - **Plan, then build.** Plan mode reads your code and writes a step-by-step plan you can review in the panel; **Build it** carries it out. See [how Atlarix's modes work](https://www.atlarix.dev/docs/guides/modes).
-- **Debug and Review.** Debug finds the cause before changing anything; Review reads your uncommitted changes like a careful reviewer.
+- **Debug and Review.** Debug finds the cause before changing anything; Review follows the part you name (or your uncommitted changes) through its callers, data and other repos.
 - **Your browser, too.** With the [Atlarix Chrome extension](https://www.atlarix.dev/extension) connected, the agent can open pages, read them and test your app in your own Chrome.
 - **Sessions that talk to each other.** An Atlarix session in the app, the terminal, Chrome or another editor can send this one a message — it arrives as a card and is answered here.
 - **Context from your editor.** Select code and press **⌘⌥L** (Ctrl+Alt+L), type **@** to add a file, or attach an image.

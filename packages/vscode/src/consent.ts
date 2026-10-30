@@ -11,13 +11,12 @@
 export const CONSENT_ASKED_KEY = "atlarix.analyticsConsentAsked";
 
 export const CONSENT_QUESTION =
-  "Help improve Atlarix: share usage data (which features get used, and whether things work)? Never your code, prompts, file names, or file contents.";
+  "Help improve Atlarix: share usage data (which features get used and whether they work)? Never your code, prompts or files.";
 
 export const CONSENT_DETAIL = [
-  "Share usage data — which features get used, and whether things work — to help us understand what matters most.",
-  "Never your code, prompts, file names, or file contents. Anonymous when signed out. When signed in, it's linked to your account and includes your email and name, so your usage counts once across your devices. Includes your approximate location (country and city), worked out from your connection; the address itself isn't kept.",
-  "Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.",
-  "Signed-in accounts also record which Atlarix you use (app, CLI, editor), the provider type and model, and how many turns — never prompts, code or keys — and this is not covered by this choice either.",
+  "Share usage data — which features get used and whether they work.",
+  "Never your code, prompts or files. Anonymous when signed out. Signed in, it's tied to your account (email and name) and includes your rough location from your connection, never the address itself. Change it anytime in the Atlarix app or CLI.",
+  "Not covered by this choice: crash reports (stack traces and device info), and for signed-in accounts a daily count of turns by surface, provider type, model and token size. Never prompts, code or keys.",
   "The same setting as the Atlarix app and CLI: one answer covers all of them.",
 ].join("\n\n");
 

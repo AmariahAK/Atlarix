@@ -131,6 +131,27 @@ export function diffRows(oldText: string, newText: string, context = 2): DiffRow
 }
 
 /** Past chats' groups: Today, Yesterday, This week, then the month ("September 2026"). */
+/**
+ * Past chats as trees: the agent lists each child right after its parent
+ * (`depth` > 0), and a tree keeps together when sorted, placed by its most
+ * recently active chat, so it sits in that chat's day.
+ */
+export function chatTrees<T extends { updatedAt: string; depth?: number }>(
+  rows: readonly T[],
+  sort: "newest" | "oldest",
+): Array<{ newest: string; rows: T[] }> {
+  const trees: Array<{ newest: string; rows: T[] }> = [];
+  for (const r of rows) {
+    const last = trees.at(-1);
+    if ((r.depth ?? 0) > 0 && last) {
+      last.rows.push(r);
+      if (new Date(r.updatedAt) > new Date(last.newest)) last.newest = r.updatedAt;
+    } else trees.push({ newest: r.updatedAt, rows: [r] });
+  }
+  const sign = sort === "newest" ? 1 : -1;
+  return trees.sort((a, b) => sign * (new Date(b.newest).getTime() - new Date(a.newest).getTime()));
+}
+
 export function dayGroup(iso: string | number | Date, now: Date = new Date()): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return "Earlier";

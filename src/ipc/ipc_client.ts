@@ -60,7 +60,7 @@ import { showError } from "@/lib/toast";
 import { classifyContent } from "@/lib/file-content-type";
 import { DeepLinkData } from "./deep_link_data";
 import { getDefaultStore } from "jotai";
-import { autonomousSessionReviewAtom } from "@/atoms/chatAtoms";
+import { autonomousSessionReviewAtom, zenithOfferChatIdsAtom } from "@/atoms/chatAtoms";
 
 export interface ChatStreamCallbacks {
   onUpdate: (messages: Message[]) => void;
@@ -569,6 +569,10 @@ export class IpcClient {
       // callbacks/state (observed: frozen inline chat after an error +
       // model-switch continue crossed in flight).
       if (this.shouldDropStreamEvent(chatId, streamId)) return;
+      // Atlarix Auto's top rung kept failing: the chat shows the Zenith offer.
+      if ((payload as unknown as ChatResponseEnd).zenithOffer === true) {
+        getDefaultStore().set(zenithOfferChatIdsAtom, (prev) => new Set([...prev, chatId]));
+      }
       this.streamMessages.delete(chatId);
       this.streamPhaseHandlers.forEach((h) =>
         h({ chatId, phase: "done", label: "" }),
@@ -1836,6 +1840,8 @@ export class IpcClient {
       effortOverride?: { effort: string; deepThinking: boolean };
       /** "Try with a stronger model" (paid Atlarix Auto). */
       escalate?: boolean;
+      /** The user's Retry (`X-Atlarix-Retry` on the first Core request). */
+      userRetry?: boolean;
     },
   ): void {
     const {
@@ -1855,6 +1861,7 @@ export class IpcClient {
       workModeOverride,
       effortOverride,
       escalate,
+      userRetry,
       displayPrompt,
       pasteAttachments,
     } = options;
@@ -1886,6 +1893,7 @@ export class IpcClient {
               workModeOverride: workModeOverride ?? undefined,
               effortOverride: effortOverride ?? undefined,
               escalate: escalate || undefined,
+              userRetry: userRetry || undefined,
             })
             .then((res) => this.endStreamDispatch(chatId, res))
             .catch((err) => {
@@ -1922,6 +1930,7 @@ export class IpcClient {
           workModeOverride: workModeOverride ?? undefined,
               effortOverride: effortOverride ?? undefined,
           escalate: escalate || undefined,
+          userRetry: userRetry || undefined,
         })
         .then((res) => this.endStreamDispatch(chatId, res))
         .catch((err) => {

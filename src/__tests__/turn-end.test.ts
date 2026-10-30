@@ -104,6 +104,24 @@ describe("classifyTurnEnd", () => {
     expect(classifyTurnEnd(api(401), live())).toEqual({ outcome: "error", errorKind: "auth", httpStatus: 401 });
   });
 
+  it("a refusal that is policy is a gate, not an error", () => {
+    expect(classifyTurnEnd(api(429, '{"error":"free_usage_limit","retry_after_seconds":3600}'), live())).toEqual({
+      outcome: "gate",
+      gateKind: "free_usage_limit",
+      errorKind: "quota",
+      httpStatus: 429,
+    });
+    expect(classifyTurnEnd(api(503, '{"error":"free_busy"}'), live())).toMatchObject({ outcome: "gate", gateKind: "free_busy" });
+    expect(classifyTurnEnd(api(402, '{"consent_required": true}'), live())).toMatchObject({ outcome: "gate", gateKind: "consent_required" });
+    expect(classifyTurnEnd(api(402, '{"error":"insufficient_credit","required_cents":10}'), live())).toMatchObject({
+      outcome: "gate",
+      gateKind: "insufficient_credit",
+    });
+    // A plain 429 or 503 with no gate code is still a failure.
+    expect(classifyTurnEnd(api(429), live())).toMatchObject({ outcome: "error", errorKind: "rate_limit" });
+    expect(classifyTurnEnd(api(503), live())).toMatchObject({ outcome: "error" });
+  });
+
   it("'wrap up now' that returned is a finished turn, not a stop", () => {
     expect(classifyTurnEnd(undefined, aborted(FORCE_TEXT_FINISH_STREAM_STOP))).toEqual({ outcome: "ok" });
   });

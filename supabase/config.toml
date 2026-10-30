@@ -447,6 +447,16 @@ verify_jwt = true
 # yet — that is the point of the flow — so the gateway cannot require a JWT. The
 # function checks the user's JWT itself on describe/approve/deny, and start/poll
 # are guarded by the device code (stored hashed) and per-address limits.
+# The Auth "before user created" hook: Supabase Auth calls it with a signed body
+# (Standard Webhooks headers), there is no user JWT yet. Signature checked inside.
+[functions.auth-before-user-created]
+verify_jwt = false
+
+# The owner's one-tap "lift this ban" link from the abuse watcher's message:
+# authorised by the HMAC in the link, tapped on a phone, so no JWT.
+[functions.lift-ban]
+verify_jwt = false
+
 [functions.cli-device]
 verify_jwt = false
 

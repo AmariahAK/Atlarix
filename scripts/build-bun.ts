@@ -112,6 +112,7 @@ const PUBLIC_KEYS = [
   "ATLARIX_CORE_MODEL_3",
   "ATLARIX_CORE_MODEL_4",
   "ATLARIX_CORE_MODEL_5",
+  "ATLARIX_CORE_MODEL_6",
   "POSTHOG_API_KEY",
   // Crash reports (src/headless/sentry-stub.ts). A DSN is public by design: it
   // can only send events to the project.

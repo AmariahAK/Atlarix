@@ -72,6 +72,7 @@ env:
   ATLARIX_CORE_MODEL_3: ${{ vars.ATLARIX_CORE_MODEL_3 || secrets.ATLARIX_CORE_MODEL_3 }}
   ATLARIX_CORE_MODEL_4: ${{ vars.ATLARIX_CORE_MODEL_4 || secrets.ATLARIX_CORE_MODEL_4 }}
   ATLARIX_CORE_MODEL_5: ${{ vars.ATLARIX_CORE_MODEL_5 || secrets.ATLARIX_CORE_MODEL_5 }}
+  ATLARIX_CORE_MODEL_6: ${{ vars.ATLARIX_CORE_MODEL_6 || secrets.ATLARIX_CORE_MODEL_6 }}
   # Opt in to Node 24 action runtime now rather than waiting for the forced migration (June 2026).
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Stable path for Electron zips so actions/cache can persist them across runs (reduces postinstall 504s).
@@ -1469,13 +1470,8 @@ jobs:
   submit-vscode:
     # Open VSX (Cursor, Kiro, Windsurf, VSCodium). NOT in publish-release's
     # needs: a registry outage must never block a release, and the VSIXs are
-    # already attached to it by then.
-    #
-    # The VS Code Marketplace is uploaded BY HAND for now
-    # (marketplace.visualstudio.com/manage/publishers/atlarix): a Marketplace
-    # token needs an Azure DevOps organisation, which needs an Azure
-    # subscription. Move to `vsce publish --oidc` once Microsoft enables
-    # trusted publishing for the publisher.
+    # already attached to it by then. The VS Code Marketplace is
+    # submit-vscode-marketplace below.
     #
     # Off until switched on: gh variable set VSCODE_AUTO_SUBMIT --body true
     needs: [build-vscode]
@@ -1498,6 +1494,40 @@ jobs:
             echo "Publishing $(basename "$f")..."
             npx --yes ovsx@1.2.0 publish "$f" -p "$OVSX_PAT"
           done
+
+  submit-vscode-marketplace:
+    # The VS Code Marketplace through Trusted Publishing: GitHub's OIDC token is
+    # exchanged for a 15-minute Marketplace credential, so there is no token to
+    # store (and none existed: the Marketplace was uploaded by hand). Like
+    # submit-vscode, never in publish-release's needs.
+    #
+    # Needs the publisher's Trusted Publishing policy (owner, Marketplace →
+    # atlarix → Trusted Publishing: owner AmariahAK, repository Atlarix,
+    # workflow release.yml, no environment). This repo is private, so the
+    # first publish must run within 48 h of the policy being created.
+    # Off until then: gh variable set VSCODE_MARKETPLACE_OIDC --body true
+    # Until the first one passes, upload the VSIXs by hand as before;
+    # --skip-duplicate lets this run pass over a version already uploaded.
+    needs: [build-vscode]
+    if: startsWith(github.ref, 'refs/tags/v') && vars.VSCODE_MARKETPLACE_OIDC == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: atlarix-vsix
+          path: vsix
+      - name: Publish to the VS Code Marketplace
+        # vsce 4.1.0 (2026-10-28) carries the token exchange the Marketplace
+        # shipped with Trusted Publishing; each VSIX gets its own OIDC token.
+        run: |
+          set -euo pipefail
+          npx --yes @vscode/vsce@4.1.0 publish --oidc --skip-duplicate --packagePath vsix/*.vsix
 
   # Checksums for every CLI download (the installers verify against this file),
   # and the Homebrew formula rendered from them.

@@ -582,6 +582,13 @@
       "when": 1788220800000,
       "tag": "0082_usage_rollup",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "6",
+      "when": 1788307200000,
+      "tag": "0083_chat_session_lineage",
+      "breakpoints": true
     }
   ]
 }

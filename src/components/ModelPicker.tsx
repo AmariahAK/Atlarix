@@ -55,8 +55,11 @@ import {
   isCoreAutoTier,
 } from "@/ipc/shared/compass_constants";
 import { fetchAccountKind, useAccountKind } from "@/hooks/useAccountKind";
-import { useTranslation } from "react-i18next";
-import { UpgradeActions } from "@/components/billing/UpgradeActions";
+import { UpgradeButtons } from "@/components/billing/UpgradeActions";
+import { coreRefusalMessage } from "@/shared/billing_copy";
+
+/** "Atlarix Core models run on credit. Add credit or get Pro …, or switch to Atlarix Auto, which is free." */
+const NEVER_FUNDED_LINE = coreRefusalMessage({ requiredCents: null, plan: "free", everFunded: false, renewsAt: null });
 
 const COMPASS_ID = "compass";
 /** Rows rendered per provider before the list offers search instead. */
@@ -101,7 +104,6 @@ export function ModelPicker({
   const { open, setOpen } = useModelPickerOpen(resetKey);
   const [searchQuery, setSearchQuery] = useState("");
   const account = useAccountKind();
-  const { t } = useTranslation("chat");
   // A free account picked a pinned Core model: show the upgrade line in place.
   const [lockedPick, setLockedPick] = useState(false);
   const { data: modelsByProviders, isLoading } = useLanguageModelsByProviders();
@@ -263,16 +265,6 @@ export function ModelPicker({
     void selectModel(model);
   };
 
-  // Atlarix Auto's row says, in plain words, what happens to the prompts:
-  // paid Auto (Pro or credit) is private and never trains anything; free Auto
-  // is shared with the providers that serve it. Unknown account: no claim.
-  const autoPrivacyLine = (o: Option): string | null => {
-    if (o.providerId !== COMPASS_ID || !isCoreAutoTier(o.model.apiName)) return null;
-    if (account === "pro" || account === "payg") return t("atlarixAuto.rowPrivate");
-    if (account === "free") return t("atlarixAuto.rowFree");
-    return null;
-  };
-
   const isSelected = (o: Option) =>
     selectedModel?.provider === o.providerId &&
     selectedModel?.name === o.model.apiName;
@@ -300,7 +292,9 @@ export function ModelPicker({
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{o.primary}</span>
         <span className="block truncate text-xs text-muted-foreground">
-          {autoPrivacyLine(o) ?? o.secondary}
+          {/* Auto and Zenith say what they are (owner, 2026-10-29); every other
+              row names where it comes from. */}
+          {o.providerId === COMPASS_ID && o.model.description ? o.model.description : o.secondary}
         </span>
       </span>
       <PriceBadge
@@ -396,9 +390,11 @@ export function ModelPicker({
           {lockedPick && (
             <div
               data-testid="model-picker-locked"
-              className="border-b border-border bg-muted/40 p-3"
+              className="space-y-2 border-b border-border bg-muted/40 p-3 text-sm"
             >
-              <UpgradeActions />
+              {/* The refusal a $0 account would get, before it is sent. */}
+              <p className="text-muted-foreground">{NEVER_FUNDED_LINE}</p>
+              <UpgradeButtons />
             </div>
           )}
           <div className="max-h-[300px] overflow-y-auto p-1">
@@ -447,7 +443,9 @@ export function ModelPicker({
                * models with Atlarix Core and your local models never on screen.
                */
               groups.map((group) => {
-                const shown = group.options.slice(0, PER_GROUP_CAP);
+                // Atlarix's own lineup is short and curated: always whole (the
+                // cap hid Fable and Zenith behind "+2 more", 2026-10-30 QA).
+                const shown = group.id === COMPASS_ID ? group.options : group.options.slice(0, PER_GROUP_CAP);
                 const hidden = group.options.length - shown.length;
                 return (
                   <div key={group.id} className="pb-1">

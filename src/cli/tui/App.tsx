@@ -42,7 +42,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession, LiveTask, SessionState, WorkMode } from "../agent/session";
 import { Approval, approvalChoices, approvalKey } from "./Approval";
 import { decodePasteBytes, type PasteEvent } from "@opentui/core";
-import { AUTO_CONSENT_MARKER } from "@/shared/billing_copy";
+import { AUTO_CONSENT_MARKER, FREE_LIMIT_MARKER, formatResetsIn } from "@/shared/billing_copy";
+import { freeAutoResetsAt } from "@/lib/billing/free-auto-gate";
 import { COMMANDS, matchCommands, parseCommandLine } from "./commands";
 import { DialogHost, InputDialog, ListDialog, type Line, type ListItem } from "./dialogs";
 import { DialogOverlay, DialogPanel } from "./Dialog";
@@ -96,6 +97,7 @@ import {
   topLevel,
   type EffortChoices,
 } from "@/lib/routing/model-reasoning-profile";
+import { ratingAnswerFor, ratingSnoozesOn } from "./rating-keys";
 import { filterEntries, listWorkspaceEntries, mentionAt, mentionInsert } from "../agent/file-index";
 import { parseShellInput } from "../agent/shell-mode";
 import { abbreviatePath, activityLabel, formatTokens, oneLine } from "./format";
@@ -135,7 +137,7 @@ const MODE_HINT: Record<WorkMode, string> = {
   ask: "read, search and run; no edits",
   plan: "write a plan to agree on first",
   debug: "find the cause, then fix it",
-  review: "review changes and point out problems",
+  review: "review what you name and what it touches",
 };
 
 export interface AppProps {
@@ -221,7 +223,27 @@ export function lastRelic(cells: SessionState["cells"]): string | null {
 }
 
 /** A failed turn: what happened, and the way out (limits.ts). */
-function ErrorBlock({ notice }: { notice: ErrorNotice }) {
+/**
+ * Free Auto's "Resets in …", ticking. The agent runs in this process, so the
+ * held limit (free-auto-gate.ts) is the live reset time; every resend before
+ * it is answered from there without a request.
+ */
+function useFreeLimitCountdown(notice: ErrorNotice): string | undefined {
+  const live = notice.title === FREE_LIMIT_MARKER;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [live]);
+  if (!live) return notice.detail;
+  const at = freeAutoResetsAt(now);
+  if (at == null) return notice.detail?.startsWith("Resets in") ? "Free Atlarix Auto is back. Send again." : notice.detail;
+  return `Resets in ${formatResetsIn(at, now)}.`;
+}
+
+function ErrorBlock({ notice: given }: { notice: ErrorNotice }) {
+  const notice = { ...given, detail: useFreeLimitCountdown(given) };
   const fg = notice.tone === "warn" ? color.warn : color.error;
   return (
     <box flexDirection="column" flexShrink={0} border={["left"]} borderColor={fg} paddingLeft={1} marginTop={1}>
@@ -802,6 +824,8 @@ export function App({
   });
   /** The next line typed goes to /feedback, not the model (after a rating, or a bare /feedback). */
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  /** The turn count at which typing snoozed the rating prompt; it may ask again after the next turn. */
+  const [ratingSnoozedTurn, setRatingSnoozedTurn] = useState(-1);
   useEffect(() => {
     if (!services?.feedback) return; // without it (test fakes) nothing is asked
     void services.feedback.askedAt().then(setRatedAt, () => setRatedAt(undefined));
@@ -818,6 +842,7 @@ export function App({
     !host.open &&
     !draft &&
     !feedbackOpen &&
+    ratingSnoozedTurn !== turnsDone &&
     shouldAskRating({
       turns: turnsDone,
       ratedAt,
@@ -979,7 +1004,7 @@ export function App({
             detail: alias ? o.providerName : undefined,
             keywords: `${o.providerName} ${o.name}`,
             gutter: isCurrent ? { text: "●", tone: "accent" } : fav ? { text: "★", tone: "heading" } : undefined,
-            right: o.free ? { text: "Free", tone: "accent" } : o.context ? { text: o.context, tone: "muted" } : undefined,
+            right: o.free ? { text: "Free", tone: "accent" } : o.credit ? { text: "Credit", tone: "muted" } : o.context ? { text: o.context, tone: "muted" } : undefined,
           });
         }
       }
@@ -1648,9 +1673,14 @@ export function App({
       key.preventDefault();
       return setFeedbackOpen(false);
     }
-    if (askRating && !key.ctrl && !key.meta && ["0", "1", "2", "3"].includes(key.name ?? "")) {
-      key.preventDefault();
-      return answerRating(key.name as "0" | "1" | "2" | "3");
+    if (askRating) {
+      const answer = ratingAnswerFor(key, { asking: true, composerText: composer.current?.text() ?? "" });
+      if (answer) {
+        key.preventDefault();
+        return answerRating(answer);
+      }
+      // Typing: the prompt steps aside until the next turn ends (QA 2026-10-30).
+      if (ratingSnoozesOn(key)) setRatingSnoozedTurn(turnsDone);
     }
     if (planShown && !host.open && (key.name === "pageup" || key.name === "pagedown")) {
       key.preventDefault();

@@ -29,6 +29,7 @@ import {
   type PortableSession,
 } from "../sessions/portable";
 import { SOURCE_NAMES, listForeignSessions, type ImportSource } from "../sessions/importers";
+import { lineageNote, treeLabel } from "@/shared/session-lineage";
 
 /** What the session offers the screens (AgentSession, or the tests' fake). */
 export type ScreenSession = Pick<
@@ -110,6 +111,7 @@ const ago = (t: number | Date | string, now: Date): string => {
 
 export function openResume(ctx: ScreenContext): void {
   const now = ctx.now?.() ?? new Date();
+  const titles = new Map<string, string>();
   ctx.host.push(
     new ListDialog({
       title: "Resume a session",
@@ -117,15 +119,24 @@ export function openResume(ctx: ScreenContext): void {
       empty: "No earlier sessions in this folder yet.",
       footer: "type to search · ↑↓ move · enter open · esc close",
       items: async () =>
-        (await ctx.session.listSessions()).map((s) => ({
-          id: s.id,
-          label: s.title?.trim() || "Untitled session",
-          detail: [ago(s.updatedAt, now), s.workMode && s.workMode !== "build" ? s.workMode : null].filter(Boolean).join(" · "),
-        })),
+        (await ctx.session.listSessions()).map((s) => {
+          titles.set(s.id, s.title?.trim() || "Untitled session");
+          return {
+            id: s.id,
+            label: treeLabel(titles.get(s.id)!, s.depth),
+            detail: [
+              ago(s.updatedAt, now),
+              s.workMode && s.workMode !== "build" ? s.workMode : null,
+              lineageNote({ origin: s.origin ?? null, depth: s.depth, runs: s.runs, parentTitle: s.parentTitle }),
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          };
+        }),
       onChoose: async (item) => {
-        await ctx.session.resume(item.id);
+        const { parent } = await ctx.session.resume(item.id);
         ctx.host.closeAll();
-        ctx.flash(`Resumed “${item.label}”.`);
+        ctx.flash(`Resumed “${titles.get(item.id) ?? item.label}”${parent ? `, from “${parent.title}”` : ""}.`);
       },
     }),
   );
@@ -1948,15 +1959,9 @@ export function openAnalytics(ctx: ScreenContext, firstRun = false): void {
       new ListDialog({
         title: "Help improve Atlarix",
         intro: [
-          { text: "Share usage data — which features get used, and whether things work — to help us understand what matters most." },
-          {
-            text: "Never your code, prompts, file names, or file contents. Anonymous when signed out. When signed in, it's linked to your account and includes your email and name, so your usage counts once across your devices. Includes your approximate location (country and city), worked out from your connection; the address itself isn't kept.",
-          },
-          {
-            text: "Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.",
-            tone: "muted",
-          },
-          { text: "Signed-in accounts also record which Atlarix you use (app, CLI, editor), the provider type and model, and how many turns — never prompts, code or keys — and this is not covered by this choice either.", tone: "muted" },
+          { text: "Share usage data — which features get used and whether they work." },
+          { text: "Never your code, prompts or files. Anonymous when signed out. Signed in, it's tied to your account (email and name) and includes your rough location from your connection, never the address itself. Change it anytime in /analytics." },
+          { text: "Not covered by this choice: crash reports (stack traces and device info), and for signed-in accounts a daily count of turns by surface, provider type, model and token size. Never prompts, code or keys.", tone: "muted" },
           { text: "The same setting as the Atlarix app: one answer covers both.", tone: "muted" },
         ],
         footer: firstRun ? "↑↓ move · enter choose · /analytics changes it later" : "↑↓ move · enter choose · esc close",

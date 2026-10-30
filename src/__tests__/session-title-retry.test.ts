@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const generateText = vi.fn();
 let reasons = false;
+let builtin: string | undefined;
 
 vi.mock("ai", () => ({ generateText: (...a: unknown[]) => generateText(...a) }));
 vi.mock("@/main/settings", () => ({
@@ -19,7 +20,7 @@ vi.mock("@/main/settings", () => ({
   }),
 }));
 vi.mock("@/ipc/utils/get_model_client", () => ({
-  getModelClient: async () => ({ modelClient: { model: {} }, fellBackToCore: false }),
+  getModelClient: async () => ({ modelClient: { model: {}, builtinProviderId: builtin }, fellBackToCore: false }),
 }));
 vi.mock("@/lib/routing/model-reasoning-profile", () => ({
   catalogSaysReasons: () => reasons,
@@ -30,7 +31,10 @@ vi.mock("@/lib/summarization_model", () => ({ turnModelForChat: async () => unde
 
 import { generateSessionTitle } from "@/lib/session-title/generate-title";
 
-beforeEach(() => generateText.mockReset());
+beforeEach(() => {
+  generateText.mockReset();
+  builtin = undefined;
+});
 
 describe("the title call's retry", () => {
   it("a model that does not reason: a refused call is not sent twice", async () => {
@@ -49,5 +53,17 @@ describe("the title call's retry", () => {
     expect(generateText).toHaveBeenCalledTimes(2);
     expect(generateText.mock.calls[0]![0]).toMatchObject({ reasoning: "none" });
     expect(generateText.mock.calls[1]![0]).not.toHaveProperty("reasoning");
+  });
+
+  it("on Atlarix Core the SDK makes no retries: a busy pool gets one title request, not three (live QA 2026-10-30)", async () => {
+    reasons = false;
+    builtin = "compass";
+    generateText.mockResolvedValueOnce({ text: "Login redirect fix", usage: {} });
+    await generateSessionTitle("fix the login redirect");
+    expect(generateText.mock.calls[0]![0]).toMatchObject({ maxRetries: 0 });
+    builtin = "openai";
+    generateText.mockResolvedValueOnce({ text: "Login redirect fix", usage: {} });
+    await generateSessionTitle("fix the login redirect");
+    expect(generateText.mock.calls[1]![0]).not.toHaveProperty("maxRetries");
   });
 });

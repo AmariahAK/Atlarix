@@ -1129,6 +1129,7 @@ export function registerChatStreamHandlers() {
               selectedChatMode: settings.selectedChatMode ?? "ask",
             }),
             escalate: req.escalate === true,
+            userRetry: req.userRetry === true,
             chatId: req.chatId,
           };
           let effectiveModel = getEffectiveModel(settings);

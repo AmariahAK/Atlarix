@@ -83,6 +83,12 @@ export interface ChatStreamParams {
   /** "Try with a stronger model": paid Atlarix Auto answers this turn one level up. */
   escalate?: boolean;
   /**
+   * The user asked for this turn again (the Retry button): its first Core
+   * request carries `X-Atlarix-Retry: 1`, so the Auto/Zenith ladder can step
+   * up. Never set by an automatic retry.
+   */
+  userRetry?: boolean;
+  /**
    * Set when this turn IS an automation run (unattended, no human responder).
    * `unattended` drops the human-handoff tools.
    */
@@ -166,6 +172,11 @@ export interface ChatResponseEnd {
   userCancelled?: boolean;
   /** True when the completed turn used the managed Atlarix Core provider (for usage refresh). */
   usedCompass?: boolean;
+  /**
+   * Atlarix Auto's top rung kept failing this turn (proxy `X-Atlarix-Ladder:
+   * top`): offer Atlarix Zenith. Set once per chat.
+   */
+  zenithOffer?: boolean;
   /** v10: auxiliary LLM tokens this turn (sub-agents, compaction) — counted toward usage. */
   auxTokens?: number;
   /**
@@ -792,6 +803,14 @@ export interface WorkspaceChatSession {
   workMode?: "ask" | "plan" | "build" | "debug" | "review" | null;
   /** This session's model + effort (15.11.1); `null` reads as the app's default. */
   model?: import("@/lib/session-choices").SessionModelChoice | null;
+  /** The chat it was started from, and how; the list puts it under its parent at `depth`. */
+  parentSessionId?: string | null;
+  origin?: import("@/shared/session-lineage").SessionOrigin | null;
+  depth?: number;
+  /** An automation's runs under one chat, shown as its latest. */
+  runs?: number;
+  /** The parent's title when the parent is not in this list. */
+  parentTitle?: string;
   createdAt: Date;
   updatedAt: Date;
 }

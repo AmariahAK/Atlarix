@@ -23,6 +23,8 @@
  * `error` part carries the original `APICallError` with both.
  */
 
+import { parseCreditRefusal } from "@/shared/billing_copy";
+
 /** The status code and response body of a Core failure, however it was wrapped. */
 export type CoreErrorParts = {
   statusCode: number | undefined;
@@ -91,19 +93,9 @@ export function isInsufficientCreditError(error: unknown): boolean {
  * price — so copy built from it must say "needs at least", never "costs".
  */
 export function requiredCentsFromBody(bodyStr: string): number | null {
-  const finite = (v: unknown): number | null => {
-    const n = typeof v === "string" ? Number(v) : v;
-    return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null;
-  };
-  try {
-    const parsed = JSON.parse(bodyStr) as { required_cents?: unknown };
-    const direct = finite(parsed?.required_cents);
-    if (direct !== null) return direct;
-  } catch {
-    // Not a bare JSON body — fall through to the substring form.
-  }
-  const m = /"required_cents"\s*:\s*"?(\d+(?:\.\d+)?)"?/.exec(bodyStr);
-  return m ? finite(m[1]) : null;
+  // One parser for the 402's fields (billing_copy), so the figure and the
+  // account state it is shown with can never be read two ways.
+  return parseCreditRefusal(bodyStr).requiredCents;
 }
 
 /** The required amount carried by an error, for callers holding the error itself. */
