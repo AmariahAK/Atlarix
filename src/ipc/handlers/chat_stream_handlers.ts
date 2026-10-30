@@ -160,7 +160,7 @@ import {
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 import { awaitWithTimeout, isTextFile } from "./chat_stream/stream-misc";
 import { dispatchedModelIdentity, resolveEditStatsModel } from "../../lib/stats/edit-stats";
-import { recordTurnUsageSafely } from "../../lib/stats/usage-stats";
+import { recordLocalTurnUsage } from "./chat_stream/turn-runner/local-usage";
 import {
   activeStreams,
   activeStreamRuns,
@@ -1256,6 +1256,13 @@ export function registerChatStreamHandlers() {
             () => getModelClient(effectiveModel, settings, mainOptions),
           );
           let modelClient = initialModelClientBundle.modelClient;
+          // The Usage page records the turn in `finally`, whatever the outcome.
+          ctx.usageModel = () => ({
+            model: resolveEditStatsModel(effectiveModel, modelClient ? dispatchedModelIdentity(modelClient) : null),
+            pricing: { name: effectiveModel?.name ?? "", builtinProviderId: modelClient?.builtinProviderId },
+            mode: lastTurnModeByChat.get(req.chatId) ?? "build",
+            deep: !!settings.deepThinking,
+          });
           // For this turn's `turn_completed`, sent once it has ended. No lookup
           // here: who pays is worked out then, and only for people who opted in.
           Object.assign(ctx.analyticsTurn, {
@@ -2540,15 +2547,6 @@ export function registerChatStreamHandlers() {
               userPrompt,
               abortController,
             });
-            // Your activity (the stats page): a finished turn, on this computer.
-            recordTurnUsageSafely({
-              model: resolveEditStatsModel(effectiveModel, modelClient ? dispatchedModelIdentity(modelClient) : null),
-              mode: lastTurnModeByChat.get(req.chatId) ?? "build",
-              deep: !!settings.deepThinking,
-              inputTokens: ctx.turnInputTokens,
-              outputTokens: ctx.turnOutputTokens,
-              messages: ctx.nativeTurnMessages,
-            });
           }
 
           // Clean up any temporary files
@@ -2639,6 +2637,11 @@ export function registerChatStreamHandlers() {
             },
             providerOf,
           );
+          // The Usage page, on this computer: a finished turn counts; a stopped
+          // or failed one still adds the tokens it spent.
+          if (ctx.usageModel) {
+            recordLocalTurnUsage(ctx, ended.outcome === "ok" || ended.outcome === "ask_user", !!req.automation, req.chatId);
+          }
           // How it ended, for another session's list_sessions `result_of`.
           void import("@/lib/peers/peers")
             .then((m) => m.noteTurnEnded(req.chatId, ended, turnStartedAt))

@@ -388,6 +388,7 @@ export async function finalizeTurn(
     // v10 token accuracy: fold sub-agent + compaction usage into this
     // turn's totals so the usage meter is exact.
     const auxUsage = takeAuxUsage(req.chatId);
+    ctx.turnAuxUsage = auxUsage;
     const auxBySource = summarizeAuxBySource(auxUsage);
     if (auxUsage) {
       // The estimated portion is reported SEPARATELY, never folded into the

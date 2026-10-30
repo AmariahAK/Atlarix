@@ -175,20 +175,36 @@ export function buildAgentApp(
     })
     // ── Account, billing, keys and MCP for Atlarix's own extension: the CLI's
     // own services (/status, /billing, /connect, /mcp, /logout), nothing new.
-    // Your activity on this computer (the Account panel): rows ready to draw.
-    .onRequest("_atlarix/stats", (p) => p as Record<string, unknown>, async () => {
+    // Usage on this computer (our panel's Usage page): the report, the overview's
+    // rows ready to draw, and the share card. Local data, no sign-in needed.
+    .onRequest("_atlarix/usage", (p) => p as Record<string, unknown>, async (ctx) => {
       const { realServices } = await import("../agent/services");
       const { activityFootnote, activitySections, activityTiles } = await import("@/lib/stats/activity-format");
-      const s = await realServices.stats();
+      const { shareCardSvg } = await import("@/lib/stats/share-card");
+      const p = ctx.params as Record<string, unknown>;
+      const str = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 200) : undefined);
+      const report = await realServices.usage({
+        days: typeof p.days === "number" ? p.days : undefined,
+        model: str(p.model),
+        surface: str(p.surface),
+        source: str(p.source),
+      });
+      const s = report.overview;
       return {
-        empty: !s.since,
-        tiles: activityTiles(s),
-        sections: activitySections(s),
-        // Half a year fits the sidebar.
-        weeks: s.weeks.slice(-26),
-        monthLabels: s.monthLabels.slice(-26),
-        footnote: activityFootnote(s),
+        report,
+        overview: {
+          empty: !s.since,
+          tiles: activityTiles(s),
+          sections: activitySections(s),
+          footnote: activityFootnote(s),
+        },
+        shareSvg: s.since ? shareCardSvg(s) : null,
       };
+    })
+    // The account's Atlarix credits (the Usage page's Credits tab).
+    .onRequest("_atlarix/usage_credits", (p) => p as Record<string, unknown>, async () => {
+      const { realServices } = await import("../agent/services");
+      return { credits: await realServices.usageCredits().catch(() => ({ state: "unavailable" })) };
     })
     // Usage analytics: the app's and the CLI's one setting (telemetryConsent),
     // asked by our VS Code panel. Other editors have no UI of ours to ask in, so

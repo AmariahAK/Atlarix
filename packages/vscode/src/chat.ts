@@ -228,6 +228,20 @@ export class Chat {
           await vscode.env.clipboard.writeText(m.text);
           this.toast("Copied.");
           return;
+        case "save-image": {
+          const png = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(m.dataUrl);
+          if (!png) return;
+          const name = m.name.replace(/[^\w.-]/g, "_").slice(0, 80) || "atlarix.png";
+          const os = await import("node:os");
+          const target = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(os.homedir(), "Downloads", name)),
+            filters: { "PNG image": ["png"] },
+          });
+          if (!target) return;
+          await vscode.workspace.fs.writeFile(target, Buffer.from(png[1]!, "base64"));
+          this.toast("Saved.");
+          return;
+        }
         case "compare":
           return this.compare(m.turnId, m.path);
         case "undo-resend":

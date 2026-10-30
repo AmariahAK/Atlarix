@@ -124,6 +124,12 @@ export type CoreAutoConfig = {
    */
   freeModels?: Array<{ providerId: string; modelId: string }>;
   paidModels?: Array<{ providerId: string; modelId: string }>;
+  /**
+   * Served model ids the Usage page may name (Auto picks): concrete chain rungs,
+   * every paid and Zenith level, and the Core slots. A gateway rung (one that
+   * pins or discovers its model) is never in it: its id would name the gateway.
+   */
+  nameableModels?: string[];
 };
 
 let CORE_AUTO: CoreAutoConfig | null = null;

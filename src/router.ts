@@ -21,12 +21,14 @@ import { integrationsPermissionsRoute } from "./routes/integrations/permissions"
 import { toolsRoute } from "./routes/tools";
 import { signInRoute } from "./routes/sign-in";
 import { accountSettingsRoute } from "./routes/account";
+import { usageRoute } from "./routes/usage";
 
 const routeTree = rootRoute.addChildren([
   homeRoute,
   toolsRoute,
   signInRoute,
   accountSettingsRoute,
+  usageRoute,
   // Preferences. One section per child route — see pages/settings.tsx.
   settingsRoute.addChildren([
     generalSettingsRoute,

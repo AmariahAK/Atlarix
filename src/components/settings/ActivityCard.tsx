@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import type * as React from "react";
 import { useTranslation } from "react-i18next";
 import {
   Card,
@@ -7,20 +7,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { IpcClient } from "@/ipc/ipc_client";
-import { editStatsModelLabel } from "@/lib/stats/edit-stats-label";
-import {
-  activityModeLabel,
-  activitySurfaceLabel,
-  compactCount,
-  durationLabel,
-} from "@/lib/stats/activity-format";
+import { activitySections, activityTiles } from "@/lib/stats/activity-format";
+import type { ActivityStats } from "@/lib/stats/usage-types";
 import { cn } from "@/lib/utils";
 
 /**
  * Your activity on this computer: the agent's turns across the app, CLI and
- * editors (lib/stats/usage-stats). The same picture the CLI's and ACP's /stats
- * and VS Code's Account panel draw, laid out for a page.
+ * editors (lib/stats/usage-stats), the Usage page's Overview. The same picture
+ * the CLI's and ACP's /usage and VS Code's Usage page draw, laid out for a page.
  */
 
 /** The same colour ramp as the Code written calendar. */
@@ -68,55 +62,36 @@ function Ranked({
   );
 }
 
-export function ActivityCard({ className = "" }: { className?: string }) {
+export function ActivityCard({
+  data,
+  action,
+  className = "",
+}: {
+  data: ActivityStats;
+  /** Beside the title (the share card's buttons). */
+  action?: React.ReactNode;
+  className?: string;
+}) {
   const { t } = useTranslation("settings");
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["usage", "activity"],
-    queryFn: () => IpcClient.getInstance().getActivityStats(),
-  });
 
   return (
     <Card className={className}>
-      <CardHeader>
-        <CardTitle>{t("activity.title")}</CardTitle>
-        <CardDescription>{t("activity.description")}</CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div className="space-y-1.5">
+          <CardTitle>{t("activity.title")}</CardTitle>
+          <CardDescription>{t("activity.description")}</CardDescription>
+        </div>
+        {data.since ? action : null}
       </CardHeader>
       <CardContent className="space-y-5">
-        {isLoading ? (
-          <p className="text-muted-foreground text-sm">
-            {t("activity.loading")}
-          </p>
-        ) : error || !data ? (
-          <p className="text-muted-foreground text-sm">{t("activity.error")}</p>
-        ) : !data.since ? (
+        {!data.since ? (
           <p className="text-muted-foreground text-sm">{t("activity.empty")}</p>
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-              <Tile
-                value={compactCount(data.lifetimeTokens)}
-                label="Lifetime tokens"
-              />
-              <Tile
-                value={data.peakDay ? compactCount(data.peakDay.tokens) : "—"}
-                label="Busiest day"
-              />
-              <Tile
-                value={
-                  data.longestChat
-                    ? durationLabel(data.longestChat.minutes)
-                    : "—"
-                }
-                label="Longest chat"
-              />
-              <Tile
-                value={`${data.currentStreak} ${data.currentStreak === 1 ? "day" : "days"}`}
-                label="Current streak"
-              />
-              <Tile
-                value={`${data.longestStreak} ${data.longestStreak === 1 ? "day" : "days"}`}
-                label="Longest streak"
-              />
+              {activityTiles(data).map((tile) => (
+                <Tile key={tile.label} value={tile.value} label={tile.label} />
+              ))}
             </div>
 
             <div className="pt-4 border-t">
@@ -192,61 +167,9 @@ export function ActivityCard({ className = "" }: { className?: string }) {
             </div>
 
             <div className="pt-4 border-t grid gap-5 sm:grid-cols-2">
-              <Ranked
-                title="Favourite models"
-                rows={data.models.map((m) => ({
-                  label: editStatsModelLabel(m),
-                  value: `${m.share}%`,
-                }))}
-              />
-              <Ranked
-                title="Modes"
-                rows={[
-                  ...data.modes.map((m) => ({
-                    label: activityModeLabel(m.mode),
-                    value: `${m.share}%`,
-                  })),
-                  ...(data.deepShare > 0
-                    ? [{ label: "Deep thinking", value: `${data.deepShare}%` }]
-                    : []),
-                ]}
-              />
-              <Ranked
-                title="Most used skills"
-                rows={data.skills.map((s) => ({
-                  label: s.name,
-                  value: `${s.runs} ${s.runs === 1 ? "run" : "runs"}`,
-                }))}
-              />
-              <Ranked
-                title="Most used MCP servers"
-                rows={data.mcp.map((s) => ({
-                  label: s.name,
-                  value: `${s.runs} ${s.runs === 1 ? "call" : "calls"}`,
-                }))}
-              />
-              <Ranked
-                title="Where you work"
-                rows={data.surfaces.map((s) => ({
-                  label: activitySurfaceLabel(s.surface),
-                  value: `${s.turns} ${s.turns === 1 ? "turn" : "turns"}`,
-                }))}
-              />
-              <Ranked
-                title="Totals"
-                rows={[
-                  { label: "Chats", value: data.totalChats.toLocaleString() },
-                  { label: "Turns", value: data.totalTurns.toLocaleString() },
-                  ...(data.linesWritten > 0
-                    ? [
-                        {
-                          label: "Lines written",
-                          value: data.linesWritten.toLocaleString(),
-                        },
-                      ]
-                    : []),
-                ]}
-              />
+              {activitySections(data).map((sec) => (
+                <Ranked key={sec.title} title={sec.title} rows={sec.rows} />
+              ))}
             </div>
 
             <p className="text-muted-foreground text-xs pt-2 border-t">

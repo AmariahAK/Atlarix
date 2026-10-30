@@ -312,3 +312,26 @@ describe("estimateTurnCostUsd — the models.dev catalog's prices", () => {
     expect(estimateTurnCostUsd({ name: "claude-haiku-5-5", builtinProviderId: "anthropic" }, mtok)).toBeCloseTo(6, 5);
   });
 });
+
+describe("estimateTurnCostUsd, reliable prices only (the Usage page)", () => {
+  const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+  const reliable = { reliableOnly: true } as const;
+
+  it("still prices a vendor's own model from the table copied from its price list", () => {
+    expect(estimateTurnCostUsd({ name: "claude-opus-4-8", builtinProviderId: "anthropic" }, usage, null, reliable)).toBeCloseTo(30, 5);
+  });
+
+  it("never prices a custom proxy, a local server or an unknown gateway by its model's name", () => {
+    for (const builtinProviderId of ["custom::my-proxy", "ollama", "lmstudio", undefined]) {
+      expect(estimateTurnCostUsd({ name: "claude-opus-4-8", builtinProviderId }, usage, null, reliable)).toBeNull();
+    }
+    // A slash in the name is not OpenRouter unless the provider is.
+    expect(estimateTurnCostUsd({ name: "anthropic/claude-opus-4-8", builtinProviderId: "custom::x" }, usage, null, reliable)).toBeNull();
+    // Without the option, the old behaviour (the chat's live cost line) is unchanged.
+    expect(estimateTurnCostUsd({ name: "claude-opus-4-8", builtinProviderId: "custom::my-proxy" }, usage)).toBeCloseTo(30, 5);
+  });
+
+  it("takes OpenRouter's own charge whatever the provider", () => {
+    expect(estimateTurnCostUsd({ name: "x", builtinProviderId: "custom::x" }, usage, 0.42, reliable)).toBe(0.42);
+  });
+});

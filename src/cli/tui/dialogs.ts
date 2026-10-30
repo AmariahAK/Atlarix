@@ -492,8 +492,10 @@ export class TextDialog implements Dialog {
     }
   }
 
-  setLines(lines: Line[]): void {
+  /** `top` resets the scroll (another tab of /usage). */
+  setLines(lines: Line[], top = false): void {
     this.lines = lines;
+    if (top) this.scroll = 0;
     this.onChange?.();
   }
 

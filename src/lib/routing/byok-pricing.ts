@@ -226,12 +226,22 @@ export function inputOutputTokensFromUsage(
   };
 }
 
+/**
+ * Providers whose own list prices the static table copies. Anywhere else (a
+ * custom proxy, a gateway) a matching name says nothing about what it charges.
+ */
+const STATIC_TABLE_PROVIDERS = new Set(["anthropic", "openai", "deepseek"]);
+
 function rateForModel(
   model: { name: string; builtinProviderId?: string },
   contextTokens?: number,
+  reliableOnly = false,
 ): PerMillionRate | null {
   // 1. OpenRouter cached row (per-TOKEN USD strings → per-MTok).
-  if (model.builtinProviderId === "openrouter" || model.name.includes("/")) {
+  if (
+    model.builtinProviderId === "openrouter" ||
+    (!reliableOnly && model.name.includes("/"))
+  ) {
     const row = getCachedOpenRouterModelRow(model.name) as
       | {
           pricing?: {
@@ -267,6 +277,7 @@ function rateForModel(
   const fromCatalog = catalogRate(model, contextTokens);
   if (fromCatalog) return fromCatalog;
   // 3. Static table.
+  if (reliableOnly && !STATIC_TABLE_PROVIDERS.has(model.builtinProviderId ?? "")) return null;
   for (const { test, rate } of STATIC_RATES) {
     if (test.test(model.name)) return rate;
   }
@@ -298,13 +309,21 @@ export function estimateTurnCostUsd(
   model: { name: string; builtinProviderId?: string },
   usage: TurnUsageSplit | null,
   actualCostUsd?: number | null,
+  opts?: {
+    /**
+     * Only a price the provider itself publishes: the catalog row for that
+     * provider, OpenRouter's own row or charge, or the static table for the
+     * vendor it copies. Never a name match on a custom proxy (the Usage page).
+     */
+    reliableOnly?: boolean;
+  },
 ): number | null {
   if (model.builtinProviderId === "compass") return null; // Core is token-metered
   if (typeof actualCostUsd === "number" && actualCostUsd > 0) {
     return Math.round(actualCostUsd * 1e6) / 1e6;
   }
   if (!usage) return null;
-  const rate = rateForModel(model, usage.contextTokens);
+  const rate = rateForModel(model, usage.contextTokens, opts?.reliableOnly === true);
   if (!rate) return null;
 
   const cachedRead = usage.cachedInputTokens ?? 0;

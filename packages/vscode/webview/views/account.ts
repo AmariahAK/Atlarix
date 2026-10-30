@@ -109,12 +109,9 @@ export async function renderAccount(page: HTMLElement, nav: Nav): Promise<void> 
     body.append(grid);
   }
 
-  // Your activity on this computer (lib/stats via the agent).
-  const stats = await rpc<ActivityRows>("_atlarix/stats", {}).catch(() => null);
-  if (stats && !stats.empty) body.append(...activitySection(stats));
-
   const links = el("div", "account__links");
   links.append(
+    button("Usage", "link small", () => nav.go({ name: "usage" })),
     button("Usage and invoices ↗", "link small", () => post({ type: "open-url", url: "https://www.atlarix.dev/account" })),
     button("Pricing ↗", "link small", () => post({ type: "open-url", url: "https://www.atlarix.dev/pricing" })),
   );
@@ -125,50 +122,4 @@ export async function renderAccount(page: HTMLElement, nav: Nav): Promise<void> 
   note.append(el("strong", "small", "Sign out"), el("span", "muted small", "Signs out the Atlarix app and CLI on this computer too."));
   out.append(note, button("Sign out", "deny small", () => post({ type: "sign-out" })));
   body.append(out);
-}
-
-interface ActivityRows {
-  empty: boolean;
-  tiles: Array<{ label: string; value: string }>;
-  sections: Array<{ title: string; rows: Array<{ label: string; value: string }> }>;
-  weeks: Array<Array<{ day: string; turns: number; level: number; inRange: boolean }>>;
-  monthLabels: Array<string | null>;
-  footnote: string;
-}
-
-/** Tiles, the last 26 weeks, then models, modes, skills, MCP and where you work. */
-function activitySection(a: ActivityRows): HTMLElement[] {
-  const grid = el("div", "stat-grid");
-  for (const t of a.tiles) {
-    const s = el("div", "stat");
-    s.append(el("span", "muted small", t.label), el("strong", "mono", t.value));
-    grid.append(s);
-  }
-  const cal = el("div", "act-cal");
-  const months = el("div", "act-cal__months");
-  for (const m of a.monthLabels) months.append(el("span", "", m ?? ""));
-  const weeks = el("div", "act-cal__weeks");
-  for (const w of a.weeks) {
-    const col = el("div", "act-cal__week");
-    for (const d of w) {
-      const cell = el("span", `act-cal__day l${d.inRange ? d.level : "x"}`);
-      if (d.inRange) cell.title = `${d.day}: ${d.turns} ${d.turns === 1 ? "turn" : "turns"}`;
-      col.append(cell);
-    }
-    weeks.append(col);
-  }
-  cal.append(months, weeks);
-  const out: HTMLElement[] = [eyebrow("YOUR ACTIVITY"), grid, cal];
-  for (const sec of a.sections) {
-    const box = el("div", "act-sec");
-    box.append(el("strong", "small", sec.title));
-    for (const r of sec.rows) {
-      const row = el("div", "row between small");
-      row.append(el("span", "act-sec__label", r.label), el("span", "muted mono", r.value));
-      box.append(row);
-    }
-    out.push(box);
-  }
-  out.push(el("div", "muted small", a.footnote));
-  return out;
 }

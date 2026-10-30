@@ -4,6 +4,7 @@ export type View =
   | { name: "history" }
   | { name: "undo" }
   | { name: "account" }
+  | { name: "usage" }
   | { name: "mcp" }
   | { name: "automations" }
   | { name: "settings"; tab?: "keys" | "approve" | "browser" | "general" }

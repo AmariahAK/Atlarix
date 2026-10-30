@@ -755,7 +755,7 @@ class Thread {
     // CLI's /status, /billing and /mcp, answered as a message.
     // `/automations`, `/automations run <name>`, `/automations on|off <name>`.
     const automations = /^\/automations(?:\s+([\s\S]+))?$/i.exec(text.trim());
-    if (automations || (slash && (slash[1] === "status" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "silks" || slash[1] === "augments" || slash[1] === "plugins" || slash[1] === "logout"))) {
+    if (automations || (slash && (slash[1] === "status" || slash[1] === "usage" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "silks" || slash[1] === "augments" || slash[1] === "plugins" || slash[1] === "logout"))) {
       const { accountCommandText } = await import("./account-commands");
       const cmd = automations ? `automations ${automations[1]?.trim() ?? ""}`.trim() : slash![1]!;
       const reply = await accountCommandText(cmd, this.session, this.editorMcpServers).catch((e: Error) => `Couldn't read that: ${e.message}`);
@@ -1035,7 +1035,7 @@ function commandsUpdate(
       { name: "undo", description: "Go back to one of your messages, edit it and send it again." },
       { name: "keys", description: "Your own API keys, and whether each one works." },
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
-      { name: "stats", description: "Your activity on this computer: tokens, streaks, models, skills and MCP." },
+      { name: "usage", description: "Usage: activity, credits, tokens, MCP and skills, Auto's picks." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
       { name: "silks", description: "Silks you installed, and whether each is on here." },

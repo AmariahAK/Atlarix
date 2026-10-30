@@ -3,8 +3,12 @@
  * /stats, VS Code's Account panel). Renderer-safe: no database, no Node.
  */
 
-import type { ActivityStats } from "./usage-stats";
-import { editStatsModelLabel } from "./edit-stats-label";
+import type { ActivityStats } from "./usage-types";
+import {
+  printableName,
+  usageModelLabel,
+  usageSurfaceLabel,
+} from "./usage-labels";
 
 /** 472.4M, 68.7K, 950. */
 export function compactCount(n: number): string {
@@ -95,7 +99,7 @@ export function activityTiles(
       value: s.peakDay ? compactCount(s.peakDay.tokens) : "—",
     },
     {
-      label: "Longest chat",
+      label: "Longest session",
       value: s.longestChat ? durationLabel(s.longestChat.minutes) : "—",
     },
     { label: "Current streak", value: days(s.currentStreak) },
@@ -111,7 +115,7 @@ export function activitySections(s: ActivityStats): ActivitySection[] {
     {
       title: "Favourite models",
       rows: s.models.map((m) => ({
-        label: editStatsModelLabel(m),
+        label: usageModelLabel(m, s.providerNames),
         value: `${m.share}%`,
       })),
     },
@@ -130,23 +134,39 @@ export function activitySections(s: ActivityStats): ActivitySection[] {
     {
       title: "Most used skills",
       rows: s.skills.map((x) => ({
-        label: x.name,
+        label: printableName(x.name),
         value: plural(x.runs, "run", "runs"),
       })),
     },
     {
       title: "Most used MCP servers",
       rows: s.mcp.map((x) => ({
-        label: x.name,
+        label: printableName(x.name),
         value: plural(x.runs, "call", "calls"),
       })),
     },
     {
       title: "Where you work",
-      rows: s.surfaces.map((x) => ({
-        label: activitySurfaceLabel(x.surface),
-        value: plural(x.turns, "turn", "turns"),
-      })),
+      rows: [
+        ...s.surfaces
+          // Named editors list themselves below; the rest stay one row.
+          .map((x) => ({
+            ...x,
+            turns:
+              x.surface === "editor"
+                ? x.turns - (s.editors ?? []).reduce((n, e) => n + e.turns, 0)
+                : x.turns,
+          }))
+          .filter((x) => x.turns > 0)
+          .map((x) => ({
+            label: activitySurfaceLabel(x.surface),
+            value: plural(x.turns, "turn", "turns"),
+          })),
+        ...(s.editors ?? []).map((e) => ({
+          label: usageSurfaceLabel(e.editor),
+          value: plural(e.turns, "turn", "turns"),
+        })),
+      ],
     },
     {
       title: "Totals",
@@ -170,15 +190,14 @@ export function activitySections(s: ActivityStats): ActivitySection[] {
 export function activityFootnote(s: ActivityStats): string {
   return `Stored only on this computer. ${
     s.recordedSince
-      ? `Tokens, models, skills and MCP servers count from ${s.recordedSince}.`
-      : "Tokens, models, skills and MCP servers count from your next chat."
+      ? `Tokens, modes, where you work, skills and MCP servers count from ${s.recordedSince}; chats, turns and favourite models from your whole history.`
+      : "Tokens, modes, where you work, skills and MCP servers count from your next chat."
   } As of ${s.asOf}.`;
 }
 
 /** /stats in an editor chat (Zed, JetBrains, VS Code): markdown, the calendar in a code block. */
 export function statsMarkdown(s: ActivityStats): string {
-  if (!s.since)
-    return "**Your activity**\n\nNothing yet. Your first chat starts the count.";
+  if (!s.since) return "**Your activity**\n\nNo activity yet.";
   const out = [
     "**Your activity** (this computer)",
     "",

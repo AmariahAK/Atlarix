@@ -263,12 +263,34 @@ export function parseCoreAuto(raw: unknown): CoreAutoConfig | null {
     .flatMap((l) => (Array.isArray(l) ? l : []))
     .map(ref)
     .filter((x): x is { providerId: string; modelId: string } => x !== null);
+  const zenith = a.zenith && typeof a.zenith === "object" ? (a.zenith as Record<string, unknown>) : null;
+  const zenithLevels =
+    zenith?.levels && typeof zenith.levels === "object" ? Object.values(zenith.levels as Record<string, unknown>) : [];
+  const rungId = (r: unknown) => {
+    if (!r || typeof r !== "object") return null;
+    const o = r as Record<string, unknown>;
+    if (o.pinServed === true || o.discover === true) return null;
+    const m = typeof o.apiModelId === "string" ? o.apiModelId.trim() : "";
+    // A versioned cloud id ("us.anthropic.…-v1:0") is a route, not a name.
+    return m && !m.includes(":") ? m : null;
+  };
+  const slots = Object.values(parseCoreRouting(raw) ?? {}).map((r) => rungId(r));
+  const nameableModels = [
+    ...new Set(
+      [
+        ...(Array.isArray(a.chain) ? a.chain : []).map(rungId),
+        ...[...levels, ...zenithLevels].flatMap((l) => (Array.isArray(l) ? l : [])).map(rungId),
+        ...slots,
+      ].filter((x): x is string => !!x),
+    ),
+  ];
   return {
     id,
     label,
     ...(providerId && modelId ? { capability: { providerId, modelId } } : {}),
     ...(freeModels.length ? { freeModels } : {}),
     ...(paidModels.length ? { paidModels } : {}),
+    ...(nameableModels.length ? { nameableModels } : {}),
   };
 }
 
