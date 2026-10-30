@@ -174,4 +174,47 @@ describe("hooks (the person's hooks.json) at the funnel and the stop gate", () =
     expect(blob).not.toContain("REPO_HOOK_RAN");
     expect(blob).toContain("export const info");
   }, 30_000);
+
+  it("an off silk's command is refused with its reason, not as a model failure (A4, A8)", async () => {
+    const os = await import("node:os");
+    const { commitPluginInstall, preparePluginInstall, setPluginEnabled } =
+      await import("@/lib/plugins/install");
+    const src = fs.mkdtempSync(path.join(os.tmpdir(), "eval-silk-"));
+    fs.mkdirSync(path.join(src, "commands"), { recursive: true });
+    fs.writeFileSync(
+      path.join(src, "atlarix-silk.json"),
+      JSON.stringify({ name: "kit" }),
+    );
+    fs.writeFileSync(
+      path.join(src, "commands", "summarize.md"),
+      "Summarize $ARGUMENTS.\n",
+    );
+    commitPluginInstall(await preparePluginInstall(src), {
+      runnablesConfirmed: true,
+    });
+    setPluginEnabled("kit", false);
+    ctx.server.register(
+      scenario("silk-off").text("Should never be asked.").repeatLast().build(),
+    );
+    try {
+      const chatId = await ctx.newChat();
+      const { fakeIpc } = await runTurn(ctx, {
+        chatId,
+        prompt: "/summarize README.md",
+        mode: "build",
+      });
+      const err = fakeIpc.sends.find(
+        (x: any) =>
+          x.channel === "chat:response:error" && x.payload?.chatId === chatId,
+      ) as any;
+      expect(err?.payload.error).toBe(
+        "/summarize comes from kit, which is off. Turn it on in /silks.",
+      );
+      expect(ctx.server.requestsFor("silk-off")).toHaveLength(0);
+    } finally {
+      const { removePlugin } = await import("@/lib/plugins/install");
+      removePlugin("kit");
+      fs.rmSync(src, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

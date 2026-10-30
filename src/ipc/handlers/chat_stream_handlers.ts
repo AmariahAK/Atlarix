@@ -926,7 +926,10 @@ export function registerChatStreamHandlers() {
               const reason =
                 unavailableCommandReason(userPrompt, modCtx.workspacePath) ??
                 offModCommandReason(userPrompt, modCtx);
-              if (reason) throw new Error(reason);
+              if (reason) {
+                const { UserFacingRefusal } = await import("@/shared/texts");
+                throw new UserFacingRefusal(reason);
+              }
             }
             userPrompt = await modsPromptSubmit(modCtx, userPrompt);
           }

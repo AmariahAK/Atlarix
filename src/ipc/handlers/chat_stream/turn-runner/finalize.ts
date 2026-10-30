@@ -78,6 +78,7 @@ import {
 } from "@/lib/usage/turn-usage-aggregator";
 import { readSettings } from "@/main/settings";
 import {
+  UserFacingRefusal,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   SAFETY_FILTER_BLOCKED_MESSAGE,
@@ -782,7 +783,9 @@ export async function handleTurnError(
       return;
     }
   }
-  const errMessage = isNoUsableModelOutputError(error)
+  const errMessage = error instanceof UserFacingRefusal
+    ? error.message
+    : isNoUsableModelOutputError(error)
     ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
     : modelFailureUserMessage(
         error instanceof Error ? error.message : String(error),
