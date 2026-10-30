@@ -40,7 +40,7 @@ import { PluginsSettingsPage } from "@/components/settings/PluginsSettingsPage";
 
 async function startAdd() {
   renderWithProviders(<PluginsSettingsPage />);
-  fireEvent.change(screen.getByLabelText("Augment source"), {
+  fireEvent.change(screen.getByLabelText("Silk source"), {
     target: { value: "acme/dbkit" },
   });
   await act(async () => {

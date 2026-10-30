@@ -994,7 +994,7 @@ export function registerChatStreamHandlers() {
           const promptHooks = await runPromptSubmitHooks(hookCtx, userPrompt);
           if (promptHooks.blocked) {
             throw new Error(
-              `A prompt_submit hook stopped this message (${promptHooks.blocked})`,
+              `An edict stopped this message (${promptHooks.blocked})`,
             );
           }
           const hookContext = [
@@ -1011,7 +1011,7 @@ export function registerChatStreamHandlers() {
               // Labelled as the hooks' output: it can echo the project's own
               // text, which must not read as Atlarix speaking.
               systemReminder(
-                `Output of the user's hooks and mods:\n\n${hookContext.join("\n\n")}`,
+                `Output of the user's edicts and mods:\n\n${hookContext.join("\n\n")}`,
               ),
             );
           }

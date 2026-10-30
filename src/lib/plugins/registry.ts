@@ -113,7 +113,7 @@ export function verifyInstalledPlugin(
   }
   if (runnablesDigest(describeRunnables(contents)) !== record.runnablesDigest) {
     return {
-      problem: `${record.name} needs your OK again for what it runs: open /augments to review it`,
+      problem: `${record.name} needs your OK again for what it runs: open /silks to review it`,
     };
   }
   return { record, dir, contents };

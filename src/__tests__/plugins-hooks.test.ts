@@ -49,7 +49,7 @@ afterEach(() => {
 const ctx = () => ({ workspacePath: ws, sessionId: "s1" });
 
 function userHooks(hooks: unknown) {
-  fs.writeFileSync(path.join(home, "hooks.json"), JSON.stringify({ hooks }));
+  fs.writeFileSync(path.join(home, "edicts.json"), JSON.stringify({ hooks }));
 }
 
 function write(root: string, files: Record<string, string>) {
@@ -90,7 +90,7 @@ describe.runIf(process.platform !== "win32")("hooks", () => {
     ]);
     const d = await runPreToolUseHooks(ctx(), run.name, run.args);
     expect(d).toEqual({
-      deniedBy: "hooks.json: echo no deletes >&2; exit 1",
+      deniedBy: "edicts.json: echo no deletes >&2; exit 1",
       reason: "no deletes",
     });
     expect(

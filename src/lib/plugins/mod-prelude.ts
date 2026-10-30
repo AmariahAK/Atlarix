@@ -26,7 +26,7 @@ export const MOD_PRELUDE = String.raw`
   const on = (event, a, b) => {
     const hook = typeof a === "function" ? a : b;
     const matcher = typeof a === "function" ? null : a || null;
-    if (typeof hook !== "function") throw new Error("on(event, [matcher,] hook)");
+    if (typeof hook !== "function") throw new Error("on(event, [matcher,] handler)");
     hooks.push({ event: String(event), matcher, hook });
   };
   const $ = Object.freeze({

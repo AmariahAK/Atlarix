@@ -66,7 +66,7 @@ async function installMod(source: string, capabilities: string[], name = "m") {
   const dir = path.join(work, name);
   fs.mkdirSync(path.join(dir, "mod"), { recursive: true });
   fs.writeFileSync(
-    path.join(dir, "atlarix-augment.json"),
+    path.join(dir, "atlarix-silk.json"),
     JSON.stringify({ name, mod: { main: "mod/index.js", capabilities } }),
   );
   fs.writeFileSync(path.join(dir, "mod", "index.js"), source);

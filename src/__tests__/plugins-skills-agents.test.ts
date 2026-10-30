@@ -131,7 +131,7 @@ describe("installed agents", () => {
     );
 
     expect(formatInstalledAgentsForPrompt(ws)).toBe(
-      "## Installed agents (1)\nFrom augments the user installed. Start one with `task` and its name as `subagent_type`.\n- **review-kit:auditor** — Audits code",
+      "## Installed agents (1)\nFrom silks the user installed. Start one with `task` and its name as `subagent_type`.\n- **review-kit:auditor** — Audits code",
     );
   });
 

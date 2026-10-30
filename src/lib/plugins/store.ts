@@ -66,9 +66,7 @@ export function readPluginRecords(): PluginRecord[] {
     const data = JSON.parse(raw) as Partial<RecordFile>;
     return Array.isArray(data.plugins) ? data.plugins.filter(isRecord) : [];
   } catch (err) {
-    logger.warn(
-      `augments.json unreadable; every augment stays off: ${String(err)}`,
-    );
+    logger.warn(`silks.json unreadable; every silk stays off: ${String(err)}`);
     return [];
   }
 }

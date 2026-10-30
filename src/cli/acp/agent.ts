@@ -754,7 +754,7 @@ class Thread {
     // CLI's /status, /billing and /mcp, answered as a message.
     // `/automations`, `/automations run <name>`, `/automations on|off <name>`.
     const automations = /^\/automations(?:\s+([\s\S]+))?$/i.exec(text.trim());
-    if (automations || (slash && (slash[1] === "status" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "augments" || slash[1] === "plugins" || slash[1] === "logout"))) {
+    if (automations || (slash && (slash[1] === "status" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "silks" || slash[1] === "augments" || slash[1] === "plugins" || slash[1] === "logout"))) {
       const { accountCommandText } = await import("./account-commands");
       const cmd = automations ? `automations ${automations[1]?.trim() ?? ""}`.trim() : slash![1]!;
       const reply = await accountCommandText(cmd, this.session, this.editorMcpServers).catch((e: Error) => `Couldn't read that: ${e.message}`);
@@ -1018,7 +1018,7 @@ class Thread {
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "augments", "plugins", "automations", "handoff", "logout", "feedback", "build"];
+const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "silks", "augments", "plugins", "automations", "handoff", "logout", "feedback", "build"];
 
 function commandsUpdate(
   planReady: boolean,
@@ -1037,7 +1037,7 @@ function commandsUpdate(
       { name: "stats", description: "Your activity on this computer: tokens, streaks, models, skills and MCP." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
-      { name: "augments", description: "Augments you installed, and whether each is on here." },
+      { name: "silks", description: "Silks you installed, and whether each is on here." },
       { name: "automations", description: "Scheduled and triggered tasks in this folder; run one, or turn it on or off." },
       { name: "handoff", description: "Continue this chat in the Atlarix app." },
       { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },

@@ -66,9 +66,9 @@ function row(p: PluginListItem, workspaceDir: string): ListItem {
 export function openPlugins(ctx: ScreenContext): void {
   let plugins: PluginListItem[] = [];
   const dialog: ListDialog = new ListDialog({
-    title: "Augments",
+    title: "Silks",
     wide: true,
-    empty: "No augments yet. a adds one from GitHub or a folder.",
+    empty: "No silks yet. a adds one from GitHub or a folder.",
     hints: [
       { title: "On/off", key: "space" },
       { title: "Add", key: "a" },
@@ -105,7 +105,7 @@ export function openPlugins(ctx: ScreenContext): void {
 function askSource(ctx: ScreenContext, done: () => void): void {
   ctx.host.push(
     new InputDialog({
-      title: "Add an augment",
+      title: "Add a silk",
       label: "GitHub repository or folder",
       intro: [
         { text: "owner/repo, a github.com link, or a path", tone: "muted" },
@@ -299,7 +299,7 @@ function openPluginDetail(
         items.push({
           id: "model",
           label: "Model for its agents",
-          detail: p.model ?? "the augment's own, else the chat's",
+          detail: p.model ?? "the silk's own, else the chat's",
         });
       }
       items.push(
@@ -341,8 +341,7 @@ function openPluginDetail(
           return ctx.host.push(
             new InputDialog({
               title: `Model for ${name}'s agents`,
-              label:
-                "provider/model (empty: the augment's own, else the chat's)",
+              label: "provider/model (empty: the silk's own, else the chat's)",
               initial: p.model ?? "",
               onSubmit: async (v) => {
                 await ctx.services.plugins.setModel(name, v.trim() || null);

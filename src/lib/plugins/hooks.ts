@@ -348,7 +348,7 @@ function tail(run: HookRun, prefer: "stderr" | "both" = "both"): string {
 function label(r: RunnableHook): string {
   return r.plugin
     ? `${r.plugin}: ${r.hook.command}`
-    : `hooks.json: ${r.hook.command}`;
+    : `edicts.json: ${r.hook.command}`;
 }
 
 export interface HookDenial {
@@ -390,7 +390,7 @@ export async function runStopHooks(ctx: HookContext): Promise<string | null> {
     const run = await runOne(r, ctx, stdinFor(r, ctx, {}));
     const reason = denial(r, run);
     if (reason != null) {
-      return `A stop hook says this is not done yet (${label(r)}):\n${reason}\nFix it, then finish.`;
+      return `An edict says this is not done yet (${label(r)}):\n${reason}\nFix it, then finish.`;
     }
   }
   return null;

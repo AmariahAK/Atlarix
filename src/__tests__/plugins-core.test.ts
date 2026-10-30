@@ -51,7 +51,7 @@ const SKILL =
 
 function atlarixPlugin(dir = path.join(work, "acme")): string {
   writeTree(dir, {
-    "atlarix-augment.json": JSON.stringify({
+    "atlarix-silk.json": JSON.stringify({
       name: "acme",
       version: "1.0.0",
       description: "Acme tools",
@@ -185,7 +185,42 @@ describe("layouts", () => {
     writeTree(path.join(work, "nothing"), { "README.md": "hi" });
     await expect(
       preparePluginInstall(path.join(work, "nothing")),
-    ).rejects.toThrow(/No augment here/);
+    ).rejects.toThrow(/No silk here/);
+  });
+});
+
+describe("edicts", () => {
+  it('are read from a silk\'s edicts.json, as an "edicts" list', () => {
+    const dir = path.join(work, "ed");
+    writeTree(dir, {
+      "atlarix-silk.json": JSON.stringify({ name: "ed" }),
+      "edicts.json": JSON.stringify({
+        edicts: [
+          {
+            event: "pre_tool_use",
+            match: "run_command",
+            command: "./guard.sh",
+          },
+        ],
+      }),
+    });
+    const c = readPluginContents(dir, "x");
+    expect(c.hooks).toEqual([
+      expect.objectContaining({ event: "pre_tool_use", command: "./guard.sh" }),
+    ]);
+    expect(describeRunnables(c)).toEqual([
+      "edict pre_tool_use run_command: ./guard.sh",
+    ]);
+  });
+
+  it("are read from the person's own edicts.json", () => {
+    fs.writeFileSync(
+      path.join(home, "edicts.json"),
+      JSON.stringify({ edicts: [{ event: "stop", command: "npm test" }] }),
+    );
+    expect(loadPlugins(null).userHooks).toEqual([
+      expect.objectContaining({ event: "stop", command: "npm test" }),
+    ]);
   });
 });
 
@@ -193,7 +228,7 @@ describe("what the second confirm shows", () => {
   it("shows env values (masking secret-named ones) and escapes control characters", () => {
     const dir = path.join(work, "envy");
     writeTree(dir, {
-      "atlarix-augment.json": JSON.stringify({ name: "envy" }),
+      "atlarix-silk.json": JSON.stringify({ name: "envy" }),
       ".mcp.json": JSON.stringify({
         mcpServers: {
           s: {
@@ -211,7 +246,7 @@ describe("what the second confirm shows", () => {
     expect(lines).toContain(
       "MCP server s: npx srv (env: NODE_OPTIONS=--require /x.js API_TOKEN=…)",
     );
-    expect(lines[0]).toBe("hook stop: echo hi\\x1b[2K\\x0dhidden");
+    expect(lines[0]).toBe("edict stop: echo hi\\x1b[2K\\x0dhidden");
   });
 });
 
@@ -239,7 +274,7 @@ describe("install", () => {
   it("needs the second confirm when the plugin runs anything", async () => {
     const preview = await preparePluginInstall(atlarixPlugin());
     expect(preview.runnables).toEqual([
-      "hook pre_tool_use run_command(rm *): ./scripts/deny.sh",
+      "edict pre_tool_use run_command(rm *): ./scripts/deny.sh",
     ]);
     expect(() =>
       commitPluginInstall(preview, { runnablesConfirmed: false }),
@@ -253,7 +288,7 @@ describe("install", () => {
     const preview = await preparePluginInstall(atlarixPlugin());
     const staged = path.join(
       home,
-      "augments",
+      "silks",
       ".staging",
       preview.stagingId,
       "pkg",
@@ -348,10 +383,10 @@ describe("verify on every load", () => {
       ".atlarix/hooks.json": JSON.stringify({
         hooks: [{ event: "stop", command: "evil" }],
       }),
-      ".atlarix/augments/acme/atlarix-augment.json": JSON.stringify({
+      ".atlarix/silks/acme/atlarix-silk.json": JSON.stringify({
         name: "acme",
       }),
-      ".atlarix/augments.json": JSON.stringify({ version: 1, plugins: [] }),
+      ".atlarix/silks.json": JSON.stringify({ version: 1, plugins: [] }),
     });
     expect(loadPlugins(ws)).toEqual({
       plugins: [],
@@ -362,7 +397,7 @@ describe("verify on every load", () => {
 
   it("reads the person's own hooks.json", () => {
     fs.writeFileSync(
-      path.join(home, "hooks.json"),
+      path.join(home, "edicts.json"),
       JSON.stringify({ hooks: [{ event: "stop", command: "npm test" }] }),
     );
     expect(loadPlugins(null).userHooks).toEqual([
@@ -438,11 +473,11 @@ describe("control paths", () => {
   it("covers the plugins folder, the record and the person's hooks", () => {
     expect(
       isPluginControlPath(
-        path.join(home, "augments", "acme", "hooks", "hooks.json"),
+        path.join(home, "silks", "acme", "hooks", "hooks.json"),
       ),
     ).toBe(true);
-    expect(isPluginControlPath(path.join(home, "augments.json"))).toBe(true);
-    expect(isPluginControlPath(path.join(home, "hooks.json"))).toBe(true);
+    expect(isPluginControlPath(path.join(home, "silks.json"))).toBe(true);
+    expect(isPluginControlPath(path.join(home, "edicts.json"))).toBe(true);
     expect(isPluginControlPath(path.join(home, "memory", "x.md"))).toBe(false);
   });
 });

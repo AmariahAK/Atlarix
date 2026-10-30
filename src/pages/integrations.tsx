@@ -65,10 +65,10 @@ const SECTIONS = [
     hint: "Agent behaviors, per project",
   },
   {
-    to: "/integrations/augments",
-    label: "Augments",
+    to: "/integrations/silks",
+    label: "Silks",
     icon: Puzzle,
-    hint: "Skills, agents, commands, hooks and MCP servers you add",
+    hint: "Skills, agents, commands, edicts and MCP servers you add",
   },
   {
     to: "/integrations/co-author",

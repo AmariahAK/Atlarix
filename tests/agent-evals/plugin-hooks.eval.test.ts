@@ -70,7 +70,7 @@ describe("hooks (the person's hooks.json) at the funnel and the stop gate", () =
     expectNoStreamError(fakeIpc.sends, chatId);
 
     const blob = JSON.stringify(ctx.server.requestsFor("user-hook-deny"));
-    expect(blob).toContain("Blocked by a pre_tool_use hook");
+    expect(blob).toContain("Blocked by an edict");
     expect(blob).toContain("policy: no shell here");
   }, 30_000);
 

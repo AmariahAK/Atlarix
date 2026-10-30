@@ -42,7 +42,7 @@ const cmd = (command: string) => ({
 describe("file writes", () => {
   it("refuses an edit to the person's hooks.json, by absolute path", () => {
     const g = guardPluginControl(
-      edit(path.join(home, "hooks.json")),
+      edit(path.join(home, "edicts.json")),
       "/some/project",
     );
     expect(g.pluginControl).toBe(true);
@@ -51,7 +51,7 @@ describe("file writes", () => {
 
   it("refuses an edit inside an installed plugin when the workspace IS the home folder", () => {
     // A relative path in a workspace that contains the plugins folder.
-    const g = guardPluginControl(edit("augments/acme/hooks/hooks.json"), home);
+    const g = guardPluginControl(edit("silks/acme/hooks/hooks.json"), home);
     expect(g.refusal).not.toBeNull();
   });
 
@@ -60,7 +60,7 @@ describe("file writes", () => {
       operation: "rename_file",
       preview: {
         fromPath: "/tmp/x.json",
-        toPath: path.join(home, "augments.json"),
+        toPath: path.join(home, "silks.json"),
       },
     };
     expect(guardPluginControl(req, "/tmp").refusal).not.toBeNull();
@@ -97,10 +97,10 @@ describe("links", () => {
     try {
       fs.symlinkSync(home, path.join(ws, "cfg"));
       expect(
-        guardPluginControl(edit("cfg/hooks.json"), ws).refusal,
+        guardPluginControl(edit("cfg/edicts.json"), ws).refusal,
       ).not.toBeNull();
       expect(
-        guardPluginControl(edit("cfg/augments/acme/x.sh"), ws).refusal,
+        guardPluginControl(edit("cfg/silks/acme/x.sh"), ws).refusal,
       ).not.toBeNull();
     } finally {
       fs.rmSync(ws, { recursive: true, force: true });
@@ -123,7 +123,7 @@ describe("links", () => {
         expect.arrayContaining([linked, real]),
       );
       expect(
-        guardPluginControl(edit(path.join(real, "hooks.json")), "/p").refusal,
+        guardPluginControl(edit(path.join(real, "edicts.json")), "/p").refusal,
       ).not.toBeNull();
     } finally {
       fs.rmSync(realHome, { recursive: true, force: true });
@@ -135,11 +135,11 @@ describe("links", () => {
 describe("commands", () => {
   it("always ask, unattended approvers refuse, and no 'always allow' is offered", () => {
     for (const c of [
-      `echo '{}' > ${path.join(home, "hooks.json")}`,
-      "cp evil.json ~/.atlarix/hooks.json",
-      "rm -rf $HOME/.atlarix/augments/acme",
-      "cd ~/.atlarix && echo '{}' > hooks.json",
-      "cp x.json ~/.atl*/hooks.json",
+      `echo '{}' > ${path.join(home, "edicts.json")}`,
+      "cp evil.json ~/.atlarix/edicts.json",
+      "rm -rf $HOME/.atlarix/silks/acme",
+      "cd ~/.atlarix && echo '{}' > edicts.json",
+      "cp x.json ~/.atl*/edicts.json",
       "mv ~/.atlarix /tmp/x",
     ]) {
       const g = guardPluginControl(cmd(c), "/p");
@@ -176,7 +176,7 @@ describe("commands", () => {
 
   it("keeps its marking after the card's enrichment recomputes systemScope", () => {
     const enriched = enrichPermissionRequestForUi(
-      cmd("cat x > ~/.atlarix/hooks.json"),
+      cmd("cat x > ~/.atlarix/edicts.json"),
       null,
       "/p",
       false,
@@ -194,7 +194,7 @@ describe("sandbox", () => {
   });
 
   it("never offers a grant that would cover them", () => {
-    expect(grantCoversPluginControl(path.join(home, "augments", "acme"))).toBe(
+    expect(grantCoversPluginControl(path.join(home, "silks", "acme"))).toBe(
       true,
     );
     expect(grantCoversPluginControl(home)).toBe(true);

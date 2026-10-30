@@ -35,7 +35,7 @@ import {
 } from "./paths";
 
 export const PLUGIN_CONTROL_EXPLANATION =
-  "Changes what your augments and hooks run";
+  "Changes what your silks and edicts run";
 
 export function touchesPluginControl(
   permRequest: { operation: string; preview: unknown },
@@ -107,7 +107,7 @@ function commandNamesPluginControl(command: string): boolean {
     return true;
   if (namesControlFile(norm)) return true;
   // Any write that mentions the home folder at all, however it gets there:
-  // `cd ~/.atlarix && … > hooks.json`, `~/.atl*/hooks.json`. A read
+  // `cd ~/.atlarix && … > edicts.json`, `~/.atl*/edicts.json`. A read
   // (`cat ~/.atlarix/…`) is not stopped; the sandbox denies the whole folder
   // anyway, and this is the layer for machines and runs without one.
   const mentionsHome = /\.atlarix\b|\.atl[a-z]*[*?[]/.test(norm);
@@ -115,12 +115,15 @@ function commandNamesPluginControl(command: string): boolean {
 }
 
 function namesControlFile(norm: string): boolean {
-  return /\.atlarix\/(plugins\b|plugins\.json|hooks\.json)/.test(norm);
+  // Today's names, and the earlier ones: matching more only asks more often.
+  return /\.atlarix\/(silks\b|silks\.json|edicts\.json|augments\b|augments\.json|plugins\b|plugins\.json|hooks\.json)/.test(
+    norm,
+  );
 }
 
 export const PLUGIN_CONTROL_REFUSAL =
-  "Augment files, augments.json and hooks.json are changed by the person, not the agent: " +
-  "ask them to edit the file, or to use /augments.";
+  "Silk files, silks.json and edicts.json are changed by the person, not the agent: " +
+  "ask them to edit the file, or to use /silks.";
 
 /**
  * The request as the card shows it; whether it may skip the card (never, when

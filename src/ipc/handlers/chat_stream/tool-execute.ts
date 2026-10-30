@@ -118,7 +118,7 @@ export async function runToolExecute(
     logger.warn(`[hooks] ${toolName} denied by ${hookDenial.deniedBy}`);
     return JSON.stringify({
       success: false,
-      error: `Blocked by a pre_tool_use hook (${hookDenial.deniedBy}):\n${hookDenial.reason}`,
+      error: `Blocked by an edict (${hookDenial.deniedBy}):\n${hookDenial.reason}`,
     });
   }
   // Mods with the `tool` capability can deny too (lib/plugins/mod-host.ts).

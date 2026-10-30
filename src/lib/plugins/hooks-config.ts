@@ -106,7 +106,7 @@ export function parseHooksJson(raw: string): ParsedHooks {
   try {
     data = JSON.parse(raw);
   } catch {
-    return { ...EMPTY, unsupported: ["hooks.json is not valid JSON"] };
+    return { ...EMPTY, unsupported: ["the edicts file is not valid JSON"] };
   }
   if (!data || typeof data !== "object") return EMPTY;
   const obj = data as Record<string, unknown>;
@@ -115,6 +115,10 @@ export function parseHooksJson(raw: string): ParsedHooks {
     ? obj.modules.filter((m): m is string => typeof m === "string")
     : [];
 
+  // Atlarix's own: `{ "edicts": [...] }` (users call hooks edicts); the older
+  // `{ "hooks": [...] }` array still reads the same.
+  if (Array.isArray(obj.edicts))
+    return { ...parseAtlarixHooks(obj.edicts), claudeModModules };
   if (Array.isArray(obj.hooks))
     return { ...parseAtlarixHooks(obj.hooks), claudeModModules };
   if (obj.hooks && typeof obj.hooks === "object") {
@@ -141,13 +145,13 @@ function parseAtlarixHooks(
       typeof event !== "string" ||
       !(HOOK_EVENTS as readonly string[]).includes(event)
     ) {
-      unsupported.push(`hook on "${String(event)}": not an Atlarix event`);
+      unsupported.push(`edict on "${String(event)}": not an Atlarix event`);
       continue;
     }
     let match: HookMatch = { kind: "all" };
     if (typeof h.match === "string" && h.match.trim()) {
       if (!compileRule(h.match)) {
-        unsupported.push(`hook match "${h.match}": not a tool(glob) rule`);
+        unsupported.push(`edict match "${h.match}": not a tool(glob) rule`);
         continue;
       }
       match = { kind: "rule", rule: h.match.trim() };
@@ -171,7 +175,7 @@ function parseClaudeHooks(
   for (const [claudeEvent, groups] of Object.entries(byEvent)) {
     const event = CLAUDE_EVENT_MAP[claudeEvent];
     if (!event) {
-      unsupported.push(`${claudeEvent} hooks: no Atlarix event`);
+      unsupported.push(`${claudeEvent} edicts: no Atlarix event`);
       continue;
     }
     if (!Array.isArray(groups)) continue;
@@ -195,7 +199,7 @@ function parseClaudeHooks(
         if (!entry || typeof entry !== "object") continue;
         const e = entry as Record<string, unknown>;
         if (e.type !== "command") {
-          unsupported.push(`${claudeEvent} hook of type "${String(e.type)}"`);
+          unsupported.push(`${claudeEvent} edict of type "${String(e.type)}"`);
           continue;
         }
         const command = typeof e.command === "string" ? e.command.trim() : "";

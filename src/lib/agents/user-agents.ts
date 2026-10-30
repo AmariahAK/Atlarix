@@ -209,7 +209,7 @@ export function formatInstalledAgentsForPrompt(workspacePath: string | null | un
   if (agents.length === 0) return "";
   return [
     `## Installed agents (${agents.length})`,
-    "From augments the user installed. Start one with `task` and its name as `subagent_type`.",
+    "From silks the user installed. Start one with `task` and its name as `subagent_type`.",
     ...agents.map((a) => (a.description ? `- **${a.name}** — ${a.description}` : `- **${a.name}**`)),
   ].join("\n");
 }

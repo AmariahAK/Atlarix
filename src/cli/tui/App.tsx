@@ -1448,6 +1448,7 @@ export function App({
         return openAutomations(ctx);
       case "/mcp":
         return openMcp(ctx);
+      case "/silks":
       case "/augments":
       case "/plugins":
         return openPlugins(ctx);

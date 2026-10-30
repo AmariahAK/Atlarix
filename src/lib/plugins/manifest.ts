@@ -2,7 +2,7 @@
  * What a plugin folder contains, read the same way for the install screen and for
  * every load, in each of the three layouts Atlarix accepts:
  *
- * 1. **Atlarix** — `atlarix-augment.json` at the root:
+ * 1. **Atlarix** — `atlarix-silk.json` at the root:
  *
  *      { "name": "acme-tools", "version": "1.2.0", "description": "…",
  *        "mod": { "main": "mod/index.js", "capabilities": ["ui", "process"] } }
@@ -134,14 +134,14 @@ export function readPluginContents(
   root: string,
   fallbackName: string,
 ): PluginContents {
-  const atlarixManifest = path.join(root, "atlarix-augment.json");
+  const atlarixManifest = path.join(root, "atlarix-silk.json");
   const claudeManifest = path.join(root, ".claude-plugin", "plugin.json");
 
   let format: PluginFormat;
   let manifest: Record<string, unknown> = {};
   if (fs.existsSync(atlarixManifest)) {
     format = "atlarix";
-    manifest = readJsonObject(atlarixManifest, "atlarix-augment.json");
+    manifest = readJsonObject(atlarixManifest, "atlarix-silk.json");
   } else if (fs.existsSync(claudeManifest)) {
     format = "claude";
     manifest = readJsonObject(claudeManifest, ".claude-plugin/plugin.json");
@@ -152,7 +152,7 @@ export function readPluginContents(
     format = "skills";
   } else {
     throw new PluginManifestError(
-      "No augment here: expected atlarix-augment.json, .claude-plugin/plugin.json or skills/",
+      "No silk here: expected atlarix-silk.json, .claude-plugin/plugin.json or skills/",
     );
   }
 
@@ -163,7 +163,7 @@ export function readPluginContents(
     .toLowerCase();
   if (!isValidPluginName(name)) {
     throw new PluginManifestError(
-      `"${name}" is not a usable augment name (a-z, 0-9, . _ -)`,
+      `"${name}" is not a usable silk name (a-z, 0-9, . _ -)`,
     );
   }
 
@@ -172,11 +172,16 @@ export function readPluginContents(
   const agents = readAgents(root, name);
   const commands = readCommands(root);
 
-  let hooks: PluginHook[] = [];
-  const hooksFile = path.join(root, "hooks", "hooks.json");
-  if (fs.existsSync(hooksFile)) {
+  // Edicts (what users call hooks): `edicts.json` at a silk's root, or Claude
+  // Code's `hooks/hooks.json`. Both are read when both are there.
+  const hooks: PluginHook[] = [];
+  for (const hooksFile of [
+    path.join(root, "edicts.json"),
+    path.join(root, "hooks", "hooks.json"),
+  ]) {
+    if (!fs.existsSync(hooksFile)) continue;
     const parsed = parseHooksJson(fs.readFileSync(hooksFile, "utf8"));
-    hooks = parsed.hooks;
+    hooks.push(...parsed.hooks);
     unsupported.push(...parsed.unsupported);
     if (parsed.claudeModModules.length > 0) {
       unsupported.push(
@@ -424,7 +429,7 @@ function readMod(
     !abs.startsWith(path.resolve(root) + path.sep) ||
     !fs.existsSync(abs)
   ) {
-    unsupported.push(`mod: "${main}" is not a file in the augment`);
+    unsupported.push(`mod: "${main}" is not a file in the silk`);
     return null;
   }
   const declared = Array.isArray(raw.capabilities)
@@ -457,7 +462,7 @@ export function agentCanRun(agent: PluginAgent): boolean {
  */
 export function describeRunnables(c: PluginContents): string[] {
   const lines: string[] = [];
-  for (const h of c.hooks) lines.push(`hook ${describeHook(h)}`);
+  for (const h of c.hooks) lines.push(`edict ${describeHook(h)}`);
   for (const s of c.mcpServers) {
     if (s.transport === "stdio") {
       // Values too: `NODE_OPTIONS`, `PATH` or `DYLD_*` change what the command
