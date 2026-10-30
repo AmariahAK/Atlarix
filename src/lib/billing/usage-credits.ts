@@ -113,11 +113,34 @@ export function parseUsageTeam(
   const months = monthKeys(now);
   const members = new Map<string, MonthTotals>();
   const channels = new Map<string, MonthTotals>();
+  // The same, per Slack workspace (a pot can pay for several).
+  const perTeam = new Map<
+    string,
+    {
+      name: string;
+      total: Map<"all", MonthTotals>;
+      members: Map<string, MonthTotals>;
+      channels: Map<string, MonthTotals>;
+    }
+  >();
   for (const r of d.rows as Array<Record<string, unknown>>) {
     if (!r || typeof r.day !== "string") continue;
     const c = cents(r.cents);
-    addToMonth(members, text(r.member, "Unknown"), r.day, c, months);
-    addToMonth(channels, channelLabel(r.channel), r.day, c, months);
+    const member = text(r.member, "Unknown");
+    const channel = channelLabel(r.channel);
+    addToMonth(members, member, r.day, c, months);
+    addToMonth(channels, channel, r.day, c, months);
+    const teamKey = text(r.team_id, "") || text(r.team_name, "");
+    const t = perTeam.get(teamKey) ?? {
+      name: text(r.team_name, "A Slack workspace"),
+      total: new Map(),
+      members: new Map(),
+      channels: new Map(),
+    };
+    addToMonth(t.total, "all", r.day, c, months);
+    addToMonth(t.members, member, r.day, c, months);
+    addToMonth(t.channels, channel, r.day, c, months);
+    perTeam.set(teamKey, t);
   }
   const tasks = new Map<string, number>();
   for (const m of (Array.isArray(d.members) ? d.members : []) as Array<
@@ -144,6 +167,26 @@ export function parseUsageTeam(
       })),
     ),
     channels: ranked([...channels].map(([channel, t]) => ({ channel, ...t }))),
+    ...(perTeam.size > 1
+      ? {
+          workspaces: ranked(
+            [...perTeam.values()].map((t) => ({
+              teamName: t.name,
+              people: t.members.size,
+              ...(t.total.get("all") ?? {
+                thisMonthCents: 0,
+                lastMonthCents: 0,
+              }),
+              members: ranked(
+                [...t.members].map(([member, m]) => ({ member, ...m })),
+              ),
+              channels: ranked(
+                [...t.channels].map(([channel, m]) => ({ channel, ...m })),
+              ),
+            })),
+          ),
+        }
+      : {}),
   };
 }
 

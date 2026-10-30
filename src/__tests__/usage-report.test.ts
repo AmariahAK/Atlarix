@@ -611,6 +611,62 @@ describe("workspace pays (Slack) in the Credits tab", () => {
     expect(channelLabel("  ")).toBe("Direct messages");
   });
 
+  it("shows one block per Slack workspace when a pot pays for several", () => {
+    const team = parseUsageTeam(
+      {
+        ok: true,
+        rows: [
+          {
+            day: "2026-10-29",
+            member: "dana",
+            team_id: "T1",
+            team_name: "Norah Labs",
+            channel: "eng",
+            cents: 300,
+          },
+          {
+            day: "2026-10-29",
+            member: "lee",
+            team_id: "T1",
+            team_name: "Norah Labs",
+            channel: "dm",
+            cents: 100,
+          },
+          {
+            day: "2026-10-28",
+            member: "sam",
+            team_id: "T2",
+            team_name: "Side Project",
+            channel: "general",
+            cents: 50,
+          },
+        ],
+        members: [],
+        teams: [],
+      },
+      now,
+    );
+    expect(
+      team?.workspaces?.map((w) => [w.teamName, w.people, w.thisMonthCents]),
+    ).toEqual([
+      ["Norah Labs", 2, 400],
+      ["Side Project", 1, 50],
+    ]);
+    const base = parseUsageCredits({ ok: true, balance_cents: 0, days: [] });
+    if (base.state !== "ok") throw new Error("unreachable");
+    const sections = Fm.creditsTeamSections({ ...base, team });
+    expect(sections.map((x) => x.title)).toEqual([
+      "Norah Labs · $4.00 this month · 2 people",
+      "Side Project · $0.50 this month · 1 person",
+    ]);
+    expect(sections[0]!.rows.map((r) => r.label)).toEqual([
+      "dana",
+      "lee",
+      "#eng",
+      "Direct messages",
+    ]);
+  });
+
   it('reads a DM sent as "dm" the same as one with no channel', () => {
     const team = parseUsageTeam(
       {

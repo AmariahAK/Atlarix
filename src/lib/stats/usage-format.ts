@@ -323,7 +323,24 @@ export function creditsTeamSections(
     title: string;
     rows: Array<{ label: string; value: string }>;
   }> = [];
-  if (c.team?.members.length) {
+  if (c.team?.workspaces?.length) {
+    // Several workspaces on one pot: a block each, its people then its channels.
+    for (const w of c.team.workspaces) {
+      out.push({
+        title: `${printableName(w.teamName, 40)} · ${dollars(w.thisMonthCents)} this month · ${w.people} ${w.people === 1 ? "person" : "people"}`,
+        rows: [
+          ...w.members.map((m) => ({
+            label: printableName(m.member, 40),
+            value: monthPair(m),
+          })),
+          ...w.channels.map((x) => ({
+            label: printableName(x.channel, 40),
+            value: monthPair(x),
+          })),
+        ],
+      });
+    }
+  } else if (c.team?.members.length) {
     out.push({
       title: "Team · people you pay for",
       rows: c.team.members.map((m) => ({
@@ -332,7 +349,7 @@ export function creditsTeamSections(
       })),
     });
   }
-  if (c.team?.channels.length) {
+  if (!c.team?.workspaces?.length && c.team?.channels.length) {
     out.push({
       title: "Team · by channel",
       rows: c.team.channels.map((x) => ({
