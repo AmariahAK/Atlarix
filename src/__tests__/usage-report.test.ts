@@ -25,7 +25,13 @@ vi.mock("@/lib/auth/supabase-client", () => ({
 const R = await import("@/lib/stats/usage-report");
 const Fm = await import("@/lib/stats/usage-format");
 const { shareCardSvg } = await import("@/lib/stats/share-card");
-const { parseUsageCredits } = await import("@/lib/billing/usage-credits");
+const {
+  parseUsageCredits,
+  parseUsageTeam,
+  parsePaidForMe,
+  daysSinceLastMonthStart,
+  monthKeys,
+} = await import("@/lib/billing/usage-credits");
 const { activityCalendar } = await import("@/lib/stats/usage-stats");
 import type { ActivityStats } from "@/lib/stats/usage-types";
 import type { UsageRollupRow } from "@/lib/stats/usage-stats";
@@ -511,5 +517,132 @@ describe("Credits", () => {
     expect(text[1]).toContain("$15.00 of $19.00 used");
     expect(text.at(-1)).toContain("█ Auto");
     expect(text.at(-1)).toContain("▓ Core");
+  });
+});
+
+describe("workspace pays (Slack) in the Credits tab", () => {
+  const now = new Date(2026, 9, 30, 12); // Oct 30, local
+
+  it("asks for every day back to the first of last month", () => {
+    expect(monthKeys(now)).toEqual({
+      thisMonth: "2026-10",
+      lastMonth: "2026-09",
+    });
+    // Sep 1 00:00 to Oct 30 12:00 is 59.5 days: rounded up, plus a day so the first is never cut.
+    expect(daysSinceLastMonthStart(now)).toBe(61);
+    expect(monthKeys(new Date(2026, 0, 5))).toEqual({
+      thisMonth: "2026-01",
+      lastMonth: "2025-12",
+    });
+  });
+
+  it("splits the payer's team spend by member and channel, this month and last", () => {
+    const team = parseUsageTeam(
+      {
+        ok: true,
+        rows: [
+          {
+            day: "2026-10-29",
+            member: "dana",
+            member_id: "u1",
+            team_id: "T1",
+            channel: "C-eng",
+            cents: 120,
+          },
+          {
+            day: "2026-10-02",
+            member: "dana",
+            member_id: "u1",
+            team_id: "T1",
+            channel: null,
+            cents: 30,
+          },
+          {
+            day: "2026-09-15",
+            member: "lee",
+            member_id: "u2",
+            team_id: "T1",
+            channel: "C-eng",
+            cents: 40,
+          },
+          // Older than last month: not shown.
+          {
+            day: "2026-08-31",
+            member: "lee",
+            member_id: "u2",
+            team_id: "T1",
+            channel: "C-eng",
+            cents: 999,
+          },
+        ],
+        members: [
+          { member: "dana", member_id: "u1", cents: 150, tasks: 3 },
+          { member: "lee", member_id: "u2", cents: 40, tasks: 1 },
+        ],
+      },
+      now,
+    );
+    expect(team).toEqual({
+      members: [
+        { member: "dana", tasks: 3, thisMonthCents: 150, lastMonthCents: 0 },
+        { member: "lee", tasks: 1, thisMonthCents: 0, lastMonthCents: 40 },
+      ],
+      channels: [
+        { channel: "C-eng", thisMonthCents: 120, lastMonthCents: 40 },
+        { channel: "Direct messages", thisMonthCents: 30, lastMonthCents: 0 },
+      ],
+    });
+    // Paying for no one: no Team section at all.
+    expect(
+      parseUsageTeam({ ok: true, rows: [], members: [] }, now),
+    ).toBeUndefined();
+    expect(
+      parseUsageTeam({ ok: false, error: "not_authenticated" }, now),
+    ).toBeUndefined();
+  });
+
+  it("shows what a workspace paid for you, and the payer's team, in the text", () => {
+    const paid = parsePaidForMe(
+      {
+        ok: true,
+        rows: [
+          { day: "2026-10-30", team_id: "T1", team_name: "Acme", cents: 55 },
+        ],
+      },
+      now,
+    );
+    expect(paid).toEqual([
+      { teamName: "Acme", thisMonthCents: 55, lastMonthCents: 0 },
+    ]);
+    const base = parseUsageCredits({ ok: true, balance_cents: 1000, days: [] });
+    if (base.state !== "ok") throw new Error("unreachable");
+    const c = {
+      ...base,
+      paidForMe: paid,
+      team: {
+        members: [
+          { member: "dana", tasks: 2, thisMonthCents: 150, lastMonthCents: 0 },
+        ],
+        channels: [],
+      },
+    };
+    const text = Fm.creditsText(c).map((l) => l.text);
+    expect(text).toContain("Team · people you pay for");
+    expect(
+      text.some(
+        (l) =>
+          l.includes("dana (2 tasks)") &&
+          l.includes("$1.50 this month · — last month"),
+      ),
+    ).toBe(true);
+    expect(text).toContain("Paid for you");
+    expect(
+      text.some(
+        (l) => l.includes("Paid by Acme") && l.includes("$0.55 this month"),
+      ),
+    ).toBe(true);
+    for (const l of text) expect(l.length).toBeLessThanOrEqual(80);
+    // Without either: no team sections.
+    expect(Fm.creditsTeamSections(base)).toEqual([]);
   });
 });

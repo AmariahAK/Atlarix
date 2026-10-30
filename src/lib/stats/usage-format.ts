@@ -276,10 +276,18 @@ export function creditsText(
       d.unsplitCents,
     0,
   );
+  const team = creditsTeamSections(c).flatMap((sec) => [
+    { text: "" },
+    { text: sec.title, bold: true },
+    ...sec.rows.map((r) => ({
+      text: `  ${r.label.padEnd(34).slice(0, 34)}  ${r.value}`,
+    })),
+  ]);
   if (spent === 0) {
     out.push(
       { text: "" },
       { text: "No Atlarix credit used yet.", tone: "muted" },
+      ...team,
     );
     return out;
   }
@@ -289,7 +297,59 @@ export function creditsText(
     { text: `Spent · last ${days} days`, bold: true },
     ...dayRows(byDay, width, dollars),
     ...legend(series.map((x) => x.label)),
+    ...team,
   );
+  return out;
+}
+
+/** "$1.20 this month · $0.40 last month" (a month with nothing reads "—"). */
+export function monthPair(t: {
+  thisMonthCents: number;
+  lastMonthCents: number;
+}): string {
+  const d = (c: number) => (c > 0 ? dollars(c) : "—");
+  return `${d(t.thisMonthCents)} this month · ${d(t.lastMonthCents)} last month`;
+}
+
+/**
+ * Workspace pays (Slack): the members and channels this account pays for, and
+ * what a workspace paid on your behalf. Empty sections are left out.
+ */
+export function creditsTeamSections(
+  c: UsageCredits | null,
+): Array<{ title: string; rows: Array<{ label: string; value: string }> }> {
+  if (!c || c.state !== "ok") return [];
+  const out: Array<{
+    title: string;
+    rows: Array<{ label: string; value: string }>;
+  }> = [];
+  if (c.team?.members.length) {
+    out.push({
+      title: "Team · people you pay for",
+      rows: c.team.members.map((m) => ({
+        label: `${printableName(m.member, 40)}${m.tasks ? ` (${m.tasks} ${m.tasks === 1 ? "task" : "tasks"})` : ""}`,
+        value: monthPair(m),
+      })),
+    });
+  }
+  if (c.team?.channels.length) {
+    out.push({
+      title: "Team · by channel",
+      rows: c.team.channels.map((x) => ({
+        label: printableName(x.channel, 40),
+        value: monthPair(x),
+      })),
+    });
+  }
+  if (c.paidForMe?.length) {
+    out.push({
+      title: "Paid for you",
+      rows: c.paidForMe.map((p) => ({
+        label: `Paid by ${printableName(p.teamName, 40)}`,
+        value: monthPair(p),
+      })),
+    });
+  }
   return out;
 }
 

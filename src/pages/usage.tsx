@@ -13,6 +13,7 @@ import { shareCardSvg } from "@/lib/stats/share-card";
 import {
   USAGE_TABS,
   creditSeries,
+  creditsTeamSections,
   shortDay,
   type CreditSeriesKey,
   type UsageTab,
@@ -465,6 +466,12 @@ function CreditsTab({
           <Legend labels={series.map((x) => seriesName[x.key])} />
         </div>
       )}
+      {creditsTeamSections(c).map((sec) => (
+        <div key={sec.title} className="space-y-1.5 border-t pt-4">
+          <div className="text-sm font-medium">{sec.title}</div>
+          <Rows rows={sec.rows} />
+        </div>
+      ))}
     </div>
   );
 }

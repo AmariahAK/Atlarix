@@ -3,7 +3,7 @@
  * the report (lib/stats/usage-report) and the account's credits.
  */
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { renderWithProviders } from "./helpers";
 
@@ -98,7 +98,9 @@ const report = {
   },
 };
 const getUsageReport = vi.fn(async () => report);
-const getUsageCredits = vi.fn(async () => ({ state: "signed_out" }));
+const getUsageCredits = vi.fn(
+  async (): Promise<unknown> => ({ state: "signed_out" }),
+);
 vi.mock("@/ipc/ipc_client", () => ({
   IpcClient: {
     getInstance: () => ({
@@ -115,6 +117,45 @@ const open = (name: string) =>
   fireEvent.mouseDown(screen.getByRole("tab", { name }), { button: 0 });
 
 describe("Usage", () => {
+  beforeEach(() => {
+    getUsageCredits.mockClear();
+    getUsageReport.mockClear();
+  });
+
+  it("shows a payer the people and channels it pays for in Credits", async () => {
+    getUsageCredits.mockResolvedValueOnce({
+      state: "ok",
+      balanceCents: 900,
+      purchasedCents: 900,
+      grantedCents: 0,
+      grantedTotalCents: 0,
+      plan: "free",
+      renewsAt: null,
+      since: "2026-10-01",
+      days: [],
+      team: {
+        members: [
+          { member: "dana", tasks: 2, thisMonthCents: 150, lastMonthCents: 0 },
+        ],
+        channels: [
+          {
+            channel: "Direct messages",
+            thisMonthCents: 150,
+            lastMonthCents: 0,
+          },
+        ],
+      },
+    } as never);
+    renderWithProviders(<UsagePage />);
+    await screen.findByText("2.5M");
+    open("Credits");
+    expect(await screen.findByText("Team · people you pay for")).toBeTruthy();
+    expect(screen.getByText("dana (2 tasks)")).toBeTruthy();
+    expect(screen.getAllByText("$1.50 this month · — last month")).toHaveLength(
+      2,
+    );
+  });
+
   it("opens on the overview, with the share card", async () => {
     renderWithProviders(<UsagePage />);
     expect(await screen.findByText("2.5M")).toBeTruthy();

@@ -142,4 +142,29 @@ export type UsageCredits =
       renewsAt: string | null;
       since: string | null;
       days: UsageCreditsDay[];
+      /**
+       * A Slack workspace this account pays for: its members' and channels'
+       * spend this calendar month and last. Absent when it pays for no one.
+       */
+      team?: UsageTeam;
+      /** Spend a workspace paid for on your behalf, this month and last. */
+      paidForMe?: Array<{
+        teamName: string;
+        thisMonthCents: number;
+        lastMonthCents: number;
+      }>;
     };
+
+export interface UsageTeam {
+  members: Array<{
+    member: string;
+    tasks: number;
+    thisMonthCents: number;
+    lastMonthCents: number;
+  }>;
+  channels: Array<{
+    channel: string;
+    thisMonthCents: number;
+    lastMonthCents: number;
+  }>;
+}

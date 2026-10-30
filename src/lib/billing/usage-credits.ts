@@ -10,7 +10,7 @@
 import { getSession, getSupabaseClient } from "@/lib/auth/supabase-client";
 
 export type { UsageCredits, UsageCreditsDay } from "@/lib/stats/usage-types";
-import type { UsageCredits } from "@/lib/stats/usage-types";
+import type { UsageCredits, UsageTeam } from "@/lib/stats/usage-types";
 
 const cents = (v: unknown) =>
   typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
@@ -59,6 +59,113 @@ export function localTimeZone(): string {
   }
 }
 
+/** `YYYY-MM` of this calendar month and the one before, on this computer's clock. */
+export function monthKeys(now: Date): { thisMonth: string; lastMonth: string } {
+  const key = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return {
+    thisMonth: key(now),
+    lastMonth: key(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+  };
+}
+
+/** Days back to the first of last month, so "last month" is whole. */
+export function daysSinceLastMonthStart(now: Date): number {
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return Math.ceil((now.getTime() - start.getTime()) / 86_400_000) + 1;
+}
+
+type MonthTotals = { thisMonthCents: number; lastMonthCents: number };
+
+function addToMonth<K extends string>(
+  by: Map<K, MonthTotals>,
+  key: K,
+  day: string,
+  cents: number,
+  months: { thisMonth: string; lastMonth: string },
+): void {
+  const m = day.slice(0, 7);
+  if (m !== months.thisMonth && m !== months.lastMonth) return;
+  const t = by.get(key) ?? { thisMonthCents: 0, lastMonthCents: 0 };
+  if (m === months.thisMonth) t.thisMonthCents += cents;
+  else t.lastMonthCents += cents;
+  by.set(key, t);
+}
+
+const text = (v: unknown, fallback: string) =>
+  typeof v === "string" && v.trim() ? v.trim().slice(0, 80) : fallback;
+
+/** get_usage_team as the Credits tab reads it: per member and per channel, this month and last. */
+export function parseUsageTeam(
+  data: unknown,
+  now: Date,
+): UsageTeam | undefined {
+  const d = data as { ok?: unknown; rows?: unknown; members?: unknown } | null;
+  if (!d || d.ok !== true || !Array.isArray(d.rows) || d.rows.length === 0)
+    return undefined;
+  const months = monthKeys(now);
+  const members = new Map<string, MonthTotals>();
+  const channels = new Map<string, MonthTotals>();
+  for (const r of d.rows as Array<Record<string, unknown>>) {
+    if (!r || typeof r.day !== "string") continue;
+    const c = cents(r.cents);
+    addToMonth(members, text(r.member, "Unknown"), r.day, c, months);
+    addToMonth(channels, text(r.channel, "Direct messages"), r.day, c, months);
+  }
+  const tasks = new Map<string, number>();
+  for (const m of (Array.isArray(d.members) ? d.members : []) as Array<
+    Record<string, unknown>
+  >) {
+    if (m)
+      tasks.set(
+        text(m.member, "Unknown"),
+        Math.max(0, Math.round(Number(m.tasks) || 0)),
+      );
+  }
+  const ranked = <T extends MonthTotals>(xs: T[]) =>
+    xs.sort(
+      (a, b) =>
+        b.thisMonthCents - a.thisMonthCents ||
+        b.lastMonthCents - a.lastMonthCents,
+    );
+  return {
+    members: ranked(
+      [...members].map(([member, t]) => ({
+        member,
+        tasks: tasks.get(member) ?? 0,
+        ...t,
+      })),
+    ),
+    channels: ranked([...channels].map(([channel, t]) => ({ channel, ...t }))),
+  };
+}
+
+/** get_usage_paid_for_me: what each workspace paid for you, this month and last. */
+export function parsePaidForMe(
+  data: unknown,
+  now: Date,
+): Array<{ teamName: string } & MonthTotals> | undefined {
+  const d = data as { ok?: unknown; rows?: unknown } | null;
+  if (!d || d.ok !== true || !Array.isArray(d.rows) || d.rows.length === 0)
+    return undefined;
+  const months = monthKeys(now);
+  const by = new Map<string, MonthTotals>();
+  for (const r of d.rows as Array<Record<string, unknown>>) {
+    if (r && typeof r.day === "string")
+      addToMonth(
+        by,
+        text(r.team_name, "A Slack workspace"),
+        r.day,
+        cents(r.cents),
+        months,
+      );
+  }
+  const out = [...by]
+    .map(([teamName, t]) => ({ teamName, ...t }))
+    .filter((x) => x.thisMonthCents + x.lastMonthCents > 0);
+  return out.length ? out : undefined;
+}
+
 let cached: { at: number; days: number; value: UsageCredits } | null = null;
 let inFlight: Promise<UsageCredits> | null = null;
 
@@ -72,16 +179,34 @@ export async function getUsageCredits(
     try {
       if (!(await getSession().catch(() => null)))
         return { state: "signed_out" } as const;
-      const { data, error } = await getSupabaseClient().rpc(
-        "get_usage_credits",
-        {
-          p_days: days,
-          p_tz: localTimeZone(),
-        },
-      );
-      const value: UsageCredits = error
+      const now = new Date();
+      const client = getSupabaseClient();
+      const tz = localTimeZone();
+      const teamDays = daysSinceLastMonthStart(now);
+      // The team and paid-for-me parts are extra: either failing leaves the rest.
+      const [credits, team, paid] = await Promise.all([
+        client.rpc("get_usage_credits", { p_days: days, p_tz: tz }),
+        Promise.resolve(
+          client.rpc("get_usage_team", { p_days: teamDays, p_tz: tz }),
+        ).catch(() => null),
+        Promise.resolve(
+          client.rpc("get_usage_paid_for_me", { p_days: teamDays, p_tz: tz }),
+        ).catch(() => null),
+      ]);
+      let value: UsageCredits = credits.error
         ? { state: "unavailable" }
-        : parseUsageCredits(data);
+        : parseUsageCredits(credits.data);
+      if (value.state === "ok") {
+        const t =
+          team && !team.error ? parseUsageTeam(team.data, now) : undefined;
+        const p =
+          paid && !paid.error ? parsePaidForMe(paid.data, now) : undefined;
+        value = {
+          ...value,
+          ...(t ? { team: t } : {}),
+          ...(p ? { paidForMe: p } : {}),
+        };
+      }
       cached = { at: Date.now(), days, value };
       return value;
     } catch {

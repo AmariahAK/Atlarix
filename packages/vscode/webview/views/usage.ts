@@ -7,7 +7,7 @@
  */
 import type { UsageCredits } from "@/lib/stats/usage-types";
 import type { UsageReport } from "@/lib/stats/usage-types";
-import { creditSeries } from "@/lib/stats/usage-format";
+import { creditSeries, creditsTeamSections } from "@/lib/stats/usage-format";
 import { post, rpc } from "../rpc";
 import { el, eyebrow, money, pageHeader, button, tokens } from "../ui";
 import type { Nav } from "./nav";
@@ -424,18 +424,32 @@ function creditsTab(body: HTMLElement, c: UsageCredits): void {
       d.unsplitCents,
     0,
   );
-  if (spent === 0)
-    return void body.append(
-      el("div", "muted pad", "No Atlarix credit used yet."),
+  if (spent === 0) {
+    body.append(el("div", "muted pad", "No Atlarix credit used yet."));
+  } else {
+    const { series, byDay } = creditSeries(recent);
+    body.append(
+      eyebrow("SPENT · LAST 30 DAYS"),
+      columns(
+        byDay,
+        (d) =>
+          `${shortDay(d.day)}: ${money(d.values.reduce((a, b) => a + b, 0))}`,
+      ),
+      legend(series.map((x) => x.label)),
     );
-  const { series, byDay } = creditSeries(recent);
-  body.append(
-    eyebrow("SPENT · LAST 30 DAYS"),
-    columns(
-      byDay,
-      (d) =>
-        `${shortDay(d.day)}: ${money(d.values.reduce((a, b) => a + b, 0))}`,
-    ),
-    legend(series.map((x) => x.label)),
-  );
+  }
+  // Workspace pays (Slack): who and which channels you pay for, and what was paid for you.
+  for (const sec of creditsTeamSections(c)) {
+    const box = el("div", "act-sec");
+    box.append(el("strong", "small", sec.title));
+    for (const r of sec.rows) {
+      const line = el("div", "row between small");
+      line.append(
+        el("span", "act-sec__label", r.label),
+        el("span", "muted mono", r.value),
+      );
+      box.append(line);
+    }
+    body.append(box);
+  }
 }
