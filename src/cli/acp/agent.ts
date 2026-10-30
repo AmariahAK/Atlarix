@@ -1377,9 +1377,15 @@ export class AcpAgent {
     this.reportSessionOpened(t.id, "new");
     t.editorMcpServers = sessionMcpServersFrom(mcpServers);
     await this.deps.setSessionMcpServers?.(t.id, t.editorMcpServers);
-    // After the response, so the editor knows the session the list belongs to.
+    // The command list goes out AFTER the response, so the editor knows the
+    // session it belongs to. Everything async is finished before the timer is
+    // armed: an `await` after `setTimeout` let the timer fire first, and Zed
+    // and the VS Code panel dropped the list for a session they did not know
+    // yet (QA 2, 2026-10-31: a new Zed thread had no commands at all).
+    const configOptions = await this.configOptions(t);
+    const response: NewSessionResponse = { sessionId: t.id, configOptions, modes: this.modes(t) };
     setTimeout(() => void t.refreshCommands(), 0);
-    return { sessionId: t.id, configOptions: await this.configOptions(t), modes: this.modes(t) };
+    return response;
   }
 
   async loadSession(
@@ -1399,16 +1405,19 @@ export class AcpAgent {
     await t.replay();
     await t.resendPlan();
     t.sendUsage();
-    setTimeout(() => {
-      void t.refreshCommands();
-      t.resendWorking();
-    }, 0);
-    return {
-      configOptions: await this.configOptions(t),
+    // Same order as newSession: nothing awaits after the timer is armed.
+    const configOptions = await this.configOptions(t);
+    const response = {
+      configOptions,
       modes: this.modes(t),
       // Where it came from, for the panel's crumb.
       ...(this.atlarixClient && t.parent ? { _meta: { atlarix: { parent: t.parent } } } : {}),
     };
+    setTimeout(() => {
+      void t.refreshCommands();
+      t.resendWorking();
+    }, 0);
+    return response;
   }
 
   /**
