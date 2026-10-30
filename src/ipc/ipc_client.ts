@@ -4316,8 +4316,13 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mods:render-pane", { plugin, id, workspacePath });
   }
 
-  public async modAction(plugin: string, action: string, workspacePath: string | null): Promise<void> {
-    return this.ipcRenderer.invoke("mods:action", { plugin, action, workspacePath });
+  public async modAction(
+    plugin: string,
+    action: string,
+    workspacePath: string | null,
+    paneId?: string,
+  ): Promise<void> {
+    return this.ipcRenderer.invoke("mods:action", { plugin, action, workspacePath, paneId });
   }
 
   public async openModPanes(): Promise<Array<{ plugin: string; id: string; title: string }>> {

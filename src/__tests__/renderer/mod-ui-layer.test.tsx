@@ -47,11 +47,25 @@ describe("ModUiLayer", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Add" }));
     });
-    expect(ipc.modAction).toHaveBeenCalledWith("counter", "add", null);
+    expect(ipc.modAction).toHaveBeenCalledWith("counter", "add", null, "main");
     expect(await screen.findByText("count 1")).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Close Counter" }));
     });
     expect(screen.queryByText("count 1")).toBeNull();
+  });
+
+  it("draws an open pane again when the mod asks for a redraw (A9)", async () => {
+    renderWithProviders(<ModUiLayer />);
+    await act(async () => {
+      emit({ kind: "open", plugin: "counter", id: "main", title: "Counter" });
+    });
+    const shown = await screen.findByText(/^count \d+$/);
+    const n = Number(shown.textContent!.split(" ")[1]);
+    await ipc.modAction("counter", "add", null);
+    await act(async () => {
+      emit({ kind: "redraw", plugin: "counter" });
+    });
+    expect(await screen.findByText(`count ${n + 1}`)).toBeTruthy();
   });
 });

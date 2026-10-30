@@ -460,9 +460,18 @@ function openModPane(
     onChoose: async (item) => {
       if (!item.id.startsWith("action:")) return;
       const { modsUiAction } = await import("@/lib/plugins/mod-host");
-      await modsUiAction(modCtx, plugin, item.id.slice("action:".length));
+      await modsUiAction(modCtx, plugin, item.id.slice("action:".length), id);
       await pane.reload();
     },
+  });
+  // Drawn again whenever the mod handles something while this is open (A9).
+  void import("@/lib/plugins/mod-host").then(({ modUiEvents }) => {
+    const onUi = (e: import("@/lib/plugins/mod-host").ModUiEvent) => {
+      if (e.kind === "redraw" && e.plugin === plugin && ctx.host.has(pane))
+        void pane.reload();
+    };
+    modUiEvents.on("ui", onUi);
+    pane.onClose = () => modUiEvents.off("ui", onUi);
   });
   ctx.host.push(pane);
 }

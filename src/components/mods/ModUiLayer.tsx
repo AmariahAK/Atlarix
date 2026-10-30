@@ -139,6 +139,14 @@ export function ModUiLayer() {
                 ],
           );
           return void draw(e.plugin, e.id);
+        case "redraw":
+          // The mod handled something: what its panes show may have changed.
+          setPanes((ps) => {
+            for (const p of ps)
+              if (p.plugin === e.plugin) void draw(p.plugin, p.id);
+            return ps;
+          });
+          return;
         case "close":
           return setPanes((ps) =>
             ps.filter((p) => key(p.plugin, p.id) !== key(e.plugin, e.id)),
@@ -189,7 +197,7 @@ export function ModUiLayer() {
               node={p.tree}
               onAction={(action) =>
                 void ipc
-                  .modAction(p.plugin, action, workspacePath)
+                  .modAction(p.plugin, action, workspacePath, p.id)
                   .then(() => draw(p.plugin, p.id))
               }
             />

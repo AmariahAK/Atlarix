@@ -103,7 +103,9 @@ export type ModUiEvent =
   | { kind: "open"; plugin: string; id: string; title: string }
   | { kind: "close"; plugin: string; id: string }
   | { kind: "commands"; plugin: string }
-  | { kind: "off"; plugin: string; reason: string };
+  | { kind: "off"; plugin: string; reason: string }
+  /** The mod handled an event while it has panes open: draw them again. */
+  | { kind: "redraw"; plugin: string };
 
 export const modUiEvents = new EventEmitter();
 
@@ -125,7 +127,12 @@ interface ModInstance {
   runtime: QuickJSRuntime;
   vm: QuickJSContext;
   commands: ModCommand[];
-  panes: Map<string, string>;
+  /**
+   * Open panes: title, and the chat session that opened them. A pane draws and
+   * acts in THAT session, so `$.state` reads what its command wrote (QA 1 A9:
+   * the app drew with no session and always showed the empty state).
+   */
+  panes: Map<string, { title: string; sessionId?: string }>;
   /** The context of the call in progress, for `fs.read` and `state`. */
   ctx: ModContext;
 }
@@ -396,7 +403,7 @@ function hostOp(inst: ModInstance, op: string, rawArgs: string): HostResult {
       const id = str(args.id, 64);
       if (!id) return { error: "ui.open needs an id" };
       const title = str(args.title ?? id, 80);
-      inst.panes.set(id, title);
+      inst.panes.set(id, { title, sessionId: inst.ctx.sessionId });
       emitUi({ kind: "open", plugin, id, title });
       return {};
     }
@@ -541,6 +548,11 @@ async function dispatch(
         return s;
       });
       out.push({ plugin: p.contents.name, answer: JSON.parse(json) });
+      // Anything it handled may have changed what its panes show. Never for a
+      // render itself, which would draw again for ever.
+      if (event !== "ui.render" && inst.panes.size > 0) {
+        emitUi({ kind: "redraw", plugin: p.contents.name });
+      }
     } catch (err) {
       if (err instanceof ModLimitError)
         turnOff(
@@ -671,18 +683,31 @@ export async function modsRenderPane(
   const [r] = await dispatch(
     "ui.render",
     { component: "Pane", requestId: id },
-    ctx,
+    paneContext(ctx, plugin, id),
     plugin,
   );
   return validTree(r?.answer);
 }
 
+/** A button in pane `paneId`: handled in the session that opened the pane. */
 export async function modsUiAction(
   ctx: ModContext,
   plugin: string,
   action: string,
+  paneId?: string,
 ): Promise<void> {
-  await dispatch("ui.action", { action: action.slice(0, 200) }, ctx, plugin);
+  await dispatch(
+    "ui.action",
+    { action: action.slice(0, 200) },
+    paneId ? paneContext(ctx, plugin, paneId) : ctx,
+    plugin,
+  );
+}
+
+/** The caller's folder, with the session the pane was opened in. */
+function paneContext(ctx: ModContext, plugin: string, id: string): ModContext {
+  const sessionId = instances.get(plugin)?.panes.get(id)?.sessionId;
+  return sessionId === undefined ? ctx : { ...ctx, sessionId };
 }
 
 const NODE_TYPES = new Set(["Box", "Text", "Button", "List"]);
@@ -725,7 +750,11 @@ export function openModPanes(): Array<{
   title: string;
 }> {
   return [...instances.values()].flatMap((i) =>
-    [...i.panes].map(([id, title]) => ({ plugin: i.plugin, id, title })),
+    [...i.panes].map(([id, pane]) => ({
+      plugin: i.plugin,
+      id,
+      title: pane.title,
+    })),
   );
 }
 

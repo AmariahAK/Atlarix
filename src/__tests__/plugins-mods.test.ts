@@ -23,6 +23,7 @@ import {
   modsPromptSubmit,
   modsRenderPane,
   modsRunCommand,
+  modsUiAction,
   modsToolCall,
   modUiEvents,
   validTree,
@@ -246,6 +247,40 @@ describe("mods", () => {
       type: "Box",
       props: {},
       children: [{ type: "Text", props: { text: "hello" } }],
+    });
+  });
+
+  it("draw a pane in the session that opened it, and ask for a redraw after each event (A9)", async () => {
+    await installMod(
+      `export function register(on, $) {
+        $.command.register({ name: "count" });
+        on("command.run", () => {
+          $.state.set("n", ($.state.get("n") || 0) + 1);
+          $.ui.open({ id: "c", title: "Counter" });
+          return { text: "ok" };
+        });
+        on("ui.render", () => ({ type: "Text", props: { text: "Count: " + ($.state.get("n") || 0) } }));
+        on("ui.action", () => { $.state.set("n", 0); });
+      }`,
+      ["command", "ui", "state"],
+    );
+    await modsRunCommand({ workspacePath: ws, sessionId: "chat-1" }, "/count");
+    await modsRunCommand({ workspacePath: ws, sessionId: "chat-1" }, "/count");
+    // The app asks with no session; the pane still reads chat-1's state.
+    expect(await modsRenderPane({ workspacePath: ws }, "m", "c")).toEqual({
+      type: "Text",
+      props: { text: "Count: 2" },
+    });
+    expect(ui.filter((e) => e.kind === "redraw")).toHaveLength(2);
+
+    const before = ui.length;
+    await modsRenderPane({ workspacePath: ws }, "m", "c");
+    expect(ui.slice(before).some((e) => e.kind === "redraw")).toBe(false);
+
+    await modsUiAction({ workspacePath: ws }, "m", "reset", "c");
+    expect(await modsRenderPane({ workspacePath: ws }, "m", "c")).toEqual({
+      type: "Text",
+      props: { text: "Count: 0" },
     });
   });
 

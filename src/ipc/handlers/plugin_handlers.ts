@@ -175,8 +175,13 @@ export function registerPluginHandlers(): void {
     "mods:action",
     async (
       _e: IpcMainInvokeEvent,
-      { plugin, action, workspacePath }: { plugin: string; action: string; workspacePath?: string | null },
-    ) => modsUiAction({ workspacePath: workspacePath ?? null }, plugin, action),
+      {
+        plugin,
+        action,
+        workspacePath,
+        paneId,
+      }: { plugin: string; action: string; workspacePath?: string | null; paneId?: string },
+    ) => modsUiAction({ workspacePath: workspacePath ?? null }, plugin, action, paneId),
   );
 
   handle("mods:open-panes", async () => openModPanes());
