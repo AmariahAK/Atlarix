@@ -27,7 +27,7 @@ const { ipc } = vi.hoisted(() => {
         onUpdateDownloaded: on(subs.downloaded),
         onUpdateStatus: on(subs.status),
         onUpdateAvailable: () => () => {},
-        getUpdateStatus: vi.fn(async () => ({ currentVersion: "15.11.0", lastCheckAt: null, lastResult: "idle" })),
+        getUpdateStatus: vi.fn(async () => ({ currentVersion: "15.11.0", lastCheckAt: null as number | null, lastResult: "idle" })),
         installUpdateNow: () => {},
         deferUpdate: async () => {},
         openExternalUrl: async () => {},
