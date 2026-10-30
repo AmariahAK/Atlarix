@@ -40,6 +40,7 @@ import {
   Sparkles,
   GitCommitHorizontal,
   Shield,
+  Puzzle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollableTabNav } from "@/components/ScrollableTabNav";
@@ -62,6 +63,12 @@ const SECTIONS = [
     label: "Skills",
     icon: Sparkles,
     hint: "Agent behaviors, per project",
+  },
+  {
+    to: "/integrations/silks",
+    label: "Silks",
+    icon: Puzzle,
+    hint: "Skills, agents, commands, edicts and MCP servers you add",
   },
   {
     to: "/integrations/co-author",

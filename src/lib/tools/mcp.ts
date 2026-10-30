@@ -19,6 +19,7 @@
  * the old sentence would look for a preload that does not exist on either side.
  */
 
+import { isPluginMcpTag } from "@/lib/plugins/mcp-sync";
 import log from "electron-log";
 import { ToolRegistry } from "./registry";
 import {
@@ -186,6 +187,13 @@ async function listConfiguredMcps(
    * Returning early says the same thing on purpose, and saves a DB round trip.
    */
   if (workspaceId == null) return [];
+
+  // Installed plugins' servers become this folder's rows (switched off until the
+  // person turns one on) before the list is read.
+  {
+    const { syncPluginMcpServersForApp } = await import("@/lib/plugins/mcp-sync");
+    await syncPluginMcpServersForApp(workspaceId);
+  }
 
   /**
    * EVERY configured server, enabled or not.
@@ -462,6 +470,13 @@ ToolRegistry.register({
     // Per-workspace only — see listConfiguredMcps. Without a workspace there is
     // no LOCAL server to find, but an account connector is not per-workspace, so
     // this can no longer return early without looking.
+    // A plugin's server exists only while its plugin verifies and is on for
+    // this folder: sync first, so a removed or changed plugin's row is gone
+    // before it can be started.
+    if (args.workspaceId != null && !fromEditor) {
+      const { syncPluginMcpServersForApp } = await import("@/lib/plugins/mcp-sync");
+      await syncPluginMcpServersForApp(args.workspaceId);
+    }
     if (args.workspaceId == null && !fromEditor) {
       const viaAccount = await runAccountConnector();
       if (viaAccount) return viaAccount;
@@ -516,6 +531,17 @@ ToolRegistry.register({
      * before anything is switched on, and a run with nobody to ask (an
      * unattended automation) refuses instead of activating.
      */
+    // A plugin's server never switches itself on here: the person turns it on
+    // (plugins/mcp-sync.ts). Activating it would spawn the plugin's command
+    // before any consent card.
+    if (
+      !server.enabled &&
+      isPluginMcpTag((server as { registryId?: string | null }).registryId)
+    ) {
+      return {
+        error: `MCP server "${args.server}" comes from a silk and is off. Ask the user to turn it on in /mcp or Settings → MCP servers.`,
+      };
+    }
     const ctx = args._mcpInvocationContext;
     let consented = false;
     if (!server.enabled) {

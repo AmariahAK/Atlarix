@@ -152,6 +152,23 @@ const validInvokeChannels = [
   "respond-mode-change",
   "restart-atlarix",
   "portal:migrate-create",
+  // Plugins (plugin_handlers.ts)
+  "plugins:list",
+  "plugins:commands",
+  "plugins:problems",
+  "plugins:prepare",
+  "plugins:prepare-update",
+  "plugins:commit",
+  "plugins:discard",
+  "plugins:remove",
+  "plugins:set-enabled",
+  "plugins:set-folders",
+  "plugins:set-model",
+  "plugins:review",
+  "plugins:approve",
+  "mods:render-pane",
+  "mods:action",
+  "mods:open-panes",
   // MCP
   "mcp:list-servers",
   "mcp:list-orphaned-servers",
@@ -343,6 +360,7 @@ const validReceiveChannels = [
   "models-dev:status",
   "mcp:suggestion", // main → every surface: an MCP suggestion card was added or answered
   "mcp:servers-changed", // main → renderer: the agent turned a server on or off
+  "mods:ui", // main → renderer: a mod's status, toast, pane or commands changed
   "core-models:changed",
   "whats-new:changed",
   "window:fullscreen-changed",

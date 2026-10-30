@@ -19,6 +19,7 @@
  * prompts …) is a dialog on one stack (dialogs.ts, screens.ts): while one is
  * open it owns the keyboard, and esc closes it.
  */
+import { augmentsChanged, openMods, openPlugins } from "./plugins";
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
@@ -44,7 +45,7 @@ import { Approval, approvalChoices, approvalKey } from "./Approval";
 import { decodePasteBytes, type PasteEvent } from "@opentui/core";
 import { AUTO_CONSENT_MARKER, FREE_LIMIT_MARKER, formatResetsIn } from "@/shared/billing_copy";
 import { freeAutoResetsAt } from "@/lib/billing/free-auto-gate";
-import { COMMANDS, matchCommands, parseCommandLine } from "./commands";
+import { COMMANDS, matchCommands, parseCommandLine, type SlashCommand } from "./commands";
 import { DialogHost, InputDialog, ListDialog, type Line, type ListItem } from "./dialogs";
 import { DialogOverlay, DialogPanel } from "./Dialog";
 import { Toast, type ToastState, type ToastVariant } from "./Toast";
@@ -958,6 +959,37 @@ export function App({
   // The background update: a toast while it installs, then a notice that
   // stays above the prompt box ("Update installed · restart to use v14.53.0").
   const [updateNotice, setUpdateNotice] = useState<string | null>(null);
+  // Mods' status line and toasts (lib/plugins/mod-host.ts): the CLI runs the
+  // same main-side code in-process, so it listens to the events directly.
+  const [modStatus, setModStatus] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let off = () => {};
+    void import("@/lib/plugins/mod-host").then(({ modUiEvents }) => {
+      const on = (e: import("@/lib/plugins/mod-host").ModUiEvent) => {
+        if (e.kind === "status") {
+          setModStatus((st) => {
+            const next = { ...st };
+            if (e.text) next[e.plugin] = e.text;
+            else delete next[e.plugin];
+            return next;
+          });
+        } else if (e.kind === "toast") flash(`${e.plugin}: ${e.text}`, 5000);
+        else if (e.kind === "open") flash(`${e.plugin}: ${e.title} · /mods to see it`, 6000);
+        else if (e.kind === "off") {
+          setModStatus((st) => {
+            const next = { ...st };
+            delete next[e.plugin];
+            return next;
+          });
+          flash(`${e.plugin}'s mod is off: ${e.reason}`, 8000, "warn");
+        }
+      };
+      modUiEvents.on("ui", on);
+      off = () => modUiEvents.off("ui", on);
+    });
+    return () => off();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     autoUpdate?.((e) => {
       if (e.kind === "installing") flash(`Updating to v${e.version}…`, 30_000);
@@ -969,10 +1001,53 @@ export function App({
     });
   }, []);
 
+  // Installed plugins' commands: listed in the palette, sent as a message
+  // (chat:stream expands them). Re-read each time the palette opens.
+  const [pluginCommands, setPluginCommands] = useState<SlashCommand[]>([]);
+  const paletteOpening = draft === "/";
+  useEffect(() => {
+    if (!paletteOpening && pluginCommands.length) return;
+    svc()
+      .plugins.commands(session.workspaceDir)
+      .then((list) =>
+        setPluginCommands(
+          list.map((c) => ({
+            name: `/${c.name}`,
+            description: `${c.description}${c.argumentHint ? ` ${c.argumentHint}` : ""} · ${c.plugin}`,
+            group: "plugin" as const,
+          })),
+        ),
+      )
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paletteOpening]);
+  useEffect(() => {
+    const reload = () =>
+      void svc()
+        .plugins.commands(session.workspaceDir)
+        .then((list) =>
+          setPluginCommands(
+            list.map((c) => ({
+              name: `/${c.name}`,
+              description: `${c.description}${c.argumentHint ? ` ${c.argumentHint}` : ""} · ${c.plugin}`,
+              group: "plugin" as const,
+            })),
+          ),
+        )
+        .catch(() => {});
+    augmentsChanged.on("change", reload);
+    return () => {
+      augmentsChanged.off("change", reload);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const isPluginCommand = (name: string) =>
+    pluginCommands.some((c) => c.name === name) && !COMMANDS.some((c) => c.name === name);
+
   const approval = state.approvals[0] ?? null;
   const palette = useMemo(
-    () => (!approval && draft.startsWith("/") && !draft.includes("\n") ? matchCommands(draft) : []),
-    [draft, approval],
+    () => (!approval && draft.startsWith("/") && !draft.includes("\n") ? matchCommands(draft, pluginCommands) : []),
+    [draft, approval, pluginCommands],
   );
 
   /**
@@ -1394,6 +1469,12 @@ export function App({
         return openAutomations(ctx);
       case "/mcp":
         return openMcp(ctx);
+      case "/silks":
+      case "/augments":
+      case "/plugins":
+        return openPlugins(ctx);
+      case "/mods":
+        return openMods(ctx);
       case "/computer":
         return void openComputer(rest);
       case "/permissions":
@@ -1581,6 +1662,18 @@ export function App({
       if ((key.name === "tab" && !key.shift) || key.name === "return") {
         const typed = parseCommandLine(composer.current?.text() ?? "");
         const chosen = palette[Math.min(paletteIndex, palette.length - 1)]!.name;
+        if (isPluginCommand(chosen)) {
+          // An augment's command is a message. Typed in full, Enter sends it as
+          // one (the composer submits; A1: Enter only ever refilled "/count ",
+          // which still matched, so a command with no text could never run).
+          // Otherwise tab or enter fills it in for its text.
+          const typedNow = (composer.current?.text() ?? "").trim();
+          if (key.name === "return" && typedNow === chosen) return;
+          composer.current?.setText(`${chosen} `);
+          setPaletteIndex(0);
+          key.preventDefault();
+          return;
+        }
         runCommand(chosen, typed?.name === chosen ? typed.rest : "");
         setPaletteIndex(0);
         key.preventDefault();
@@ -1771,7 +1864,7 @@ export function App({
     // message (it answered "/commands" with a page of guesses). "/" alone, or
     // "/commands", opens the list.
     const slash = /^\/(\S*)\s*$/.exec(s.display.trim());
-    if (slash && !s.display.trim().includes("/", 1)) {
+    if (slash && !s.display.trim().includes("/", 1) && !isPluginCommand(`/${slash[1]}`)) {
       composer.current?.clear();
       if (!slash[1] || slash[1] === "commands") {
         composer.current?.setText("/");
@@ -1925,6 +2018,11 @@ export function App({
       {working ? (
         <box flexDirection="column" flexShrink={0}>
           <WorkingLine activity={activity!} since={state.turnStartedAt} tokens={state.tokensThisTurn} cells={state.cells} />
+        </box>
+      ) : null}
+      {Object.keys(modStatus).length ? (
+        <box flexDirection="row" justifyContent="flex-end" flexShrink={0}>
+          <text fg={color.textDim}>{Object.values(modStatus).join(" · ")}</text>
         </box>
       ) : null}
       {updateNotice ? (

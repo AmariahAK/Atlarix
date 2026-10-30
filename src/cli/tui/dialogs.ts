@@ -97,6 +97,12 @@ export interface Dialog {
   key(k: KeyLike): boolean;
   /** Called by the host when anything inside changed. */
   onChange?: () => void;
+  /**
+   * Called once when the dialog leaves the stack, however it goes: esc, pop,
+   * replace or closeAll. For an owner that holds something until a choice is
+   * made (a staged install), so closing without choosing still lets it go.
+   */
+  onClose?: () => void;
 }
 
 /** A printable character from a key event, or "" (opentui reports some as names). */
@@ -132,18 +138,20 @@ export class DialogHost extends EventEmitter {
 
   /** Close the top dialog (esc). */
   pop(): void {
-    this.stack.pop();
+    this.stack.pop()?.onClose?.();
     this.emit("change");
   }
 
   /** Swap the top dialog for another (a step in a form). */
   replace(d: Dialog): void {
-    this.stack.pop();
+    this.stack.pop()?.onClose?.();
     this.push(d);
   }
 
   closeAll(): void {
+    const closed = this.stack.reverse();
     this.stack = [];
+    for (const d of closed) d.onClose?.();
     this.emit("change");
   }
 
@@ -217,6 +225,7 @@ export function matchesQuery(item: ListItem, query: string): boolean {
 
 export class ListDialog implements Dialog {
   onChange?: () => void;
+  onClose?: () => void;
   private items: ListItem[] | null = null;
   private index = 0;
   private query: string | null;
@@ -449,6 +458,7 @@ export class ListDialog implements Dialog {
 
 export class TextDialog implements Dialog {
   onChange?: () => void;
+  onClose?: () => void;
   private scroll = 0;
   private lines: Line[];
   private notice: Line | null = null;
@@ -543,6 +553,7 @@ export class TextDialog implements Dialog {
 
 export class InputDialog implements Dialog {
   onChange?: () => void;
+  onClose?: () => void;
   private value: string;
   private notice: Line | null = null;
 

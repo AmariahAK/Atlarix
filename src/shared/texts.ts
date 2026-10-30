@@ -26,7 +26,8 @@ export const BYOK_KEY_MARKER = "rejected your API key";
 
 const CREDIT_RE =
   /insufficient[_ ]?(quota|balance|credits?|funds)|credit balance is too low|exceeded your current quota|out of credits?|payment required|billing (hard )?limit|\b402\b|quota[_ ]exceeded|no credits/i;
-const RATE_RE = /rate[_ -]?limit|too many requests|\b429\b|overloaded|resource[_ ]exhausted/i;
+const RATE_RE =
+  /rate[_ -]?limit|too many requests|\b429\b|overloaded|resource[_ ]exhausted/i;
 const KEY_RE =
   /invalid[_ ]?(api[_ ]?)?key|incorrect api key|api key not valid|unauthori[sz]ed|authentication[_ ]?(error|failed)|\b401\b|permission[_ ]denied/i;
 
@@ -37,7 +38,10 @@ function providerSaid(reason: string): string {
     .replace(/\s+/g, " ")
     // A masked key ("sk-proj-****…****UcIA") is a wall of asterisks that overflows
     // the card; its two ends say which key it was (QA #32).
-    .replace(/(\S{0,12}?)\*{4,}(\S{0,8})/g, (_m, head: string, tail: string) => `${head}…${tail}`)
+    .replace(
+      /(\S{0,12}?)\*{4,}(\S{0,8})/g,
+      (_m, head: string, tail: string) => `${head}…${tail}`,
+    )
     .trim();
   if (text.length <= 200) return text;
   // Cut at a sentence, else a word, never mid-word ("…UcIA. You ca").
@@ -49,8 +53,13 @@ function providerSaid(reason: string): string {
 }
 
 /** A BYOK failure worded by what happened, or null when it is none of these. */
-export function byokLimitUserMessage(reason: string, providerId?: string): string | null {
-  const who = providerId ? `Your ${providerId} account` : "Your provider account";
+export function byokLimitUserMessage(
+  reason: string,
+  providerId?: string,
+): string | null {
+  const who = providerId
+    ? `Your ${providerId} account`
+    : "Your provider account";
   const said = providerSaid(reason);
   // Credit before rate: a quota error often arrives as a 429.
   if (CREDIT_RE.test(reason)) {
@@ -64,6 +73,30 @@ export function byokLimitUserMessage(reason: string, providerId?: string): strin
   }
   return null;
 }
+
+/**
+ * A turn Atlarix itself declined, with a message that already says what to do
+ * ("/summarize comes from acme-demo-silk, which is off. Turn it on in /silks.").
+ * Shown as it is: wrapped as "This model failed … Try again, or switch model"
+ * it gave the wrong advice (QA 1 A8), since no model was asked.
+ */
+export class UserFacingRefusal extends Error {
+  override name = "UserFacingRefusal";
+  /** Which rule refused: the turn ends as a "rule" gate with this as its errorKind. */
+  constructor(
+    message: string,
+    readonly rule: RefusalRule,
+  ) {
+    super(message);
+  }
+}
+
+/** A silk off, scoped away from this folder, or broken (incl. its mod); an edict's stop. */
+export type RefusalRule =
+  | "silk_off"
+  | "silk_scope"
+  | "silk_broken"
+  | "edict_stop";
 
 /** A Core pick a newer Atlarix wrote into the shared settings (compass_constants). */
 export const CORE_TIER_NEWER_BUILD =
@@ -79,14 +112,23 @@ export const CORE_TIER_NEWER_BUILD =
 export function modelFailureUserMessage(reason: string): string {
   // Already says what to do, and trying again can't help.
   if (reason.includes(CORE_TIER_NEWER_BUILD)) return CORE_TIER_NEWER_BUILD;
-  const said = providerSaid(reason.replace(/\bDetails:\s*/g, "")) || "the request failed";
-  if (/model ['"`]?[^'"`\s]+['"`]? not found|model_not_found|no such model|unknown model/i.test(reason)) {
+  const said =
+    providerSaid(reason.replace(/\bDetails:\s*/g, "")) || "the request failed";
+  if (
+    /model ['"`]?[^'"`\s]+['"`]? not found|model_not_found|no such model|unknown model/i.test(
+      reason,
+    )
+  ) {
     return `The provider doesn't have that model. Check the model's id, or switch model. (It said: "${said}")`;
   }
   if (/\b404\b|not found/i.test(reason)) {
     return `The provider's address answered "not found". Check its base URL (most end in /v1), or switch model. (It said: "${said}")`;
   }
-  if (/cannot connect|unable to connect|econnrefused|fetch failed|connection refused|enotfound/i.test(reason)) {
+  if (
+    /cannot connect|unable to connect|econnrefused|fetch failed|connection refused|enotfound/i.test(
+      reason,
+    )
+  ) {
     return `Couldn't reach the provider. Is its server running, and is the address right? Or switch model. (It said: "${said}")`;
   }
   return `This model failed: "${said}". Try again, or switch model.`;

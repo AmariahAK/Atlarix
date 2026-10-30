@@ -26,7 +26,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { wrapCommandInSandbox } from "@/lib/sandbox/wrap-command";
-import { readOnlyDenyPaths } from "@/lib/sandbox/deny-paths";
+import { pluginControlDenyPaths, readOnlyDenyPaths } from "@/lib/sandbox/deny-paths";
 
 const isMac = process.platform === "darwin";
 
@@ -81,17 +81,19 @@ describe.runIf(isMac)(
       expect(denyIdx).toBeGreaterThan(allowIdx);
     });
 
-    it("the workspace-write profile has no deny block and says so", () => {
+    it("the workspace-write profile denies only the plugin-control paths, and says source protection is off", () => {
       const w = wrapCommandInSandbox({ ...base });
       expect(w.denyEnforced).toBe(false);
-      // Only the blanket `(deny file-write*)` that the allow block then carves
-      // back out — no second, trailing deny naming specific paths.
+      // The trailing deny names the plugin folder, record and hooks.json — which
+      // decide what runs next — and none of the source-protection paths.
       const profile = w.args.join("\n");
-      expect(profile.indexOf("(deny file-write*")).toBeLessThan(
-        profile.indexOf("(allow file-write*"),
-      );
       for (const p of readOnlyDenyPaths(workspace)) {
         expect(profile).not.toContain(p);
+      }
+      const trailing = profile.slice(profile.lastIndexOf("(deny file-write*"));
+      expect(trailing.indexOf("(deny file-write*")).toBe(0);
+      for (const p of pluginControlDenyPaths()) {
+        expect(trailing).toContain(JSON.stringify(p));
       }
     });
 

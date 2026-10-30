@@ -8,6 +8,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { formatInstalledAgentsForPrompt } from "@/lib/agents/user-agents";
 import log from "electron-log";
 import type { WorkMode } from "@/lib/schemas";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
@@ -83,7 +84,10 @@ export async function loadSkillsIndexSection(
     const entries = await preflight.time("skills-index", () =>
       buildSkillIndex(hasWorkspace ? appPath : null, effectiveWorkMode),
     );
-    const block = formatSkillIndexForPrompt(entries);
+    const agentsBlock = formatInstalledAgentsForPrompt(hasWorkspace ? appPath : null);
+    const block = [formatSkillIndexForPrompt(entries), agentsBlock]
+      .filter((b) => b.trim())
+      .join("\n\n");
     if (!block.trim()) return null;
     logger.info(
       `[skills-index] ${entries.length} skill(s) indexed for mode "${effectiveWorkMode}" (${block.length} chars, bodies read on demand)`,

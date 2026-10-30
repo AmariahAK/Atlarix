@@ -88,7 +88,8 @@ describe("command lines", () => {
     expect(matchCommands("/export notes.md")).toEqual([]);
     // The exact name wins over a longer one it prefixes (/mode, not /model).
     expect(matchCommands("/mode")[0]!.name).toBe("/mode");
-    expect(matchCommands("/mod").map((c) => c.name)).toEqual(["/model", "/mode"]);
+    // /model still first: Enter on "/mod" runs it.
+    expect(matchCommands("/mod").map((c) => c.name)).toEqual(["/model", "/mode", "/mods"]);
   });
 
   it("/export's arguments", () => {

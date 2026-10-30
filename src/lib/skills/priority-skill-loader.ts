@@ -48,7 +48,7 @@ export interface PrioritySkill {
 // Inline YAML-frontmatter parser
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface ParsedFrontmatter {
+export interface ParsedFrontmatter {
   data: Record<string, unknown>;
   content: string;
 }
@@ -61,7 +61,7 @@ interface ParsedFrontmatter {
  *   - inline JSON arrays (`key: ["a", "b"]`)
  *   - block list arrays (`key:\n  - a\n  - b\n`)
  */
-function parseFrontmatter(raw: string): ParsedFrontmatter {
+export function parseFrontmatter(raw: string): ParsedFrontmatter {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!match) {
     return { data: {}, content: raw };

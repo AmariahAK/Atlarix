@@ -341,6 +341,13 @@ const config: ForgeConfig = {
       // matches autoUpdater.setFeedURL(...) in src/main.ts. Copied in before code
       // signing, so it's covered by the bundle signature.
       path.join(__dirname, "build/app-update.yml"),
+      // The QuickJS engine mods run in (src/lib/plugins/mod-host.ts reads it from
+      // process.resourcesPath). Its JS is bundled into main; this binary is not.
+      // Shipped under its own name: Resources/emscripten-module.wasm.
+      path.join(
+        __dirname,
+        "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm",
+      ),
       // models.dev catalog snapshot — the floor beneath the disk cache in
       // src/lib/models_dev.ts. On a first run with no network there is no cache
       // either, so without this the provider list and model picker come up EMPTY.

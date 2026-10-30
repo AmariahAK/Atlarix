@@ -1,4 +1,7 @@
+import fs from "node:fs";
 import path from "node:path";
+import { atlarixHomeDir } from "@/paths/atlarix-home";
+import { userAgentSkillsParentDir } from "@/lib/plugins/paths";
 
 /**
  * The paths a source-protected run must not write, even though the workspace
@@ -63,4 +66,33 @@ export function readOnlyDenyPaths(workspacePath: string): string[] {
   if (!workspacePath) return [];
   const root = path.resolve(workspacePath);
   return PROTECTED_RELATIVE.map((rel) => path.join(root, rel));
+}
+
+/**
+ * Denied on every sandboxed run, whatever the mode or a granted folder says: the
+ * WHOLE `<atlarixHomeDir>`. The plugins, the install record and `hooks.json` live
+ * there and decide what runs next; denying only those three left the folder
+ * itself renameable (`mv ~/.atlarix x`, write `x/hooks.json`, move it back) and,
+ * under bwrap, a missing `hooks.json` creatable. No sandboxed command has a reason
+ * to write there — the agent's memory is written by the file tools, not commands —
+ * and it only matters at all when the workspace or a grant contains it.
+ */
+export function pluginControlDenyPaths(): string[] {
+  const out: string[] = [];
+  // And `~/.agents/skills`: the person's installed skills (plugins/paths.ts).
+  for (const p of [
+    atlarixHomeDir(),
+    path.join(userAgentSkillsParentDir(), "skills"),
+  ]) {
+    out.push(p);
+    // Seatbelt matches the path a write RESOLVES to: when `~/.atlarix` is a link,
+    // deny its real location as well.
+    try {
+      const real = fs.realpathSync(p);
+      if (real !== p) out.push(real);
+    } catch {
+      // not created yet: the configured path is what a write would create
+    }
+  }
+  return out;
 }

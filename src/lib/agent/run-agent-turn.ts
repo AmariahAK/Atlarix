@@ -709,16 +709,23 @@ async function runAgentTurnInner(
         // Ask semantics: the model stopped producing tool work — turn over.
         break;
       }
-      // Build/debug: run the completion gates before ending. A red gate (a
-      // failed command or an unverified edit) nudges the model on — bounded, so
-      // a persistent failure can never loop forever.
-      // A `profile.taskCompleteGate` seam ran first here, supplied only by
-      // `.atlarix/hooks/` stop hooks. Hooks were removed in v14.26.0 and nothing
-      // else ever produced one, so the seam went with them rather than staying
-      // as an extension point with no extensions.
-      let gateFeedback: string | null = getMutationFailureFeedback(
-        rt.streamTurnId,
-      );
+      // Build/debug: run the completion gates before ending. A red gate (a stop
+      // hook, a failed command or an unverified edit) nudges the model on —
+      // bounded, so a persistent failure can never loop forever.
+      // Stop hooks were workspace files until v14.26.0 (deleted: a repo's file
+      // ran as shell); since 15.12 they come only from the person's hooks.json
+      // and installed plugins (lib/plugins/hooks.ts).
+      let gateFeedback: string | null = null;
+      if (profile.taskCompleteGate) {
+        try {
+          gateFeedback = await profile.taskCompleteGate();
+        } catch (gateErr) {
+          logger.warn(`${L} stop-hook gate failed to run: ${String(gateErr)}`);
+        }
+      }
+      if (gateFeedback == null) {
+        gateFeedback = getMutationFailureFeedback(rt.streamTurnId);
+      }
       if (gateFeedback == null) {
         gateFeedback = getUnverifiedEditFeedback(rt.streamTurnId);
       }
@@ -777,6 +784,12 @@ async function runAgentTurnInner(
         role: "user" as const,
         content: systemReminder(gateFeedback),
       });
+      // The reply goes on in the SAME message: end this round's text with a
+      // paragraph break, or every surface shows "All finished.Now it is done."
+      // (an editor over ACP most plainly — QA 2, a stop hook keeping a turn going).
+      if (fullResponse.trim() && !/\n\s*$/.test(fullResponse)) {
+        fullResponse += "\n\n";
+      }
       agenticIteration++;
       logger.log(
         `${L} ${usePlanGate ? "Plan not complete" : "Completion gate not satisfied"} — nudge ${gateStreak + 1} of ${gateCap} allowed; continuing`,

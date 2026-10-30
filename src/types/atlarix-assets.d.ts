@@ -10,6 +10,8 @@ declare module "atlarix:assets" {
     /** The MCP marketplace catalog (official MCP Registry) for offline first runs. */
     mcpRegistrySnapshot?: string;
     tiktokenWasm?: string;
+    /** The QuickJS engine mods run in (mod-host.ts). */
+    quickjsWasm?: string;
     rg?: string;
     /** The Chrome bridge relay, when built for this target. */
     relay?: string;

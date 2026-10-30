@@ -7,6 +7,7 @@
  * codes in the body). The body is matched for codes only and never leaves the
  * process.
  */
+import { UserFacingRefusal, type RefusalRule } from "@/shared/texts";
 import {
   ASK_USER_STREAM_STOP,
   FORCE_TEXT_FINISH_STREAM_STOP,
@@ -35,7 +36,13 @@ export type TurnOutcome = "ok" | "ask_user" | "stopped" | "aborted" | "error" | 
  * `gate` outcome, so the error-rate alert and the crash reports ignore them
  * (2026-10-26/27: two such days paged the owner at 33–38% "errors").
  */
-export type GateKind = "free_usage_limit" | "free_busy" | "consent_required" | "insufficient_credit";
+export type GateKind =
+  | "free_usage_limit"
+  | "free_busy"
+  | "consent_required"
+  | "insufficient_credit"
+  /** The person's own rule stopped the turn: a silk off/scoped away/broken, or an edict. */
+  | "rule";
 
 export type TurnErrorKind =
   | "auth"
@@ -52,6 +59,7 @@ export type TurnErrorKind =
   | "content_rejected"
   | "tool_loop"
   | "no_workspace"
+  | RefusalRule
   | "other";
 
 export interface TurnErrorClass {
@@ -155,6 +163,9 @@ export function classifyTurnEnd(error: unknown, signal: AbortSignal): TurnEnd {
     if (sentinel !== FORCE_TEXT_FINISH_STREAM_STOP || error !== undefined) return { outcome: "aborted" };
   }
   if (error === undefined) return { outcome: "ok" };
+  // Not the service's policy and not a failure: the person's own silks or
+  // edicts said no. One gate kind; the rule says which (2026-10-30, ai-dd).
+  if (error instanceof UserFacingRefusal) return { outcome: "gate", gateKind: "rule", errorKind: error.rule };
   const c = classifyTurnError(error);
   const status = c.httpStatus ? { httpStatus: c.httpStatus } : {};
   const gate = gateOf(c.kind, c.httpStatus, bodyOf(error));

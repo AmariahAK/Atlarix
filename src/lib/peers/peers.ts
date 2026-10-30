@@ -971,9 +971,13 @@ function dropTurnWatches(match: (w: TurnWatch) => boolean): TurnWatch[] {
   return dropped;
 }
 
+/** The person's silks or edicts stopped it (turn-end.ts "rule" gate). */
+const RULE_KINDS: ReadonlySet<string> = new Set(["silk_off", "silk_scope", "silk_broken", "edict_stop"]);
+
 /** How a turn ended, as `result_of` and the notice say it. */
 export function endedText(outcome: string, errorKind?: string): string {
   if (outcome === "error") return `failed${errorKind ? ` (${errorKind.replace(/_/g, " ")})` : ""}`;
+  if (outcome === "gate" && errorKind && RULE_KINDS.has(errorKind)) return "stopped by a rule";
   if (outcome === "gate") return "paused: the free share is used up, Auto is busy, or credit is needed";
   if (outcome === "stopped" || outcome === "aborted") return "stopped";
   if (outcome === "ask_user") return "waiting for the user's answer";

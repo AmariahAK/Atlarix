@@ -19,6 +19,22 @@ import { setAgentMemoryRootOverride } from "@/lib/agent-memory";
  * every file in the node project, so a future test cannot reintroduce the leak by
  * exercising a code path that writes a note. Individual suites may still override it.
  */
+/**
+ * Nor does `<atlarixHomeDir>`. The person's hooks.json and installed plugins live
+ * there (lib/plugins/paths.ts) and RUN at the tool funnel and turn start, so a
+ * test that drives a turn must never load the real ones — or write them. Tests
+ * that check the default itself delete this first (atlarix-home.test.ts).
+ */
+const VITEST_HOME_PREFIX = "atlarix-vitest-home-";
+// A worker runs many files: the previous file's folder (already removed) is
+// replaced, a home named by whoever started the run is kept.
+const inheritedHome = process.env.ATLARIX_HOME_DIR;
+if (!inheritedHome || path.basename(inheritedHome).startsWith(VITEST_HOME_PREFIX)) {
+  const vitestHome = fs.mkdtempSync(path.join(os.tmpdir(), VITEST_HOME_PREFIX));
+  process.env.ATLARIX_HOME_DIR = vitestHome;
+  afterAll(() => fs.rmSync(vitestHome, { recursive: true, force: true }));
+}
+
 const VITEST_MEMORY_PREFIX = "atlarix-vitest-memory-";
 const vitestMemoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), VITEST_MEMORY_PREFIX));
 setAgentMemoryRootOverride(vitestMemoryRoot);

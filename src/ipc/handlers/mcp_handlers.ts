@@ -1,4 +1,5 @@
 import { IpcMainInvokeEvent } from "electron";
+import { syncPluginMcpServersForApp } from "@/lib/plugins/mcp-sync";
 import { MCP_WORKSPACE_MAX } from "@/lib/workspace-caps";
 import log from "electron-log";
 import { db } from "../../db";
@@ -75,6 +76,7 @@ export function registerMcpHandlers() {
       filter?: { scope?: "workspace"; appId?: number },
     ) => {
       if (filter?.appId != null) {
+        await syncPluginMcpServersForApp(filter.appId);
         const rows = await db
           .select()
           .from(mcpServers)

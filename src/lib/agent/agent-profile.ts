@@ -101,4 +101,12 @@ export interface AgentProfile {
    * productive work. ask_user (a tool pause) and background-park are unaffected.
    */
   planCompletionGate?(): Promise<string | null>;
+
+  /**
+   * `stop` hooks — the person's hooks.json and installed plugins', never a
+   * workspace's (lib/plugins/hooks.ts). Runs FIRST when a build/debug turn would
+   * end; a non-null feedback string keeps the turn going (bounded by the red-gate
+   * cap) and is fed back to the model. Supplied only when such a hook exists.
+   */
+  taskCompleteGate?(): Promise<string | null>;
 }

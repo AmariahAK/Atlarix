@@ -3,6 +3,8 @@ import {
   type UserSettings,
   AppSearchResultsSchema,
 } from "../lib/schemas";
+import type { PluginListItem, PluginPreviewView } from "./handlers/plugin_handlers";
+import type { ModNode, ModUiEvent } from "@/lib/plugins/mod-host";
 import {
   applyLiveTextPatch,
   type LiveTextPatch,
@@ -2619,6 +2621,59 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-db-ready");
   }
 
+  // --- Plugins (plugin_handlers.ts) ---
+  public async listPlugins(): Promise<PluginListItem[]> {
+    return this.ipcRenderer.invoke("plugins:list");
+  }
+
+  public async pluginProblems(workspacePath: string | null): Promise<Array<{ name: string; message: string }>> {
+    return this.ipcRenderer.invoke("plugins:problems", { workspacePath });
+  }
+
+  public async preparePluginInstall(source: string): Promise<PluginPreviewView> {
+    return this.ipcRenderer.invoke("plugins:prepare", { source });
+  }
+
+  public async preparePluginUpdate(name: string): Promise<PluginPreviewView> {
+    return this.ipcRenderer.invoke("plugins:prepare-update", { name });
+  }
+
+  public async commitPluginInstall(params: {
+    stagingId: string;
+    runnablesConfirmed: boolean;
+    folders?: string[] | null;
+  }): Promise<{ name: string }> {
+    return this.ipcRenderer.invoke("plugins:commit", params);
+  }
+
+  public async discardPluginInstall(stagingId: string): Promise<void> {
+    return this.ipcRenderer.invoke("plugins:discard", { stagingId });
+  }
+
+  public async removePlugin(name: string): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:remove", { name });
+  }
+
+  public async setPluginEnabled(name: string, enabled: boolean): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:set-enabled", { name, enabled });
+  }
+
+  public async setPluginFolders(name: string, folders: string[] | null): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:set-folders", { name, folders });
+  }
+
+  public async setPluginModel(name: string, model: string | null): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:set-model", { name, model });
+  }
+
+  public async reviewPlugin(name: string): Promise<string[]> {
+    return this.ipcRenderer.invoke("plugins:review", { name });
+  }
+
+  public async approvePlugin(name: string, shown: string[]): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:approve", { name, shown });
+  }
+
   // --- MCP Client Methods ---
   public async listMcpServers(filter?: {
     scope?: "workspace";
@@ -4259,6 +4314,28 @@ export class IpcClient {
       listener(payload as { type: "added" | "resolved"; chatId: number; suggestion: McpSuggestionView }),
     );
     return typeof off === "function" ? off : () => {};
+  }
+
+  public onModUi(listener: (e: ModUiEvent) => void): () => void {
+    const off = this.ipcRenderer.on("mods:ui", (payload) => listener(payload as ModUiEvent));
+    return typeof off === "function" ? off : () => {};
+  }
+
+  public async renderModPane(plugin: string, id: string, workspacePath: string | null): Promise<ModNode | null> {
+    return this.ipcRenderer.invoke("mods:render-pane", { plugin, id, workspacePath });
+  }
+
+  public async modAction(
+    plugin: string,
+    action: string,
+    workspacePath: string | null,
+    paneId?: string,
+  ): Promise<void> {
+    return this.ipcRenderer.invoke("mods:action", { plugin, action, workspacePath, paneId });
+  }
+
+  public async openModPanes(): Promise<Array<{ plugin: string; id: string; title: string }>> {
+    return this.ipcRenderer.invoke("mods:open-panes");
   }
 
   public onMcpServersChanged(listener: () => void): () => void {
