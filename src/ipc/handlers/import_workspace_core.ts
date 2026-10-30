@@ -2,6 +2,7 @@
  * Shared workspace import logic for IPC and CLI open-folder.
  */
 
+import { uniqueWorkspaceName } from "./unique-workspace-name";
 import fs from "fs/promises";
 import { apps } from "@/db/schema";
 import { db } from "@/db";
@@ -55,11 +56,14 @@ export async function importWorkspaceFromPath({
     return { appId: existingByPath.id, chatId, sessionId };
   }
 
+  // A second folder with the same basename gets a name of its own instead of a
+  // refusal nobody could see (QA 2026-10-30: several "ws" folders in Recents).
   const existingByName = await db.query.apps.findFirst({
     where: eq(apps.name, appName),
   });
   if (existingByName) {
-    throw new Error("An app with this name already exists");
+    const taken = new Set((await db.query.apps.findMany()).map((a) => a.name));
+    appName = uniqueWorkspaceName(remote ? appName : sourcePath, taken);
   }
 
   // The plan cap applies to a genuinely NEW workspace, and only here.
