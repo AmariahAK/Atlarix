@@ -11,7 +11,6 @@
 import type { LanguageModel } from "../ipc_types";
 import {
   formatModelApiNameForDisplay,
-  formatModelWithProvider,
 } from "@/lib/format-openrouter-model-label";
 import { CORE_TIER_ROWS } from "../../shared/compass_product_copy";
 import {
@@ -131,12 +130,6 @@ export function isCoreRouterTier(internalTierId: string | undefined): boolean {
   return isCoreAutoTier(internalTierId) || isCoreZenithTier(internalTierId);
 }
 
-function compassProviderSlug(openRouterModelId: string): string {
-  // Core is direct, not OpenRouter: a vendor-less id is Atlarix's own.
-  if (!openRouterModelId.includes("/")) return "atlarix";
-  return openRouterModelId.split("/")[0]?.toLowerCase() || "atlarix";
-}
-
 /**
  * Build the four synthetic Core models for display/selection.
  *
@@ -189,10 +182,11 @@ export function getCompassSyntheticModels(): LanguageModel[] {
     // adding or dropping a Core model never needs a code change.
     if (!openRouterModelId) return [];
     const modelDisplayName = formatModelApiNameForDisplay(openRouterModelId);
-    const slug = compassProviderSlug(openRouterModelId);
     return {
       apiName: row.id,
-      displayName: formatModelWithProvider(modelDisplayName, slug),
+      // The model's name alone, as every other surface names it (QA C1): the
+      // vendor in brackets read as a second provider beside "Atlarix".
+      displayName: modelDisplayName,
       description: row.description,
       type: "cloud" as const,
       dollarSigns: 0,

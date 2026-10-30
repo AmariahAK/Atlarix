@@ -20,6 +20,9 @@ export function formatModelApiNameForDisplay(apiName: string): string {
     .replace(/-/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .replace(/Gpt/g, "GPT")
+    // The catalog's own spelling, so a Core row, a BYOK row and a reply label
+    // name one model the same way: "GPT-6.1 Terra", not "GPT 6.1 Terra" (QA C1).
+    .replace(/\bGPT (?=\d)/g, "GPT-")
     .replace(/Deepseek/g, "DeepSeek")
     .replace(/Claude/g, "Claude")
     .replace(/Gemini/g, "Gemini")

@@ -79,7 +79,9 @@ function presentationForInternalTier(
     coreModelId,
     modelDisplayName,
     providerSlug,
-    labelWithProvider: formatModelWithProvider(modelDisplayName, providerSlug),
+    // A Core model is named alone, as the picker names it (QA C1); the slug is
+    // still kept for callers that group by vendor.
+    labelWithProvider: coreModelId ? modelDisplayName : formatModelWithProvider(modelDisplayName, providerSlug),
   };
 }
 

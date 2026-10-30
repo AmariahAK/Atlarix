@@ -68,7 +68,10 @@ describe("X-Atlarix-Session", () => {
     expect(a).toMatch(/^[0-9a-f]{32}$/);
     expect(coreSessionId(41)).toBe(a);
     expect(coreSessionId(42)).not.toBe(a);
-    expect(a).not.toContain("41");
+    // Not a function of the chat id alone: a second install's secret gives another id.
+    __setCoreSessionSecretForTests("f".repeat(64));
+    expect(coreSessionId(41)).not.toBe(a);
+    __setCoreSessionSecretForTests(null);
     expect(coreSessionId(undefined)).toBeNull();
   });
 

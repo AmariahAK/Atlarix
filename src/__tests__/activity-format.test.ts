@@ -115,7 +115,7 @@ describe("/stats in an editor", () => {
     const md = F.statsMarkdown(stats());
     expect(md).toContain("**472.4M** lifetime tokens");
     expect(md).toContain("```\n");
-    expect(md).toContain("- GPT 5.4 Mini (Atlarix Core): 93%".slice(0, 6));
+    expect(md).toContain("- GPT-5.4 Mini (Atlarix Core): 93%".slice(0, 6));
     expect(md).toContain("**Most used MCP servers**\n\n- deepwiki: 4 calls");
     expect(md).toContain("- Explore: 30%");
     expect(md).toContain("_Stored only on this computer.");

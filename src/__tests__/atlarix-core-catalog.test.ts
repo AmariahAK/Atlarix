@@ -23,7 +23,8 @@ describe("atlarix-core-catalog", () => {
     expect(catalog).toHaveLength(4);
     const core2 = catalog.find((e) => e.internalTierId === "core-2");
     expect(core2?.coreModelId).toBe("deepseek/deepseek-v4-pro");
-    expect(core2?.labelWithProvider).toMatch(/\(deepseek\)/);
+    // A Core model is named alone (QA C1); the vendor stays on providerSlug.
+    expect(core2?.labelWithProvider).toBe(core2?.modelDisplayName);
     expect(core2?.providerSlug).toBe("deepseek");
     const core4 = catalog.find((e) => e.internalTierId === "core-4");
     expect(core4?.coreModelId).toBe("anthropic/claude-opus-4");
@@ -59,7 +60,7 @@ describe("atlarix-core-catalog", () => {
 
   it("resolveAtlarixCoreIdentity maps core ids and legacy compass ids", () => {
     const id = resolveAtlarixCoreIdentity("core-2");
-    expect(id.labelWithProvider).toMatch(/\(deepseek\)/);
+    expect(id.labelWithProvider).toBe(id.modelDisplayName);
     expect(id.modelDisplayName).toMatch(/DeepSeek|Pro/i);
 
     // Legacy persisted selection keeps resolving to the same entry.
@@ -76,8 +77,8 @@ describe("model ids with no catalog name still read as names (Usage page + reply
     expect(f("z-ai/glm-5.3-flash")).toBe("GLM 5.3 Flash");
     expect(f("qwen.qwen3-coder-30b-a3b-v1:0")).toBe("Qwen3 Coder 30b A3b");
     expect(f("claude-sonnet-4-6")).toBe("Claude Sonnet 4.6");
-    expect(f("openai/gpt-4.1")).toBe("GPT 4.1");
-    expect(f("gpt-6.1-terra")).toBe("GPT 6.1 Terra");
+    expect(f("openai/gpt-4.1")).toBe("GPT-4.1");
+    expect(f("gpt-6.1-terra")).toBe("GPT-6.1 Terra");
     expect(w("Claude Haiku 4.5", "custom::bedrock-qa")).toBe("Claude Haiku 4.5 (bedrock-qa)");
   });
 });
