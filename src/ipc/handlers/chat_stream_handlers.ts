@@ -923,12 +923,13 @@ export function registerChatStreamHandlers() {
                 "@/lib/plugins/commands"
               );
               const { offModCommandReason } = await import("@/lib/plugins/mod-host");
+              const offMod = offModCommandReason(userPrompt, modCtx);
               const reason =
                 unavailableCommandReason(userPrompt, modCtx.workspacePath) ??
-                offModCommandReason(userPrompt, modCtx);
+                (offMod ? { message: offMod, rule: "silk_broken" as const } : null);
               if (reason) {
                 const { UserFacingRefusal } = await import("@/shared/texts");
-                throw new UserFacingRefusal(reason);
+                throw new UserFacingRefusal(reason.message, reason.rule);
               }
             }
             userPrompt = await modsPromptSubmit(modCtx, userPrompt);
@@ -1011,8 +1012,10 @@ export function registerChatStreamHandlers() {
           const modSections = await mods.modsPromptSections(hookCtx);
           const promptHooks = await runPromptSubmitHooks(hookCtx, userPrompt);
           if (promptHooks.blocked) {
-            throw new Error(
+            const { UserFacingRefusal } = await import("@/shared/texts");
+            throw new UserFacingRefusal(
               `An edict stopped this message (${promptHooks.blocked})`,
+              "edict_stop",
             );
           }
           const hookContext = [

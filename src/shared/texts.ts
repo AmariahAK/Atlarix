@@ -82,7 +82,21 @@ export function byokLimitUserMessage(
  */
 export class UserFacingRefusal extends Error {
   override name = "UserFacingRefusal";
+  /** Which rule refused: the turn ends as a "rule" gate with this as its errorKind. */
+  constructor(
+    message: string,
+    readonly rule: RefusalRule,
+  ) {
+    super(message);
+  }
 }
+
+/** A silk off, scoped away from this folder, or broken (incl. its mod); an edict's stop. */
+export type RefusalRule =
+  | "silk_off"
+  | "silk_scope"
+  | "silk_broken"
+  | "edict_stop";
 
 /** A Core pick a newer Atlarix wrote into the shared settings (compass_constants). */
 export const CORE_TIER_NEWER_BUILD =

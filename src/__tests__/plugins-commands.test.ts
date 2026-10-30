@@ -122,23 +122,28 @@ describe("plugin commands", () => {
 
     setPluginEnabled("kit", false);
     expect(expandPluginCommand("/review a.ts", null)).toBeNull();
-    expect(unavailableCommandReason("/review a.ts", null)).toBe(
-      "/review comes from kit, which is off. Turn it on in /silks.",
-    );
+    expect(unavailableCommandReason("/review a.ts", null)).toEqual({
+      rule: "silk_off",
+      message: "/review comes from kit, which is off. Turn it on in /silks.",
+    });
 
     setPluginEnabled("kit", true);
     setPluginFolders("kit", [path.join(work, "elsewhere")]);
-    expect(unavailableCommandReason("/review", work)).toMatch(
-      /not on in this folder/,
-    );
+    expect(unavailableCommandReason("/review", work)).toMatchObject({
+      rule: "silk_scope",
+      message: expect.stringMatching(/not on in this folder/),
+    });
 
     setPluginFolders("kit", null);
     fs.appendFileSync(
       path.join(pluginDir("kit"), "commands", "review.md"),
       "x",
     );
-    expect(unavailableCommandReason("/kit:review", null)).toMatch(
-      /^\/kit:review comes from kit: kit changed on disk/,
-    );
+    expect(unavailableCommandReason("/kit:review", null)).toMatchObject({
+      rule: "silk_broken",
+      message: expect.stringMatching(
+        /^\/kit:review comes from kit: kit changed on disk/,
+      ),
+    });
   });
 });

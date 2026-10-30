@@ -10,6 +10,7 @@
  * message shown stays what the person typed; the model gets the expansion.
  */
 
+import type { RefusalRule } from "@/shared/texts";
 import { readPluginContents } from "./manifest";
 import { pluginDir } from "./paths";
 import {
@@ -84,7 +85,7 @@ export function expandPluginCommand(
 export function unavailableCommandReason(
   prompt: string,
   workspacePath: string | null | undefined,
-): string | null {
+): { message: string; rule: RefusalRule } | null {
   const m = /^\/([a-z0-9][a-z0-9._-]*)(?::([a-z0-9][a-z0-9_-]*))?(?:\s|$)/.exec(
     prompt.trim(),
   );
@@ -104,13 +105,22 @@ export function unavailableCommandReason(
     if (!names.includes(cmdPart)) continue;
     const typed = `/${m[2] ? `${m[1]}:${m[2]}` : m[1]}`;
     if (!record.enabled)
-      return `${typed} comes from ${record.name}, which is off. Turn it on in /silks.`;
+      return {
+        rule: "silk_off",
+        message: `${typed} comes from ${record.name}, which is off. Turn it on in /silks.`,
+      };
     if (!appliesToFolder(record, workspacePath)) {
-      return `${typed} comes from ${record.name}, which is not on in this folder. Change that in /silks.`;
+      return {
+        rule: "silk_scope",
+        message: `${typed} comes from ${record.name}, which is not on in this folder. Change that in /silks.`,
+      };
     }
     const verified = verifyInstalledPlugin(record);
     if ("problem" in verified)
-      return `${typed} comes from ${record.name}: ${verified.problem}`;
+      return {
+        rule: "silk_broken",
+        message: `${typed} comes from ${record.name}: ${verified.problem}`,
+      };
   }
   return null;
 }
