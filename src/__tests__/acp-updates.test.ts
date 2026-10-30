@@ -39,6 +39,16 @@ describe("diffUpdates", () => {
     ]);
   });
 
+  it("text after a tool call in the same turn starts a new paragraph; a new turn does not (QA 2 P2)", () => {
+    const e: Emitted = new Map();
+    const tool: Cell = { kind: "tool", id: "t:0:edit_file", tool: { verb: "Write", target: "DONE", status: "done" } as never };
+    const user: Cell = { kind: "user", id: "u:1", text: "again" };
+    const chunks = diffUpdates([md("m:0", "All finished."), tool, md("m:1", "Now it is done."), user, md("m:2", "Fresh turn.")], e)
+      .filter((u) => u.sessionUpdate === "agent_message_chunk")
+      .map((u) => (u as { content: { text: string } }).content.text);
+    expect(chunks).toEqual(["All finished.", "\n\nNow it is done.", "Fresh turn."]);
+  });
+
   it("thoughts go out as thought chunks", () => {
     const e: Emitted = new Map();
     const [u] = diffUpdates([{ kind: "thought", id: "m:0", text: "hmm" }], e);
