@@ -147,6 +147,10 @@ export async function generateSessionTitle(
           : {}),
         ...(withReasoningOff ? { reasoning: "none" as const } : {}),
         abortSignal: AbortSignal.timeout(TITLE_TIMEOUT_MS),
+        // Atlarix Core takes no SDK retries: the SDK repeats any 429/503, and
+        // Core's are gates (busy, limits), answers that a repeat only queues
+        // behind (three title requests per busy turn, live QA 2026-10-30).
+        ...(modelClient.builtinProviderId === "compass" ? { maxRetries: 0 } : {}),
       });
 
     let result: Awaited<ReturnType<typeof call>>;
