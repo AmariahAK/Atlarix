@@ -1,8 +1,4 @@
-import {
-  ATLARIX_CO_AUTHOR_TRAILER,
-  ATLARIX_GIT_AUTHOR_EMAIL,
-  ATLARIX_GIT_AUTHOR_NAME,
-} from "./git_author";
+import { ATLARIX_CO_AUTHOR_TRAILER, getGitAuthor } from "./git_author";
 
 export { ATLARIX_CO_AUTHOR_TRAILER } from "./git_author";
 import { exec, isGitMissingResult } from "./system_git_exec";
@@ -174,16 +170,12 @@ export async function gitCommit({
       : message;
 
   // Author = the user's own git config (Atlarix is credited via the co-author
-  // trailer only). These are Atlarix's own commits (a copied workspace's first
-  // commit, a revert), so with no git identity on the machine Atlarix authors
-  // them rather than the feature failing. A commit the AGENT runs never gets
-  // this fallback: git asks the user who they are.
+  // trailer only). Fall back to the agent identity as author ONLY when the
+  // machine has no configured git identity, so the commit still succeeds.
   const args = ["commit", "-m", finalMessage];
   if (!(await hasConfiguredGitIdentity(gitDir))) {
-    args.push(
-      "--author",
-      `${ATLARIX_GIT_AUTHOR_NAME} <${ATLARIX_GIT_AUTHOR_EMAIL}>`,
-    );
+    const author = await getGitAuthor();
+    args.push("--author", `${author.name} <${author.email}>`);
   }
   if (amend) {
     args.push("--amend");

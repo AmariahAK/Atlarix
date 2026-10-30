@@ -1386,15 +1386,6 @@ export function App({
       }
       case "/analytics":
         return openAnalytics(ctx);
-      case "/co-author": {
-        const coAuthor = ctx.services.coAuthor;
-        if (!coAuthor) return;
-        void coAuthor.get().then(async (was) => {
-          await coAuthor.set(!was);
-          flash(was ? "Commits no longer credit Atlarix. /co-author turns it back on." : "Commits credit Atlarix as co-author. /co-author turns it off.", 3000);
-        });
-        return;
-      }
       case "/billing":
       case "/upgrade":
         return openBilling(ctx);
