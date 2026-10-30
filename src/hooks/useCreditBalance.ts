@@ -172,6 +172,28 @@ export function useCreditBalance(): CreditBalanceState {
  *
  * Call this ONCE from an always-mounted component, not per consumer.
  */
+/**
+ * Whether "your monthly Core usage is used up, you're on your own credit now"
+ * applies. Pure (src/__tests__/allowance-nudge.test.ts).
+ *
+ * Only for an account that HAS a monthly allowance (`grantedTotalCents > 0`)
+ * and has spent it while purchased credit remains. It fired for every
+ * pay-as-you-go account with no allowance at all (granted 0 = "used up"), at
+ * every launch: agent@, a credit-only account, saw it in QA on 2026-10-30.
+ * With nothing left at all, the low-balance nudge is the right message and this
+ * one would be noise on top of it.
+ */
+export function allowanceNudgeStep(b: {
+  grantedCents: number | null;
+  grantedTotalCents: number | null;
+  purchasedCents: number | null;
+}): "rearm" | "nudge" | "none" {
+  if (b.grantedCents == null || b.purchasedCents == null) return "none";
+  if (b.grantedCents > 0) return "rearm";
+  if (!b.grantedTotalCents || b.grantedTotalCents <= 0) return "none";
+  return b.purchasedCents > 0 ? "nudge" : "none";
+}
+
 export function useLowBalanceNudge(): void {
   const { balanceCents, grantedCents, grantedTotalCents, purchasedCents } =
     useCreditBalance();
@@ -179,20 +201,17 @@ export function useLowBalanceNudge(): void {
   const allowanceNudgedRef = useRef(false);
 
   useEffect(() => {
-    // Only meaningful when the server reported a split AND there is purchased
-    // credit to fall back on. With nothing left at all, the low-balance nudge
-    // below is the right message and this one would be noise on top of it.
-    if (grantedCents == null || purchasedCents == null) return;
-    if (grantedCents > 0) {
+    const step = allowanceNudgeStep({ grantedCents, grantedTotalCents, purchasedCents });
+    if (step === "rearm") {
       allowanceNudgedRef.current = false; // renewed → re-arm
       return;
     }
-    if (purchasedCents > 0 && !allowanceNudgedRef.current) {
+    if (step === "nudge" && !allowanceNudgedRef.current) {
       allowanceNudgedRef.current = true;
-      const { title, description } = allowanceUsedUpNudge(purchasedCents);
+      const { title, description } = allowanceUsedUpNudge(purchasedCents!);
       toast.message(title, { description, duration: 8000 });
     }
-  }, [grantedCents, purchasedCents]);
+  }, [grantedCents, grantedTotalCents, purchasedCents]);
 
   useEffect(() => {
     if (balanceCents == null) return;
