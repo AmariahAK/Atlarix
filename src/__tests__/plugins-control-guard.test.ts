@@ -152,6 +152,25 @@ describe("commands", () => {
     }
   });
 
+  it("always ask for Windows forms, renaming the home folder included", () => {
+    for (const c of [
+      String.raw`copy evil.json C:\Users\p\.atlarix\edicts.json`,
+      String.raw`Set-Content -Path $env:USERPROFILE\.atlarix\silks.json -Value x`,
+      String.raw`del %USERPROFILE%\.atlarix\silks\acme\mod\index.js`,
+      String.raw`Move-Item $HOME\.atlarix C:\tmp\x`,
+      String.raw`ren %USERPROFILE%\.atlarix atl2`,
+      String.raw`Copy-Item x.json -Destination "$env:USERPROFILE\.ATLARIX\Edicts.json"`,
+    ]) {
+      expect(guardPluginControl(cmd(c), "C:\\w").pluginControl, c).toBe(true);
+    }
+    expect(
+      guardPluginControl(
+        cmd(String.raw`type %USERPROFILE%\.atlarix\projects\x\memory.md`),
+        "C:\\w",
+      ).pluginControl,
+    ).toBe(false);
+  });
+
   it("leave reads of the home folder alone", () => {
     expect(
       guardPluginControl(cmd("ls ~/.atlarix/projects"), "/p").pluginControl,

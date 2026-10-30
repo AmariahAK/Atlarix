@@ -111,8 +111,20 @@ function commandNamesPluginControl(command: string): boolean {
   // (`cat ~/.atlarix/…`) is not stopped; the sandbox denies the whole folder
   // anyway, and this is the layer for machines and runs without one.
   const mentionsHome = /\.atlarix\b|\.atl[a-z]*[*?[]/.test(norm);
-  return mentionsHome && isMutatingCommand(command);
+  return (
+    mentionsHome &&
+    (isMutatingCommand(command) || WINDOWS_WRITE_VERB.test(norm))
+  );
 }
+
+/**
+ * cmd and PowerShell verbs that write, move or delete, which the POSIX-shaped
+ * mutation classifier does not know. Windows has no kernel deny for these
+ * paths (deny-paths.ts), so renaming the folder itself (`ren %USERPROFILE%\.atlarix
+ * x`, `Move-Item $HOME\.atlarix …`) was the one form that got through here.
+ */
+const WINDOWS_WRITE_VERB =
+  /(^|[\s;&|(])(move|ren|rename|del|erase|rd|rmdir|copy|xcopy|robocopy|mklink|move-item|rename-item|remove-item|copy-item|new-item|set-content|add-content|out-file|mi|ri|rni|cpi|ni|sc|ac)(?=[\s(]|$)/;
 
 function namesControlFile(norm: string): boolean {
   // Today's names, and the earlier ones: matching more only asks more often.
