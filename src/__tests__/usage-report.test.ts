@@ -31,6 +31,7 @@ const {
   parsePaidForMe,
   daysSinceLastMonthStart,
   monthKeys,
+  channelLabel,
 } = await import("@/lib/billing/usage-credits");
 const { activityCalendar } = await import("@/lib/stats/usage-stats");
 import type { ActivityStats } from "@/lib/stats/usage-types";
@@ -588,7 +589,7 @@ describe("workspace pays (Slack) in the Credits tab", () => {
         { member: "lee", tasks: 1, thisMonthCents: 0, lastMonthCents: 40 },
       ],
       channels: [
-        { channel: "C-eng", thisMonthCents: 120, lastMonthCents: 40 },
+        { channel: "#C-eng", thisMonthCents: 120, lastMonthCents: 40 },
         { channel: "Direct messages", thisMonthCents: 30, lastMonthCents: 0 },
       ],
     });
@@ -599,6 +600,15 @@ describe("workspace pays (Slack) in the Credits tab", () => {
     expect(
       parseUsageTeam({ ok: false, error: "not_authenticated" }, now),
     ).toBeUndefined();
+  });
+
+  it('labels channels as ai-8b sends them: "eng" reads #eng, "dm" and none read Direct messages', () => {
+    expect(channelLabel("eng")).toBe("#eng");
+    expect(channelLabel("#eng")).toBe("#eng");
+    expect(channelLabel("dm")).toBe("Direct messages");
+    expect(channelLabel("DM")).toBe("Direct messages");
+    expect(channelLabel(null)).toBe("Direct messages");
+    expect(channelLabel("  ")).toBe("Direct messages");
   });
 
   it('reads a DM sent as "dm" the same as one with no channel', () => {

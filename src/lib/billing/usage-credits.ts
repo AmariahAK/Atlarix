@@ -95,6 +95,13 @@ function addToMonth<K extends string>(
 const text = (v: unknown, fallback: string) =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, 80) : fallback;
 
+/** A workspace-paid debit's channel as read: "#eng" from "eng"; no channel or "dm" is a direct message. */
+export function channelLabel(raw: unknown): string {
+  const name = text(raw, "").replace(/^#/, "");
+  if (!name || name.toLowerCase() === "dm") return "Direct messages";
+  return `#${name}`;
+}
+
 /** get_usage_team as the Credits tab reads it: per member and per channel, this month and last. */
 export function parseUsageTeam(
   data: unknown,
@@ -110,15 +117,7 @@ export function parseUsageTeam(
     if (!r || typeof r.day !== "string") continue;
     const c = cents(r.cents);
     addToMonth(members, text(r.member, "Unknown"), r.day, c, months);
-    // A DM comes as no channel or as "dm".
-    const channel = text(r.channel, "Direct messages");
-    addToMonth(
-      channels,
-      channel.toLowerCase() === "dm" ? "Direct messages" : channel,
-      r.day,
-      c,
-      months,
-    );
+    addToMonth(channels, channelLabel(r.channel), r.day, c, months);
   }
   const tasks = new Map<string, number>();
   for (const m of (Array.isArray(d.members) ? d.members : []) as Array<
