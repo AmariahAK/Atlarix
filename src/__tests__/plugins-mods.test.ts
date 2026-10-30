@@ -18,6 +18,7 @@ import {
   _resetModsForTests,
   modCommands,
   modProblems,
+  offModCommandReason,
   modsPromptSections,
   modsPromptSubmit,
   modsRenderPane,
@@ -166,6 +167,32 @@ describe("mods", () => {
       await modsToolCall(ctx(), "run_command", { command: "ls" }),
     ).toBeNull();
     expect(modProblems()[0]!.message).toMatch(/off/);
+  });
+
+  it("say why a command does nothing once its mod is off (A7)", async () => {
+    await installMod(
+      `export function register(on, $) {
+        $.command.register({ name: "spin" });
+        on("command.run", () => { for (;;) {} });
+      }`,
+      ["command"],
+    );
+    expect(await modsRunCommand(ctx(), "/spin")).toBe("");
+    expect(offModCommandReason("/spin", ctx())).toMatch(
+      /^\/spin isn't available: m's mod is off \(/,
+    );
+    expect(offModCommandReason("/other", ctx())).toBeNull();
+  });
+
+  it("report a bare command against a mod that never loaded", async () => {
+    await installMod(`import fs from "fs"; export function register() {}`, [
+      "command",
+    ]);
+    await modCommands(ctx());
+    expect(offModCommandReason("/count", ctx())).toMatch(
+      /^\/count isn't available: m's mod is off \(it failed to load/,
+    );
+    expect(offModCommandReason("please /count", ctx())).toBeNull();
   });
 
   it("cannot import anything", async () => {

@@ -84,4 +84,43 @@ describe("the QuickJS wasm ships in every build", () => {
       else process.env.ATLARIX_QUICKJS_WASM = saved;
     }
   });
+
+  // A6: the packaged main is CommonJS and loads these through require(); their
+  // ES-module entries need import.meta.url, which that bundle does not have.
+  it("is external to the main bundle, so the packaged app loads its CommonJS build", () => {
+    const vite = read("vite.main.config.mts");
+    const list = vite.slice(
+      vite.indexOf("mainRollupExternals"),
+      vite.indexOf("];", vite.indexOf("mainRollupExternals")),
+    );
+    expect(list).toContain('"quickjs-emscripten-core"');
+    expect(list).toContain('"@jitl/quickjs-wasmfile-release-sync"');
+  });
+
+  it("boots through require() alone, as the packaged main loads it", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const script = `
+      const fs = require("node:fs");
+      const core = require("quickjs-emscripten-core");
+      const variant = require("@jitl/quickjs-wasmfile-release-sync").default;
+      const bytes = fs.readFileSync(process.argv[1]);
+      core.newQuickJSWASMModuleFromVariant(
+        core.newVariant(variant, { wasmBinary: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }),
+      ).then((qjs) => {
+        const vm = qjs.newContext();
+        process.stdout.write(String(vm.dump(vm.unwrapResult(vm.evalCode("6 * 7")))));
+        vm.dispose();
+      }, (e) => { process.stderr.write(String(e)); process.exit(1); });
+    `;
+    const r = spawnSync(
+      process.execPath,
+      ["-e", script, path.join(root, WASM)],
+      {
+        cwd: root,
+        encoding: "utf8",
+      },
+    );
+    expect(r.stderr).toBe("");
+    expect(r.stdout).toBe("42");
+  });
 });

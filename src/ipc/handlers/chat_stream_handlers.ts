@@ -922,7 +922,10 @@ export function registerChatStreamHandlers() {
               const { unavailableCommandReason } = await import(
                 "@/lib/plugins/commands"
               );
-              const reason = unavailableCommandReason(userPrompt, modCtx.workspacePath);
+              const { offModCommandReason } = await import("@/lib/plugins/mod-host");
+              const reason =
+                unavailableCommandReason(userPrompt, modCtx.workspacePath) ??
+                offModCommandReason(userPrompt, modCtx);
               if (reason) throw new Error(reason);
             }
             userPrompt = await modsPromptSubmit(modCtx, userPrompt);

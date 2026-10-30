@@ -134,6 +134,8 @@ let quickjs: Promise<QuickJSWASMModule> | null = null;
 const instances = new Map<string, ModInstance>();
 /** Mods turned off for this process, and why. Never retried. */
 const turnedOff = new Map<string, string>();
+/** The commands a mod had registered when it was turned off (none if it never loaded). */
+const offCommands = new Map<string, string[]>();
 const sessionState = new Map<string, unknown>();
 
 /**
@@ -229,6 +231,7 @@ function turnOff(plugin: string, reason: string): void {
   if (turnedOff.has(plugin)) return;
   turnedOff.set(plugin, reason);
   const inst = instances.get(plugin);
+  offCommands.set(plugin, inst?.commands.map((c) => c.name) ?? []);
   instances.delete(plugin);
   try {
     inst?.vm.dispose();
@@ -238,6 +241,29 @@ function turnOff(plugin: string, reason: string): void {
   }
   logger.warn(`mod ${plugin} turned off: ${reason}`);
   modUiEvents.emit("ui", { kind: "off", plugin, reason } satisfies ModUiEvent);
+}
+
+/**
+ * Why `/<name>` does nothing when it belongs to a mod that is off (QA 1 A7: the
+ * text went to the model as a message). A mod that failed before registering
+ * anything claims no names, so a bare `/<name>` nothing else answers is
+ * reported against it — but only for a mod on in this folder.
+ */
+export function offModCommandReason(
+  prompt: string,
+  ctx: ModContext,
+): string | null {
+  const m = /^\/([a-z0-9][a-z0-9_-]*)(?:\s|$)/.exec(prompt.trim());
+  if (!m || turnedOff.size === 0) return null;
+  const here = new Set(modsFor(ctx).map((p) => p.contents.name));
+  for (const [plugin, reason] of turnedOff) {
+    if (!here.has(plugin)) continue;
+    const known = offCommands.get(plugin) ?? [];
+    if (known.includes(m[1]!) || known.length === 0) {
+      return `/${m[1]} isn't available: ${plugin}'s mod is off (${reason}).`;
+    }
+  }
+  return null;
 }
 
 export function modProblems(): Array<{ name: string; message: string }> {
@@ -711,5 +737,6 @@ export function _resetModsForTests(): void {
   }
   instances.clear();
   turnedOff.clear();
+  offCommands.clear();
   sessionState.clear();
 }

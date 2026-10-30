@@ -49,6 +49,14 @@ export const mainRollupExternals: readonly string[] = [
   "@anthropic-ai/tokenizer",
   "tiktoken/lite",
   "tiktoken",
+  // The QuickJS engine mods run in (lib/plugins/mod-host.ts). Its ES-module
+  // entry reads `import.meta.url` when it loads, which this CommonJS bundle does
+  // not have, so a bundled copy threw before the .wasm was ever used (QA 1 A6:
+  // every mod off in the packaged app). External, Node loads the package's
+  // CommonJS build; packageAfterPrune installs it. The .wasm bytes still come
+  // from Resources/emscripten-module.wasm.
+  "quickjs-emscripten-core",
+  "@jitl/quickjs-wasmfile-release-sync",
   "unpdf",
   "@vscode/sudo-prompt",
   // Bundled ripgrep binary (grep/glob) — external so the binary resolves from
