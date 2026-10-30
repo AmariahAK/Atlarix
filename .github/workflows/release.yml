@@ -410,6 +410,9 @@ jobs:
           npm run clean
           npm run ci:package -- --arch=${{ matrix.arch }}
           node scripts/verify-ci-package-out.mjs --stage package --platform darwin --arch ${{ matrix.arch }}
+          # Every Mach-O must carry our Team ID: `codesign --verify --deep` passes a
+          # bundle whose dylibs or .node files are ad-hoc, which then crashes at load.
+          node scripts/mac-team-id.mjs "out/Atlarix-darwin-${{ matrix.arch }}/Atlarix.app"
           # Packaged smoke: launch the real binary --self-test (pty spawn, worker
           # resolution, rg) — catches packaged-only breakages the static
           # verifier can't. Only x64 CI runners can execute an arm64 bin natively,

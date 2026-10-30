@@ -1,5 +1,6 @@
 import { startBridge, stopBridge } from "@/main/bridge-lifecycle";
 import "./preload-env";
+import { spawn } from "node:child_process";
 import {
   app,
   autoUpdater as squirrelUpdater,
@@ -36,6 +37,7 @@ import {
   windowAlive,
   chooseUpdaterKind,
   createUpdateRechecker,
+  relaunchAfterExit,
   type UpdateStatus,
 } from "./main/update-helpers";
 import { BackupManager } from "./backup_manager";
@@ -950,6 +952,27 @@ function setUpdateStatus(partial: Partial<UpdateStatus>): void {
   }
 }
 
+/**
+ * electron-updater's quit-and-install. On a deb/rpm install the app is started
+ * again by relaunchAfterExit (update-helpers) instead of app.relaunch(), whose
+ * no-new-privs relauncher cannot use the setuid sandbox: the app stayed closed
+ * after every "Restart Now" on Ubuntu 24.04.
+ */
+function electronUpdaterQuitAndInstall(): void {
+  if (linuxPackageType()) {
+    squirrelUpdater.once("before-quit-for-update", () => {
+      log.info("[AutoUpdater] Installed; starting again after exit");
+      relaunchAfterExit(
+        process.pid,
+        process.execPath,
+        process.argv.slice(1),
+        spawn,
+      );
+    });
+  }
+  autoUpdater.quitAndInstall();
+}
+
 /** IPC: live status + a manual "Check for updates now". Always registered. */
 function registerUpdateStatusIpc(): void {
   updateStatus.currentVersion = app.getVersion();
@@ -987,7 +1010,7 @@ function registerUpdateStatusIpc(): void {
     if (activeUpdaterKind === "squirrel") {
       squirrelUpdater.quitAndInstall();
     } else {
-      autoUpdater.quitAndInstall();
+      electronUpdaterQuitAndInstall();
     }
   });
 
@@ -1137,6 +1160,9 @@ function initAutoUpdater(): void {
   }
 
   activeUpdaterKind = "electron-updater";
+  // deb/rpm: Atlarix starts itself again after the install
+  // (electronUpdaterQuitAndInstall), never through app.relaunch().
+  if (packageType) autoUpdater.autoRunAppAfterInstall = false;
 
   // Allow pre-releases to be downloaded if they are published (matches existing releaseChannel behavior).
   autoUpdater.allowPrerelease = false;
@@ -1206,7 +1232,7 @@ function initAutoUpdater(): void {
     if (installDeferredUpdateOnDownload) {
       installDeferredUpdateOnDownload = false;
       log.info("[AutoUpdater] Installing deferred update now (quitAndInstall)");
-      autoUpdater.quitAndInstall();
+      electronUpdaterQuitAndInstall();
       return;
     }
     if (windowAlive(mainWindow)) {
