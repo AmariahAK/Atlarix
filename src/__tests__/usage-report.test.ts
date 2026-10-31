@@ -259,7 +259,7 @@ describe("MCP & skills and Auto picks", () => {
     expect(r.autoPicks.steps).toBe(10);
     expect(r.autoPicks.models).toEqual([
       {
-        label: "GPT 5.4 Mini",
+        label: "GPT-5.4 Mini",
         billing: "free",
         tier: "auto",
         steps: 6,
