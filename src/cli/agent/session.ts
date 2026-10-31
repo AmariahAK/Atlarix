@@ -1348,6 +1348,10 @@ export class AgentSession extends EventEmitter {
   private async steer(text: string): Promise<void> {
     const id = `s${++interjectionSeq}`;
     this.steerTexts.push(text.trim());
+    // Optimistic: draw "↳ steer" the moment Enter is pressed, then reconcile
+    // with main's answer (a loaded Mac can take seconds; owner, 2026-10-31).
+    this.steers = [...this.steers, { id, text: text.trim(), kind: "steer" }];
+    this.syncPending();
     const res = (await (await handler("chat:interject"))({}, {
       chatId: this.chatId,
       id,
@@ -1545,12 +1549,27 @@ export class AgentSession extends EventEmitter {
     this.recapLine = null;
     if (!opts.systemWake) this.userStopped = false;
     this.turnWasWake = !!opts.systemWake;
+    // The last turn's error stays under that turn, not gone with the banner
+    // (QA: "Couldn't reach…" vanished on the next send).
+    if (this.state.lastError && this.lastTurnOwner) this.addTurnNotice(this.lastTurnOwner, "error", this.state.lastError);
+    this.lastTurnOwner = null;
+    // The user's band and "Thinking…" show at once: ensureSession (which makes
+    // the session row on a first message) must not delay them (owner, 2026-10-31).
+    this.update({
+      busy: true,
+      phase: "Thinking…",
+      retrying: null,
+      turnStartedAt: Date.now(),
+      tokensThisTurn: null,
+      lastError: null,
+    });
     try {
       await this.ensureSession();
     } catch (e) {
       // A new editor chat is stored at its first message, so a sign-in that
       // lapsed before it stops the turn HERE, short of the stream that reports
       // turns. Reported the same way: an auth error, not silence (QA A10).
+      this.update({ busy: false, phase: null, turnStartedAt: null });
       if ((e as { code?: string }).code === "auth_required" || /ATLARIX_AUTH_REQUIRED|sign in/i.test((e as Error).message ?? "")) {
         const { trackTurnCompleted } = await import("@/main/lib/analytics");
         trackTurnCompleted({
@@ -1588,18 +1607,6 @@ export class AgentSession extends EventEmitter {
     if (!this.mainStopped) {
       void import("@/ipc/handlers/chat_stream/stream-state").then((m) => (this.mainStopped = m.isChatUserStopped));
     }
-    // The last turn's error stays under that turn, not gone with the banner
-    // (QA: "Couldn't reach…" vanished on the next send).
-    if (this.state.lastError && this.lastTurnOwner) this.addTurnNotice(this.lastTurnOwner, "error", this.state.lastError);
-    this.lastTurnOwner = null;
-    this.update({
-      busy: true,
-      phase: "Thinking…",
-      retrying: null,
-      turnStartedAt: Date.now(),
-      tokensThisTurn: null,
-      lastError: null,
-    });
     this.steerTexts = [];
     this.steerTakenAt.clear();
     this.staleBelow = this.highestStreamId + 1;

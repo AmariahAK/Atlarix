@@ -2081,18 +2081,21 @@ export function App({
 
       {state.pending.length > 0 ? (
         <box flexDirection="column" flexShrink={0}>
-          {state.pending.map((p) => {
+          {state.pending.slice(0, 3).map((p) => {
             // A message from another session waits here too: say who sent it.
             const peer = splitPeerMessages(p.text)?.find((seg) => seg.kind === "peer");
             const shown = peer && peer.kind === "peer" ? `from ${peer.from || "another session"}: ${peer.text.trim()}` : p.text;
             return (
             <text key={p.id}>
               <span fg={p.kind === "steer" ? color.accent : color.muted}>{peer ? "↳ message" : p.kind === "steer" ? "↳ steer " : "↳ queued"}</span>{" "}
-              <span fg={color.text}>{shown}</span>{" "}
+              <span fg={color.text}>{oneLine(shown, Math.max(20, width - 30))}</span>{" "}
               <span fg={color.faint}>{p.kind === "steer" ? "· goes in after this step" : "· sent when this turn ends"}</span>
             </text>
             );
           })}
+          {state.pending.length > 3 ? (
+            <text fg={color.faint}>{`+${state.pending.length - 3} more`}</text>
+          ) : null}
         </box>
       ) : null}
 

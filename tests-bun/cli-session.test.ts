@@ -157,6 +157,24 @@ describe("AgentSession", () => {
     expect(texts.at(-1)).toBe("footer");
   }, 60_000);
 
+  it("a steer draws the moment Enter is pressed, before main's interject reply", async () => {
+    llm.stop();
+    llm = startFakeLlm([
+      { tool: "grep", args: { pattern: "TODO" }, delayMs: 400 },
+      { text: "Checked." },
+    ]);
+    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+    await s.start();
+    await s.submit("find the TODOs");
+    // Do not await: the "↳ steer" row must appear before main answers (owner,
+    // 2026-10-31: a steer showed only after a round trip).
+    const steering = s.submit("also check the README");
+    expect(s.state.pending.some((p) => p.kind === "steer" && p.text === "also check the README")).toBe(true);
+    await steering;
+    await waitFor(s, (st) => !st.busy);
+  }, 60_000);
+
   it("a steer is drawn where the agent TOOK it, even when its row reaches the list after more of the answer", async () => {
     // Main takes the steer (chat:interjections) before the step streams, but the
     // row itself arrives after a database write: by then the answer had grown,
