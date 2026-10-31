@@ -137,9 +137,6 @@ export function buildStreamMessagesWithCacheBreakpoints(opts: {
           headerTtl1h ? CACHE_MARKER_HEADER_1H : CACHE_MARKER,
         )
       : headerMessage,
-    ...(dynamicTail && dynamicTail.trim().length > 0
-      ? [{ role: "system" as const, content: dynamicTail }]
-      : []),
     // Breakpoints on the last two history messages (unmarked ones pass
     // through by reference — history must stay byte-stable across rounds).
     ...(useMarkers
@@ -147,6 +144,12 @@ export function buildStreamMessagesWithCacheBreakpoints(opts: {
           i >= history.length - 2 ? mark(m, placement) : m,
         )
       : history),
+    // The per-turn tail LAST, so it never sits in the cacheable prefix (see
+    // the module header): the header + all earlier history stay byte-identical
+    // from turn to turn and only the new exchange + tail are written.
+    ...(dynamicTail && dynamicTail.trim().length > 0
+      ? [{ role: "system" as const, content: dynamicTail }]
+      : []),
   ];
 }
 
