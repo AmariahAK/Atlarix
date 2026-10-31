@@ -95,6 +95,8 @@ export interface PeerSessionRow {
   /** Its mode (the stored one; Build when none was chosen) and model, when known (item 9). */
   mode?: string;
   model?: string;
+  /** No messages yet (a session opened, or a CLI before its first message). */
+  new?: boolean;
 }
 
 interface PeerFrame {
@@ -625,15 +627,20 @@ export async function receive(
   // Watched only once it went in: a refused or empty frame never notifies.
   const notify = f.notify === true && queued.length > 0 && f.from?.sessionId !== "unknown";
   if (notify) turnWatches.push({ chatId: target.chatId, sessionId: target.sessionId, ids: queued, from: f.from });
-  // An informational message (a "turn ended" notice) is queued for the
-  // session's next real turn, not a new one: waking to answer "Acknowledged"
-  // re-sends the whole context for nothing (2026-10-31 spend incident).
+  // A message wakes an idle session only when the sender asked for a reply
+  // (notify_when_done) or an approval starts a build. Otherwise it is queued for
+  // the session's next real turn: waking to answer "Acknowledged" re-sends the
+  // whole context for nothing (2026-10-31 spend incident).
   const idle = (text || applied.startTurn) && !hostImpl.isBusy(target.chatId);
-  if (idle && !f.informational) hostImpl.wake(target.chatId);
+  const startTurn = !!applied.startTurn;
+  const wake = idle && (f.notify === true || startTurn);
+  if (wake) hostImpl.wake(target.chatId);
   return {
     ok: true,
     ...(applied.notice ? { applied: applied.notice } : {}),
-    ...(idle && idleMessagesWait() ? { waits: true } : {}),
+    // "waits": queued for the session's next real turn (not woken now), or an
+    // editor that holds messages until its own prompt starts the turn.
+    ...(idle && (idleMessagesWait() || !wake) ? { waits: true } : {}),
     ...(notify ? { notify: true } : {}),
   };
 }
@@ -731,22 +738,6 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
   for (const r of rows) {
     if (r.session_id.startsWith(PROCESS_ROW_PREFIX)) continue;
     if (r.session_id === exclude || seen.has(r.session_id)) continue;
-    // A chat opened and never used (the editor makes one on open) beside a
-    // real one in the same place: offering both made the agent, or you, pick
-    // between two "editor sessions" (QA H1). Alone, it stays: it may be the
-    // only way to reach that window.
-    if (
-      blank.has(r.session_id) &&
-      rows.some(
-        (o) =>
-          o.session_id !== r.session_id &&
-          !blank.has(o.session_id) &&
-          !o.session_id.startsWith(PROCESS_ROW_PREFIX) &&
-          o.surface === r.surface &&
-          o.workspace === r.workspace,
-      )
-    )
-      continue;
     seen.add(r.session_id);
     out.push({
       sessionId: r.session_id,
@@ -757,6 +748,10 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       pid: r.pid,
       ...(r.surface !== "chrome" ? { mode: modes.get(r.session_id) ?? "build" } : {}),
       ...(r.model ? { model: r.model } : {}),
+      // A session with no messages yet (an editor's New chat, a CLI before its
+      // first message) is LISTED, and marked new so the sender knows it has no
+      // history to read back (owner, 2026-10-31: fresh sessions must be visible).
+      ...(blank.has(r.session_id) ? { new: true } : {}),
     });
   }
   return out;

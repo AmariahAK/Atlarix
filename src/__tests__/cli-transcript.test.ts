@@ -236,6 +236,24 @@ describe("a sent paste", () => {
   });
 });
 
+describe("a sent message's band (owner, 2026-10-31)", () => {
+  it("keeps a paste to its one-line placeholder, and a long message to a few lines", async () => {
+    const { userBandText, MAX_USER_LINES } = await import("@/cli/agent/transcript");
+    // A 40-line paste: collapsed is the typed line with its placeholder, not the paste.
+    const body = Array.from({ length: 40 }, (_, i) => `pasted line ${i + 1}`).join("\n");
+    const paste = { text: "fix this [Pasted text #1 +40 lines]", full: `fix this ${body}` };
+    expect(userBandText(paste, false)).toEqual({ text: "fix this [Pasted text #1 +40 lines]", more: 0 });
+    // ctrl+o shows the paste itself.
+    expect(userBandText(paste, true).text).toContain("pasted line 40");
+    // A long typed message collapses to a few lines; ctrl+o shows all of it.
+    const long = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n");
+    const cut = userBandText({ text: long }, false);
+    expect(cut.text.split("\n")).toHaveLength(MAX_USER_LINES);
+    expect(cut.more).toBe(40 - MAX_USER_LINES);
+    expect(userBandText({ text: long }, true)).toEqual({ text: long, more: 0 });
+  });
+});
+
 describe("plan and background job lines say what happened", () => {
   it("names the plan operation and the job operation", () => {
     expect(toolTarget("plan", { operation: "update_step", step_index: 3, state: "done" })).toBe("step 3 → done");
@@ -474,5 +492,29 @@ describe("a no-op tool result", () => {
     expect(
       toolLine({ type: "tool", id: "b", callId: "c", toolName: "read_file", status: "error", args: {}, resultText: noop } as never).status,
     ).toBe("error");
+  });
+});
+
+describe("send_message and list_sessions rows (owner, 2026-10-31)", () => {
+  it("names who a message goes to, and shows its text — never a bare 'Message'", async () => {
+    const { toolLine } = await import("@/cli/agent/transcript");
+    const t = toolLine({
+      type: "tool",
+      id: "m",
+      callId: "c",
+      toolName: "send_message",
+      status: "success",
+      args: { to: "ai-0c", message: "the tests are green\nplease merge" },
+      resultText: JSON.stringify({ success: true, text: "Sent to ai-0c (CLI, idle: …)" }),
+    } as never);
+    expect(t.target).toBe("to ai-0c");
+    expect(t.summary).toBe("the tests are green");
+    expect(t.output).toBe("the tests are green\nplease merge");
+  });
+
+  it("says what list_sessions asked for", () => {
+    expect(toolTarget("list_sessions", { plan_of: "release-plan" })).toBe("plan of release-plan");
+    expect(toolTarget("list_sessions", { result_of: "qa-2" })).toBe("result of qa-2");
+    expect(toolTarget("list_sessions", {})).toBe("");
   });
 });

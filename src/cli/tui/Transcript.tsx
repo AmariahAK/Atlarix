@@ -22,6 +22,7 @@ import type { ScrollBoxRenderable } from "@opentui/core";
 import { memo, useEffect, useRef, type MutableRefObject, type ReactNode } from "react";
 import {
   previewLines,
+  userBandText,
   type Cell,
   type EditDiff,
   type ToolLine,
@@ -327,24 +328,6 @@ function CommandText({ text }: { text: string }) {
   );
 }
 
-/** Lines of a sent paste shown before ctrl+o. */
-const PASTE_LINES = 8;
-
-/** A sent message with a paste shows the pasted text, cut to a few lines until ctrl+o. */
-function pasteView(
-  cell: Extract<Cell, { kind: "user" }>,
-  expanded: boolean,
-): { text: string; more: number } {
-  if (!cell.full) return { text: cell.text, more: 0 };
-  const lines = cell.full.split("\n");
-  if (expanded || lines.length <= PASTE_LINES)
-    return { text: cell.full, more: 0 };
-  return {
-    text: lines.slice(0, PASTE_LINES).join("\n"),
-    more: lines.length - PASTE_LINES,
-  };
-}
-
 /** Two tool lines that draw the same. */
 function sameTool(a: ToolLine, b: ToolLine): boolean {
   return (
@@ -451,12 +434,12 @@ function CellViewInner({
             <text fg={color.accent} flexShrink={0}>
               {`${glyph.prompt} `}
             </text>
-            <CommandText text={pasteView(cell, expanded).text} />
+            <CommandText text={userBandText(cell, expanded).text} />
           </box>
-          {pasteView(cell, expanded).more > 0 ? (
+          {userBandText(cell, expanded).more > 0 ? (
             <text
               fg={color.faint}
-            >{`  … ${pasteView(cell, expanded).more} more lines (ctrl+o)`}</text>
+            >{`  … ${userBandText(cell, expanded).more} more lines (ctrl+o)`}</text>
           ) : null}
           {cell.chips?.length ? (
             <text>

@@ -122,12 +122,15 @@ describe("setting another session", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("a model and a message: both, and the message wakes it", async () => {
+  it("a model and a message: both applied and queued; without a reply asked, it does not wake", async () => {
     const r = await sendPeerMessage(guard(), from, "take the tests next", { model: "Atlarix Auto" });
     expect(r.ok).toBe(true);
     expect(applied.at(-1)!.set).toEqual({ model: "Atlarix Auto" });
     expect(queued.at(-1)!.text).toContain("take the tests next");
-    expect(woken).toEqual([-21]);
+    // No notify_when_done: the message is queued for the next real turn, not
+    // a fresh model call just to acknowledge (2026-10-31 spend incident).
+    expect(woken).toHaveLength(0);
+    expect(r.waits).toBe(true);
   });
 
   it("a model not set up there: refused, and the message with it is not delivered", async () => {
@@ -152,14 +155,16 @@ describe("setting another session", () => {
     expect(approve.applied).toBe("Plan approved by Rix.");
   });
 
-  it("a message to an idle editor session that waits for its next prompt says so (Zed, JetBrains)", async () => {
+  it("a message to an idle session reads at its next turn; an editor that holds messages too", async () => {
     setIdleMessagesWait(() => true);
     try {
       expect((await sendPeerMessage(guard(), from, "read the spec")).waits).toBe(true);
     } finally {
       setIdleMessagesWait(() => false);
     }
-    expect((await sendPeerMessage(guard(), from, "and the tests")).waits).toBeUndefined();
+    // Without notify_when_done an idle session is not woken: it reads the
+    // message at its next real turn, so the sender is told it waits.
+    expect((await sendPeerMessage(guard(), from, "and the tests")).waits).toBe(true);
   });
 });
 

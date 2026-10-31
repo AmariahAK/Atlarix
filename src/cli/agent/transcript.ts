@@ -208,6 +208,15 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+/** A send_message call's recipient and text, for the row that names who it is to. */
+function sendMessageText(args: unknown): { to: string; text: string } | null {
+  const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+  const to = str(a.to);
+  const text = str(a.message);
+  if (!to && !text) return null;
+  return { to, text };
+}
+
 /** The one thing worth naming about a call, from its arguments. */
 export function toolTarget(toolName: string, args: unknown): string {
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
@@ -278,6 +287,12 @@ export function toolTarget(toolName: string, args: unknown): string {
       if (a.operation === "output") return "read a sub-agent's progress";
       if (a.operation === "list") return "list running sub-agents";
       return str(a.operation);
+    case "send_message":
+      // "Message to <to>": who it goes to; its text is shown under the row.
+      return str(a.to) ? `to ${str(a.to)}` : "";
+    case "list_sessions":
+      // "Sessions", with what it asked for when it did.
+      return str(a.plan_of) ? `plan of ${str(a.plan_of)}` : str(a.result_of) ? `result of ${str(a.result_of)}` : "";
     default:
       return "";
   }
@@ -365,6 +380,10 @@ export function toolResultText(toolName: string, raw: string | undefined): { tex
     typeof o.result === "string" ? o.result : undefined,
     o.output,
     o.content,
+    // list_sessions / send_message return their text as `text`, not `result`.
+    (toolName === "list_sessions" || toolName === "send_message") && typeof o.text === "string"
+      ? o.text
+      : undefined,
     // The message says what happened ("No file at path …"); the error is its code.
     o.message,
     o.error,
@@ -524,6 +543,26 @@ export function userChips(text: string): { text: string; chips: string[] } {
   return { text: stripped.trim(), chips };
 }
 
+/** A sent message is drawn cut to this many lines before ctrl+o. */
+export const MAX_USER_LINES = 6;
+
+/**
+ * What the user band shows. Collapsed, the TYPED text only — a paste stays its
+ * one-line placeholder (its chips), and a long message is cut to a few lines.
+ * ctrl+o (expanded) shows the paste's real text when there was one, else the
+ * whole message. Without this a 40-line paste filled the screen (owner, 2026-10-31).
+ */
+export function userBandText(
+  cell: { text: string; full?: string },
+  expanded: boolean,
+): { text: string; more: number } {
+  const whole = cell.full ?? cell.text;
+  if (expanded) return { text: whole, more: 0 };
+  const lines = cell.text.split("\n");
+  if (lines.length <= MAX_USER_LINES) return { text: cell.text, more: 0 };
+  return { text: lines.slice(0, MAX_USER_LINES).join("\n"), more: lines.length - MAX_USER_LINES };
+}
+
 const QA_LINE = /^\*\*\*Q:\*\*\* ([\s\S]*?) → \*\*\*A:\*\*\* ([\s\S]*)$/;
 
 /** The question/answer pairs in a user message that is nothing but answers, or null. */
@@ -554,6 +593,10 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
   const diff =
     part.toolName === "edit_file" && part.status === "success" ? editDiff(part.args, writePrevious(part.callId)) : undefined;
   const env = part.toolName === "task" ? taskEnvelope(r.text) : null;
+  // A send_message's own text, for the row that names who it is to and shows
+  // what was said, not the "Sent to …" envelope (owner, 2026-10-31: a bare "Message").
+  const sent = part.toolName === "send_message" ? sendMessageText(part.args) : null;
+  const sentShown = sent?.text && part.status !== "error";
   if (env) {
     const background = env.state === "running" || env.state === "pending";
     const first = firstSentence(env.inner);
@@ -582,10 +625,12 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
     // A plan the agent wrote: the plan itself, to read and correct where it was
     // written, not only in the card above (owner: "why can't I see the plan?").
     output:
-      part.toolName === "plan" && str((part.args as Record<string, unknown>)?.operation) === "write" && str((part.args as Record<string, unknown>)?.content).trim()
-        ? str((part.args as Record<string, unknown>)?.content).trim()
-        : shownOutput(part.toolName, r.text),
-    summary: part.status === "running" ? undefined : diff ? editSummary(diff) : summarize(part.toolName, r),
+      sentShown
+        ? sent.text
+        : part.toolName === "plan" && str((part.args as Record<string, unknown>)?.operation) === "write" && str((part.args as Record<string, unknown>)?.content).trim()
+          ? str((part.args as Record<string, unknown>)?.content).trim()
+          : shownOutput(part.toolName, r.text),
+    summary: part.status === "running" ? undefined : diff ? editSummary(diff) : sentShown ? sent.text.split("\n")[0] : summarize(part.toolName, r),
   };
 }
 

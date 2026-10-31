@@ -81,7 +81,8 @@ describe("peer messaging", () => {
     expect("error" in resolvePeer("nobody", "sess-sender-0001")).toBe(true);
   });
 
-  it("delivers to an idle session's queue, wrapped, and wakes it", async () => {
+  it("queues a message for an idle session, wrapped, and does NOT wake it (no reply asked)", async () => {
+    woken.length = 0;
     const r = await sendPeerMessage(
       target("Editor"),
       from,
@@ -93,7 +94,24 @@ describe("peer messaging", () => {
     expect(last.text).toContain(
       '<atlarix-peer-message from="video brief" reply-to="sess-sender-0001"',
     );
+    // No notify → delivered for the session's next real turn, not a fresh
+    // model call just to acknowledge (2026-10-31 spend incident).
+    expect(woken).toEqual([]);
+    expect(r.waits).toBe(true);
+  });
+
+  it("wakes an idle session when the sender asks for a reply (notify)", async () => {
+    woken.length = 0;
+    const r = await sendPeerMessage(
+      target("Editor"),
+      from,
+      "do the video and tell me when it's done",
+      undefined,
+      { notify: true },
+    );
+    expect(r.ok).toBe(true);
     expect(woken).toEqual([-7]);
+    expect(r.waits).toBeUndefined();
   });
 
   it("does not wake a busy session (it reads the message at its next step)", async () => {
@@ -212,19 +230,24 @@ describe("a CLI that has not had its first message yet", () => {
   });
 });
 
-describe("list_sessions and blank chats (QA H1)", () => {
-  it("leaves out a never-used chat beside a real one in the same place, but keeps one that is alone", () => {
+describe("list_sessions and blank chats", () => {
+  it("lists every live session and marks one with no messages as new", () => {
     sqlite.exec("CREATE TABLE IF NOT EXISTS session_messages (id TEXT, session_id TEXT)");
     sqlite.exec("DELETE FROM session_messages");
     sqlite.prepare("INSERT INTO session_messages VALUES ('m1', 'sess-receiver-0002')").run();
     sqlite.prepare("INSERT INTO session_messages VALUES ('m2', 'sess-sender-0001')").run();
     // The editor opens a chat before you use it: same window, same folder.
     noteLiveSession({ sessionId: "sess-blank-0009", chatId: -19, name: "New editor session (b)", workspace: "/w/b" });
-    // And a blank one alone in another folder: it is the only way to reach that window.
+    // And a blank one alone in another folder.
     noteLiveSession({ sessionId: "sess-alone-0010", chatId: -20, name: "New editor session (c)", workspace: "/w/c" });
-    const names = listPeerSessions("sess-sender-0001").map((r) => r.name);
-    expect(names).not.toContain("New editor session (b)");
-    expect(names).toContain("New editor session (c)");
+    const byName = new Map(listPeerSessions("sess-sender-0001").map((r) => [r.name, r]));
+    // Fresh sessions MUST be visible even with nothing sent (owner, 2026-10-31).
+    expect(byName.has("New editor session (b)")).toBe(true);
+    expect(byName.has("New editor session (c)")).toBe(true);
+    // …and each is marked new; a session with history is not.
+    expect(byName.get("New editor session (b)")!.new).toBe(true);
+    expect(byName.get("New editor session (c)")!.new).toBe(true);
+    expect(byName.get("Editor")!.new).toBeUndefined();
     forgetLiveSession("sess-blank-0009");
     forgetLiveSession("sess-alone-0010");
     sqlite.exec("DROP TABLE session_messages");

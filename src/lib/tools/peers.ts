@@ -58,7 +58,7 @@ ToolRegistry.register({
     const lines = rows.map((r) =>
       r.surface === "chrome"
         ? `- ${r.name} (id ${r.sessionId}, browser: the Atlarix extension's agent; it starts on a task when the user clicks the Atlarix icon)`
-        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}${settingsOf(r)}${toReview.has(r.sessionId) ? ` · plan to review: ${toReview.get(r.sessionId)}` : ""}) — ${r.workspace || "no workspace"}`,
+        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : r.new ? "new" : "idle"}${settingsOf(r)}${toReview.has(r.sessionId) ? ` · plan to review: ${toReview.get(r.sessionId)}` : ""}) — ${r.workspace || "no workspace"}`,
     );
     let planText = "";
     if (typeof plan_of === "string" && plan_of.trim()) {
@@ -231,7 +231,7 @@ ToolRegistry.register({
     }
     return {
       success: true,
-      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : result.waits ? "idle: it reads it with the user's next prompt there" : "idle: it starts a turn with it"}).${result.applied ? ` ${result.applied}` : ""}${noticeNote}${replyNote}`,
+      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : result.waits ? "idle: it reads it at its next turn" : "idle: it starts a turn with it"}).${result.applied ? ` ${result.applied}` : ""}${noticeNote}${replyNote}`,
     };
   },
 });
