@@ -88,15 +88,35 @@ export interface FakeLlm {
   stop(): void;
 }
 
-export function startFakeLlm(script: Reply[], port = 0): FakeLlm {
+export function startFakeLlm(
+  script: Reply[],
+  port = 0,
+  opts: {
+    retainRequests?: boolean;
+    latencyMs?: number;
+    /** Called with the 1-based step number just before each tool-carrying reply. */
+    onStep?: (step: number) => void;
+  } = {},
+): FakeLlm {
   const requests: FakeLlm["requests"] = [];
+  const llm: FakeLlm = {
+    url: "",
+    requests,
+    stop: () => server.stop(true),
+  };
   let step = 0;
   const server = Bun.serve({
     port,
     async fetch(req) {
-      if (!new URL(req.url).pathname.endsWith("/chat/completions")) return new Response("{}", { status: 404 });
+      // Simulate a real model's "think" latency before each reply, so the test
+      // can check whether per-step memory is reclaimed when the loop is not
+      // running at full tilt (idle time for GC + allocator scavenging).
+      if (opts.latencyMs) await Bun.sleep(opts.latencyMs);
+      if (!new URL(req.url).pathname.endsWith("/chat/completions")) return new Response("{ }", { status: 404 });
       const body = (await req.json()) as { messages: FakeLlm["requests"][0]["messages"]; tools?: unknown[]; stream?: boolean };
-      requests.push(body);
+      // Retain only when asked (the memory test must not let the fake server
+      // hold a copy of the growing history, or the probe measures itself).
+      requests.push(opts.retainRequests === false ? { messages: [], tools: body.tools } : body);
       // A request that is not streamed (a title, a summary) gets one JSON answer.
       if (body.stream !== true && !body.tools?.length) {
         return Response.json({ ...base, object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: AUX_TEXT }, finish_reason: "stop" }], usage });
@@ -104,11 +124,13 @@ export function startFakeLlm(script: Reply[], port = 0): FakeLlm {
       if (!body.tools?.length) return reply({ text: "A title" }, 0);
       // One script step per model request that offers tools (a real turn step);
       // the last step repeats if the agent asks for more.
+      opts.onStep?.(step + 1);
       const i = Math.min(step++, script.length - 1);
       return reply(script[i]!, i);
     },
   });
-  return { url: `http://127.0.0.1:${server.port}/v1`, requests, stop: () => server.stop(true) };
+  llm.url = `http://127.0.0.1:${server.port}/v1`;
+  return llm;
 }
 
 if (import.meta.main) {

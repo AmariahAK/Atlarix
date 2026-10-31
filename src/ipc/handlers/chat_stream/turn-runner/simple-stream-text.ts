@@ -101,6 +101,7 @@ import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
 import { estimateToolSetTokens } from "@/lib/context/mid-loop-threshold";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
 import { perfReportOnce } from "@/lib/perf-marks";
+import { forceGcBetweenSteps } from "@/lib/agent/bun-gc";
 import { inputOutputTokensFromUsage } from "@/lib/routing/byok-pricing";
 import {
   buildReasoningProviderOptions,
@@ -1004,6 +1005,10 @@ export async function simpleStreamText(
     // and the callback TYPES are identical aliases, so this is a rename
     // and nothing else.
     onStepEnd: async (step) => {
+      // 0q: the CLI is one long-lived Bun process; reclaim the SDK's per-step
+      // re-serialization churn so bmalloc reuses it instead of growing to the
+      // turn's peak working set. No-op under Node/Electron.
+      forceGcBetweenSteps();
       // Capture this step's native messages for stall-resume BEFORE any
       // provider-specific early return below.
       recordStepMessages(
