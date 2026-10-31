@@ -123,7 +123,10 @@ import {
 } from "@/lib/routing/model-reasoning-profile";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { resolveUsableBudget } from "@/lib/context/compaction";
-import { contextWorkingWindowTokens } from "@/lib/context/mid-loop-threshold";
+import {
+  compactionPoint,
+  contextWorkingWindowTokens,
+} from "@/lib/context/mid-loop-threshold";
 import { AttachmentStore } from "../../lib/attachment-store";
 import {
   buildPasteAttachmentDirective,
@@ -1949,6 +1952,13 @@ export function registerChatStreamHandlers() {
             const compactionThreshold =
               settings.aiConfiguration?.contextSummarization
                 ?.compactionThreshold ?? 0.75;
+            // The one number both gates share: the pre-dispatch gate and the
+            // mid-turn check (a long agentic turn) compact at this point.
+            const compactionLimit = compactionPoint({
+              usableTokens,
+              workingWindowTokens,
+              threshold: compactionThreshold,
+            });
             logger.info(
               `[budget] window=${contextWindowTokens} working=${workingWindowTokens} threshold=${compactionThreshold} usable=${usableTokens} reserve=${contextWindowTokens - usableTokens}`,
             );
@@ -2472,6 +2482,7 @@ export function registerChatStreamHandlers() {
                 handleToolInputDelta,
                 abortController,
                 usableTokens,
+                compactionLimit,
                 processResponseChunkUpdate,
                 applyTierEscalation,
               };
@@ -2526,6 +2537,7 @@ export function registerChatStreamHandlers() {
                 handleToolInputDelta,
                 abortController,
                 usableTokens,
+                compactionLimit,
                 processResponseChunkUpdate,
                 applyTierEscalation,
                 buildToolStreamOpts,

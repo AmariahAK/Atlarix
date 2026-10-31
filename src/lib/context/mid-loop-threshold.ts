@@ -216,10 +216,11 @@ export function modelMessageText(content: unknown): string {
 /**
  * Whether compaction would fire for this history.
  *
- * Compares against `usable` — the window MINUS the room the reply needs — rather
- * than a fraction of the raw window. `usable` already accounts for the model's
- * real output limit, so there is no second ratio to tune here and no way for the
- * two to drift apart.
+ * Compares against the compaction POINT when `compactionLimit` is given (the
+ * mid-turn caller passes the turn's `compactionPoint`), else against `usable` —
+ * the window MINUS the room the reply needs. `usable` already accounts for the
+ * model's real output limit, so there is no second ratio to tune here and no way
+ * for the two to drift apart.
  *
  * `usableTokens` is optional only so a caller that has not resolved the catalog
  * can still ask; it falls back to the per-dispatch tier limit, which is the
@@ -230,8 +231,12 @@ export function compactionWouldTrigger(params: {
   systemPromptEstimate: number;
   tierLimit: number;
   usableTokens?: number;
+  /** The turn's compaction point (threshold × working window, capped by usable) —
+   * the mid-turn check's trigger, so one long turn compacts at the same point the
+   * pre-dispatch gate does. Absent → the usable budget (the old mid-turn rule). */
+  compactionLimit?: number;
 }): { willTrigger: boolean; beforeTokens: number; usable: number } {
-  const usable = params.usableTokens ?? params.tierLimit;
+  const usable = params.compactionLimit ?? params.usableTokens ?? params.tierLimit;
   const beforeTokens =
     params.messages.reduce(
       (acc, m) => acc + estimateTokens(modelMessageText(m.content)),

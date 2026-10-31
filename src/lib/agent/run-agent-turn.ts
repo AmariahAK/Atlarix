@@ -78,6 +78,8 @@ export interface TurnRuntime {
   readonly streamTurnId: string;
   readonly tierLimit: number;
   readonly usableTokens: number;
+  /** The turn's compaction point — the mid-turn check's trigger (see 0c). */
+  readonly compactionLimit: number;
   readonly maxContinuationAttempts: number;
   /**
    * v14.8.7 §A2: compact task ledger for this session (or null). Threaded into
@@ -877,6 +879,7 @@ async function runAgentTurnInner(
         systemPromptEstimate: estimateTokens(roundSystemPromptEstimateText),
         tierLimit: rt.tierLimit,
         usableTokens: rt.usableTokens,
+        compactionLimit: rt.compactionLimit,
         chatId: rt.chatId,
         loopLabel: profile.compactionLabel,
         emitActivity: rt.emitCompactionActivity,

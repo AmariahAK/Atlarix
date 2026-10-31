@@ -242,3 +242,51 @@ describe("context working window — one rule for every model", () => {
     ).toBe(usable);
   });
 });
+
+describe("mid-turn check follows the working window (compactionLimit)", () => {
+  it("fires at the compaction point, not the full usable budget", () => {
+    // A 1M-window model's usable budget is ~1,016,576 (window − 32k reserve),
+    // but the default working window (256k) makes the compaction point 192k.
+    const usable = usableContextBudget({
+      contextWindow: 1_048_576,
+      maxOutputTokens: 32_000,
+    });
+    const point = compactionPoint({
+      usableTokens: usable,
+      workingWindowTokens: 256_000,
+      threshold: 0.75,
+    });
+    expect(point).toBe(192_000);
+
+    // The mid-turn check is handed that point as `compactionLimit`. Small numbers
+    // stand in for the token count: over the point → compacts.
+    const over = compactionWouldTrigger({
+      messages: msgsOfRoughly(200),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+      compactionLimit: 192,
+    });
+    expect(over.willTrigger).toBe(true);
+
+    // Under it → nothing happens.
+    const under = compactionWouldTrigger({
+      messages: msgsOfRoughly(100),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+      compactionLimit: 192,
+    });
+    expect(under.willTrigger).toBe(false);
+
+    // Without the limit, the same history only fires near the usable budget —
+    // the bug this fixes (a long turn growing past 192k to ~970k before compacting).
+    const oldRule = compactionWouldTrigger({
+      messages: msgsOfRoughly(200),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+    });
+    expect(oldRule.willTrigger).toBe(false);
+  });
+});

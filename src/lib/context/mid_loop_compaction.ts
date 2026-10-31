@@ -35,6 +35,12 @@ export interface RunMidLoopCompactionParams {
   tierLimit: number;
   /** Window MINUS the reply reserve. See `usableContextBudget`. */
   usableTokens?: number;
+  /**
+   * The turn's compaction point (threshold × working window, capped by usable) —
+   * the mid-turn check's trigger, matching the pre-dispatch gate. Pass it when
+   * the turn has computed it, so one long turn compacts at the same point.
+   */
+  compactionLimit?: number;
   chatId: number;
   /** Short label distinguishing where the compaction fired (e.g. "Ask tier"). */
   loopLabel: string;
@@ -64,6 +70,7 @@ export async function runMidLoopCompaction(
     systemPromptEstimate,
     tierLimit,
     usableTokens,
+    compactionLimit,
     chatId,
     loopLabel,
     emitActivity,
@@ -81,6 +88,7 @@ export async function runMidLoopCompaction(
     systemPromptEstimate,
     tierLimit,
     usableTokens,
+    compactionLimit,
   });
   if (!pre.willTrigger) {
     return {
@@ -115,6 +123,7 @@ export async function runMidLoopCompaction(
       systemPromptEstimate,
       tierLimit,
       usableTokens,
+      compactionLimit,
       chatId,
     });
 

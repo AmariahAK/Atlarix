@@ -317,6 +317,12 @@ export interface MidLoopCompactionParams {
   tierLimit: number;
   /** Window MINUS the reply reserve; falls back to `tierLimit`. */
   usableTokens?: number;
+  /**
+   * The turn's compaction point (threshold × working window, capped by usable) —
+   * the mid-turn check's trigger, matching the pre-dispatch gate. Absent → the
+   * usable budget, so a caller that hasn't computed the point still works.
+   */
+  compactionLimit?: number;
   /** Trigger compaction when `(systemPromptEstimate + history)` exceeds `usableTokens`. */
   /** Last N protected user+assistant exchanges (default 3 — matches `enforceTierContextBudget`). */
   protectExchanges?: number;
@@ -361,10 +367,11 @@ export interface MidLoopCompactionResult {
 export async function compactAgenticMessagesIfNeeded(
   params: MidLoopCompactionParams,
 ): Promise<MidLoopCompactionResult> {
-  // Compact only near the usable limit (opencode's rule). `usable` is the window
-  // minus the room the reply needs, so there is no separate ratio to tune.
+  // Compact at the turn's compaction point when given (the working-window rule),
+  // else near the usable limit (opencode's rule) — the window minus the room the
+  // reply needs, so there is no separate ratio to tune.
   const protect = params.protectExchanges ?? 3;
-  const usable = params.usableTokens ?? params.tierLimit;
+  const usable = params.compactionLimit ?? params.usableTokens ?? params.tierLimit;
 
   const tokensOf = (m: ModelMessage) =>
     estimateTokens(modelMessageText(m.content));
