@@ -33,7 +33,7 @@ import {
   type AutomationTrigger,
 } from "@/lib/automations/types";
 import { listAutomations, getAutomation } from "@/lib/automations/service";
-import { describeWorkspaceCap, workspaceCapClause } from "@/lib/workspace-caps";
+import { describeWorkspaceCap } from "@/lib/workspace-caps";
 
 const logger = log.scope("automations-tool");
 
@@ -89,24 +89,17 @@ ToolRegistry.register({
   name: "automations",
   description:
     "Standing background watches on a schedule, a GitHub event, or an MCP tool poll — the thing to reach for when the user keeps checking something by hand. " +
-    'operation:"list" — every automation in this workspace with its trigger, runMode, notifyAgent and last run. Free; start here. ' +
-    'operation:"create" — name + trigger + run_mode + notify_agent. Once the user approves, the result hands back `automation_id` — use that id to run it, not a name (two automations may share one). ' +
+    'operation:"list" — every automation in this workspace with its trigger, runMode, notifyAgent and last run. ' +
+    'operation:"create" — name + trigger + run_mode + notify_agent; the result hands back `automation_id` (use that id, not a name). ' +
     'operation:"update" — automation_id plus only the fields you are changing. ' +
     'operation:"delete" — automation_id. ' +
-    'operation:"run" — automation_id; fire ONE automation now instead of waiting for its trigger. This is how you check the one you just created actually works, so use it right after create rather than telling the user to wait. Behaves like run_command: a quick run returns its outcome inline, a slow one moves to the background and reaches you when it finishes. You always get the result, even when notify_agent is false. ' +
-    'operation:"set_notify" — automation_id + notify_agent; the cheap way to change only who hears about runs. ' +
+    'operation:"run" — automation_id; fire ONE automation now, to check the one you just created works. You always get the result, even when notify_agent is false. ' +
+    'operation:"set_notify" — automation_id + notify_agent; change only who hears about runs. ' +
     "\n" +
-    "`notify_agent` is REQUIRED on create and is the most important choice you make: " +
-    "true means each finished run is delivered to you in your next turn (right for CI, tests, builds — things to ACT on); " +
-    "false means the user is notified and you are not, so the automation cannot spend tokens (right for Slack/MCP inbox noise the user triages themselves, then tells you about). " +
-    "Say which you chose and why IN YOUR REPLY, not only in the call — it decides whether this costs money while nobody is watching, and the user should not have to infer it. Either of you can flip it later with set_notify. " +
+    '`run_mode` is separate: "notify-only" (default) posts the fired trigger with no model; "read-only" runs an unattended read-only turn and needs a `prompt`. ' +
     "\n" +
-    '`run_mode` is separate: "notify-only" (default) posts the fired trigger with no model involved; "read-only" runs an unattended agent turn with read-only tools and costs a model turn per fire — it needs a `prompt`. ' +
-    "\n" +
-    "PROPOSE, DO NOT SELF-START. Offer an automation when you have watched the user do the same check repeatedly, and create it once they agree. Do not set up watches on GitHub, Slack, CI or anything else the user has not asked for. create/update/delete all require the user's approval before anything is written. " +
-    "An MCP trigger also records standing consent for that tool (the poller runs unattended and cannot prompt) — say so when you propose one. " +
-    "\n" +
-    workspaceCapClause("automations"),
+    "Offer an automation when the user keeps checking something by hand, and create it only once they agree. Say which notify_agent you chose and why. " +
+    "An MCP trigger also records standing consent for that tool — say so when you propose one.",
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
