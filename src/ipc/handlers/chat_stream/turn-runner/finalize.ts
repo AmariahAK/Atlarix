@@ -137,6 +137,10 @@ export async function finalizeTurn(
   // card is the reply. The empty-response fallback ("Something went wrong")
   // was saved above the card on every such turn.
   if (!ctx.fullResponse.trim() && !ctx.askUserEndedTurn) {
+    // A user-visible generic failure must log its cause: an idle session woken
+    // by a peer message that produced no text showed this with no log line
+    // (QA 2026-10-31).
+    logger.warn(`[stream:${req.chatId}] turn ended with no response text — empty fallback shown`);
     ctx.fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
   }
   let responseToStore = stripQuestionsBlockFromResponse(ctx.fullResponse);

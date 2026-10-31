@@ -419,6 +419,14 @@ export async function runStreamRoundWithEmptyOutputRetry(
         continue;
       }
       if (isEmptyOutputStreamError(err)) {
+        // The model returned nothing after every retry. This surfaces to the
+        // user as "Something went wrong — please try again.", so the cause must
+        // be in the log: a peer message waking a turn whose model produced no
+        // output showed the generic failure with no log line (QA 2026-10-31).
+        logger.warn(
+          "[stream] No usable model output after retries — cause:",
+          err instanceof Error ? err.message : err,
+        );
         throw new EmptyModelOutputAfterRetryError();
       }
 
