@@ -247,3 +247,20 @@ export function compactionWouldTrigger(params: {
 
 /** @deprecated Name kept for existing callers; `compactionWouldTrigger` is the same check. */
 export const midLoopCompactionWouldTrigger = compactionWouldTrigger;
+
+/**
+ * Should the round END here so the turn loop can compact?
+ *
+ * The SDK runs every tool step inside ONE round, so a long agentic turn never
+ * reached the between-rounds compaction and sat at 238k of a 256k working
+ * window, re-sending all of it on every step (owner, 2026-10-31). `inputTokens`
+ * is the provider's own count on the last finished step — the real occupancy,
+ * not an estimate.
+ */
+export function roundShouldEndForCompaction(
+  inputTokens: number,
+  compactionLimit: number | undefined,
+): boolean {
+  if (typeof compactionLimit !== "number" || compactionLimit <= 0) return false;
+  return inputTokens > compactionLimit;
+}

@@ -12,16 +12,40 @@ function formatTokenCount(n: number): string {
  */
 export type ForcedCompaction =
   | { ok: true; strategy: string; tokensBefore: number; tokensAfter: number }
-  | { ok: false; reason: "short" | "failed" };
+  | {
+      ok: false;
+      /**
+       * "short": too little conversation to summarise. "failed": the model
+       * returned no summary. "nothing-freed": the compactor ran and freed
+       * nothing. "no-history": the turn\'s in-memory history was not there to
+       * compact. The last two used to be reported as "short", which told the
+       * owner a 300k session was too small (2026-10-31).
+       */
+      reason: "short" | "failed" | "nothing-freed" | "no-history";
+      /** Current size, when known, so the message can say it. */
+      tokens?: number;
+    };
+
+/** Why it did not compact, in the user\'s words — each cause said apart. */
+function refusalMessage(done: { reason: "short" | "failed" | "nothing-freed" | "no-history"; tokens?: number }): string {
+  const size = typeof done.tokens === "number" && done.tokens > 0 ? ` (about ${Math.round(done.tokens / 1000)}k tokens)` : "";
+  switch (done.reason) {
+    case "failed":
+      return "Couldn't compact: the model didn't return a summary. Try again, or switch model.";
+    case "nothing-freed":
+      return `Couldn't compact${size}: nothing could be freed. Start a new chat, or /handoff to carry the work over.`;
+    case "no-history":
+      return "Couldn't compact: this turn's history isn't in memory any more. Start a new chat, or /handoff to carry the work over.";
+    default:
+      return "Nothing to compact yet: the conversation is still short.";
+  }
+}
 
 export function compactResultMessage(done: ForcedCompaction): { ok: boolean; message: string } {
   if (!done.ok) {
     return {
       ok: false,
-      message:
-        done.reason === "failed"
-          ? "Couldn't compact: the model didn't return a summary. Try again, or switch model."
-          : "Nothing to compact yet: the conversation is still short.",
+      message: refusalMessage(done),
     };
   }
   // Said as what happened: a summary, or (when the summary could not be made)

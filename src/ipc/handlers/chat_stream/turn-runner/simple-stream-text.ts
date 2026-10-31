@@ -94,6 +94,7 @@ import {
   resolveCacheMarkerPlacement,
 } from "@/lib/ai/anthropic-cache-breakpoints";
 import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
+import { roundShouldEndForCompaction } from "@/lib/context/mid-loop-threshold";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { inputOutputTokensFromUsage } from "@/lib/routing/byok-pricing";
@@ -151,6 +152,17 @@ export interface SimpleStreamTextArgs {
   repetition?: AgenticRepetitionState;
   /** Backstop in-round step cap (opencode `agent.steps`); undefined = unbounded. */
   maxStepsPerRound?: number;
+  /**
+   * The turn's compaction point (threshold × working window). A round ENDS once
+   * the provider's own input count passes it, so the turn loop's existing
+   * mid-turn compaction runs and the next round starts from the summary.
+   *
+   * Without this a long agentic turn is ONE round — the SDK runs every tool step
+   * inside it — so the between-rounds check never fired and a session sat at
+   * 238k of a 256k working window, re-sending all of it on every step
+   * (owner, 2026-10-31).
+   */
+  compactionLimit?: number;
 }
 
 export interface SimpleStreamTextDeps {
@@ -209,6 +221,7 @@ export async function simpleStreamText(
     repetition,
     abortSignalOverride,
     maxStepsPerRound,
+    compactionLimit,
   }: SimpleStreamTextArgs,
 ) {
   const {
@@ -562,6 +575,8 @@ export async function simpleStreamText(
   // "redoing the whole task" symptom). Populated incrementally in
   // onStepFinish and backstopped by onAbort (authoritative at abort).
   // Passive on the happy path — only read on a genuine stall.
+  /** The provider's input count on the last finished step: real context occupancy. */
+  let lastStepInputTokens = 0;
   const completedStepMessages: ModelMessage[] = [];
   const recordStepMessages = (msgs: readonly ModelMessage[] | undefined) => {
     if (msgs && msgs.length) completedStepMessages.push(...msgs);
@@ -663,10 +678,20 @@ export async function simpleStreamText(
     // The optional step cap (interactive build only) bounds an
     // in-round runaway so it returns to the round boundary instead of
     // spinning unbounded — undefined leaves headless/ask uncapped.
-    stopWhen:
-      typeof maxStepsPerRound === "number" && maxStepsPerRound > 0
+    stopWhen: [
+      ...(typeof maxStepsPerRound === "number" && maxStepsPerRound > 0
         ? [isStepCount(maxStepsPerRound)]
-        : [() => false],
+        : []),
+      // Past the compaction point: end the round so the turn loop compacts and
+      // continues, instead of growing inside one round (see `compactionLimit`).
+      () => {
+        if (!roundShouldEndForCompaction(lastStepInputTokens, compactionLimit)) return false;
+        logger.log(
+          `[compaction] round ends at ${lastStepInputTokens} tokens (point ${compactionLimit}) — the turn loop compacts and continues`,
+        );
+        return true;
+      },
+    ],
     // v12 0.1 close-out: mid-round correction reinject. Repetition
     // corrections are queued inside the SDK's multi-step inner loop
     // (the tool wrappers call record() during execute), where the
@@ -947,6 +972,11 @@ export async function simpleStreamText(
       }
       try {
         const split = inputOutputTokensFromUsage(step.usage);
+        // The provider's own input count IS the context occupancy; the stopWhen
+        // above reads it to end the round at the compaction point.
+        if (split && typeof split.inputTokens === "number" && split.inputTokens > 0) {
+          lastStepInputTokens = split.inputTokens;
+        }
         const total = totalTokensFromAiUsage(step.usage);
         if (split || total != null) {
           safeSend(event.sender, "chat:token-usage", {
