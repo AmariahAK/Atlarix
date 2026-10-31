@@ -263,6 +263,27 @@ export function handleScenarioChatCompletion(
 
   state.requests.push(req.body);
 
+  // Reject an orphan tool result exactly as DeepSeek / OpenAI do: a role "tool"
+  // message must answer a tool_call in the assistant message before it. Without
+  // this a history that real providers refuse (e.g. a compaction cut that kept a
+  // tool result but summarised away its call) passed every eval.
+  const msgs: any[] = Array.isArray(req.body?.messages) ? req.body.messages : [];
+  for (let i = 0; i < msgs.length; i++) {
+    if (msgs[i]?.role !== "tool") continue;
+    let j = i - 1;
+    while (j >= 0 && msgs[j]?.role === "tool") j--;
+    const calls: any[] = msgs[j]?.role === "assistant" ? (msgs[j].tool_calls ?? []) : [];
+    if (!calls.some((c) => c?.id === msgs[i].tool_call_id)) {
+      res.status(400).json({
+        error: {
+          message:
+            "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'",
+        },
+      });
+      return;
+    }
+  }
+
   // A NON-streaming request is the harness's own side call (the compaction
   // summariser uses generateText), not the agent's next step. When the script's
   // next step is a TOOL CALL - the agent's work - answer the side call with a

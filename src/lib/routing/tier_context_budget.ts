@@ -447,8 +447,23 @@ export async function compactAgenticMessagesIfNeeded(
       break;
     }
   }
-  const firstProtectedOriginalIndex =
+  let firstProtectedOriginalIndex =
     e + 1 < entries.length ? entries[e + 1].i : params.messages.length;
+  // Never start the kept tail on a TOOL RESULT. The walk above runs on the
+  // flattened view, where a tool result is a "user" entry, so the cut can land
+  // between an assistant's tool_calls and its results; the native tail then opens
+  // with a role "tool" message whose call was summarised away, and DeepSeek /
+  // OpenAI reject the whole request ("Messages with role 'tool' must be a
+  // response to a preceding message with 'tool_calls'"). Step back to the
+  // assistant message that made the calls, so call and results stay together.
+  const pairing = params.nativeMessages ?? params.messages;
+  while (
+    firstProtectedOriginalIndex > 0 &&
+    firstProtectedOriginalIndex < pairing.length &&
+    pairing[firstProtectedOriginalIndex]?.role === "tool"
+  ) {
+    firstProtectedOriginalIndex--;
+  }
 
   const head = params.messages.slice(0, firstProtectedOriginalIndex);
   const tail = params.messages.slice(firstProtectedOriginalIndex);
