@@ -82,6 +82,27 @@ export function stripLeadingWrappers(segment: string): string {
   return s;
 }
 
+/** A shell comment line: its first non-whitespace character is `#`. */
+export function isCommentLine(line: string): boolean {
+  return line.trim().startsWith("#");
+}
+
+/**
+ * A command with its leading comment and blank lines removed — the comment is
+ * not the command. `# note\nnpm test` returns `npm test`, so an "always allow"
+ * keys on what actually runs instead of a dead `#` rule (0o d).
+ */
+export function stripLeadingCommentLines(command: string): string {
+  const lines = command.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i]!.trim();
+    if (line !== "" && !line.startsWith("#")) break;
+    i++;
+  }
+  return lines.slice(i).join("\n");
+}
+
 /**
  * Blank balanced quoted spans so the remainder is unquoted shell syntax. Single
  * quotes are fully literal. Double quotes are literal for `|&;<>()` but keep
@@ -149,5 +170,7 @@ export function quoteAwareSegments(command: string): string[] | null {
 
   return segments
     .map((s) => stripLeadingWrappers(s))
-    .filter(Boolean);
+    // A comment line is not a command: drop it so a `# note` before the real
+    // command never keys the gate on `#` (0o d).
+    .filter((s) => s && !isCommentLine(s));
 }

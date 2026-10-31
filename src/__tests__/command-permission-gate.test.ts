@@ -14,6 +14,7 @@ import {
   resolveRunCommandPermissionGate,
   runCommandCategoryPreflight,
 } from "@/ipc/handlers/command_permission_handlers";
+import { getCommandCategory } from "@/lib/terminal-command-category";
 
 const APP = 1;
 
@@ -272,5 +273,46 @@ describe("resolveRunCommandPermissionGate (Fix 2 unified gate)", () => {
     expect(resolveRunCommandPermissionGate("git status", APP).action).toBe(
       "auto_allow",
     );
+  });
+});
+
+describe("leading comment lines are skipped when keying a command (0o d)", () => {
+  it("getCommandCategory keys the real command, not the comment", () => {
+    expect(getCommandCategory("# note\ngrep foo")).toBe("grep");
+    expect(getCommandCategory("# just a comment")).toBe("");
+    expect(getCommandCategory("# note\n\n# more\nnpm test")).toBe("npm");
+    // An inline comment is not leading; it never changes the first token.
+    expect(getCommandCategory("grep foo # inline comment")).toBe("grep");
+    expect(getCommandCategory("X=1 npm test")).toBe("npm");
+  });
+
+  it("the gate keys a comment-first system-scope command on the real command", () => {
+    // Without the fix this was "#" — "always allow `#` commands" saved a dead
+    // rule that matched nothing on the next comment-first command.
+    expect(resolveRunCommandPermissionGate("# note\nbrew install jq", APP)).toMatchObject({
+      action: "prompt",
+      category: "brew",
+    });
+  });
+
+  it("a comment-first dangerous command still keys on its danger pattern", () => {
+    expect(resolveRunCommandPermissionGate("# note\ngit push --force-with-lease", APP)).toMatchObject({
+      action: "prompt",
+      dangerous: true,
+      category: "danger:git-push-force-with-lease",
+    });
+  });
+
+  it("a comment-first mutation (read-only) still keys on its mutation pattern", () => {
+    const gate = resolveRunCommandPermissionGate(
+      "# note\nsed -i 's/a/b/' f.ts",
+      APP,
+      undefined,
+      true,
+    );
+    expect(gate).toMatchObject({
+      action: "prompt",
+      category: "mutate:in-place-edit",
+    });
   });
 });
