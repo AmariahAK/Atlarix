@@ -22,12 +22,13 @@ const sqlite = new DatabaseSync(":memory:");
 const queued: Array<{ chatId: number; id: string; text: string }> = [];
 /** Ids still waiting in a chat's queue (the host's interjection queue). */
 const pending = new Set<string>();
+const woken: number[] = [];
 let inbound: "accept" | "refuse" = "accept";
 
 const host: PeerHost = {
   isBusy: () => false,
   enqueue: (chatId, id, text) => void queued.push({ chatId, id, text }),
-  wake: () => {},
+  wake: (chatId) => void woken.push(chatId),
   inbound: () => inbound,
   pending: (_chatId, id) => pending.has(id),
 };
@@ -61,6 +62,7 @@ afterAll(() => __resetPeersForTests());
 beforeEach(() => {
   queued.length = 0;
   pending.clear();
+  woken.length = 0;
   inbound = "accept";
 });
 
@@ -120,6 +122,20 @@ describe("notify_when_done", () => {
     noteTurnEnded(t.chatId, { outcome: "done" }, Date.now());
     await settle();
     expect(notices()).toHaveLength(0);
+  });
+
+  it("the 'turn ended' notice does not wake the idle sender (read at its next real turn)", async () => {
+    const t = newTarget();
+    await sendPeerMessage(row(t.sessionId), from, "do it", undefined, { notify: true });
+    woken.length = 0;
+
+    noteTurnEnded(t.chatId, { outcome: "done" }, Date.now());
+    await settle();
+
+    // The notice reached the sender's queue…
+    expect(notices()).toHaveLength(1);
+    // …but the sender was NOT woken — no full-context turn just to acknowledge.
+    expect(woken).not.toContain(SENDER.chatId);
   });
 
   it("is opt-in, and the notice itself never asks for one back", async () => {
