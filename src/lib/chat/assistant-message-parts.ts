@@ -141,7 +141,7 @@ function preprocessForParse(content: string): string {
   for (const tagName of tagNames) {
     const counted = tagName.startsWith("atlarix-") ? out : outsideTools;
     const openTagPattern = new RegExp(`<${tagName}(?:\\s[^>]*)?>`, "g");
-    const closeTagPattern = new RegExp(`<\\s*/\\s*${tagName}\\s*>`, "g");
+    const closeTagPattern = new RegExp(`</\\s*${tagName}\\s*>`, "g");
     const openCount = (counted.match(openTagPattern) || []).length;
     const closeCount = (counted.match(closeTagPattern) || []).length;
     const missing = openCount - closeCount;
@@ -174,7 +174,7 @@ function parseRawPieces(segment: string): RawPiece[] {
     "atlarix-code-search-result",
   ];
   const tagPattern = new RegExp(
-    `<(${tagNames.join("|")})\\s*([^>]*)>([\\s\\S]*?)<\\s*\\/\\s*\\1\\s*>`,
+    `<(${tagNames.join("|")})\\s*([^>]*)>([\\s\\S]*?)<\\/\\s*\\1\\s*>`,
     "gi",
   );
   const pieces: RawPiece[] = [];
