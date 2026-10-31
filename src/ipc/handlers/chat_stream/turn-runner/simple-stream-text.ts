@@ -51,6 +51,7 @@ import {
 import { getMaxTokensWithFloor, getTemperature } from "@/ipc/utils/token_utils";
 import {
   isNetworkStreamError,
+  isProviderBusyError,
   isForcedToolChoiceRejection,
   isNativeComputerToolRejection,
 } from "@/ipc/handlers/chat_stream/network-retry";
@@ -594,6 +595,8 @@ export async function simpleStreamText(
    * be refused again nor replaces that reason with "Something went wrong".
    */
   let recordedRefusal: unknown = null;
+  /** A rate limit / overload the provider sent inside the stream: round-retry waits and retries. */
+  let recordedBusy: unknown = null;
   /**
    * The request was too long for the model. Not a refusal: handleTurnError
    * compacts and retries once, and says so only if that fails too. Reported
@@ -1115,6 +1118,11 @@ export async function simpleStreamText(
       // For `turn_completed`: the SDK hands the turn a bare "no output" in its
       // place, so the status and kind are kept here (a word, never the text).
       noteTurnStreamError(req.chatId, classifyTurnError(error));
+      if (isProviderBusyError(error)) {
+        recordedBusy = error;
+        logger.warn("[stream] onError: provider busy / rate-limited (will wait and retry)", error);
+        return;
+      }
       if (isNetworkStreamError(error)) {
         recordedNetworkError = error;
         logger.warn(
@@ -1318,6 +1326,7 @@ export async function simpleStreamText(
     getRecordedNetworkError: (): unknown => recordedNetworkError,
     /** A refusal `onError` already reported; see `recordedRefusal`. */
     getRecordedRefusal: (): unknown => recordedRefusal,
+    getRecordedBusy: (): unknown => recordedBusy,
     /** A too-long request `onError` held back for the turn's compact-and-retry; see `recordedOverflow`. */
     getRecordedOverflow: (): unknown => recordedOverflow,
     /** The provider refused its own computer tool; see `recordedNativeComputerRejection`. */
