@@ -858,7 +858,7 @@ ToolRegistry.register({
       offset: {
         type: "number",
         description:
-          "1-based line number to start reading extracted text from (default 1). Use the next-page offset stated in a prior result to continue.",
+          "1-based line number to start reading extracted text from (default 1).",
       },
       limit: {
         type: "number",
