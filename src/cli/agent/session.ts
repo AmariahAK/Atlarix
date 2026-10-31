@@ -2030,7 +2030,7 @@ export class AgentSession extends EventEmitter {
 
   async answerApproval(
     operationId: string,
-    approvalMode: "once" | "deny" | "always_allow" | "always_allow_file" | "always_allow_directory",
+    approvalMode: "once" | "deny" | "always_allow" | "always_allow_file" | "always_allow_folder" | "always_allow_directory",
   ): Promise<void> {
     const answered = this.state.approvals.find((a) => a.operationId === operationId);
     const line = answered ? approvalConfirmation(answered, approvalMode) : null;

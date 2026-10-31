@@ -18,7 +18,7 @@ import { chooseFolder } from "@/lib/choose-folder";
 type FilePermissionRow = {
   id: number;
   appId: number;
-  scopeType: "file" | "directory" | "extension";
+  scopeType: "file" | "directory" | "folder" | "extension";
   scopeValue: string;
   decision: "always_allow" | "always_deny";
   createdAt?: Date | null;
@@ -57,6 +57,7 @@ function PermissionTable({
             <tr key={row.id} className="border-t border-border/60">
               <td className="px-3 py-2 font-mono break-all">
                 {row.scopeValue}
+                {row.scopeType === "directory" ? "/**" : ""}
               </td>
               <td className="px-3 py-2">
                 {row.decision === "always_allow"
@@ -86,7 +87,7 @@ export function WorkspaceFilePermissions() {
   const appId = useAtomValue(selectedAppIdAtom);
   const [rows, setRows] = useState<FilePermissionRow[]>([]);
   const [scopeType, setScopeType] = useState<
-    "file" | "directory" | "extension"
+    "file" | "directory" | "folder" | "extension"
   >("file");
   const [scopeValue, setScopeValue] = useState("");
   const [decision, setDecision] = useState<"always_allow" | "always_deny">(
@@ -117,7 +118,9 @@ export function WorkspaceFilePermissions() {
   const byType = useMemo(
     () => ({
       file: rows.filter((r) => r.scopeType === "file"),
-      directory: rows.filter((r) => r.scopeType === "directory"),
+      directory: rows.filter(
+        (r) => r.scopeType === "directory" || r.scopeType === "folder",
+      ),
       extension: rows.filter((r) => r.scopeType === "extension"),
     }),
     [rows],
@@ -174,7 +177,7 @@ export function WorkspaceFilePermissions() {
         <Select
           value={scopeType}
           onValueChange={(v) =>
-            setScopeType(v as "file" | "directory" | "extension")
+            setScopeType(v as "file" | "directory" | "folder" | "extension")
           }
         >
           <SelectTrigger className="w-[130px] h-9">
@@ -182,7 +185,8 @@ export function WorkspaceFilePermissions() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="file">File</SelectItem>
-            <SelectItem value="directory">Directory</SelectItem>
+            <SelectItem value="directory">Directory/**</SelectItem>
+            <SelectItem value="folder">Folder (only)</SelectItem>
             <SelectItem value="extension">Extension</SelectItem>
           </SelectContent>
         </Select>
@@ -190,7 +194,7 @@ export function WorkspaceFilePermissions() {
           placeholder={
             scopeType === "extension"
               ? ".ts"
-              : scopeType === "directory"
+              : scopeType === "directory" || scopeType === "folder"
                 ? "src/components"
                 : "src/foo.ts"
           }

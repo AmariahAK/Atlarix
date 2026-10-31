@@ -5,7 +5,13 @@
 import path from "path";
 
 export type FilePermissionDecision = "always_allow" | "always_deny";
-export type FileScopeType = "file" | "directory" | "extension";
+/**
+ * `directory` is RECURSIVE ("this folder and everything under it") and also hosts
+ * the whole-workspace rule `WHOLE_FOLDER = "."`. `folder` is the NON-recursive
+ * sibling ("this folder only") — direct children, nothing deeper — added so a
+ * grant is never silently wider than the choice the user clicked.
+ */
+export type FileScopeType = "file" | "directory" | "folder" | "extension";
 
 export type FilePermissionGate =
   | { action: "auto_allow"; matchedScope: string; scopeType: FileScopeType }
@@ -19,6 +25,7 @@ export type FilePermissionGate =
       extension: string;
       canAlwaysAllowFile: boolean;
       canAlwaysAllowDirectory: boolean;
+      canAlwaysAllowFolder: boolean;
       canAlwaysAllowExtension: boolean;
     };
 
@@ -117,6 +124,13 @@ function pathUnderDirectory(filePath: string, dirScope: string): boolean {
   return file.startsWith(`${dir}/`);
 }
 
+/** Non-recursive: the file's PARENT folder is exactly `folderScope` (no deeper). */
+function pathInFolder(filePath: string, folderScope: string): boolean {
+  const folder = normalizeRelativePath(folderScope);
+  if (!folder) return false;
+  return getParentDirectory(filePath) === folder;
+}
+
 function matchesExtension(filePath: string, extScope: string): boolean {
   const ext = extScope.startsWith(".") ? extScope : `.${extScope}`;
   const fileExt = getPathExtension(filePath);
@@ -148,6 +162,7 @@ export function resolveFilePermissionGate(
       extension,
       canAlwaysAllowFile: false,
       canAlwaysAllowDirectory: false,
+      canAlwaysAllowFolder: false,
       canAlwaysAllowExtension: false,
     };
   }
@@ -171,6 +186,7 @@ export function resolveFilePermissionGate(
       extension,
       canAlwaysAllowFile: false,
       canAlwaysAllowDirectory: false,
+      canAlwaysAllowFolder: false,
       canAlwaysAllowExtension: false,
     };
   }
@@ -194,22 +210,36 @@ export function resolveFilePermissionGate(
     return { action: "auto_allow", matchedScope: rel, scopeType: "file" };
   }
 
-  const dirRows = listPermissions.filter((r) => r.scopeType === "directory");
-  dirRows.sort((a, b) => b.scopeValue.length - a.scopeValue.length);
+  // Directory and folder rules share one precedence group: the narrowest
+  // (longest) scope decides first, so a subfolder rule — a deny included — still
+  // beats a wider one, exactly as it did when only `directory` existed.
+  const dirRows = listPermissions.filter(
+    (r) => r.scopeType === "directory" || r.scopeType === "folder",
+  );
+  dirRows.sort((a, b) => {
+    const byLen = b.scopeValue.length - a.scopeValue.length;
+    if (byLen !== 0) return byLen;
+    // Same folder, both kinds of rule: a deny wins over an allow.
+    return (b.decision === "always_deny" ? 1 : 0) - (a.decision === "always_deny" ? 1 : 0);
+  });
   for (const row of dirRows) {
-    if (!pathUnderDirectory(rel, row.scopeValue)) continue;
+    const under =
+      row.scopeType === "folder"
+        ? pathInFolder(rel, row.scopeValue)
+        : pathUnderDirectory(rel, row.scopeValue);
+    if (!under) continue;
     if (row.decision === "always_deny") {
       return {
         action: "auto_deny",
         matchedScope: row.scopeValue,
-        scopeType: "directory",
+        scopeType: row.scopeType,
       };
     }
     if (row.decision === "always_allow" && !isDeleteOrRename) {
       return {
         action: "auto_allow",
         matchedScope: row.scopeValue,
-        scopeType: "directory",
+        scopeType: row.scopeType,
       };
     }
     break;
@@ -242,6 +272,7 @@ export function resolveFilePermissionGate(
     extension,
     canAlwaysAllowFile: Boolean(rel),
     canAlwaysAllowDirectory: Boolean(parentDir),
+    canAlwaysAllowFolder: Boolean(parentDir),
     canAlwaysAllowExtension: Boolean(extension),
   };
 }
@@ -256,6 +287,10 @@ export function normalizeScopeValue(
   }
   if (scopeType === "directory") {
     if (v === WHOLE_FOLDER) return WHOLE_FOLDER;
+    return normalizeRelativePath(v.replace(/\/+$/, ""));
+  }
+  if (scopeType === "folder") {
+    // Never the whole-workspace rule: a non-recursive "this folder" of "." is empty.
     return normalizeRelativePath(v.replace(/\/+$/, ""));
   }
   return normalizeRelativePath(v);

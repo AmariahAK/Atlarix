@@ -18,6 +18,7 @@ import { hasProviderSdkFactory } from "@/ipc/shared/provider-sdk-factories";
 import { registerModelsDevVision } from "@/lib/routing/model-capability-profile";
 import { registerModelsDevReasoning } from "@/lib/routing/model-reasoning-profile";
 import { type CatalogCost, registerModelsDevPrices } from "@/lib/routing/byok-pricing";
+import { filterBedrockCatalogModels } from "./bedrock-catalog";
 
 const logger = log.scope("models_dev");
 
@@ -731,6 +732,29 @@ export async function catalogModelName(modelId: string): Promise<string | null> 
 }
 
 /**
+ * Bedrock's catalog lists one bare on-demand id AND one inference profile per
+ * region for each Claude model. The bare `anthropic.*` id is refused for every
+ * current Claude model and only the configured region's profile (plus the
+ * cross-region `global.`) can be invoked — the filter in
+ * `@/lib/bedrock-catalog` keeps just those (0i).
+ */
+
+/** The configured Bedrock region: settings first, then AWS_REGION, then us-east-1. */
+async function bedrockRegion(): Promise<string> {
+  try {
+    const { readSettings } = await import("@/main/settings");
+    const settings = readSettings() as {
+      providerSettings?: { bedrock?: { region?: string } };
+    };
+    const fromSettings = settings.providerSettings?.bedrock?.region?.trim();
+    if (fromSettings) return fromSettings;
+  } catch {
+    /* settings not available in this process */
+  }
+  return process.env.AWS_REGION?.trim() || "us-east-1";
+}
+
+/**
  * Non-deprecated catalog rows for a provider, WITHOUT the tool-calling gate.
  *
  * Almost every caller wants `getModelsFromModelsDev` instead. This exists for
@@ -749,8 +773,13 @@ export async function getModelsDevCatalogRows(
     return [];
   }
 
+  let entries = provider.models;
+  if (atlarixProviderId === "bedrock" || atlarixProviderId === "amazon-bedrock") {
+    entries = filterBedrockCatalogModels(entries, await bedrockRegion());
+  }
+
   const models: LanguageModel[] = [];
-  for (const [modelId, m] of Object.entries(provider.models)) {
+  for (const [modelId, m] of Object.entries(entries)) {
     if (m.status === "deprecated") continue;
     // Atlarix uses native tool calling - only include models that support it
     if (requireToolCall && m.tool_call !== true) continue;

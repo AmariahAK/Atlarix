@@ -36,6 +36,7 @@ export const FileOperationPreviewSchema = z.object({
   isDeleteOrRename: z.boolean().optional(),
   canAlwaysAllowFile: z.boolean().optional(),
   canAlwaysAllowDirectory: z.boolean().optional(),
+  canAlwaysAllowFolder: z.boolean().optional(),
   canAlwaysAllowExtension: z.boolean().optional(),
   fileParentDir: z.string().optional(),
   fileExtension: z.string().optional(),

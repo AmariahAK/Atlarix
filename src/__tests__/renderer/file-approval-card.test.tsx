@@ -31,6 +31,7 @@ describe("a file approval card", () => {
         appId={39}
         onOnce={noop}
         onAlwaysFile={noop}
+        onAlwaysFolder={noop}
         onAlwaysDirectory={noop}
         onAlwaysExtension={noop}
         onDeny={noop}

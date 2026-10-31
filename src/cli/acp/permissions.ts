@@ -25,6 +25,7 @@ const KIND: Record<ApprovalChoice["mode"], PermissionOptionKind> = {
   once: "allow_once",
   always_allow: "allow_always",
   always_allow_file: "allow_always",
+  always_allow_folder: "allow_always",
   always_allow_directory: "allow_always",
   deny: "reject_once",
 };

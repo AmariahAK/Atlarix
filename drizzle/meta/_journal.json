@@ -589,6 +589,13 @@
       "when": 1788307200000,
       "tag": "0083_chat_session_lineage",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "6",
+      "when": 1788393600000,
+      "tag": "0084_file_permission_repo_scope",
+      "breakpoints": true
     }
   ]
 }
