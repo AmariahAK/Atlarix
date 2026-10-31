@@ -63,6 +63,32 @@ export function usableContextBudget(params: {
 }
 
 /**
+ * Absolute compaction ceiling: compact once the request passes this many tokens,
+ * however large the model's window is.
+ *
+ * `usableContextBudget` alone never fires on a 1M-token model until ~970k, so
+ * sessions sat at 350-485k and every step re-sent the whole conversation
+ * (2026-10-31 spend incident: the first call of each turn cached ~10.5k of
+ * ~440k). This is the owner's knob — raise it to compact less eagerly, lower it
+ * to compact sooner. The pre-dispatch gate (context-assembly.ts) compares the
+ * request against `min(usable, ceiling)`, so a small window still governs itself.
+ */
+export const ABSOLUTE_COMPACTION_CEILING = 200_000;
+
+/** The trigger threshold: whichever comes first, the usable budget or the ceiling. */
+export function compactionCeiling(usableTokens: number): number {
+  return Math.min(usableTokens, ABSOLUTE_COMPACTION_CEILING);
+}
+
+/** Whether the request must be compacted before dispatch, given its size. */
+export function compactionShouldTrigger(opts: {
+  dispatchEstimate: number;
+  usableTokens: number;
+}): boolean {
+  return opts.dispatchEstimate > compactionCeiling(opts.usableTokens);
+}
+
+/**
  * Every limit compaction's steps compare against, derived from the budget they
  * are protecting space within.
  *

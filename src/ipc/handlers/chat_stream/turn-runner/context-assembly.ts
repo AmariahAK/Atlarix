@@ -30,6 +30,10 @@ import {
   enforceContextBudget,
   estimateDispatchTokens,
 } from "@/lib/routing/tier_context_budget";
+import {
+  compactionCeiling,
+  compactionShouldTrigger,
+} from "@/lib/context/mid-loop-threshold";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -293,10 +297,10 @@ export async function runContextAssembly(
   // the flat 0.9, which reserved ~68,000 tokens too many on a 1M window
   // and far too few on a small one.
   const fillBefore = dispatchEstimate / contextWindowTokens;
-  if (dispatchEstimate > usableTokens) {
+  if (compactionShouldTrigger({ dispatchEstimate, usableTokens })) {
     logCompactionLine(dispatchEstimate, "compact");
     logger.log(
-      `[stream:${req.chatId}] pre-dispatch context compaction fill=${(fillBefore * 100).toFixed(1)}% est=${dispatchEstimate} usable=${usableTokens} window=${contextWindowTokens}`,
+      `[stream:${req.chatId}] pre-dispatch context compaction fill=${(fillBefore * 100).toFixed(1)}% est=${dispatchEstimate} usable=${usableTokens} ceiling=${compactionCeiling(usableTokens)} window=${contextWindowTokens}`,
     );
     const activityBase = `predispatch-compact-${req.chatId}-${Date.now()}`;
     // THE TRIGGER THAT HAD NO UI. This site emitted only
@@ -320,7 +324,7 @@ export async function runContextAssembly(
       // spin. `runCompressAndRebuild` recomputes `dispatchEstimate`, so
       // the loop condition sees each pass's real effect.
       for (let pass = 0; pass < MAX_COMPACTION_PASSES; pass++) {
-        if (dispatchEstimate <= usableTokens) break;
+        if (dispatchEstimate <= compactionCeiling(usableTokens)) break;
         const cr = await runCompressAndRebuild(
           `pre-dispatch-fill-${Math.round(
             (dispatchEstimate / contextWindowTokens) * 100,

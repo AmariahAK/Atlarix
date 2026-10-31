@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import type { ModelMessage } from "ai";
 import {
+  ABSOLUTE_COMPACTION_CEILING,
   MAX_RESERVE_FRACTION,
   assertBudgetsFitWithin,
   compactionBudgets,
+  compactionCeiling,
+  compactionShouldTrigger,
   compactionWouldTrigger,
   usableContextBudget,
 } from "@/lib/context/mid-loop-threshold";
@@ -154,5 +157,28 @@ describe("compactionWouldTrigger", () => {
     });
     expect(r.willTrigger).toBe(false);
     expect(r.usable).toBe(10_000);
+  });
+});
+
+describe("absolute compaction ceiling", () => {
+  it("caps a 1M-window model at 200k, so it compacts long before its usable budget", () => {
+    // 1M window, 32k reserve → usable ≈ 1,016,576. The ceiling must bind first.
+    const usable = usableContextBudget({
+      contextWindow: 1_048_576,
+      maxOutputTokens: 32_000,
+    });
+    expect(ABSOLUTE_COMPACTION_CEILING).toBe(200_000);
+    expect(compactionCeiling(usable)).toBe(200_000);
+    // History passes the ceiling but is still far under the model's usable budget:
+    // the absolute ceiling is what triggers.
+    expect(compactionShouldTrigger({ dispatchEstimate: 200_001, usableTokens: usable })).toBe(true);
+    expect(compactionShouldTrigger({ dispatchEstimate: 199_999, usableTokens: usable })).toBe(false);
+  });
+
+  it("still lets a small window govern itself below the ceiling", () => {
+    expect(compactionCeiling(9_600)).toBe(9_600);
+    expect(compactionCeiling(150_000)).toBe(150_000);
+    expect(compactionShouldTrigger({ dispatchEstimate: 9_601, usableTokens: 9_600 })).toBe(true);
+    expect(compactionShouldTrigger({ dispatchEstimate: 9_599, usableTokens: 9_600 })).toBe(false);
   });
 });
