@@ -193,6 +193,41 @@ describe("commands", () => {
     ).toBe(true);
   });
 
+  it("does not trip on a folder whose name only starts with .atlarix", () => {
+    // `.atlarix-e2e`, `.atlarix-notes`, `.atlarix.bak` are siblings, not the
+    // home folder: writing into them must not ask for the silks/edicts card.
+    for (const c of [
+      "echo x >> ~/.atlarix-e2e/f",
+      "> ~/.atlarix-notes/a",
+      "cp a ~/.atlarix.bak/",
+    ]) {
+      expect(touchesPluginControl(cmd(c), "/p"), c).toBe(false);
+    }
+  });
+
+  it("does not trip on a sibling folder beside the configured home dir", () => {
+    // The expanded home dir is matched too, and it must stop at the segment
+    // boundary: `<home>-e2e` is not `<home>`.
+    for (const c of [
+      `cp a ${home}-e2e/f`,
+      `mv x ${home}-notes/a`,
+      `rm -rf ${home}.bak`,
+    ]) {
+      expect(touchesPluginControl(cmd(c), "/p"), c).toBe(false);
+    }
+  });
+
+  it("still asks for the home folder itself and for globs to it", () => {
+    for (const c of [
+      "> ~/.atlarix/edicts.json",
+      "cd ~/.atlarix && > x",
+      "rm ~/.atl*/edicts.json",
+      "> ~/.atlarix*",
+    ]) {
+      expect(touchesPluginControl(cmd(c), "/p"), c).toBe(true);
+    }
+  });
+
   it("keeps its marking after the card's enrichment recomputes systemScope", () => {
     const enriched = enrichPermissionRequestForUi(
       cmd("cat x > ~/.atlarix/edicts.json"),

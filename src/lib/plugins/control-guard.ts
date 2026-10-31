@@ -90,7 +90,28 @@ export function realTarget(abs: string): string {
  * Text match, by design: a command is not a path. It names the folder outright,
  * or `.atlarix/plugins` / `plugins.json` / `.atlarix/hooks.json` in any spelling
  * (`~/.atlarix/…`, `$HOME/.atlarix/…`).
+ *
+ * Every home-folder match stops at a SEGMENT boundary (see `SEGMENT_END_SOURCE`),
+ * so a sibling folder named `.atlarix-e2e`, `.atlarix-notes` or `.atlarix.bak`
+ * never reads as the home folder. `\b` sat between `x` and `-`/`.`, and a plain
+ * `includes(homeDir)` matched the folder as a prefix of a longer path — both
+ * made every write into `~/.atlarix-e2e/…` ask for a card it could not answer.
  */
+
+/** What may follow a path segment in a shell command: the end, a `/`, a quote,
+ * whitespace or a shell operator. Any other character continues the segment into
+ * a different name. */
+const SEGMENT_END_SOURCE = "(?:[/\\s'\"`&|;()<>]|$)";
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** True when `norm` names `dir` as a whole segment, not a longer name. */
+function namesSegment(norm: string, dir: string): boolean {
+  return new RegExp(escapeRegExp(dir) + SEGMENT_END_SOURCE).test(norm);
+}
+
 function commandNamesPluginControl(command: string): boolean {
   if (!command) return false;
   const norm = command.replace(/\\/g, "/").toLowerCase();
@@ -103,14 +124,16 @@ function commandNamesPluginControl(command: string): boolean {
   ) {
     return true;
   }
-  if (norm.includes(lower(atlarixHomeDir())) && isMutatingCommand(command))
+  if (namesSegment(norm, lower(atlarixHomeDir())) && isMutatingCommand(command))
     return true;
   if (namesControlFile(norm)) return true;
   // Any write that mentions the home folder at all, however it gets there:
   // `cd ~/.atlarix && … > edicts.json`, `~/.atl*/edicts.json`. A read
   // (`cat ~/.atlarix/…`) is not stopped; the sandbox denies the whole folder
   // anyway, and this is the layer for machines and runs without one.
-  const mentionsHome = /\.atlarix\b|\.atl[a-z]*[*?[]/.test(norm);
+  const mentionsHome = new RegExp(
+    "\\.atlarix" + SEGMENT_END_SOURCE + "|\\.atl[a-z]*[*?[]",
+  ).test(norm);
   return (
     mentionsHome &&
     (isMutatingCommand(command) || WINDOWS_WRITE_VERB.test(norm))
