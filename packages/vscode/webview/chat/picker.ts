@@ -122,18 +122,6 @@ function render(scrollToCurrent = false): void {
     );
     foot.append(t);
   }
-  if (opts.full && state.context) {
-    const c = el("div", "picker__thinking");
-    c.append(
-      el("span", "muted", "Context"),
-      segmented(state.context.options, state.context.value, "Context", (v) => {
-        post({ type: "set-option", configId: "context", value: v });
-        if (state.context) state.context.value = v;
-        render();
-      }),
-    );
-    foot.append(c);
-  }
   if (opts.full && state.computerUse) {
     const cu = state.computerUse;
     const r = el("div", "picker__thinking");
