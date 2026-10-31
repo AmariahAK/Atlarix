@@ -102,7 +102,7 @@ import {
 import { ratingAnswerFor, ratingSnoozesOn } from "./rating-keys";
 import { filterEntries, listWorkspaceEntries, mentionAt, mentionInsert } from "../agent/file-index";
 import { parseShellInput } from "../agent/shell-mode";
-import { abbreviatePath, activityLabel, formatTokens, oneLine } from "./format";
+import { abbreviatePath, activityLabel, contextLabel, formatTokens, oneLine } from "./format";
 import { copyText } from "./clipboard";
 import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
@@ -347,13 +347,6 @@ function AgentRows({ rows, width, selected, main }: { rows: StripRow[]; width: n
 
 /** Commands that change the conversation: typed mid-turn, they wait for it to end. */
 const AFTER_TURN = new Set(["/compact", "/new", "/resume", "/undo", "/import", "/fork"]);
-
-/** "context 23% · 47k/205k", or null before the first step reports. */
-export function contextLabel(s: Pick<SessionState, "contextPercent" | "contextUsed" | "contextLimit">): string | null {
-  if (s.contextPercent == null) return null;
-  const of = s.contextUsed != null && s.contextLimit ? ` · ${formatTokens(s.contextUsed)}/${formatTokens(s.contextLimit)}` : "";
-  return `context ${s.contextPercent}%${of}`;
-}
 
 /** "2 agents · 1 command" running in the background, or null. */
 export function runningLabel(r: { agents: number; commands: number }): string | null {
@@ -1563,15 +1556,6 @@ export function App({
             working != null ? Math.floor(threshold * working) : null;
 
           const intro: Line[] = [];
-          if (working != null) {
-            intro.push({
-              text:
-                `Working window: ${formatTokens(working)}` +
-                (raw != null && raw > working
-                  ? ` (of ${formatTokens(raw)} this model holds)`
-                  : ""),
-            });
-          }
           if (session.state.contextPercent != null) {
             intro.push({
               text: `Context: ${session.state.contextPercent}% used`,
@@ -1579,7 +1563,7 @@ export function App({
           }
           if (point != null) {
             intro.push({
-              text: `Compacts at ${Math.round(threshold * 100)}% · ${formatTokens(point)}`,
+              text: `Compacts at ${Math.round(threshold * 100)}%`,
             });
           }
 

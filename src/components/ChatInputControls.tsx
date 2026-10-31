@@ -34,10 +34,6 @@ import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { useLoadApps } from "@/hooks/useLoadApps";
-function formatTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
 
 /** Key for the per-chat atoms when there is no chat; no chat has id 0. */
 const NO_CHAT_ID = 0;
@@ -186,7 +182,7 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
         {chatId != null && budgetTokens > 0 && tokenResult && (
           <div
             className="flex items-center gap-1.5 shrink-0"
-            title={`Context: ${usedTokens.toLocaleString()} / ${formatTokens(budgetTokens)} (${contextPercent.toFixed(0)}%)`}
+            title={`Context: ${contextPercent.toFixed(0)}% used`}
           >
             <TokenCircle
               used={usedTokens}
