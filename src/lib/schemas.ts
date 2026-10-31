@@ -483,6 +483,15 @@ export const UserSettingsSchema = z.object({
   selectedAgent: z.string().optional(),
   /** v2.1: AI Configuration (agents, self-review, context, project understanding). */
   aiConfiguration: AIConfigurationSchema.optional(),
+  /**
+   * Context working window: how much of the model's real context window a
+   * session may grow to before Atlarix compacts. "256k" (default) | "512k" |
+   * "full". Shared across every surface (app, CLI, ACP, VS Code). Anything
+   * above the default costs more — every step re-sends more of the
+   * conversation. Absent (or unrecognised) resolves to "256k" at READ time
+   * (see `contextWorkingWindowTokens`), so there is no DEFAULT_SETTINGS entry.
+   */
+  contextWorkingWindow: z.enum(["256k", "512k", "full"]).optional(),
   acceptedCommunityCode: z.boolean().optional(),
   zoomLevel: ZoomLevelSchema.optional(),
 

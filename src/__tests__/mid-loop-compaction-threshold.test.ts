@@ -1,13 +1,15 @@
 import { describe, it, expect } from "vitest";
 import type { ModelMessage } from "ai";
 import {
-  ABSOLUTE_COMPACTION_CEILING,
+  CONTEXT_WORKING_WINDOW_DEFAULT,
+  CONTEXT_WORKING_WINDOW_512K,
   MAX_RESERVE_FRACTION,
   assertBudgetsFitWithin,
   compactionBudgets,
-  compactionCeiling,
+  compactionPoint,
   compactionShouldTrigger,
   compactionWouldTrigger,
+  contextWorkingWindowTokens,
   usableContextBudget,
 } from "@/lib/context/mid-loop-threshold";
 
@@ -160,25 +162,83 @@ describe("compactionWouldTrigger", () => {
   });
 });
 
-describe("absolute compaction ceiling", () => {
-  it("caps a 1M-window model at 200k, so it compacts long before its usable budget", () => {
-    // 1M window, 32k reserve → usable ≈ 1,016,576. The ceiling must bind first.
+describe("context working window — one rule for every model", () => {
+  it("defaults to 256k, capping a 1M window", () => {
+    expect(CONTEXT_WORKING_WINDOW_DEFAULT).toBe(256_000);
+    expect(CONTEXT_WORKING_WINDOW_512K).toBe(512_000);
+    expect(contextWorkingWindowTokens(1_048_576, undefined)).toBe(256_000);
+    expect(contextWorkingWindowTokens(1_048_576, "256k")).toBe(256_000);
+  });
+
+  it("512k and full widen the window, but never past the real window", () => {
+    expect(contextWorkingWindowTokens(1_048_576, "512k")).toBe(512_000);
+    expect(contextWorkingWindowTokens(1_048_576, "full")).toBe(1_048_576);
+    // A model smaller than the chosen size still governs itself.
+    expect(contextWorkingWindowTokens(128_000, "512k")).toBe(128_000);
+    expect(contextWorkingWindowTokens(128_000, "full")).toBe(128_000);
+  });
+
+  it("compacts at ~192k by default on a 1M model, ~384k at 512k, near the window at full", () => {
     const usable = usableContextBudget({
       contextWindow: 1_048_576,
       maxOutputTokens: 32_000,
     });
-    expect(ABSOLUTE_COMPACTION_CEILING).toBe(200_000);
-    expect(compactionCeiling(usable)).toBe(200_000);
-    // History passes the ceiling but is still far under the model's usable budget:
-    // the absolute ceiling is what triggers.
-    expect(compactionShouldTrigger({ dispatchEstimate: 200_001, usableTokens: usable })).toBe(true);
-    expect(compactionShouldTrigger({ dispatchEstimate: 199_999, usableTokens: usable })).toBe(false);
+    const point = (setting: "256k" | "512k" | "full") =>
+      compactionPoint({
+        usableTokens: usable,
+        workingWindowTokens: contextWorkingWindowTokens(1_048_576, setting),
+        threshold: 0.75,
+      });
+    expect(point("256k")).toBe(Math.floor(0.75 * 256_000));
+    expect(point("512k")).toBe(Math.floor(0.75 * 512_000));
+    expect(point("full")).toBe(Math.floor(0.75 * 1_048_576));
+    // And the trigger fires just past each point.
+    expect(
+      compactionShouldTrigger({
+        dispatchEstimate: Math.floor(0.75 * 256_000) + 1,
+        usableTokens: usable,
+        workingWindowTokens: 256_000,
+        threshold: 0.75,
+      }),
+    ).toBe(true);
+    expect(
+      compactionShouldTrigger({
+        dispatchEstimate: Math.floor(0.75 * 256_000) - 1,
+        usableTokens: usable,
+        workingWindowTokens: 256_000,
+        threshold: 0.75,
+      }),
+    ).toBe(false);
   });
 
-  it("still lets a small window govern itself below the ceiling", () => {
-    expect(compactionCeiling(9_600)).toBe(9_600);
-    expect(compactionCeiling(150_000)).toBe(150_000);
-    expect(compactionShouldTrigger({ dispatchEstimate: 9_601, usableTokens: 9_600 })).toBe(true);
-    expect(compactionShouldTrigger({ dispatchEstimate: 9_599, usableTokens: 9_600 })).toBe(false);
+  it("never compacts past the usable budget (the reply must fit)", () => {
+    // A tiny 16k window: usable ≈ 9,600. threshold × working window would be
+    // 0.75 × 16,000 = 12,000, but the usable budget binds first.
+    const usable = usableContextBudget({
+      contextWindow: 16_000,
+      maxOutputTokens: 32_000,
+    });
+    const point = compactionPoint({
+      usableTokens: usable,
+      workingWindowTokens: 16_000,
+      threshold: 0.75,
+    });
+    expect(point).toBe(usable);
+    expect(compactionShouldTrigger({ dispatchEstimate: usable + 1, usableTokens: usable, workingWindowTokens: 16_000, threshold: 0.75 })).toBe(true);
+    expect(compactionShouldTrigger({ dispatchEstimate: usable - 1, usableTokens: usable, workingWindowTokens: 16_000, threshold: 0.75 })).toBe(false);
+  });
+
+  it("a 128k model is unchanged by the default (256k) setting", () => {
+    // 128k window, 32k reserve → usable = 96k. threshold × working window =
+    // 0.75 × 128k = 96k. Both bind at 96k, so the default setting changes nothing.
+    const usable = usableContextBudget({
+      contextWindow: 128_000,
+      maxOutputTokens: 32_000,
+    });
+    const working = contextWorkingWindowTokens(128_000, undefined);
+    expect(working).toBe(128_000);
+    expect(
+      compactionPoint({ usableTokens: usable, workingWindowTokens: working, threshold: 0.75 }),
+    ).toBe(usable);
   });
 });

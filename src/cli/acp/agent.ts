@@ -73,6 +73,9 @@ export interface AcpDeps {
   rememberModel(ref: ModelChoice): void;
   /** /effort's level, as the TUI's /effort (the old deep-thinking switch kept in step). */
   setEffort?(patch: { effort: string; deepThinking: boolean }): void;
+  /** The context working window — one value shared across every surface. */
+  getContextWorkingWindow?(): "256k" | "512k" | "full";
+  setContextWorkingWindow?(v: "256k" | "512k" | "full"): void;
   /** Computer use for a model: the same per-model switch as the app and the TUI's /computer. */
   computerUse?: { isOn(m: ModelChoice): boolean; set(m: ModelChoice, on: boolean): void; notice(): Promise<string | null> };
   /**
@@ -1216,6 +1219,21 @@ export class AcpAgent {
         options: MODES.map((m) => ({ value: m.id, name: m.name, description: m.description })),
       },
     ];
+    // Context working window: one shared setting, surfaced beside mode/model.
+    if (this.deps.getContextWorkingWindow) {
+      out.push({
+        id: "context",
+        name: "Context",
+        category: "model_config",
+        type: "select",
+        currentValue: this.deps.getContextWorkingWindow(),
+        options: [
+          { value: "256k", name: "256K (default)" },
+          { value: "512k", name: "512K · costs more" },
+          { value: "full", name: "Full window · costs more" },
+        ],
+      });
+    }
     if (!options.length) return out;
     const key = (m: { provider: string; name: string }) => `${m.provider}/${m.name}`;
     const want = t.session.model ?? current;
@@ -1644,6 +1662,12 @@ export class AcpAgent {
         throw RequestError.invalidParams(undefined, ineligibleReason(shown.computerUse));
       }
       this.deps.computerUse.set(shown, on);
+    } else if (configId === "context" && this.deps.setContextWorkingWindow) {
+      const v = String(value);
+      if (v !== "256k" && v !== "512k" && v !== "full") {
+        throw RequestError.invalidParams(undefined, `unknown context ${v}`);
+      }
+      this.deps.setContextWorkingWindow(v);
     } else throw RequestError.invalidParams(undefined, `unknown option ${configId}`);
     return this.configOptions(t);
   }

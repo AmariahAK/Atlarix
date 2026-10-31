@@ -29,6 +29,8 @@ export const state = {
   thinking: null as { value: string; options: Array<{ value: string; name: string; description?: string | null }> } | null,
   /** Computer use for the chat's model: on, or why it can't be (the agent's `computer_use` option). */
   computerUse: null as { on: boolean; why: string | null; note: string | null } | null,
+  /** The context working window (config id "context"): 256k | 512k | full. */
+  context: null as { value: string; options: Array<{ value: string; name: string; description?: string | null }> } | null,
   commands: [] as Command[],
   settings: { attachOpenFile: true, ctrlEnterSends: false, notifyWhenNeeded: true } as HostSettings,
   providers: null as ProviderRow[] | null,
@@ -56,6 +58,7 @@ export function emit(topic: Topic): void {
 export function applyOptions(opts: SessionConfigOption[]): void {
   state.thinking = null;
   state.computerUse = null;
+  state.context = null;
   for (const o of opts) {
     if (o.type !== "select") continue;
     const groups = toGroups(o.options as Array<Group | { value: string; name: string }>);
@@ -75,6 +78,8 @@ export function applyOptions(opts: SessionConfigOption[]): void {
       };
     } else if (o.id === "thinking") {
       state.thinking = { value: String(o.currentValue), options: groups.flatMap((g) => g.options) };
+    } else if (o.id === "context") {
+      state.context = { value: String(o.currentValue), options: groups.flatMap((g) => g.options) };
     }
   }
   emit("options");

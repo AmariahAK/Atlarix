@@ -63,29 +63,70 @@ export function usableContextBudget(params: {
 }
 
 /**
- * Absolute compaction ceiling: compact once the request passes this many tokens,
- * however large the model's window is.
+ * The context WORKING WINDOW: how much of the model's real context window a
+ * session may grow to before Atlarix compacts it.
  *
  * `usableContextBudget` alone never fires on a 1M-token model until ~970k, so
  * sessions sat at 350-485k and every step re-sent the whole conversation
  * (2026-10-31 spend incident: the first call of each turn cached ~10.5k of
- * ~440k). This is the owner's knob — raise it to compact less eagerly, lower it
- * to compact sooner. The pre-dispatch gate (context-assembly.ts) compares the
- * request against `min(usable, ceiling)`, so a small window still governs itself.
+ * ~440k). The working window is the owner's knob — one rule for every model,
+ * whatever its window: the session compacts at `compactionThreshold` × the
+ * working window (default 256,000 → ~192k at the 0.75 default), never more
+ * than `usableContextBudget` (the reply must fit). A window smaller than the
+ * chosen size still governs itself, so a 128k model is unchanged.
  */
-export const ABSOLUTE_COMPACTION_CEILING = 200_000;
+export const CONTEXT_WORKING_WINDOW_DEFAULT = 256_000;
+export const CONTEXT_WORKING_WINDOW_512K = 512_000;
 
-/** The trigger threshold: whichever comes first, the usable budget or the ceiling. */
-export function compactionCeiling(usableTokens: number): number {
-  return Math.min(usableTokens, ABSOLUTE_COMPACTION_CEILING);
+/** The setting's three values: "256k" (default) | "512k" | "full" (the whole window). */
+export type ContextWorkingWindowSetting = "256k" | "512k" | "full";
+
+/**
+ * The working window in tokens for a model whose real context window is
+ * `contextWindow`. `undefined`/unknown settings resolve to the 256k default.
+ */
+export function contextWorkingWindowTokens(
+  contextWindow: number,
+  setting: ContextWorkingWindowSetting | undefined,
+): number {
+  const window = Math.max(0, contextWindow);
+  if (setting === "full") return window;
+  const cap =
+    setting === "512k"
+      ? CONTEXT_WORKING_WINDOW_512K
+      : CONTEXT_WORKING_WINDOW_DEFAULT;
+  return Math.min(window, cap);
+}
+
+/**
+ * The compaction point: `compactionThreshold` × the working window, but never
+ * more than the usable budget (the window MINUS the room the reply needs — the
+ * reply must fit). This is what a request must exceed before compaction runs.
+ */
+export function compactionPoint(opts: {
+  usableTokens: number;
+  workingWindowTokens: number;
+  threshold: number;
+}): number {
+  const at = Math.floor(opts.threshold * opts.workingWindowTokens);
+  return Math.min(opts.usableTokens, Math.max(1, at));
 }
 
 /** Whether the request must be compacted before dispatch, given its size. */
 export function compactionShouldTrigger(opts: {
   dispatchEstimate: number;
   usableTokens: number;
+  workingWindowTokens: number;
+  threshold: number;
 }): boolean {
-  return opts.dispatchEstimate > compactionCeiling(opts.usableTokens);
+  return (
+    opts.dispatchEstimate >
+    compactionPoint({
+      usableTokens: opts.usableTokens,
+      workingWindowTokens: opts.workingWindowTokens,
+      threshold: opts.threshold,
+    })
+  );
 }
 
 /**
