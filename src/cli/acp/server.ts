@@ -707,7 +707,7 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
     model: devModel,
     effort: { effort: "", deepThinking: false },
   };
-  const { setRuntimeSettingsOverride } = await import("../../main/settings");
+  const { setRuntimeSettingsOverride, readSettings, writeSettings } = await import("../../main/settings");
   // The terminal's own level, always, even unset: the app's (user-settings.json)
   // leaked into requests while the CLI showed its own (QA: header showed the
   // default, the request carried the app's "low").
@@ -786,6 +786,8 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
       if (opts.devUrl) devPick.effort = { effort: patch.effort ?? "", deepThinking: patch.deepThinking ?? false };
       else models.writeCliState({ ...models.readCliState(), ...patch });
     },
+    getContextWorkingWindow: () => readSettings().contextWorkingWindow ?? "256k",
+    setContextWorkingWindow: (v) => writeSettings({ contextWorkingWindow: v }),
     listSessions: (cwd) => listFolderSessions(cwd),
     changeSession: (sessionId, change) => changeFolderSession(sessionId, change),
   });

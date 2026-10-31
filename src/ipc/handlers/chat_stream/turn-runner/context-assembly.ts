@@ -31,7 +31,7 @@ import {
   estimateDispatchTokens,
 } from "@/lib/routing/tier_context_budget";
 import {
-  compactionCeiling,
+  compactionPoint,
   compactionShouldTrigger,
 } from "@/lib/context/mid-loop-threshold";
 
@@ -66,6 +66,10 @@ export interface ContextAssemblyDeps {
   contextWindowTokens: number;
   /** Window minus the reply reserve — what a request may actually occupy. */
   usableTokens: number;
+  /** The context WORKING WINDOW: when to compact and what the meter reports against. */
+  workingWindowTokens: number;
+  /** `compactionThreshold` × working window is the compaction point (0.6–0.9). */
+  compactionThreshold: number;
   /**
    * Bound tool descriptions + parameter schemas for this turn, measured ONCE by
    * the caller (`chat_stream_handlers`) via `measureToolSurface`.
@@ -99,6 +103,8 @@ export async function runContextAssembly(
     toolSurfaceTokens,
     contextWindowTokens,
     usableTokens,
+    workingWindowTokens,
+    compactionThreshold,
   } = deps;
   let {
     systemPrompt,
@@ -121,9 +127,9 @@ export async function runContextAssembly(
   const logCompactionLine = (est: number, kind: "reminder" | "compact") => {
     if (loggedOnce[kind]) return;
     loggedOnce[kind] = true;
-    const pct = (est / contextWindowTokens) * 100;
+    const pct = (est / workingWindowTokens) * 100;
     logger.info(
-      `[compaction] Context at ${pct.toFixed(1)}% (${est}tokens / ${contextWindowTokens}tokens) — ${kind}`,
+      `[compaction] Context at ${pct.toFixed(1)}% of the working window (${est}tokens / ${workingWindowTokens}tokens) — ${kind}`,
     );
   };
 
@@ -296,11 +302,23 @@ export async function runContextAssembly(
   // the model's real output limit. Comparing against it directly retires
   // the flat 0.9, which reserved ~68,000 tokens too many on a 1M window
   // and far too few on a small one.
-  const fillBefore = dispatchEstimate / contextWindowTokens;
-  if (compactionShouldTrigger({ dispatchEstimate, usableTokens })) {
+  const point = compactionPoint({
+    usableTokens,
+    workingWindowTokens,
+    threshold: compactionThreshold,
+  });
+  const fillBefore = dispatchEstimate / workingWindowTokens;
+  if (
+    compactionShouldTrigger({
+      dispatchEstimate,
+      usableTokens,
+      workingWindowTokens,
+      threshold: compactionThreshold,
+    })
+  ) {
     logCompactionLine(dispatchEstimate, "compact");
     logger.log(
-      `[stream:${req.chatId}] pre-dispatch context compaction fill=${(fillBefore * 100).toFixed(1)}% est=${dispatchEstimate} usable=${usableTokens} ceiling=${compactionCeiling(usableTokens)} window=${contextWindowTokens}`,
+      `[stream:${req.chatId}] pre-dispatch context compaction fill=${(fillBefore * 100).toFixed(1)}% est=${dispatchEstimate} point=${point} usable=${usableTokens} working=${workingWindowTokens} threshold=${compactionThreshold} window=${contextWindowTokens}`,
     );
     const activityBase = `predispatch-compact-${req.chatId}-${Date.now()}`;
     // THE TRIGGER THAT HAD NO UI. This site emitted only
@@ -324,7 +342,7 @@ export async function runContextAssembly(
       // spin. `runCompressAndRebuild` recomputes `dispatchEstimate`, so
       // the loop condition sees each pass's real effect.
       for (let pass = 0; pass < MAX_COMPACTION_PASSES; pass++) {
-        if (dispatchEstimate <= compactionCeiling(usableTokens)) break;
+        if (dispatchEstimate <= point) break;
         const cr = await runCompressAndRebuild(
           `pre-dispatch-fill-${Math.round(
             (dispatchEstimate / contextWindowTokens) * 100,
@@ -350,7 +368,7 @@ export async function runContextAssembly(
   }
 
   const CONTEXT_PROACTIVE_THRESHOLD = 0.55;
-  const fillAfterProactive = dispatchEstimate / contextWindowTokens;
+  const fillAfterProactive = dispatchEstimate / workingWindowTokens;
   if (fillAfterProactive >= CONTEXT_PROACTIVE_THRESHOLD) {
     const livePct = Math.round(fillAfterProactive * 100);
     logCompactionLine(dispatchEstimate, "reminder");
@@ -371,7 +389,9 @@ export async function runContextAssembly(
     sections: [],
     trimReport: [],
     dispatchedTokens: dispatchEstimate,
-    contextWindow: contextWindowTokens,
+    // The context meter reports against the WORKING window, so "% used" means
+    // "how close to compaction", not "how close to the model's hard limit".
+    contextWindow: workingWindowTokens,
   } satisfies ChatContextReport);
   return {
     systemPrompt,

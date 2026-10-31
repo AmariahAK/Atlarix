@@ -46,6 +46,7 @@ import { decodePasteBytes, type PasteEvent } from "@opentui/core";
 import { AUTO_CONSENT_MARKER, FREE_LIMIT_MARKER, formatResetsIn } from "@/shared/billing_copy";
 import { freeAutoResetsAt } from "@/lib/billing/free-auto-gate";
 import { COMMANDS, matchCommands, parseCommandLine, type SlashCommand } from "./commands";
+import type { ContextWorkingWindowSetting } from "@/lib/context/mid-loop-threshold";
 import { DialogHost, InputDialog, ListDialog, type Line, type ListItem } from "./dialogs";
 import { DialogOverlay, DialogPanel } from "./Dialog";
 import { Toast, type ToastState, type ToastVariant } from "./Toast";
@@ -1537,6 +1538,86 @@ export function App({
       case "/effort":
         void openEffort(rest);
         return;
+      case "/context":
+        return void (async () => {
+          const { readSettings, writeSettings } = await import("@/main/settings");
+          const { getContextWindow } = await import("@/ipc/utils/token_utils");
+          const { contextWorkingWindowTokens } = await import(
+            "@/lib/context/mid-loop-threshold"
+          );
+          const settings = readSettings();
+          const current: ContextWorkingWindowSetting =
+            settings.contextWorkingWindow ?? "256k";
+          const threshold =
+            settings.aiConfiguration?.contextSummarization
+              ?.compactionThreshold ?? 0.75;
+          const raw = await getContextWindow(
+            session.turnModel() as never,
+            session.chatId,
+          ).catch(() => null as number | null);
+          const working =
+            raw != null ? contextWorkingWindowTokens(raw, current) : null;
+          const point =
+            working != null ? Math.floor(threshold * working) : null;
+
+          const intro: Line[] = [];
+          if (working != null) {
+            intro.push({
+              text:
+                `Working window: ${formatTokens(working)}` +
+                (raw != null && raw > working
+                  ? ` (of ${formatTokens(raw)} this model holds)`
+                  : ""),
+            });
+          }
+          if (session.state.contextPercent != null) {
+            intro.push({
+              text: `Context: ${session.state.contextPercent}% used`,
+            });
+          }
+          if (point != null) {
+            intro.push({
+              text: `Compacts at ${Math.round(threshold * 100)}% · ${formatTokens(point)}`,
+            });
+          }
+
+          host.push(
+            new ListDialog({
+              title: "Context window",
+              intro,
+              items: [
+                {
+                  id: "256k",
+                  label: "256k",
+                  right: { text: "default", tone: "muted" as const },
+                },
+                {
+                  id: "512k",
+                  label: "512k",
+                  detail: "Keeps more of the conversation; every step costs more.",
+                },
+                {
+                  id: "full",
+                  label: "Full window",
+                  detail: "Keeps more of the conversation; every step costs more.",
+                },
+              ],
+              initialId: current,
+              footer: "↑↓ move · enter choose · esc close",
+              onChoose: (item) => {
+                writeSettings({
+                  contextWorkingWindow: item.id as ContextWorkingWindowSetting,
+                });
+                host.closeAll();
+                flash(
+                  `Context window: ${item.id === "full" ? "full" : item.id}.`,
+                  3000,
+                );
+                void session.refreshContext();
+              },
+            }),
+          );
+        })();
       case "/quit":
       case "/exit":
         onQuit();

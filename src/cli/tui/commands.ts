@@ -25,6 +25,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/compact", description: "Summarise the conversation so far to free up context", group: "session" },
   { name: "/fork", description: "Carry on in a copy of this session; the original stays as it is (/fork <name> names it)", group: "session" },
   { name: "/effort", description: "How hard the model thinks: its own levels, as it lists them (ctrl+t: top or default)", group: "session" },
+  { name: "/context", description: "How much of the context window to use before compacting: 256k, 512k or full", group: "session" },
   { name: "/plan", description: "This session's plan: show it, or /plan share to save it as a page", group: "session" },
   { name: "/build", description: "Build the plan that is ready", group: "session" },
   { name: "/export", description: "Save this session as Markdown (--json, --sanitize, a file name)", group: "session" },

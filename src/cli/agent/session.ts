@@ -1644,12 +1644,37 @@ export class AgentSession extends EventEmitter {
     }
   }
 
-  private async refreshContextWindow(): Promise<void> {
+  async refreshContextWindow(): Promise<void> {
     try {
       const { getContextWindow } = await import("@/ipc/utils/token_utils");
-      this.contextWindow = await getContextWindow(this.turnModel() as never, this.chatId);
+      const { readSettings } = await import("@/main/settings");
+      const { contextWorkingWindowTokens } = await import(
+        "@/lib/context/mid-loop-threshold"
+      );
+      const raw = await getContextWindow(this.turnModel() as never, this.chatId);
+      // The context bar reports against the WORKING window (when compaction
+      // fires), not the raw window — same rule as the desktop app.
+      this.contextWindow = contextWorkingWindowTokens(
+        raw,
+        readSettings().contextWorkingWindow,
+      );
     } catch {
       this.contextWindow = null;
+    }
+  }
+
+  /** Re-read the context window after the working-window setting changed, and
+   * re-measure the bar against it now (not just on the next turn). */
+  async refreshContext(): Promise<void> {
+    await this.refreshContextWindow();
+    if (this.contextWindow && this.state.contextUsed != null) {
+      this.update({
+        contextLimit: this.contextWindow,
+        contextPercent: Math.min(
+          100,
+          Math.round((this.state.contextUsed / this.contextWindow) * 100),
+        ),
+      });
     }
   }
 

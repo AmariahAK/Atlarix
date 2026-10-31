@@ -434,6 +434,37 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
             </SelectContent>
           </Select>
         </div>
+        {/* CONTEXT WINDOW — one rule for every model. Shared across the app, the
+            CLI (/context), ACP and the VS Code panel. */}
+        <div className="flex items-center justify-between gap-4 pt-4 border-t border-border mt-4">
+          <div className="space-y-0.5">
+            <label className="text-sm font-medium text-foreground">
+              Context window
+            </label>
+            <p className="text-xs text-muted-foreground">
+              How much of the conversation to keep before Atlarix compacts it.
+              {(settings?.contextWorkingWindow ?? "256k") !== "256k" &&
+                " Keeps more of the conversation; every step costs more."}
+            </p>
+          </div>
+          <Select
+            value={settings?.contextWorkingWindow ?? "256k"}
+            onValueChange={(v) =>
+              void updateSettings({
+                contextWorkingWindow: v as "256k" | "512k" | "full",
+              })
+            }
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="256k">256k (default)</SelectItem>
+              <SelectItem value="512k">512k · costs more</SelectItem>
+              <SelectItem value="full">Full window · costs more</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <CliLauncherSettings />
       </div>
     </div>

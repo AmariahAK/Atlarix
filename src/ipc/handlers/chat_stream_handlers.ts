@@ -123,6 +123,7 @@ import {
 } from "@/lib/routing/model-reasoning-profile";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { resolveUsableBudget } from "@/lib/context/compaction";
+import { contextWorkingWindowTokens } from "@/lib/context/mid-loop-threshold";
 import { AttachmentStore } from "../../lib/attachment-store";
 import {
   buildPasteAttachmentDirective,
@@ -1936,8 +1937,20 @@ export function registerChatStreamHandlers() {
               effectiveModel,
               contextWindowTokens,
             );
+            // The context WORKING WINDOW — one rule for every model. The session
+            // compacts at `compactionThreshold` × this (default 256k → ~192k),
+            // never past `usableTokens` (the reply must fit). The raw window still
+            // bounds the hard backstop; this only governs WHEN to compact and what
+            // the context meter reports against.
+            const workingWindowTokens = contextWorkingWindowTokens(
+              contextWindowTokens,
+              settings.contextWorkingWindow,
+            );
+            const compactionThreshold =
+              settings.aiConfiguration?.contextSummarization
+                ?.compactionThreshold ?? 0.75;
             logger.info(
-              `[budget] window=${contextWindowTokens} usable=${usableTokens} reserve=${contextWindowTokens - usableTokens}`,
+              `[budget] window=${contextWindowTokens} working=${workingWindowTokens} threshold=${compactionThreshold} usable=${usableTokens} reserve=${contextWindowTokens - usableTokens}`,
             );
 
             const applyTierEscalation = async (_args: {
@@ -2063,13 +2076,14 @@ export function registerChatStreamHandlers() {
                 event,
                 modelContextResolved,
                 promptBundleDeps,
-                // Both, deliberately: `usableTokens` is what the compaction gate
-                // DECIDES on, `contextWindowTokens` is the raw window the fill
-                // percentage and the context meter are REPORTED against. Conflating
-                // them would either make the meter lie about the model's capacity or
-                // make the gate ignore the room the reply needs.
+                // `usableTokens` is the compaction gate's hard backstop (the reply
+                // must fit); `workingWindowTokens` + `compactionThreshold` decide
+                // WHEN to compact, and the fill percentage / context meter report
+                // against the working window.
                 usableTokens,
                 contextWindowTokens,
+                workingWindowTokens,
+                compactionThreshold,
                 toolSurfaceTokens,
               },
             );
