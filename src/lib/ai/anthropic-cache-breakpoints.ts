@@ -128,6 +128,29 @@ export function buildStreamMessagesWithCacheBreakpoints(opts: {
 
   const headerMessage: ModelMessage = { role: "system", content: systemHeader };
 
+  // The per-turn tail rides at the END, appended to the newest user message
+  // (or as its own user message when the history doesn't end on one). It must
+  // NOT be a system message mid-conversation: @ai-sdk/google throws "System
+  // messages are only supported at the beginning of the conversation" and
+  // @ai-sdk/amazon-bedrock throws "Multiple system messages that are separated
+  // by user/assistant messages" — either fails every Gemini/Bedrock turn. A
+  // text part on the LAST message keeps the whole prefix (header + earlier
+  // history) byte-identical from turn to turn, which is what preserves the
+  // provider's prompt cache.
+  const tailText = typeof dynamicTail === "string" ? dynamicTail.trim() : "";
+  let messages: ModelMessage[];
+  if (tailText.length === 0) {
+    messages = [...history];
+  } else {
+    messages = [...history];
+    const last = messages[messages.length - 1];
+    if (last != null && last.role === "user") {
+      messages[messages.length - 1] = appendTextPart(last, tailText);
+    } else {
+      messages.push({ role: "user", content: tailText });
+    }
+  }
+
   return [
     // System content is a string, so content placement falls back to
     // message-level here regardless — matches opencode's system handling.
@@ -140,17 +163,32 @@ export function buildStreamMessagesWithCacheBreakpoints(opts: {
     // Breakpoints on the last two history messages (unmarked ones pass
     // through by reference — history must stay byte-stable across rounds).
     ...(useMarkers
-      ? history.map((m, i) =>
-          i >= history.length - 2 ? mark(m, placement) : m,
+      ? messages.map((m, i) =>
+          i >= messages.length - 2 ? mark(m, placement) : m,
         )
-      : history),
-    // The per-turn tail LAST, so it never sits in the cacheable prefix (see
-    // the module header): the header + all earlier history stay byte-identical
-    // from turn to turn and only the new exchange + tail are written.
-    ...(dynamicTail && dynamicTail.trim().length > 0
-      ? [{ role: "system" as const, content: dynamicTail }]
-      : []),
+      : messages),
   ];
+}
+
+/** Append `text` to a user message's content as an extra text part. */
+function appendTextPart(m: ModelMessage, text: string): ModelMessage {
+  const content = (m as { content?: unknown }).content;
+  if (typeof content === "string") {
+    return {
+      ...m,
+      content: [
+        { type: "text", text: content },
+        { type: "text", text },
+      ],
+    } as ModelMessage;
+  }
+  if (Array.isArray(content)) {
+    return {
+      ...m,
+      content: [...content, { type: "text", text }],
+    } as ModelMessage;
+  }
+  return { ...m, content: text } as ModelMessage;
 }
 
 // ── v13.3: per-step breakpoint advancement ─────────────────────────────────
