@@ -92,7 +92,7 @@ export function PlanPanel({
           }}
         >
           <text fg={color.bg}>
-            <b>Build it</b>
+            <b>{plan.status === "building" ? "Continue" : "Build it"}</b>
           </text>
         </box>
         <text fg={color.faint}>{planHint(width)}</text>

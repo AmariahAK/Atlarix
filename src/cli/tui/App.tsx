@@ -1332,7 +1332,9 @@ export function App({
       live = false;
     };
   }, [state.planReady?.planId, state.planRevision]);
-  const planShown = pinnedPlan != null && !planHidden;
+  // Hide as soon as a turn starts: a stopped build's card must not stay pinned
+  // over the next turn while it is already thinking (QA 2026-10-31).
+  const planShown = pinnedPlan != null && !planHidden && !state.busy;
   const buildPinned = () => {
     if (!pinnedPlan) return;
     setPinnedPlan(null);

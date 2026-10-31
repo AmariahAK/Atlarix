@@ -2538,7 +2538,11 @@ export class AgentSession extends EventEmitter {
         if (row) this.update({ planReady: { planId: row.id, title: found.title } });
       }
     }
-    if (wasInterrupted || this.state.lastError) await this.offerResumeBuild();
+    // A build that stopped on the USER'S stop (Esc) is offered again. A provider
+    // error must NOT pin it: it is not a stopped build, and pinning it after the
+    // error popped the card over the next turn and stayed while it ran
+    // (QA 2026-10-31).
+    if (wasInterrupted) await this.offerResumeBuild();
     if (wasInterrupted) {
       // A stopped turn opens nothing. What you typed into it that the agent never
       // got (no step came: a stop during a retry) goes back to your input box,
