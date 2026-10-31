@@ -77,8 +77,15 @@ export const workspaceFilePermissions = sqliteTable(
     appId: integer("app_id")
       .notNull()
       .references(() => apps.id, { onDelete: "cascade" }),
+    /**
+     * Git common dir (realpath) of the repo the scope belongs to. Set on rules
+     * shared across a repo's worktrees (0g); NULL on legacy per-workspace rules
+     * and on `sandbox_path` rows. A rule with a repo_key matches every worktree
+     * of that repo, not just the workspace that saved it.
+     */
+    repoKey: text("repo_key"),
     scopeType: text("scope_type", {
-      enum: ["file", "directory", "extension", "sandbox_path"],
+      enum: ["file", "directory", "folder", "extension", "sandbox_path"],
     }).notNull(),
     scopeValue: text("scope_value").notNull(),
     decision: text("decision", {
@@ -95,6 +102,7 @@ export const workspaceFilePermissions = sqliteTable(
       table.scopeValue,
     ),
     index("workspace_file_permissions_app_id_idx").on(table.appId),
+    index("workspace_file_permissions_repo_key_idx").on(table.repoKey),
   ],
 );
 

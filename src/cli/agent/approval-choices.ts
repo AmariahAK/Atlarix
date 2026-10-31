@@ -6,7 +6,7 @@
 import { getCommandCategory } from "@/lib/terminal-command-category";
 import type { PendingApproval } from "./session";
 
-export type ApprovalChoice = { label: string; mode: "once" | "always_allow" | "always_allow_file" | "always_allow_directory" | "deny" };
+export type ApprovalChoice = { label: string; mode: "once" | "always_allow" | "always_allow_file" | "always_allow_folder" | "always_allow_directory" | "deny" };
 
 export interface Preview {
   command?: string;
@@ -28,6 +28,7 @@ export interface Preview {
   canAlwaysAllow?: boolean;
   canAlwaysAllowFile?: boolean;
   canAlwaysAllowDirectory?: boolean;
+  canAlwaysAllowFolder?: boolean;
   fileParentDir?: string;
   /** The gate's key for the segment that asked (`ls`, `danger:rm-rf`, `mutate:git-write`): what "always" saves. */
   commandCategory?: string;
@@ -65,8 +66,13 @@ export function approvalChoices(a: PendingApproval): ApprovalChoice[] {
     if (p.canAlwaysAllowFile !== false) {
       choices.push({ label: "Yes, and allow edits to this file from now on", mode: "always_allow_file" });
     }
+    // Two folder choices, never a silent widening: "this folder" is its direct
+    // files only; "this folder and everything under it" is the recursive subtree.
+    if (p.canAlwaysAllowFolder !== false && p.fileParentDir) {
+      choices.push({ label: `Yes, and allow edits in ${nativeDir(p.fileParentDir)} from now on`, mode: "always_allow_folder" });
+    }
     if (p.canAlwaysAllowDirectory !== false && p.fileParentDir) {
-      choices.push({ label: `Yes, and allow edits in ${nativeDir(p.fileParentDir)} from now on`, mode: "always_allow_directory" });
+      choices.push({ label: `Yes, and allow edits in ${nativeDir(p.fileParentDir)} and everything under it`, mode: "always_allow_directory" });
     }
   }
   choices.push({ label: "No — tell Atlarix what to do instead", mode: "deny" });
@@ -102,7 +108,8 @@ export function approvalConfirmation(a: PendingApproval, mode: ApprovalChoice["m
     const verb = p.type === "delete" ? "delete" : p.type === "create" ? "create" : "edit";
     // A project folder with "/" as the rule is stored and shown elsewhere; a
     // drive path (C:\…) keeps its own (release CI, Windows: `src\`).
-    if (mode === "always_allow_directory" && p.fileParentDir) what = `edit files in ${code(nativeDir(p.fileParentDir, "linux"))} from now on`;
+    if (mode === "always_allow_directory" && p.fileParentDir) what = `edit files in ${code(nativeDir(p.fileParentDir, "linux"))} and everything under it from now on`;
+    else if (mode === "always_allow_folder" && p.fileParentDir) what = `edit files in ${code(nativeDir(p.fileParentDir, "linux"))} from now on`;
     else if (mode === "always_allow_file") what = `edit ${code(p.path)} from now on`;
     else what = `${verb} ${code(p.path)} this time`;
   }

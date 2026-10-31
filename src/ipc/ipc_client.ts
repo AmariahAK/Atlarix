@@ -3337,6 +3337,7 @@ export class IpcClient {
       | "always_allow"
       | "deny"
       | "always_allow_file"
+      | "always_allow_folder"
       | "always_allow_directory"
       | "always_allow_extension";
     appId?: number | null;
@@ -3363,7 +3364,7 @@ export class IpcClient {
 
   public async upsertFilePermission(params: {
     appId: number;
-    scopeType: "file" | "directory" | "extension";
+    scopeType: "file" | "directory" | "folder" | "extension";
     scopeValue: string;
     decision: "always_allow" | "always_deny";
   }) {
@@ -3372,7 +3373,7 @@ export class IpcClient {
 
   public async revokeFilePermission(params: {
     appId: number;
-    scopeType: "file" | "directory" | "extension";
+    scopeType: "file" | "directory" | "folder" | "extension";
     scopeValue: string;
   }) {
     return this.ipcRenderer.invoke("file-permissions:revoke", params);

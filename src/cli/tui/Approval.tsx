@@ -14,10 +14,11 @@ import { color } from "./theme";
 
 /**
  * A letter for each choice (Codex's y / a / p / esc): y yes, a the first
- * "always", d the folder-wide one, n no. Numbers work too.
+ * "always", f this folder, d this folder and everything under it, n no.
+ * Numbers work too.
  */
 export function approvalKey(c: ApprovalChoice): string {
-  return { once: "y", always_allow: "a", always_allow_file: "a", always_allow_directory: "d", deny: "n" }[c.mode];
+  return { once: "y", always_allow: "a", always_allow_file: "a", always_allow_folder: "f", always_allow_directory: "d", deny: "n" }[c.mode];
 }
 
 /**

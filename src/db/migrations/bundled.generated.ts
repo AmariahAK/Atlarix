@@ -87,6 +87,7 @@ import raw_80_0080_custom_provider_api_format from "../../../drizzle/0080_custom
 import raw_81_0081_chat_session_model from "../../../drizzle/0081_chat_session_model.sql?raw";
 import raw_82_0082_usage_rollup from "../../../drizzle/0082_usage_rollup.sql?raw";
 import raw_83_0083_chat_session_lineage from "../../../drizzle/0083_chat_session_lineage.sql?raw";
+import raw_84_0084_file_permission_repo_scope from "../../../drizzle/0084_file_permission_repo_scope.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -181,6 +182,7 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0081_chat_session_model", sql: raw_81_0081_chat_session_model as string, drizzleHash: "ea3c4b63ab71970e78a77cfe69a2303849e4342e1502e6b8904e49c084405cae", when: 1788134400000 },
   { name: "0082_usage_rollup", sql: raw_82_0082_usage_rollup as string, drizzleHash: "f97c668c8388897463e531bd07b8ad38d22035baf098bb1f1c7134ba0f6a845f", when: 1788220800000 },
   { name: "0083_chat_session_lineage", sql: raw_83_0083_chat_session_lineage as string, drizzleHash: "c88002127e052c22075ee48a2207a0a95e9503f59ae8cba8e5a74292c7f486ec", when: 1788307200000 },
+  { name: "0084_file_permission_repo_scope", sql: raw_84_0084_file_permission_repo_scope as string, drizzleHash: "b158120a6be0dba0b0a06124abeb66fcabdda53527ad1414d94ceac8ec0dd1af", when: 1788393600000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -269,4 +271,5 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "ea3c4b63ab71970e78a77cfe69a2303849e4342e1502e6b8904e49c084405cae": "0081_chat_session_model",
   "f97c668c8388897463e531bd07b8ad38d22035baf098bb1f1c7134ba0f6a845f": "0082_usage_rollup",
   "c88002127e052c22075ee48a2207a0a95e9503f59ae8cba8e5a74292c7f486ec": "0083_chat_session_lineage",
+  "b158120a6be0dba0b0a06124abeb66fcabdda53527ad1414d94ceac8ec0dd1af": "0084_file_permission_repo_scope",
 };

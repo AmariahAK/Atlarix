@@ -2,14 +2,19 @@
  * Workspace-scoped file path permissions (SQLite).
  */
 
-import { and, eq, ne } from "drizzle-orm";
-import { db } from "@/db";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
+import { db, getDb } from "@/db";
 import { workspaceFilePermissions } from "@/db/schema";
 import type {
   FilePermissionDecision,
   FileScopeType,
 } from "@/lib/file-permission-scope";
-import { normalizeScopeValue } from "@/lib/file-permission-scope";
+import { normalizeRelativePath, normalizeScopeValue } from "@/lib/file-permission-scope";
+import {
+  resolveFileRepoContext,
+  toRepoRelativePath,
+  type FileRepoContext,
+} from "@/lib/file-permission-repo";
 import { resolveCanonicalAppId } from "@/ipc/utils/canonical-app";
 
 /**
@@ -19,6 +24,53 @@ import { resolveCanonicalAppId } from "@/ipc/utils/canonical-app";
  * gate filters them out (see `listWorkspaceFilePermissions`).
  */
 const SANDBOX_PATH_SCOPE = "sandbox_path" as const;
+
+/** Scope types that carry a workspace-relative path (shared across worktrees). */
+const PATH_SCOPES: ReadonlySet<FileScopeType> = new Set([
+  "file",
+  "directory",
+  "folder",
+]);
+
+function workspacePathForApp(appId: number): string | null {
+  try {
+    const row = getDb().$client
+      .prepare("SELECT path FROM apps WHERE id = ?")
+      .get(appId) as { path?: string } | undefined;
+    return row?.path ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The repo identity (and workspace path) a permission write/read resolves against. */
+function repoScopeForApp(rawAppId: number): {
+  appId: number;
+  ctx: FileRepoContext | null;
+  workspacePath: string | null;
+} {
+  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
+  const workspacePath = workspacePathForApp(appId);
+  const ctx = workspacePath ? resolveFileRepoContext(workspacePath) : null;
+  return { appId, ctx, workspacePath };
+}
+
+/**
+ * A workspace-relative path re-expressed relative to the repo root (the
+ * coordinate the store persists path scopes in), or unchanged when the workspace
+ * is not a git checkout. Used by the approval handler and the preflight, whose
+ * inputs are workspace-relative.
+ */
+export function toRepoRelativePathForApp(
+  appId: number,
+  workspaceRelative: string,
+): string {
+  const normalized = normalizeRelativePath(workspaceRelative);
+  if (!normalized) return "";
+  const { ctx, workspacePath } = repoScopeForApp(appId);
+  if (!ctx || !workspacePath) return normalized;
+  return toRepoRelativePath(ctx, workspacePath, normalized);
+}
 
 export type WorkspaceFilePermissionRow = {
   id: number;
@@ -32,17 +84,26 @@ export type WorkspaceFilePermissionRow = {
 export function listWorkspaceFilePermissions(
   appId: number,
 ): WorkspaceFilePermissionRow[] {
-  const rows = db
-    .select()
-    .from(workspaceFilePermissions)
-    .where(
-      and(
-        eq(workspaceFilePermissions.appId, appId),
+  const { appId: canonical, ctx } = repoScopeForApp(appId);
+  // In a git repo: the repo-shared rules (any worktree of this repo) plus this
+  // workspace's own legacy (pre-sharing) rules. Outside a repo: this workspace's.
+  const where = ctx
+    ? and(
+        ne(workspaceFilePermissions.scopeType, SANDBOX_PATH_SCOPE),
+        or(
+          eq(workspaceFilePermissions.repoKey, ctx.repoKey),
+          and(
+            eq(workspaceFilePermissions.appId, canonical),
+            isNull(workspaceFilePermissions.repoKey),
+          ),
+        ),
+      )
+    : and(
+        eq(workspaceFilePermissions.appId, canonical),
         // Exclude sandbox_path rows — the file-write gate must never see them.
         ne(workspaceFilePermissions.scopeType, SANDBOX_PATH_SCOPE),
-      ),
-    )
-    .all();
+      );
+  const rows = db.select().from(workspaceFilePermissions).where(where).all();
   return rows.map((r) => ({
     id: r.id,
     appId: r.appId,
@@ -59,12 +120,65 @@ export function upsertWorkspaceFilePermission(
   scopeValue: string,
   decision: FilePermissionDecision,
 ): void {
-  // Write under the canonical (oldest) row for this folder so the rule lands on
-  // the same app the chat enforces under (Bug 5).
-  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
+  const { appId, ctx } = repoScopeForApp(rawAppId);
   const normalized = normalizeScopeValue(scopeType, scopeValue);
   if (!normalized) return;
 
+  // Path scopes in a git repo are keyed by the repo (so one approval covers every
+  // worktree, 0g) and stored RELATIVE TO THE REPO ROOT — the caller hands the
+  // scope value in that coordinate space. Extension rules stay per-workspace.
+  const repoKey =
+    ctx && PATH_SCOPES.has(scopeType) ? ctx.repoKey : null;
+  const stored = normalized;
+
+  if (repoKey) {
+    // A shared rule already saved by any worktree of this repo: update in place.
+    const shared = db
+      .select()
+      .from(workspaceFilePermissions)
+      .where(
+        and(
+          eq(workspaceFilePermissions.repoKey, repoKey),
+          eq(workspaceFilePermissions.scopeType, scopeType),
+          eq(workspaceFilePermissions.scopeValue, stored),
+        ),
+      )
+      .get();
+    if (shared) {
+      db.update(workspaceFilePermissions)
+        .set({ decision })
+        .where(eq(workspaceFilePermissions.id, shared.id))
+        .run();
+      return;
+    }
+    // A legacy rule for THIS workspace (saved before sharing existed): convert
+    // it rather than insert a row that would clash with the (appId, scope) index.
+    const legacy = db
+      .select()
+      .from(workspaceFilePermissions)
+      .where(
+        and(
+          eq(workspaceFilePermissions.appId, appId),
+          eq(workspaceFilePermissions.scopeType, scopeType),
+          eq(workspaceFilePermissions.scopeValue, stored),
+          isNull(workspaceFilePermissions.repoKey),
+        ),
+      )
+      .get();
+    if (legacy) {
+      db.update(workspaceFilePermissions)
+        .set({ decision, repoKey })
+        .where(eq(workspaceFilePermissions.id, legacy.id))
+        .run();
+      return;
+    }
+    db.insert(workspaceFilePermissions)
+      .values({ appId, repoKey, scopeType, scopeValue: stored, decision })
+      .run();
+    return;
+  }
+
+  // Non-git workspace (or extension scope): keyed by workspace, as before.
   const existing = db
     .select()
     .from(workspaceFilePermissions)
@@ -72,7 +186,8 @@ export function upsertWorkspaceFilePermission(
       and(
         eq(workspaceFilePermissions.appId, appId),
         eq(workspaceFilePermissions.scopeType, scopeType),
-        eq(workspaceFilePermissions.scopeValue, normalized),
+        eq(workspaceFilePermissions.scopeValue, stored),
+        isNull(workspaceFilePermissions.repoKey),
       ),
     )
     .get();
@@ -86,12 +201,7 @@ export function upsertWorkspaceFilePermission(
   }
 
   db.insert(workspaceFilePermissions)
-    .values({
-      appId,
-      scopeType,
-      scopeValue: normalized,
-      decision,
-    })
+    .values({ appId, repoKey, scopeType, scopeValue: stored, decision })
     .run();
 }
 
@@ -100,16 +210,36 @@ export function revokeWorkspaceFilePermission(
   scopeType: FileScopeType,
   scopeValue: string,
 ): boolean {
-  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
+  const { appId, ctx } = repoScopeForApp(rawAppId);
   const normalized = normalizeScopeValue(scopeType, scopeValue);
   if (!normalized) return false;
+
+  const repoKey =
+    ctx && PATH_SCOPES.has(scopeType) ? ctx.repoKey : null;
+  const stored = normalized;
+
+  if (repoKey) {
+    const shared = db
+      .delete(workspaceFilePermissions)
+      .where(
+        and(
+          eq(workspaceFilePermissions.repoKey, repoKey),
+          eq(workspaceFilePermissions.scopeType, scopeType),
+          eq(workspaceFilePermissions.scopeValue, stored),
+        ),
+      )
+      .run();
+    if (shared.changes > 0) return true;
+  }
+
   const result = db
     .delete(workspaceFilePermissions)
     .where(
       and(
         eq(workspaceFilePermissions.appId, appId),
         eq(workspaceFilePermissions.scopeType, scopeType),
-        eq(workspaceFilePermissions.scopeValue, normalized),
+        eq(workspaceFilePermissions.scopeValue, stored),
+        isNull(workspaceFilePermissions.repoKey),
       ),
     )
     .run();

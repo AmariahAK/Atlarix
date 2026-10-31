@@ -93,6 +93,7 @@ export interface QueuedOperation {
   isDeleteOrRename?: boolean;
   canAlwaysAllowFile?: boolean;
   canAlwaysAllowDirectory?: boolean;
+  canAlwaysAllowFolder?: boolean;
   canAlwaysAllowExtension?: boolean;
   fileParentDir?: string;
   fileExtension?: string;
