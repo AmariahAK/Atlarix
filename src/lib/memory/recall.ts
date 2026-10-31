@@ -20,7 +20,13 @@ const logger = log.scope("memory-recall");
 
 /** At most this many notes are attached to one message. */
 export const RECALL_MAX_NOTES = 5;
-const RECALL_TIMEOUT_MS = 8_000;
+/**
+ * How long the selector model may take. The reply is a short JSON list, so a
+ * healthy model answers in well under this; anything slower is usually the
+ * overload that the local fallback below exists for. Kept short so a failing
+ * recall does not hold the turn for the old 8 s on every message.
+ */
+const RECALL_TIMEOUT_MS = 2_500;
 /** Runaway insurance only — the reply is a short JSON list. */
 const RECALL_MAX_OUTPUT_TOKENS = 512;
 /** The message as the selector sees it; the head carries the intent. */
@@ -41,6 +47,52 @@ export function ageLabel(days: number): string {
   if (days <= 0) return "today";
   if (days === 1) return "1 day ago";
   return `${days} days ago`;
+}
+
+/** Words that never identify a note in the local fallback scorer. */
+const STOP_WORDS = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "your", "what", "when",
+  "where", "which", "will", "have", "has", "was", "are", "not", "but", "all",
+  "can", "how", "get", "its", "also", "just", "out", "into", "about", "over",
+  "then", "now", "our", "you", "them", "been", "more", "than", "some", "any",
+  "each", "other", "there", "here", "should", "would", "could", "their", "they",
+  "being", "does", "did", "doing", "very", "because", "before", "after", "make",
+]);
+
+/** Lowercase alphanumeric tokens; stop words and 1-char fragments are dropped. */
+function tokenize(s: string): string[] {
+  return s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 1 && !STOP_WORDS.has(t));
+}
+
+/**
+ * Deterministic, free recall: score each candidate's file name and description
+ * against the message's tokens and return the best few. Used when the selector
+ * model is unreachable (overloaded / rate-limited / timed out) so a message
+ * still carries the notes that obviously bear on it, instead of none at all.
+ */
+export function localRecallMatch(
+  message: string,
+  candidates: RecallCandidate[],
+): string[] {
+  const msg = new Set(tokenize(message));
+  if (msg.size === 0) return [];
+  const scored = candidates
+    .map((c) => {
+      const name = tokenize(c.file.replace(/\.md$/i, ""));
+      const desc = tokenize(c.description ?? "");
+      let score = 0;
+      for (const t of msg) {
+        if (name.includes(t)) score += 2; // a name hit outweighs a description hit
+        if (desc.includes(t)) score += 1;
+      }
+      return { file: c.file, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
+  return scored.slice(0, RECALL_MAX_NOTES).map((x) => x.file);
 }
 
 export function buildRecallPrompt(
@@ -133,7 +185,18 @@ export async function selectRelevantMemories(args: {
     recordAuxUsage(args.chatId, result.usage, "memory");
     return parseRecallReply(result.text, candidates);
   } catch (err) {
-    logger.warn("recall: skipped —", err instanceof Error ? err.message : err);
-    return [];
+    logger.warn(
+      "recall: selector failed —",
+      err instanceof Error ? err.message : err,
+    );
+    // Fall back to a local keyword match so a message still carries the notes
+    // that obviously bear on it, and the failure is never silent.
+    const local = localRecallMatch(message, candidates);
+    if (local.length > 0) {
+      logger.info(`recall: local fallback matched ${local.join(", ")}`);
+    } else {
+      logger.info("recall: skipped (selector failed and no local match)");
+    }
+    return local;
   }
 }

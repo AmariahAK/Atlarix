@@ -55,6 +55,7 @@ import log from "electron-log";
 import { and, asc, desc, eq, like, ne, notLike, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { chatSessions, sessionMessages } from "../../db/schema";
+import { parseAssistantMessageParts } from "@/lib/chat/assistant-message-parts";
 import {
   ToolRegistry,
   createParameters,
@@ -75,6 +76,47 @@ const DEFAULT_READ_LIMIT = 10;
 const MAX_READ_LIMIT = 50;
 /** Sessions considered when resolving a `session` title fragment. */
 const SESSION_LOOKUP_CAP = 50;
+
+/** Characters of one stored turn's plain text, before it is cut. */
+const TURN_PLAIN_CAP = 4_000;
+
+/**
+ * A stored message as plain text: what was said, and which tools ran. The raw
+ * row holds `<atlarix-tool-call>` / `<atlarix-tool-result>` markup and JSON
+ * envelopes; a person (and a model re-reading itself) wants the words and the
+ * tool NAMES — never that markup or another tool's full result (QA, 2026-10-31:
+ * session_search printed whole turns as raw JSON).
+ */
+function formatTurnPlain(role: string, content: string): string {
+  const raw = (content ?? "").trim();
+  if (!raw) return "";
+  if (role !== "assistant") return raw;
+  try {
+    const parts = parseAssistantMessageParts(raw, false);
+    const out: string[] = [];
+    for (const p of parts) {
+      if (p.type === "markdown") {
+        const t = p.content.trim();
+        if (t) out.push(t);
+      } else if (p.type === "tool") {
+        out.push(`[${p.toolName}]`);
+      }
+    }
+    const text = out.join("\n").trim();
+    return text || raw;
+  } catch {
+    return raw;
+  }
+}
+
+export { formatTurnPlain };
+
+/** Bound a turn's plain text; the rest is a read of the live session away. */
+function capTurnText(text: string): string {
+  return text.length > TURN_PLAIN_CAP
+    ? `${text.slice(0, TURN_PLAIN_CAP)}… [cut at ${TURN_PLAIN_CAP} characters]`
+    : text;
+}
 
 type SessionRef = { id: string; title: string; createdAt: Date };
 
@@ -332,7 +374,10 @@ export async function executeSessionSearch(args: SessionSearchArgs) {
     }
 
     const body = rows
-      .map((r, i) => `— turn ${offset + i + 1} · ${r.role} —\n${r.content}`)
+      .map(
+        (r, i) =>
+          `— turn ${offset + i + 1} · ${r.role} —\n${capTurnText(formatTurnPlain(r.role, r.content))}`,
+      )
       .join("\n\n");
     const shown = offset + rows.length;
     const more =
@@ -431,7 +476,7 @@ export async function executeSessionSearch(args: SessionSearchArgs) {
       file: path,
       matchCount: countOccurrences(h.content ?? "", query),
     });
-    lines.push(`${path}\n  ${snippetAround(h.content ?? "", query)}`);
+    lines.push(`${path}\n  ${snippetAround(formatTurnPlain(h.role, h.content ?? ""), query)}`);
   }
   const totalHits = hits.length;
 
@@ -467,9 +512,9 @@ ToolRegistry.register({
   isReadOnly: true,
   allowInAskMode: true,
   description:
-    "Search or re-read the transcript of this conversation (or an earlier one in this workspace) — including turns that compaction has already summarized away. " +
+    "Search or re-read the transcript of this conversation (or an earlier one in this workspace) — for turns NOT already in your context: ones compaction has summarized away, or another session's. " +
     "Use it to recover a SPECIFIC fact you know was stated: an exact path the user gave, a decision made twenty turns ago, an error message you saw before. " +
-    "Do NOT use it to re-read the conversation in bulk — the summary in your context is deliberately shorter than the history, and pulling the history back defeats it. " +
+    "Do NOT use it to re-read turns you can already see — the summary in your context is deliberately shorter than the history, and pulling the history back defeats it. " +
     'mode:"search" lists matching turns with snippets; mode:"read" pages full turns from one session (offset/limit).',
   parameters: createParameters(
     {

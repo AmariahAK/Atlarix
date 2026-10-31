@@ -319,7 +319,24 @@ function keepEmbeddedJson(fn: (s: string) => string): (s: string) => string {
       }
     }
     masked = out + masked.slice(i);
-    return fn(masked).replace(/\uE000(\d+)\uE000/g, (_, n) => held[Number(n)] ?? "");
+    // Restore iteratively: a held JSON object can itself contain a held code
+    // span, so one pass would leave `\uE000N\uE000` inside the restored text
+    // (and the bare digit leaks as "0, 1, 2…" once U+E000 is stripped in
+    // display). Each placeholder points at an EARLIER held index — holds are
+    // created in order, so the chain always descends and terminates;
+    // `held.length` bounds its depth.
+    let result = fn(masked);
+    for (
+      let guard = 0;
+      /\uE000\d+\uE000/.test(result) && guard < held.length + 1;
+      guard++
+    ) {
+      result = result.replace(
+        /\uE000(\d+)\uE000/g,
+        (_, n) => held[Number(n)] ?? "",
+      );
+    }
+    return result;
   };
 }
 
