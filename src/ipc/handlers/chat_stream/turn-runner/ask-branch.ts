@@ -1048,6 +1048,7 @@ export async function runAskBranch(
             dynamicSystemTail: opts.dynamicSystemTail,
             repetition: askAgenticRepetition,
             abortSignalOverride: opts.abortSignal,
+            compactionLimit: opts.compactionLimit,
           }),
         runStreamRound: (
           params: Parameters<typeof runStreamRoundWithEmptyOutputRetry>[2],

@@ -29,7 +29,11 @@ export type ScenarioResponse =
         total_tokens: number;
       };
     }
-  | { kind: "tool_call"; calls: Array<{ name: string; args: unknown }> }
+  | { kind: "tool_call"; calls: Array<{ name: string; args: unknown }>; usage?: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+    } }
   | { kind: "error"; status: number; message?: string }
   /**
    * v14.8.7: emit one chunk (so the stream "started") then HANG — never ends.
@@ -178,6 +182,11 @@ function streamText(
 function streamToolCalls(
   res: Response,
   calls: Array<{ name: string; args: unknown }>,
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  },
 ): void {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -225,7 +234,15 @@ function streamToolCalls(
     }
   });
 
-  res.write(mkChunk({}, "tool_calls"));
+  const finalChunk: Record<string, unknown> = {
+    id: `chatcmpl-${now}`,
+    object: "chat.completion.chunk",
+    created: Math.floor(now / 1000),
+    model: "fake-model",
+    choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+  };
+  if (usage) finalChunk.usage = usage;
+  res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
   res.write("data: [DONE]\n\n");
   res.end();
 }
@@ -275,7 +292,7 @@ export function handleScenarioChatCompletion(
       streamText(res, response.text, response.usage);
       return;
     case "tool_call":
-      streamToolCalls(res, response.calls);
+      streamToolCalls(res, response.calls, response.usage);
       return;
     case "finish_reason": {
       // Deliberately a COMPLETE, well-formed stream: headers, a delta, a final

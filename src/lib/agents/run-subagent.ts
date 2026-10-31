@@ -30,8 +30,10 @@ import {
 import {
   compactionPoint,
   contextWorkingWindowTokens,
+  roundShouldEndForCompaction,
 } from "@/lib/context/mid-loop-threshold";
 import { estimateTokens } from "@/ipc/utils/token_utils";
+import { inputOutputTokensFromUsage } from "@/lib/routing/byok-pricing";
 import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import { estimateModelMessagesTokens } from "@/lib/ai/native-history";
 import { ToolRegistry } from "@/lib/tools/registry";
@@ -62,6 +64,8 @@ import { recordEditProposal } from "./subagent-proposals";
 const logger = log.scope("run-subagent");
 
 const SUBAGENT_LENGTH_CONTINUATION_MAX = 3;
+/** How many times a round may end at the compaction point (not length) before giving up. */
+const SUBAGENT_COMPACTION_CONTINUATION_MAX = 4;
 
 /** Compact token count for the sub-agent summary badge (e.g. 12345 → "12.3k"). */
 function formatCompactTokens(n: number): string {
@@ -531,8 +535,14 @@ export async function runSubagent(
       effectiveModel?.name,
     );
 
+    /** The provider's input count on the last finished step — real context occupancy. */
+    let lastStepInputTokens = 0;
+    /** True when the round ended at the compaction point (stopWhen), not naturally. */
+    let roundEndedForCompaction = false;
+
     /** One streamed round; returns the SDK result pieces we need. */
     const runRound = async () => {
+      roundEndedForCompaction = false;
       const rolling = makeRollingEmitter(emit, delegationId, round);
       currentRolling = rolling;
       const stream = streamText({
@@ -548,7 +558,27 @@ export async function runSubagent(
           placement: cacheMarkerPlacement,
         }),
         tools: toolSet,
-        stopWhen: [() => false],
+        // End the round at the compaction point so the loop compacts and continues
+        // — without this a long scout grows past it inside one round (0j, the same
+        // bug the main turn had).
+        stopWhen: [
+          () => {
+            if (!roundShouldEndForCompaction(lastStepInputTokens, compactionLimit)) {
+              return false;
+            }
+            roundEndedForCompaction = true;
+            logger.log(
+              `[Subagent] round ends at ${lastStepInputTokens} tokens (point ${compactionLimit}) — compacts and continues`,
+            );
+            return true;
+          },
+        ],
+        onStepFinish: ({ usage }) => {
+          const split = inputOutputTokensFromUsage(usage);
+          if (split && typeof split.inputTokens === "number" && split.inputTokens > 0) {
+            lastStepInputTokens = split.inputTokens;
+          }
+        },
         // v13.3: per-step breakpoint advancement — scouts are multi-step,
         // so the turn's growing tool tail must cache incrementally too.
         prepareStep:
@@ -650,27 +680,35 @@ export async function runSubagent(
     if (subagentTokens > 0)
       emit?.({ type: "subagent_tokens", tokens: subagentTokens });
 
-    while (
-      shouldContinue(result.finishReason, {
-        attemptCount: lengthAttempts,
-        maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
-      })
-    ) {
-      lengthAttempts++;
-      msgs = [
-        ...msgs,
-        ...(result.response.messages as ModelMessage[]),
-        {
-          role: "user",
-          content: buildContinuationPrompt({
-            chatId: args.chatId ?? 0,
-            turnId: args.turnId ?? "subagent",
-            attemptCount: lengthAttempts,
-            maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
-            lastContent: result.text ?? "",
-          }),
-        },
-      ];
+    let lengthTruncated = shouldContinue(result.finishReason, {
+      attemptCount: lengthAttempts,
+      maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
+    });
+    let compactionContinuations = 0;
+    while (lengthTruncated || roundEndedForCompaction) {
+      if (lengthTruncated) {
+        lengthAttempts++;
+        msgs = [
+          ...msgs,
+          ...(result.response.messages as ModelMessage[]),
+          {
+            role: "user",
+            content: buildContinuationPrompt({
+              chatId: args.chatId ?? 0,
+              turnId: args.turnId ?? "subagent",
+              attemptCount: lengthAttempts,
+              maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
+              lastContent: result.text ?? "",
+            }),
+          },
+        ];
+      } else {
+        // Compaction-point end: keep the native tail and drop the "continue
+        // exactly" prompt — the model wasn't truncated, it was stopped to compact.
+        compactionContinuations++;
+        if (compactionContinuations > SUBAGENT_COMPACTION_CONTINUATION_MAX) break;
+        msgs = [...msgs, ...(result.response.messages as ModelMessage[])];
+      }
 
       const compaction = await runMidLoopCompaction({
         messages: msgs,
@@ -702,6 +740,11 @@ export async function runSubagent(
       }
       if (subagentTokens > 0)
         emit?.({ type: "subagent_tokens", tokens: subagentTokens });
+
+      lengthTruncated = shouldContinue(result.finishReason, {
+        attemptCount: lengthAttempts,
+        maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
+      });
     }
 
     const toolNames: string[] = [];

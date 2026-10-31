@@ -2010,6 +2010,7 @@ export async function runBuildBranch(
               repetition: agenticRepetition,
               abortSignalOverride: opts.abortSignal,
               maxStepsPerRound: opts.maxStepsPerRound,
+              compactionLimit: opts.compactionLimit,
             }),
           runStreamRound: (
             params: Parameters<typeof runStreamRoundWithEmptyOutputRetry>[2],

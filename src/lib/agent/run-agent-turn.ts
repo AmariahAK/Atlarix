@@ -119,6 +119,8 @@ export interface TurnRuntime {
     abortSignal?: AbortSignal;
     /** Backstop in-round step cap forwarded to streamText's stopWhen. */
     maxStepsPerRound?: number;
+    /** The turn's compaction point — ends the round so the loop can compact. */
+    compactionLimit?: number;
   }): Promise<unknown>;
   runStreamRound(params: {
     runSimpleStream: (opts?: { abortSignal?: AbortSignal }) => Promise<unknown>;

@@ -24,12 +24,19 @@ export function scenario(id: string) {
       responses.push({ kind: "text", text, usage });
       return builder;
     },
-    toolCall(name: string, args: unknown) {
-      responses.push({ kind: "tool_call", calls: [{ name, args }] });
+    toolCall(
+      name: string,
+      args: unknown,
+      usage?: Extract<ScenarioResponse, { kind: "tool_call" }>["usage"],
+    ) {
+      responses.push({ kind: "tool_call", calls: [{ name, args }], usage });
       return builder;
     },
-    toolCalls(calls: Array<{ name: string; args: unknown }>) {
-      responses.push({ kind: "tool_call", calls });
+    toolCalls(
+      calls: Array<{ name: string; args: unknown }>,
+      usage?: Extract<ScenarioResponse, { kind: "tool_call" }>["usage"],
+    ) {
+      responses.push({ kind: "tool_call", calls, usage });
       return builder;
     },
     error(status: number, message?: string) {
