@@ -233,16 +233,6 @@ async function runAgentTurnInner(
   const loopStartTime = Date.now();
   let agenticIteration = 0;
   let agenticProseOnlyStreak = 0;
-  // v14.8.9 continue-until-done: the plan-completeness gate has its OWN, higher
-  // consecutive cap than the red-verification gates — a legit multi-phase task
-  // that briefly yields at several phase boundaries shouldn't be cut at 3. Both
-  // reset on any productive round.
-  let planNudgeStreak = 0;
-  // v14.8.10: absolute per-turn total that NEVER resets — the consecutive streak
-  // resets on any productive round, so a model alternating one trivial tool call
-  // with a yield re-arms the 6-cap indefinitely (observed: 3+ full nudge cycles
-  // in a single turn). This bounds the whole turn, not just the streak.
-  let planNudgeTotal = 0;
   let agenticMessages: ModelMessage[] = [...rt.seedMessages];
   const allToolResults: Array<{ tool: string; result: string }> = [];
   let totalToolExecutions = 0;
@@ -257,10 +247,6 @@ async function runAgentTurnInner(
   // (stop hook / failed command / unverified edit) we nudge it on at most this
   // many times before ending anyway, so a persistent failure can never loop.
   const PROSE_YIELD_MAX_NUDGES = 3;
-  // Plan-completeness nudges get more headroom (see planNudgeStreak above).
-  const PLAN_YIELD_MAX_NUDGES = 6;
-  // Hard per-turn ceiling on plan nudges regardless of streak resets.
-  const PLAN_YIELD_TOTAL_MAX = 12;
 
   // Park-on-wait: when the model would END the turn but background work is still
   // outstanding (running/pending background commands OR sub-agents), we DON'T
@@ -744,38 +730,15 @@ async function runAgentTurnInner(
       // merely opened. Since v14.52.0 the agent's browser is the user's Chrome;
       // it checks the console itself with browser_inspect (since its last
       // navigate), which is the one reading that knows which page it meant.
-      // v14.8.9 continue-until-done: after the red-verification gates, the
-      // plan-completeness gate keeps the turn going while the session plan has
-      // steps left. It uses its OWN (higher) cap so it isn't the red gates' 3.
-      let usePlanGate = false;
-      if (gateFeedback == null && profile.planCompletionGate) {
-        try {
-          gateFeedback = await profile.planCompletionGate();
-          usePlanGate = gateFeedback != null;
-        } catch (planErr) {
-          logger.warn(
-            `${L} plan-completion gate failed to run: ${String(planErr)}`,
-          );
-        }
-      }
-      const gateStreak = usePlanGate ? planNudgeStreak : agenticProseOnlyStreak;
-      const gateCap = usePlanGate
-        ? PLAN_YIELD_MAX_NUDGES
-        : PROSE_YIELD_MAX_NUDGES;
-      if (
-        gateFeedback == null ||
-        gateStreak >= gateCap ||
-        (usePlanGate && planNudgeTotal >= PLAN_YIELD_TOTAL_MAX)
-      ) {
+      const gateStreak = agenticProseOnlyStreak;
+      const gateCap = PROSE_YIELD_MAX_NUDGES;
+      if (gateFeedback == null || gateStreak >= gateCap) {
         logger.info(
           `${L} Model yielded (no tool calls) — ending turn at iteration ${agenticIteration + 1}`,
         );
         break;
       }
-      if (usePlanGate) {
-        planNudgeStreak++;
-        planNudgeTotal++;
-      } else agenticProseOnlyStreak++;
+      agenticProseOnlyStreak++;
       // Fold this round's native tool messages for context on the gate-nudge
       // continuation (a tool-using round can now reach this path); fall back to
       // prose for a pure-prose round. Stage 2: fold into BOTH request + envelope
@@ -801,14 +764,13 @@ async function runAgentTurnInner(
       }
       agenticIteration++;
       logger.log(
-        `${L} ${usePlanGate ? "Plan not complete" : "Completion gate not satisfied"} — nudge ${gateStreak + 1} of ${gateCap} allowed; continuing`,
+        `${L} Completion gate not satisfied — nudge ${gateStreak + 1} of ${gateCap} allowed; continuing`,
       );
       continue;
     }
 
-    // Productive round — reset BOTH yield counters (§continue-until-done).
+    // Productive round — reset the yield counter.
     agenticProseOnlyStreak = 0;
-    planNudgeStreak = 0;
 
     if (hasTextToolCalls && (textToolCalls?.length ?? 0) === 0) {
       logger.log(`${L} No parseable tool calls found, ending loop`);

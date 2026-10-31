@@ -32,6 +32,9 @@ import type { PlanArtifactStatus } from "@/db/schema";
 
 const logger = log.scope("plan-tool");
 
+/** Fallback shown on an `external` step the model hands over with no `reason`. */
+const DEFAULT_EXTERNAL_REASON = "Atlarix says only you can do this";
+
 type PlanToolArgs = {
   operation: "read" | "write" | "set_status" | "update_step" | "append_step";
   workspaceSessionId?: string;
@@ -417,19 +420,10 @@ async function updateStep(args: PlanToolArgs) {
       error: "Provide step_index (1-based) or step_text to identify the step.",
     };
   }
-  // `external` ends the turn's obligation for this step, so it must not be free.
-  // Without a required reason it is a silent escape hatch — and the user is left
-  // with a step marked "yours" and no idea what to do. The reason is also the only
-  // thing that makes abuse visible in the logs.
+  // `external` ends the turn's obligation for this step. `reason` is optional:
+  // without one the step shows its own text with a note that only the user can do
+  // it (owner decision 2026-10-31 — trust the model, not the gate).
   const externalReason = args.reason?.trim();
-  if (args.state === "external" && !externalReason) {
-    return {
-      success: false,
-      error:
-        "state 'external' requires `reason` — one line on what the USER has to do (e.g. \"rotate the signing key in the dashboard; no cert on this machine\"). " +
-        "If you're stuck rather than handing it over, use state 'blocked' instead.",
-    };
-  }
   const resolvedPlan = planIdOrFailure(
     await resolvePlanId(args),
     "No plan to update — create one with plan({ operation: 'write' }) first.",
@@ -459,7 +453,9 @@ async function updateStep(args: PlanToolArgs) {
         stepText: args.step_text ?? undefined,
       },
       args.state as PlanStepState,
-      externalReason,
+      args.state === "external"
+        ? externalReason || DEFAULT_EXTERNAL_REASON
+        : undefined,
     );
     if (!result.step) {
       const steps = parsePlanChecklist(row.content);
@@ -607,7 +603,7 @@ ToolRegistry.register({
     "The session's plan and live progress ledger, shown to the user as a card. planId is optional; the latest plan is assumed. Operations: " +
     "'write' creates or updates the plan markdown (re-emitting it with [x]/[~]/[!] marks is always a safe way to update progress); a new plan needs a short imperative `title`, and your reply must include the marker comment it returns so the card renders. " +
     "'read' returns the plan (re-read it if the user may have edited it). 'set_status': plan → building → built. 'append_step' adds a step. " +
-    "'update_step' marks one step (step_text preferred over step_index) in_progress, done, todo, blocked (you tried and are stuck) or external (only the user can do it; give a `reason`, then leave it). Once no step is todo or in_progress, finish.",
+    "'update_step' marks one step (step_text preferred over step_index) in_progress, done, todo, blocked (you tried and are stuck) or external (only the user can do it; a `reason` is optional). Update steps as you go when useful.",
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
@@ -663,13 +659,13 @@ ToolRegistry.register({
       state: {
         type: "string",
         description:
-          "update_step: one of in_progress, done, todo, blocked, external (external = only the user can do it; requires reason)",
+          "update_step: one of in_progress, done, todo, blocked, external (external = only the user can do it)",
         required: false,
       },
       reason: {
         type: "string",
         description:
-          "update_step + state:'external' (REQUIRED there): one line on what the user has to do",
+          "update_step + state:'external' (optional): one line on what the user has to do",
         required: false,
       },
       step_index: {

@@ -98,7 +98,6 @@ import {
   resolveReasoningCatalogModelId,
 } from "@/lib/routing/reasoning-detector";
 import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
-import { getPlanCompletionFeedback } from "@/lib/tasks/plan-completion-gate";
 import { recordToolOnLedger } from "@/lib/tasks/task-ledger";
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
 import { cancelChatStream } from "@/ipc/handlers/chat_stream/lifecycle-handlers";
@@ -1968,19 +1967,6 @@ export async function runBuildBranch(
               }>,
             ),
           stripTextToolXML: stripToolCallXML,
-          // v14.8.9 continue-until-done: drive an active session plan to
-          // completion (self-gates on plan existence + pending steps).
-          // NOT in plan mode: there the plan itself is the deliverable —
-          // a fresh plan's steps are pending by construction and the mode
-          // has no build tools, so the nudge reads as "proceed without
-          // the user" (observed: model started implementing right after
-          // presenting the plan).
-          ...(effectiveWorkMode !== "plan"
-            ? {
-                planCompletionGate: () =>
-                  getPlanCompletionFeedback(req.workspaceSessionId),
-              }
-            : {}),
           // Stop hooks (the person's and installed plugins'): "not done until
           // the tests pass". Attached only when one applies to this folder.
           ...(effectiveWorkMode !== "plan" &&
