@@ -223,6 +223,39 @@ describeWithGit("shadow-git snapshots", () => {
     expect(await snapshotExists(workspace, "turn:6")).toBe(true);
     expect(await snapshotExists(workspace, "turn:7")).toBe(true);
   });
+
+  it("never writes a commit into the user's own .git (snapshot identity cannot reach user history)", async () => {
+    // The workspace IS a real git repo — the user's repo. Snapshot capture
+    // must not add any commit here; its commits live only in the shadow store
+    // (userData/shadow-snapshots), so the atlarix-agent identity it stamps on
+    // them can never surface in the user's history.
+    const init = await gitExec(["init", "--quiet"], workspace);
+    expect(init.exitCode).toBe(0);
+
+    await write("tracked.ts", "pre-write");
+    await captureSnapshot({
+      workspacePath: workspace,
+      turnId: "turn:isolation",
+      relativePaths: ["tracked.ts"],
+    });
+    await write("tracked.ts", "post-write");
+
+    // The user's repo still has no commits: an unborn HEAD.
+    const head = await gitExec(["rev-parse", "--verify", "HEAD"], workspace);
+    expect(head.exitCode).not.toBe(0);
+    const count = await gitExec(["rev-list", "--all", "--count"], workspace);
+    expect(count.stdout.trim()).toBe("0");
+
+    // The snapshot itself is recorded and revertible — proving the shadow
+    // store (not the user repo) is what holds the turn's history.
+    expect(await snapshotExists(workspace, "turn:isolation")).toBe(true);
+    const result = await revertSnapshot({
+      workspacePath: workspace,
+      turnId: "turn:isolation",
+    });
+    expect(result.success).toBe(true);
+    expect(await read("tracked.ts")).toBe("pre-write");
+  });
 });
 
 describeWithGit("legacy .bak store (removed in v10.1)", () => {

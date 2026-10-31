@@ -135,7 +135,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   buildVerification: {
     enabled: true,
   },
-  includeAtlarixCoAuthor: true,
   enableAutoUpdate: true,
   releaseChannel: "stable",
   isRunning: false,

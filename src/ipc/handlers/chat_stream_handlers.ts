@@ -34,10 +34,6 @@ import {
 } from "../utils/get_model_client";
 import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
 import { resolveActiveModelIdentity } from "@/lib/model-identity-prompt";
-import {
-  setActiveModelDisplayName,
-  clearActiveModelDisplayName,
-} from "@/ipc/utils/active-model-identity";
 import { resetAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import {
   ASK_USER_STREAM_STOP,
@@ -1620,8 +1616,6 @@ export function registerChatStreamHandlers() {
               settings,
               buildAtlarixCoreTierCatalog(),
             );
-            // Commit authorship reflects the model doing the work for this stream.
-            setActiveModelDisplayName(modelIdentity.modelDisplayName);
             // v10 token accuracy: collect sub-agent/compaction usage for this turn.
             resetAuxUsage(req.chatId);
             const promptIdentityOpts = {
@@ -2677,7 +2671,6 @@ export function registerChatStreamHandlers() {
         // hand the renderer a reference to play them back (proof of work).
         ctx.stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
-        clearActiveModelDisplayName();
         ensureTerminal();
       }
     };

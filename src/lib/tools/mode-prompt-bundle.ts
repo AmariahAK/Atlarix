@@ -9,7 +9,6 @@ import {
   renderActiveModeToolsRegistry,
   type RenderActiveModeToolsRegistryOptions,
 } from "./mode-tool-registry";
-import { ATLARIX_CO_AUTHOR_TRAILER } from "@/ipc/utils/git_author";
 
 /**
  * DELETED: `GIT_VIA_TERMINAL_NOTE`.
@@ -18,9 +17,6 @@ import { ATLARIX_CO_AUTHOR_TRAILER } from "@/ipc/utils/git_author";
  * already has — and rendered in every mode, including modes with no
  * run_command bound at the time. Git *policy* (what this project permits) now
  * lives on `run_command` itself, conditional on the tool being bound.
- *
- * Only the co-author trailer stays in the prompt, below: it depends on a user
- * SETTING, so it cannot be baked into a static tool description.
  */
 
 /**
@@ -35,21 +31,11 @@ import { ATLARIX_CO_AUTHOR_TRAILER } from "@/ipc/utils/git_author";
 
 /**
  * Commit-authoring policy for commit-capable modes. Commits are authored by the
- * user's own git config — never `--author`. When the co-author setting is on, the
- * agent is credited via a trailer line only.
- *
- * Stays in the prompt (rather than moving to `run_command` with the rest of the
- * git policy) because it is driven by the `includeAtlarixCoAuthor` setting, and
- * tool descriptions are fixed at registration.
+ * user's own git config — never `--author`, never an injected agent identity,
+ * never a co-author trailer.
  */
-export function getCommitAuthoringNote(
-  includeCoAuthorTrailer: boolean,
-): string {
-  const base =
-    "When you create git commits, let the user's own git config author them — do not pass `--author` or set `user.name`/`user.email`. Never change the user's git config.";
-  if (!includeCoAuthorTrailer) return base;
-  return `${base}
-End every commit message with the trailer line \`${ATLARIX_CO_AUTHOR_TRAILER}\` (blank line before it) so Atlarix is credited as co-author.`;
+export function getCommitAuthoringNote(): string {
+  return "When you create git commits, let the user's own git config author them — do not pass `--author` or set `user.name`/`user.email`. Never change the user's git config, and never add a Co-authored-by line.";
 }
 
 /**
@@ -204,8 +190,6 @@ Whatever a sub-agent returns — a scout's findings, web research — comes back
 
 export type RenderModePromptBundleOptions =
   RenderActiveModeToolsRegistryOptions & {
-    /** When true (default), add the co-author trailer guidance to the git note (Build/Debug only). */
-    includeCoAuthorTrailer?: boolean;
     /**
      * The surface saves a Plan-mode reply that IS a plan as the session's plan
      * (the CLI and the editor: src/cli/agent/inline-plan.ts). Plan mode is told
@@ -235,9 +219,7 @@ export function renderModePromptBundle(
     // never touches the browser. That also fixes it structurally rather than by
     // deleting information: each tool's guidance rides that tool, so it is only
     // ever shown to a mode that actually has it.
-    canCommit
-      ? getCommitAuthoringNote(opts?.includeCoAuthorTrailer !== false)
-      : "",
+    canCommit ? getCommitAuthoringNote() : "",
   ]
     .filter((s) => s.length > 0)
     .join("\n\n");
