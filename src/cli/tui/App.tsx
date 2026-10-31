@@ -742,7 +742,12 @@ export function App({
   }, [services]);
   const makeRecap = async () => {
     recapClock.current.recappedAfterTurn = recapClock.current.completedTurns;
-    const text = await session.recap().catch(() => null);
+    // The recap model call can fail silently (a timeout, a gate): retry once.
+    let text = await session.recap().catch(() => null);
+    if (!text) {
+      await new Promise((r) => setTimeout(r, 1500));
+      text = await session.recap().catch(() => null);
+    }
     if (!text) return;
     if (terminalFocused.current) session.showRecap(text);
     else recapReady.current = text;
@@ -754,7 +759,9 @@ export function App({
       ...recapClock.current,
       enabled: recapOn.current,
       present: terminalFocused.current,
-      busy: session.state.busy,
+      // A peer or wake turn running is not the user working: it does not block
+      // the recap (owner, 2026-10-31: recaps never appeared in multi-session use).
+      busy: session.state.busy && session.state.userTurn,
       now: Date.now(),
     });
     if (d.kind === "wait") recapTimer.current = setTimeout(armRecap, d.ms);
@@ -895,11 +902,15 @@ export function App({
   };
   const wasBusy = useRef(false);
   useEffect(() => {
-    if (wasBusy.current && !state.busy && !state.lastError) setTurnsDone((n) => n + 1);
+    // Count only the user's OWN turns: a peer or wake turn is not the user's
+    // work, so it neither advances the rating prompt nor the recap (owner, 2026-10-31).
+    if (wasBusy.current && !state.busy && !state.lastError && state.userTurn) setTurnsDone((n) => n + 1);
     if (wasBusy.current && !state.busy) {
       notify(state.lastError ? "Atlarix stopped: something went wrong" : `Atlarix finished${state.title ? `: ${state.title}` : ""}`);
-      recapClock.current.completedTurns++;
-      recapClock.current.lastTurnEndedAt = Date.now();
+      if (state.userTurn) {
+        recapClock.current.completedTurns++;
+        recapClock.current.lastTurnEndedAt = Date.now();
+      }
       recapReady.current = null;
       if (!terminalFocused.current) armRecap();
     }

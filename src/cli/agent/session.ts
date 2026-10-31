@@ -63,6 +63,8 @@ export interface QueuedMessage {
 export interface SessionState {
   cells: Cell[];
   busy: boolean;
+  /** The running (or last) turn was started by the user's own message, not a peer or a wake. */
+  userTurn: boolean;
   /**
    * Computer use is on for this session's model. The switch is shared with the
    * app and the editors (user-settings.json), so it can be turned on elsewhere:
@@ -384,6 +386,8 @@ export interface TurnOptions {
   retry?: boolean;
   /** Machine-started: background work reported in. Main refuses one it should not run. */
   systemWake?: boolean;
+  /** A message another session queued: a peer turn, not the user's own. */
+  peerTurn?: boolean;
 }
 
 /** A session's message as saved (`sessions:get`). */
@@ -473,6 +477,7 @@ export class AgentSession extends EventEmitter {
     this.state = {
       cells: [],
       busy: false,
+      userTurn: true,
       computerUse: false,
       phase: null,
       retrying: null,
@@ -581,6 +586,7 @@ export class AgentSession extends EventEmitter {
       following: null,
       lastError: null,
       busy: false,
+      userTurn: true,
       phase: null,
       retrying: null,
       contextPercent: null,
@@ -1557,6 +1563,7 @@ export class AgentSession extends EventEmitter {
     // the session row on a first message) must not delay them (owner, 2026-10-31).
     this.update({
       busy: true,
+      userTurn: !opts.systemWake && !opts.peerTurn,
       phase: "Thinking…",
       retrying: null,
       turnStartedAt: Date.now(),
@@ -2382,6 +2389,25 @@ export class AgentSession extends EventEmitter {
     }
   }
 
+  /**
+   * Retry naming the session while it has no real title. The title model call
+   * can fail silently (a timeout, a provider refusing), and the first-message
+   * path only tries once, so a session stayed "Untitled" for good and every row
+   * in list_sessions looked alike (owner, 2026-10-31).
+   */
+  private async retryTitleIfUnnamed(): Promise<void> {
+    if (!this.sessionId) return;
+    await this.refreshTitle();
+    const { isPlaceholderTitle } = await import("@/lib/session-title/title-text");
+    if (this.state.title && !isPlaceholderTitle(this.state.title)) return;
+    try {
+      await (await handler("sessions:generate-title"))({}, this.sessionId);
+    } catch {
+      /* retried after the next turn */
+    }
+    await this.refreshTitle();
+  }
+
   /** The last `chat:response:end` payload (what the reply is saved with). */
   private lastEnd: Record<string, unknown> = {};
   /** The stream whose end was handled (main repeats it). */
@@ -2451,6 +2477,8 @@ export class AgentSession extends EventEmitter {
     void this.refreshTitle();
     // The model's title can land after a short first turn ends: look once more.
     setTimeout(() => void this.refreshTitle(), 8_000).unref?.();
+    // And a failed title call is retried after the turn, while it is unnamed.
+    void this.retryTitleIfUnnamed();
     const touched = this.planTouched;
     this.planTouched = null;
     // Anything still listed as a steer either reached a step or is taken by the
@@ -2626,7 +2654,7 @@ export class AgentSession extends EventEmitter {
     )) as { text?: string | null } | null;
     const text = flushed?.text?.trim();
     this.syncPending();
-    if (text && !this.state.busy) await this.startTurn(text);
+    if (text && !this.state.busy) await this.startTurn(text, { peerTurn: true });
   }
 
   private update(patch: Partial<SessionState>): void {

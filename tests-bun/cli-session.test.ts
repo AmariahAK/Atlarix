@@ -175,6 +175,20 @@ describe("AgentSession", () => {
     await waitFor(s, (st) => !st.busy);
   }, 60_000);
 
+  it("userTurn is true for the user's own turn, false for a peer or wake turn", async () => {
+    const { AgentSession } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws }) as any;
+    expect(s.state.userTurn).toBe(true);
+    // startTurn's optimistic update flips the flag before any await; without a
+    // registered session it then fails, which the catch swallows.
+    const w = s.startTurn("", { continueAfterQuestions: true, systemWake: true });
+    expect(s.state.userTurn).toBe(false);
+    await w.catch(() => {});
+    const p = s.startTurn("", { continueAfterQuestions: true, peerTurn: true });
+    expect(s.state.userTurn).toBe(false);
+    await p.catch(() => {});
+  }, 60_000);
+
   it("a steer is drawn where the agent TOOK it, even when its row reaches the list after more of the answer", async () => {
     // Main takes the steer (chat:interjections) before the step streams, but the
     // row itself arrives after a database write: by then the answer had grown,

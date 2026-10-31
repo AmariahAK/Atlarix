@@ -140,6 +140,13 @@ describe("deterministicTitle (the instant placeholder)", () => {
     expect(deterministicTitle('<atlarix-text-attachment id="1" />')).toBeNull();
     expect(deterministicTitle("   ")).toBeNull();
   });
+
+  it("strips leading glyphs from a quoted or listed line (owner, 2026-10-31)", () => {
+    expect(deterministicTitle("› fix the login redirect")).toBe("Fix the login redirect");
+    expect(deterministicTitle("- fix the login redirect")).toBe("Fix the login redirect");
+    expect(deterministicTitle("· fix the login redirect")).toBe("Fix the login redirect");
+    expect(deterministicTitle("> fix the login redirect")).toBe("Fix the login redirect");
+  });
 });
 
 // ── the model chain ────────────────────────────────────────────────────────
@@ -150,8 +157,9 @@ vi.mock("@/lib/models_dev", () => ({
 }));
 vi.mock("@/ipc/shared/compass_constants", () => ({
   CORE_TIER_1: "core-1",
+  CORE_TIER_AUTO: "core-auto",
   isCoreAutoTier: (n: string) => n === "core-auto",
-  getCoreModelIdForCoreTier: (t: string) => (t === "core-1" ? "glm-x" : undefined),
+  getCoreModelIdForCoreTier: (t: string) => (t === "core-auto" ? "glm-x" : undefined),
 }));
 
 import { resolveTitleModel } from "@/lib/session-title/generate-title";
@@ -192,14 +200,14 @@ describe("resolveTitleModel", () => {
     expect(m.provider).toBe("anthropic");
   });
 
-  it("Auto stays on Auto; a paid Core tier uses the cheapest paid tier, never free Auto", async () => {
+  it("Auto stays on Auto; a paid Core tier's title also routes through Auto (owner, 2026-10-30)", async () => {
     expect(await resolveTitleModel(settingsWith("compass", "core-auto"))).toEqual({
       provider: "compass",
       name: "core-auto",
     });
     expect(await resolveTitleModel(settingsWith("compass", "core-4"))).toEqual({
       provider: "compass",
-      name: "core-1",
+      name: "core-auto",
     });
   });
 
