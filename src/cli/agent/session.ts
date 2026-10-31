@@ -1574,6 +1574,25 @@ export class AgentSession extends EventEmitter {
       opts = { ...opts, display };
       this.lastTurn = { text, opts };
     }
+    // A text-only own-key model cannot see images: refuse at once and keep the
+    // message in the box, instead of sending the image and surfacing the
+    // provider's raw "messages.content.type is invalid" error (QA 2026-10-31).
+    // Auto is unaffected: detectVisionCapability returns true for atlarix/auto
+    // (the proxy climbs to a vision model).
+    if ((opts.images?.length ?? 0) > 0) {
+      const { detectVisionCapability } = await import(
+        "@/lib/routing/model-capability-profile"
+      );
+      const m = this.turnModel();
+      if (m && !detectVisionCapability(m.provider, m.name)) {
+        this.update({
+          busy: false,
+          phase: null,
+          lastError: `${m.name} can't see images: switch model, or send without it`,
+        });
+        return;
+      }
+    }
     const attachments = (opts.images ?? []).map((img) => ({
       name: path.basename(img.path),
       type: img.mime,
