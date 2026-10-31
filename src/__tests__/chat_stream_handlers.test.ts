@@ -62,6 +62,7 @@ vi.mock("../ipc/utils/git_utils", () => ({
   gitInit: vi.fn(),
   gitStatus: vi.fn().mockResolvedValue([]),
   getGitUncommittedFiles: vi.fn().mockResolvedValue([]),
+  getCoAuthorTrailerForCommit: vi.fn(() => undefined),
 }));
 
 // Mock paths module to control getAtlarixAppPath (platform-native separators)

@@ -311,6 +311,7 @@ export function DangerZoneSettings() {
  *   McpServersCard           → /integrations/mcp
  *   SkillsCard               → /integrations/skills
  *   WorkflowSettings         → pages/integrations-permissions.tsx
+ *   the co-author trailer     → pages/integrations-co-author.tsx
  *
  * `WorkspaceSettingsPointer` was a row pointing at the per-project surface,
  * which a top-level Integrations entry in the sidebar makes unnecessary — a

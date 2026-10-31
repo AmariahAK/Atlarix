@@ -531,6 +531,9 @@ export const UserSettingsSchema = z.object({
     })
     .optional(),
 
+  /** When true (default), commits made via Atlarix include Co-authored-by: atlarix-agent <agent@atlarix.dev> */
+  includeAtlarixCoAuthor: z.boolean().optional(),
+
   /** v10: interactive PTY terminal for user shell tabs (default true). Kill-switch per platform. */
   enablePtyTerminal: z.boolean().optional(),
   /**

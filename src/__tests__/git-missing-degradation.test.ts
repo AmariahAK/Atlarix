@@ -22,7 +22,15 @@ vi.mock("@/ipc/utils/system_git_exec", () => {
 });
 
 vi.mock("@/main/settings", () => ({
-  readSettings: vi.fn(() => ({})),
+  readSettings: vi.fn(() => ({ includeAtlarixCoAuthor: true })),
+}));
+
+vi.mock("@/ipc/utils/git_author", () => ({
+  ATLARIX_CO_AUTHOR_TRAILER: "Co-authored-by: Atlarix <agent@atlarix.dev>",
+  getGitAuthor: vi.fn(async () => ({
+    name: "atlarix-agent",
+    email: "agent@atlarix.dev",
+  })),
 }));
 
 vi.mock("node:fs", () => {

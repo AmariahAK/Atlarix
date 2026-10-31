@@ -7,7 +7,7 @@ import { router } from "@/router";
  * ----------------------
  * This used to hardcode `navigate({ to: "/settings" })`, which was fine while
  * every section lived on that one page. Connections and policy (model
- * providers, MCP, Skills, per-project permissions) moved to
+ * providers, MCP, Skills, commit attribution, per-project permissions) moved to
  * `/integrations`, so a section id no longer implies a route.
  *
  * The map lives HERE rather than at each call site deliberately: all three
@@ -33,6 +33,7 @@ const INTEGRATION_SECTIONS: Record<
   | "/integrations"
   | "/integrations/mcp"
   | "/integrations/skills"
+  | "/integrations/co-author"
   | "/integrations/permissions"
 > = {
   ai: "/integrations",
@@ -40,6 +41,11 @@ const INTEGRATION_SECTIONS: Record<
   providers: "/integrations",
   mcp: "/integrations/mcp",
   skills: "/integrations/skills",
+  // `github` kept as an alias: nothing calls it today, but the section was
+  // named that until the GitHub token went, and a stale caller landing on
+  // /settings would be worse than landing on the page that absorbed it.
+  github: "/integrations/co-author",
+  "co-author": "/integrations/co-author",
   workflow: "/integrations/permissions",
   permissions: "/integrations/permissions",
 };

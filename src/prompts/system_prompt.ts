@@ -338,6 +338,8 @@ Replies render as GitHub-flavored markdown; don't over-format short answers. Kee
       ? renderModePromptBundle(effectiveWorkMode, {
           workspace: hasWorkspace,
           registeredNames: registeredToolNames,
+          includeCoAuthorTrailer:
+            readSettings().includeAtlarixCoAuthor !== false,
           // Set by AgentSession (the CLI and the editor), which saves inline plans.
           inlinePlans: process.env.ATLARIX_INLINE_PLANS === "1",
         })

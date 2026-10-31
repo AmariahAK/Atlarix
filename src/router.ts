@@ -16,6 +16,7 @@ import { integrationsProvidersRoute } from "./routes/integrations/index";
 import { integrationsMcpRoute } from "./routes/integrations/mcp";
 import { integrationsSkillsRoute } from "./routes/integrations/skills";
 import { integrationsPluginsRoute } from "./routes/integrations/plugins";
+import { integrationsCoAuthorRoute } from "./routes/integrations/co-author";
 import { integrationsPermissionsRoute } from "./routes/integrations/permissions";
 import { toolsRoute } from "./routes/tools";
 import { signInRoute } from "./routes/sign-in";
@@ -40,7 +41,7 @@ const routeTree = rootRoute.addChildren([
     dangerSettingsRoute,
   ]),
   // Everything Atlarix connects TO. Split from /settings by KIND, not scope:
-  // model providers, MCP, Skills and per-project
+  // model providers, MCP, Skills, commit attribution and per-project
   // permissions are connections and policy; appearance, voice and
   // notifications are preferences.
   integrationsRoute.addChildren([
@@ -49,6 +50,7 @@ const routeTree = rootRoute.addChildren([
     integrationsMcpRoute,
     integrationsSkillsRoute,
     integrationsPluginsRoute,
+    integrationsCoAuthorRoute,
     integrationsPermissionsRoute,
   ]),
 ]);

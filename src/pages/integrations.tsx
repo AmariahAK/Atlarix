@@ -14,8 +14,8 @@
  *   Settings      — how the app behaves for you. Appearance, voice, search,
  *                   notifications, diagnostics. Preferences.
  *   Integrations  — what the app is wired up to, and what it is allowed to do
- *                   there. Model providers, MCP servers, Skills,
- *                   and this project's permissions.
+ *                   there. Model providers, MCP servers, Skills, commit
+ *                   attribution, and this project's permissions.
  *
  * The test for a new surface: are you expressing a preference, or connecting
  * Atlarix to something outside itself? The second one belongs here.
@@ -25,7 +25,7 @@
  * paginated registry browser, so stacking them would have rebuilt the clutter
  * this page exists to remove, just under a better title.
  *
- * Sections are a mix of global (providers) and per-project (MCP,
+ * Sections are a mix of global (providers, co-author) and per-project (MCP,
  * Skills, permissions). That is fine, and it is why the per-project ones show
  * the active workspace in their own header rather than the page claiming a
  * single scope for everything.
@@ -38,6 +38,7 @@ import {
   Cpu,
   Server,
   Sparkles,
+  GitCommitHorizontal,
   Shield,
   Puzzle,
 } from "lucide-react";
@@ -68,6 +69,12 @@ const SECTIONS = [
     label: "Silks",
     icon: Puzzle,
     hint: "Skills, agents, commands, edicts and MCP servers you add",
+  },
+  {
+    to: "/integrations/co-author",
+    label: "Co-author",
+    icon: GitCommitHorizontal,
+    hint: "Whether Atlarix is credited on commits it makes",
   },
   {
     to: "/integrations/permissions",

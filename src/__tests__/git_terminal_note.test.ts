@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getCommitAuthoringNote } from "@/lib/tools/mode-prompt-bundle";
+import { ATLARIX_CO_AUTHOR_TRAILER } from "@/ipc/utils/git_author";
 import { ToolRegistry } from "@/lib/tools/registry";
 import "@/lib/tools";
 
@@ -10,14 +11,24 @@ import "@/lib/tools";
  * capability the model already has — and rendered in EVERY mode, including Plan,
  * which has no run_command at all. What the model cannot know is this project's
  * POLICY, so only the policy survives, on the tool it governs.
+ *
+ * Commit authoring stays in the prompt because it depends on the
+ * `includeAtlarixCoAuthor` setting, and tool descriptions are fixed at
+ * registration.
  */
 describe("getCommitAuthoringNote", () => {
-  it("instructs user-authored commits and never a trailer", () => {
-    const note = getCommitAuthoringNote();
-    expect(note).not.toContain("Co-authored-by:");
+  it("adds the co-author trailer when enabled — and never instructs --author", () => {
+    const note = getCommitAuthoringNote(true);
+    expect(note).toContain(ATLARIX_CO_AUTHOR_TRAILER);
     expect(note).not.toMatch(/--author=/);
     expect(note).toContain("do not pass `--author`");
     expect(note).toContain("Never change the user's git config");
+  });
+
+  it("omits the trailer when the co-author setting is off", () => {
+    const note = getCommitAuthoringNote(false);
+    expect(note).not.toContain("Co-authored-by:");
+    expect(note).toContain("do not pass `--author`");
   });
 });
 
