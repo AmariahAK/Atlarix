@@ -462,11 +462,10 @@ async function updateStep(args: PlanToolArgs) {
       // A miss used to return success:false into silence, and nothing anywhere
       // counted it — which is why diagnosing one took reading three DB rows.
       //
-      // It matters because of what happens NEXT: the completion gate holds the
-      // turn open on the unticked step, and the error below (correctly) offers
-      // "rewrite the whole plan" as the way out. The model takes it, and the
-      // record of what was actually done is gone. So the miss is the first domino
-      // and it has to be visible.
+      // It matters because of what happens NEXT: the error below offers "rewrite
+      // the whole plan" as the way out. The model takes it, and the record of what
+      // was actually done is gone. So the miss is the first domino and it has to
+      // be visible.
       //
       // Matching is `text.includes(needle)`, one direction, no normalisation — so
       // a paraphrase, a longer description, or a character the model can't
