@@ -12,6 +12,7 @@ import {
   compactionWouldTrigger,
   contextWorkingWindowTokens,
   usableContextBudget,
+  estimateToolSetTokens,
 } from "@/lib/context/mid-loop-threshold";
 
 /**
@@ -160,6 +161,78 @@ describe("compactionWouldTrigger", () => {
     });
     expect(r.willTrigger).toBe(false);
     expect(r.usable).toBe(10_000);
+  });
+
+  it("counts the bound tool surface toward the fill (0j)", () => {
+    const under = compactionWouldTrigger({
+      messages: msgsOfRoughly(850),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+    });
+    const over = compactionWouldTrigger({
+      messages: msgsOfRoughly(850),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+      toolSurfaceTokens: 100,
+    });
+    expect(under.willTrigger).toBe(false);
+    expect(over.willTrigger).toBe(true);
+  });
+
+  it("prices native tool-call args in full via nativeMessages (0j)", () => {
+    // The flattened view caps tool traffic; the native view must count it fully —
+    // edit_file args carry whole files, which is the gap that let a round-ended
+    // turn re-decide "under the point".
+    const bigArgs =
+      "add a function that returns the sum of two numbers and logs the result. ".repeat(
+        20,
+      );
+    const native: ModelMessage[] = [
+      { role: "user", content: "do it" } as ModelMessage,
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "1",
+            toolName: "edit_file",
+            input: { content: bigArgs },
+          },
+        ],
+      } as ModelMessage,
+    ];
+    const flattened: ModelMessage[] = [
+      { role: "user", content: "do it" },
+      { role: "assistant", content: "[tool_call: edit_file(...)]" },
+    ];
+    const capped = compactionWouldTrigger({
+      messages: flattened,
+      systemPromptEstimate: 0,
+      tierLimit: 100_000,
+      usableTokens: 100_000,
+    });
+    const full = compactionWouldTrigger({
+      messages: flattened,
+      nativeMessages: native,
+      systemPromptEstimate: 0,
+      tierLimit: 100_000,
+      usableTokens: 100_000,
+    });
+    expect(full.beforeTokens).toBeGreaterThan(capped.beforeTokens + 100);
+  });
+
+  it("estimateToolSetTokens measures the dispatched toolset", () => {
+    const tokens = estimateToolSetTokens({
+      read_file: {
+        description: "Read a file by path.",
+        inputSchema: { type: "object", properties: { path: { type: "string" } } },
+      },
+    });
+    expect(tokens).toBeGreaterThan(0);
+    expect(estimateToolSetTokens(undefined)).toBe(0);
+    expect(estimateToolSetTokens({})).toBe(0);
   });
 });
 

@@ -41,6 +41,13 @@ export interface RunMidLoopCompactionParams {
    * the turn has computed it, so one long turn compacts at the same point.
    */
   compactionLimit?: number;
+  /**
+   * Bound tool descriptions + schemas for this turn, the half of the prefix the
+   * estimate used to omit (0j: the trigger re-decided "under the point" and
+   * skipped compaction on a round the guard had already ended). Added on top of
+   * the message + system-prompt estimate.
+   */
+  toolSurfaceTokens?: number;
   chatId: number;
   /** Short label distinguishing where the compaction fired (e.g. "Ask tier"). */
   loopLabel: string;
@@ -71,6 +78,7 @@ export async function runMidLoopCompaction(
     tierLimit,
     usableTokens,
     compactionLimit,
+    toolSurfaceTokens,
     chatId,
     loopLabel,
     emitActivity,
@@ -85,10 +93,12 @@ export async function runMidLoopCompaction(
   // emitted unconditionally. Below threshold: do nothing, emit nothing.
   const pre = compactionWouldTrigger({
     messages,
+    nativeMessages,
     systemPromptEstimate,
     tierLimit,
     usableTokens,
     compactionLimit,
+    toolSurfaceTokens,
   });
   if (!pre.willTrigger) {
     return {
@@ -124,6 +134,7 @@ export async function runMidLoopCompaction(
       tierLimit,
       usableTokens,
       compactionLimit,
+      toolSurfaceTokens,
       chatId,
     });
 

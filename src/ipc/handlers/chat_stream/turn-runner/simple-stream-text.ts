@@ -41,7 +41,11 @@ import {
   isNoUsableModelOutputError,
 } from "@/ipc/utils/no_usable_model_output";
 import { safeSend } from "@/ipc/utils/safe_sender";
-import { bucketNativeTokensByTool } from "@/lib/ai/native-history";
+import {
+  bucketNativeTokensByTool,
+  flattenNativeForCompaction,
+} from "@/lib/ai/native-history";
+import { compactAgenticMessagesIfNeeded } from "@/lib/routing/tier_context_budget";
 import { isReasoningOff, levelShare } from "@/lib/routing/model-reasoning-profile";
 import {
   chosenEffortFor,
@@ -94,7 +98,7 @@ import {
   resolveCacheMarkerPlacement,
 } from "@/lib/ai/anthropic-cache-breakpoints";
 import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
-import { roundShouldEndForCompaction } from "@/lib/context/mid-loop-threshold";
+import { estimateToolSetTokens } from "@/lib/context/mid-loop-threshold";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { inputOutputTokensFromUsage } from "@/lib/routing/byok-pricing";
@@ -576,6 +580,15 @@ export async function simpleStreamText(
   // Passive on the happy path — only read on a genuine stall.
   /** The provider's input count on the last finished step: real context occupancy. */
   let lastStepInputTokens = 0;
+  /**
+   * After an attempt that failed (the summariser errored) or freed too little, the
+   * next attempt waits until the count passes this - a tenth of the point above
+   * where it stood. Never a once-per-round limit: with native tools one turn is one
+   * round, and a long turn must compact again each time it grows back past the
+   * point; never a retry on every step either, which would call a broken
+   * summariser once per step.
+   */
+  let retryAbove: number | undefined;
   const completedStepMessages: ModelMessage[] = [];
   const recordStepMessages = (msgs: readonly ModelMessage[] | undefined) => {
     if (msgs && msgs.length) completedStepMessages.push(...msgs);
@@ -631,6 +644,11 @@ export async function simpleStreamText(
     searchResults: 0,
     otherToolOutput: 0,
   };
+  // The tool half of the dispatched prefix, measured from the ACTUAL toolset
+  // sent (what dispatches) so the mid-round compaction count cannot drift from
+  // it. ~6,700–9,300 tokens; omitted before 0j, which is why a round ended at
+  // the point re-decided "under the point" and skipped compaction.
+  const toolSurfaceTokens = estimateToolSetTokens(effectiveTools);
   const streamResult = streamText({
     // ai@7 REJECTS `role: "system"` inside `messages` by default —
     // "Invalid prompt: System messages are not allowed…" — which failed
@@ -681,15 +699,12 @@ export async function simpleStreamText(
       ...(typeof maxStepsPerRound === "number" && maxStepsPerRound > 0
         ? [isStepCount(maxStepsPerRound)]
         : []),
-      // Past the compaction point: end the round so the turn loop compacts and
-      // continues, instead of growing inside one round (see `compactionLimit`).
-      () => {
-        if (!roundShouldEndForCompaction(lastStepInputTokens, compactionLimit)) return false;
-        logger.log(
-          `[compaction] round ends at ${lastStepInputTokens} tokens (point ${compactionLimit}) — the turn loop compacts and continues`,
-        );
-        return true;
-      },
+      // 0j: the round no longer ENDS at the compaction point. Compaction is
+      // decided and applied in `prepareStep` (below) BEFORE each step, from the
+      // ONE complete count (system + tools + messages) — a long native-tool
+      // round compacts in place instead of ending, declining, and re-sending
+      // everything as one step per round. The provider's input count is kept
+      // only for calibration (logged alongside the estimate in onStepEnd).
     ],
     // v12 0.1 close-out: mid-round correction reinject. Repetition
     // corrections are queued inside the SDK's multi-step inner loop
@@ -703,7 +718,55 @@ export async function simpleStreamText(
     // The injected message is step-input only — it never enters
     // response.messages, so native-history folding (B1/B2) is
     // unaffected (transient steering nudge, not persisted history).
-    prepareStep: ({ messages, stepNumber }) => {
+    prepareStep: async ({ messages, stepNumber }) => {
+      // ── 0j: mid-round compaction, decided BEFORE this step. ──
+      // The ONE complete count = the messages (which already carry the system
+      // header + history + accumulated tool steps) + the tool schemas. Past the
+      // compaction point, summarise the older head and send the SMALLER messages
+      // for this and every later step (`prepareStep`'s messages override carries
+      // forward). The provider's `lastStepInputTokens` is logged beside it for
+      // calibration only — the decision no longer reads it.
+      let baseMessages = messages;
+      if (
+        typeof compactionLimit === "number" &&
+        compactionLimit > 0
+      ) {
+        const comp = await compactAgenticMessagesIfNeeded({
+          // Flattened for the summarizer's counting (tool results capped); the
+          // native view reconstructs the protected tail so recent tool results
+          // stay full-fidelity. The system header is already a message here.
+          messages: flattenNativeForCompaction(messages),
+          nativeMessages: messages,
+          systemPromptEstimate: 0,
+          // `tierLimit` is a fallback only — `compactionLimit` decides.
+          tierLimit: compactionLimit,
+          compactionLimit,
+          toolSurfaceTokens,
+          chatId: req.chatId,
+          ...(retryAbove != null ? { attemptAbove: retryAbove } : {}),
+          ...(effectiveModel?.provider && effectiveModel?.name
+            ? { model: { provider: effectiveModel.provider, name: effectiveModel.name } }
+            : {}),
+        });
+        logger.log(
+          `[compaction] step ${stepNumber}: provider input=${lastStepInputTokens}, estimate=${comp.beforeTokens}, point=${compactionLimit}, compacted=${comp.compacted}`,
+        );
+        if (comp.compacted) {
+          baseMessages = comp.messages;
+          logger.log(
+            `[compaction] mid-round compaction: ${comp.beforeTokens} -> ${comp.afterTokens} tokens (point ${compactionLimit})`,
+          );
+          const freed = comp.beforeTokens - comp.afterTokens;
+          retryAbove =
+            comp.afterTokens > compactionLimit || freed < compactionLimit * 0.1
+              ? comp.afterTokens + Math.floor(compactionLimit * 0.1)
+              : undefined;
+        } else if (comp.beforeTokens > compactionLimit) {
+          // Over the point and it still declined (the reason is logged by the
+          // compactor): wait for real growth before calling the summariser again.
+          retryAbove = comp.beforeTokens + Math.floor(compactionLimit * 0.1);
+        }
+      }
       // v13 7A: finished background-command results land on the very
       // next step (same step-input-only contract as corrections).
       // R2: when the wake turn uses the FORCED collect_results tool
@@ -873,7 +936,7 @@ export async function simpleStreamText(
       // tagged block below is appended after `messages` that may itself
       // end with a user turn — so this is not a new provider shape.)
       const assembled = buildStepMessages({
-        messages,
+        messages: baseMessages,
         injected,
         interjections,
         tag: systemReminder,
@@ -906,7 +969,12 @@ export async function simpleStreamText(
       // interjection-only step changes the messages with an empty
       // `injected`, and returning `undefined` there would drop the
       // user's message on the floor.
-      const changedMessages = assembled.changed;
+      // Compaction above replaces `baseMessages` with the smaller history; that is
+      // a change too. `assembled.changed` only sees injections, so without this a
+      // provider with no cache markers (DeepSeek, any OpenAI-compatible endpoint)
+      // got `undefined` back and the SDK sent the ORIGINAL full messages - the
+      // summary was paid for and then thrown away (0j).
+      const changedMessages = assembled.changed || baseMessages !== messages;
       const base =
         cacheMarkerPlacement !== "none" && (stepNumber > 0 || changedMessages)
           ? {

@@ -28,6 +28,7 @@ import {
 } from "@/lib/agent/mutation-verify";
 import { noteTurn, noteTurnLoopTotals } from "@/lib/analytics/turn-stats";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
+import { estimateToolSetTokens } from "@/lib/context/mid-loop-threshold";
 import {
   hasNativeToolParts,
   flattenNativeForCompaction,
@@ -851,6 +852,10 @@ async function runAgentTurnInner(
         tierLimit: rt.tierLimit,
         usableTokens: rt.usableTokens,
         compactionLimit: rt.compactionLimit,
+        // The tool half of the prefix the estimate used to omit (0j) — without
+        // it a round-ended turn re-decided "under the point" and skipped
+        // compaction.
+        toolSurfaceTokens: estimateToolSetTokens(profile.tools),
         chatId: rt.chatId,
         loopLabel: profile.compactionLabel,
         emitActivity: rt.emitCompactionActivity,

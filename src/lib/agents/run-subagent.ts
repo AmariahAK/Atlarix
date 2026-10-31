@@ -30,12 +30,16 @@ import {
 import {
   compactionPoint,
   contextWorkingWindowTokens,
-  roundShouldEndForCompaction,
+  estimateToolSetTokens,
 } from "@/lib/context/mid-loop-threshold";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { inputOutputTokensFromUsage } from "@/lib/routing/byok-pricing";
 import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
-import { estimateModelMessagesTokens } from "@/lib/ai/native-history";
+import {
+  estimateModelMessagesTokens,
+  flattenNativeForCompaction,
+} from "@/lib/ai/native-history";
+import { compactAgenticMessagesIfNeeded } from "@/lib/routing/tier_context_budget";
 import { ToolRegistry } from "@/lib/tools/registry";
 import {
   isInsufficientCreditError,
@@ -528,6 +532,11 @@ export async function runSubagent(
       logger.warn("[Subagent] tier-limit resolve failed; generic fallback:", e);
     }
     const systemEstimate = estimateTokens(systemPrompt);
+    // The tool half of the sub-agent's dispatched prefix (its read-only toolset),
+    // measured from the actual `toolSet` — the estimate the mid-round compaction
+    // gate used to omit (0j), which is why a scout that hit the point re-decided
+    // "under the point" and kept growing.
+    const toolSurfaceTokens = estimateToolSetTokens(toolSet);
     // v13.2: sub-agent rounds are multi-step scouts — cache markers matter
     // most here. Same provider-aware placement as the main stream.
     const cacheMarkerPlacement = resolveCacheMarkerPlacement(
@@ -543,6 +552,9 @@ export async function runSubagent(
     /** One streamed round; returns the SDK result pieces we need. */
     const runRound = async () => {
       roundEndedForCompaction = false;
+      // One mid-round compaction per round (prepareStep), reset each round.
+      /** See simple-stream-text.ts: retry only after a tenth of the point of growth. */
+      let retryAbove: number | undefined;
       const rolling = makeRollingEmitter(emit, delegationId, round);
       currentRolling = rolling;
       const stream = streamText({
@@ -558,21 +570,10 @@ export async function runSubagent(
           placement: cacheMarkerPlacement,
         }),
         tools: toolSet,
-        // End the round at the compaction point so the loop compacts and continues
-        // — without this a long scout grows past it inside one round (0j, the same
-        // bug the main turn had).
-        stopWhen: [
-          () => {
-            if (!roundShouldEndForCompaction(lastStepInputTokens, compactionLimit)) {
-              return false;
-            }
-            roundEndedForCompaction = true;
-            logger.log(
-              `[Subagent] round ends at ${lastStepInputTokens} tokens (point ${compactionLimit}) — compacts and continues`,
-            );
-            return true;
-          },
-        ],
+        // 0j: the round no longer ENDS at the compaction point — a long scout
+        // compacts in place in `prepareStep` (below) from the ONE complete count
+        // (system + tools + messages). The provider's input count is kept only
+        // for calibration (logged beside the estimate).
         onStepFinish: ({ usage }) => {
           const split = inputOutputTokensFromUsage(usage);
           if (split && typeof split.inputTokens === "number" && split.inputTokens > 0) {
@@ -581,24 +582,51 @@ export async function runSubagent(
         },
         // v13.3: per-step breakpoint advancement — scouts are multi-step,
         // so the turn's growing tool tail must cache incrementally too.
-        prepareStep:
-          cacheMarkerPlacement !== "none"
-            ? ({
-                messages,
-                stepNumber,
-              }: {
-                messages: ModelMessage[];
-                stepNumber: number;
-              }) =>
-                stepNumber > 0
-                  ? {
-                      messages: advanceCacheBreakpointsForStep(
-                        messages,
-                        cacheMarkerPlacement,
-                      ),
-                    }
-                  : undefined
-            : undefined,
+        // 0j: the mid-round compaction decision also runs here, BEFORE the step,
+        // and its smaller messages override carries forward to later steps.
+        prepareStep: async ({ messages, stepNumber }) => {
+          let base = messages;
+          if (
+            typeof compactionLimit === "number" &&
+            compactionLimit > 0
+          ) {
+            const comp = await compactAgenticMessagesIfNeeded({
+              messages: flattenNativeForCompaction(messages),
+              nativeMessages: messages,
+              systemPromptEstimate: 0,
+              tierLimit: compactionLimit,
+              compactionLimit,
+              toolSurfaceTokens,
+              chatId: args.chatId ?? 0,
+              model: { provider: effectiveModel.provider, name: effectiveModel.name },
+              ...(retryAbove != null ? { attemptAbove: retryAbove } : {}),
+            });
+            logger.log(
+              `[Subagent] step ${stepNumber}: provider input=${lastStepInputTokens}, estimate=${comp.beforeTokens}, point=${compactionLimit}, compacted=${comp.compacted}`,
+            );
+            if (comp.compacted) {
+              base = comp.messages;
+              logger.log(
+                `[Subagent] mid-round compaction: ${comp.beforeTokens} -> ${comp.afterTokens} tokens (point ${compactionLimit})`,
+              );
+              // Same rule as the main round: compact again whenever the round grows
+              // back past the point; stop only when a compaction could not help.
+              const freed = comp.beforeTokens - comp.afterTokens;
+              retryAbove =
+                comp.afterTokens > compactionLimit || freed < compactionLimit * 0.1
+                  ? comp.afterTokens + Math.floor(compactionLimit * 0.1)
+                  : undefined;
+            } else if (comp.beforeTokens > compactionLimit) {
+              retryAbove = comp.beforeTokens + Math.floor(compactionLimit * 0.1);
+            }
+          }
+          if (cacheMarkerPlacement !== "none" && stepNumber > 0) {
+            return {
+              messages: advanceCacheBreakpointsForStep(base, cacheMarkerPlacement),
+            };
+          }
+          return undefined;
+        },
       } as Parameters<typeof streamText>[0]);
 
       /**
@@ -715,6 +743,7 @@ export async function runSubagent(
         systemPromptEstimate: systemEstimate,
         tierLimit,
         compactionLimit,
+        toolSurfaceTokens,
         chatId: args.chatId ?? 0,
         loopLabel: "Subagent",
         onInfo: (msg) => logger.log(msg),

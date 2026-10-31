@@ -1,4 +1,6 @@
 import type { ModelMessage } from "ai";
+import log from "electron-log";
+const logger = log.scope("tier_context_budget");
 import type { LargeLanguageModel, UserSettings } from "../schemas";
 import {
   summarizeMessagesWithCompactionPrompt,
@@ -323,6 +325,13 @@ export interface MidLoopCompactionParams {
    * usable budget, so a caller that hasn't computed the point still works.
    */
   compactionLimit?: number;
+  /**
+   * Bound tool descriptions + schemas for this turn — the half of the prefix the
+   * estimate used to omit (0j: the trigger re-decided "under the point" on a
+   * round the guard had already ended, because tool schemas were not counted).
+   * Added on top of the message + system-prompt estimate.
+   */
+  toolSurfaceTokens?: number;
   /** Trigger compaction when `(systemPromptEstimate + history)` exceeds `usableTokens`. */
   /** Last N protected user+assistant exchanges (default 3 — matches `enforceTierContextBudget`). */
   protectExchanges?: number;
@@ -338,6 +347,19 @@ export interface MidLoopCompactionParams {
   sessionStats?: { toolCallCount?: number; delegationCount?: number };
   /** v10: when set, summarization tokens count toward this chat's turn usage. */
   chatId?: number;
+  /**
+   * The model THIS turn runs on. The summary must be written by it: without it the
+   * summarizer fell back to the chat's STORED model (Auto by default), which bills
+   * a different model and fails outright for a BYOK user who is not signed in
+   * ("Atlarix Auto isn't offered right now").
+   */
+  model?: { provider: string; name: string };
+  /**
+   * Do not summarise at or below this count. Set by a caller whose previous attempt
+   * this round failed or freed too little, so a broken or useless summariser is not
+   * called again on every step - only after the context has grown meaningfully.
+   */
+  attemptAbove?: number;
 }
 
 export interface MidLoopCompactionResult {
@@ -376,10 +398,15 @@ export async function compactAgenticMessagesIfNeeded(
   const tokensOf = (m: ModelMessage) =>
     estimateTokens(modelMessageText(m.content));
   const total = (msgs: ModelMessage[]) =>
-    msgs.reduce((acc, m) => acc + tokensOf(m), 0) + params.systemPromptEstimate;
+    msgs.reduce((acc, m) => acc + tokensOf(m), 0) +
+    params.systemPromptEstimate +
+    (params.toolSurfaceTokens ?? 0);
 
-  const beforeTokens = total(params.messages);
-  if (beforeTokens <= usable) {
+  const beforeTokens = total(params.nativeMessages ?? params.messages);
+  if (
+    beforeTokens <= usable ||
+    (params.attemptAbove != null && beforeTokens <= params.attemptAbove)
+  ) {
     return {
       messages: params.messages,
       compacted: false,
@@ -398,6 +425,7 @@ export async function compactAgenticMessagesIfNeeded(
     })),
   );
   if (entries.length === 0) {
+    logger.log(`[compaction] declined over the point: no conversation entries (estimate ${beforeTokens}, point ${usable})`);
     return {
       messages: params.messages,
       compacted: false,
@@ -430,6 +458,7 @@ export async function compactAgenticMessagesIfNeeded(
 
   // Without anything to summarize, just return as-is.
   if (headConversation.length === 0) {
+    logger.log(`[compaction] declined over the point: nothing before the protected tail to summarise (estimate ${beforeTokens}, point ${usable})`);
     return {
       messages: params.messages,
       compacted: false,
@@ -447,8 +476,10 @@ export async function compactAgenticMessagesIfNeeded(
     })),
     sessionStats: params.sessionStats,
     chatId: params.chatId,
+    ...(params.model ? { model: params.model } : {}),
   });
   if (!summary) {
+    logger.log(`[compaction] declined over the point: the summariser returned nothing (estimate ${beforeTokens}, point ${usable})`);
     return {
       messages: params.messages,
       compacted: false,
