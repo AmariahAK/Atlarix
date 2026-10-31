@@ -7,7 +7,7 @@ import type { ProviderRow } from "../../src/protocol";
 import { closePicker, openPicker } from "../chat/picker";
 import { post, rpc } from "../rpc";
 import { checkKey, emit, loadProviders, modelName, on, state } from "../state";
-import { button, el, eyebrow, icon, initials, money, pageHeader, rixGlyph, toggle } from "../ui";
+import { button, el, eyebrow, icon, initials, money, pageHeader, rixGlyph, segmented, toggle } from "../ui";
 import type { Nav } from "./nav";
 
 type Tab = "keys" | "approve" | "browser" | "general";
@@ -327,6 +327,30 @@ function renderGeneral(body: HTMLElement): void {
   row("Send the open file with each message", "Shown in the box; remove it there to leave it out", "attachOpenFile");
   row("Send with Ctrl+Enter", "Enter then adds a new line", "ctrlEnterSends");
   body.append(card);
+
+  // Context window — one shared setting (the app's Settings, the CLI's /context,
+  // ACP and here). It is not per-chat: it decides when any session compacts.
+  const ctxCard = el("section", "card-plain list");
+  const ctxRow = el("div", "setting");
+  const ctxT = el("div", "col grow");
+  ctxT.append(
+    el("span", "", "Context window"),
+    el("span", "muted small", "How much of the conversation to keep before Atlarix compacts it. 512k and Full keep more; every step costs more."),
+  );
+  const ctxOptions = [
+    { value: "256k", name: "256K" },
+    { value: "512k", name: "512K" },
+    { value: "full", name: "Full" },
+  ];
+  ctxRow.append(
+    ctxT,
+    segmented(ctxOptions, state.context?.value ?? "256k", "Context window", (v) => {
+      post({ type: "set-option", configId: "context", value: v });
+      if (state.context) state.context.value = v;
+    }),
+  );
+  ctxCard.append(ctxRow);
+  body.append(ctxCard);
 
   body.append(eyebrow("THIS CHAT"));
   const acts = el("section", "card-plain list");
