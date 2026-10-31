@@ -50,6 +50,8 @@ export interface PendingApproval {
     operation?: string;
     preview?: unknown;
   };
+  /** The tool cell that asked, captured when the request arrived (0o c). */
+  askingCellId?: string;
 }
 
 export interface QueuedMessage {
@@ -346,6 +348,29 @@ function lastAnchorCell(cells: readonly Cell[]): string {
     return c.id;
   }
   return "";
+}
+
+/** The last tool cell — the "under the asking row" fallback for an approval receipt. */
+function lastToolCell(cells: readonly Cell[]): string {
+  for (let i = cells.length - 1; i >= 0; i--) {
+    if (cells[i]!.kind === "tool") return cells[i]!.id;
+  }
+  return "";
+}
+
+/**
+ * Where an answered approval's receipt goes: under the row that asked. The
+ * asking cell is captured at request time (`askingCellId`), while it was still
+ * running; `askingToolCell` finds one still running now; the last tool cell is
+ * the fallback "under the asking row" — never the end of the transcript (0o c).
+ */
+export function approvalReceiptAnchor(
+  cells: readonly Cell[],
+  asked: { command?: string; path?: string },
+  askingCellId: string | undefined,
+): string {
+  const running = askingToolCell(cells, asked);
+  return askingCellId ?? running ?? lastToolCell(cells);
 }
 
 /**
@@ -2034,12 +2059,28 @@ export class AgentSession extends EventEmitter {
   ): Promise<void> {
     const answered = this.state.approvals.find((a) => a.operationId === operationId);
     const line = answered ? approvalConfirmation(answered, approvalMode) : null;
-    // Under the line that asked: the tool call the turn is waiting on is the last one now.
+    // Under the line that asked, never at the transcript end. `askingCellId` is
+    // captured when the request arrived (addApproval), while its tool cell was
+    // still running; at answer time a "running" search would miss a cell that
+    // already finished (a batch answered before anything runs) and the receipt
+    // would stack at the bottom (0o c).
     if (line) {
+      const asked = firstPreview(answered!);
+      const anchor = approvalReceiptAnchor(this.state.cells, asked, answered?.askingCellId);
+      const running = askingToolCell(this.state.cells, asked);
+      const branch =
+        answered?.askingCellId === anchor
+          ? "askingCellId"
+          : running === anchor
+            ? "askingToolCell"
+            : "lastToolCell";
+      void import("electron-log").then((m) =>
+        m.default.info(`[approval-receipt] op=${operationId} anchor=${anchor} via=${branch}`),
+      );
       this.wakeNotes.push({
         id: operationId,
         cellId: `approved:${operationId}`,
-        afterCellId: askingToolCell(this.state.cells, firstPreview(answered!)) ?? lastAnchorCell(this.state.cells),
+        afterCellId: anchor,
         afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
         text: line,
       });
@@ -2311,10 +2352,18 @@ export class AgentSession extends EventEmitter {
   private addApproval(p: Record<string, unknown>): void {
     const op = String(p.operationId ?? "");
     if (!op || this.state.approvals.some((a) => a.operationId === op)) return;
+    const request = (p.request ?? {}) as PendingApproval["request"];
+    // Capture the asking tool cell NOW, while it is running, so the receipt can
+    // anchor under it at answer time even after the cell finished (0o c).
+    const askingCellId =
+      askingToolCell(
+        this.state.cells,
+        firstPreview({ operationId: op, request } as PendingApproval),
+      ) ?? undefined;
     this.update({
       approvals: [
         ...this.state.approvals,
-        { operationId: op, request: (p.request ?? {}) as PendingApproval["request"] },
+        { operationId: op, request, askingCellId },
       ],
     });
   }

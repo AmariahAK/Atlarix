@@ -13,6 +13,7 @@ import { normalizeRelativePath, normalizeScopeValue } from "@/lib/file-permissio
 import {
   resolveFileRepoContext,
   toRepoRelativePath,
+  toWorkspaceRelativePath,
   type FileRepoContext,
 } from "@/lib/file-permission-repo";
 import { resolveCanonicalAppId } from "@/ipc/utils/canonical-app";
@@ -68,8 +69,13 @@ export function toRepoRelativePathForApp(
   const normalized = normalizeRelativePath(workspaceRelative);
   if (!normalized) return "";
   const { ctx, workspacePath } = repoScopeForApp(appId);
-  if (!ctx || !workspacePath) return normalized;
-  return toRepoRelativePath(ctx, workspacePath, normalized);
+  if (!workspacePath) return normalized;
+  if (ctx) return toRepoRelativePath(ctx, workspacePath, normalized);
+  // Not a git checkout: re-express against the workspace root so an ABSOLUTE
+  // path (what the model passes right after read_file) matches the same file
+  // asked relative on a later turn (0o). Without this the two spellings saved
+  // two different rules and every "from now on" grant failed to stick.
+  return toWorkspaceRelativePath(workspacePath, normalized);
 }
 
 export type WorkspaceFilePermissionRow = {

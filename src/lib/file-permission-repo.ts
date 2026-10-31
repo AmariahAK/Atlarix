@@ -89,3 +89,20 @@ export function toRepoRelativePath(
   const rel = path.relative(ctx.repoRoot, abs);
   return normalizeRelativePath(rel);
 }
+
+/**
+ * A path re-expressed relative to the WORKSPACE root (the non-git workspace's
+ * coordinate). An ABSOLUTE path under the workspace collapses to its relative
+ * form, so `edit_file`'s absolute spelling (what read_file echoes) matches the
+ * same file asked relative on the next turn — and a path outside the workspace
+ * becomes `../…`, which the gate still prompts for. Both sides are realpath'd so
+ * a symlinked workspace does not yield a `../../..` answer for an inside path.
+ */
+export function toWorkspaceRelativePath(
+  workspacePath: string,
+  raw: string,
+): string {
+  const base = realAppPath(workspacePath);
+  const abs = realAppPath(path.resolve(base, raw));
+  return normalizeRelativePath(path.relative(base, abs));
+}
