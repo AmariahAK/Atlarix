@@ -113,6 +113,13 @@ interface PeerFrame {
   set?: { mode?: string; model?: string; plan?: string; planText?: string };
   /** Send the sender ONE notice when the turn that reads this message ends (`notify_when_done`). */
   notify?: boolean;
+  /**
+   * A one-way notice the receiver must NOT start a turn for — a "turn ended"
+   * notice (notify_when_done). It is queued and read at the session's next real
+   * turn instead of waking one: waking to answer "Acknowledged" re-sends the
+   * whole context for nothing (2026-10-31 spend incident).
+   */
+  informational?: boolean;
   from: {
     sessionId: string;
     name: string;
@@ -618,8 +625,11 @@ export async function receive(
   // Watched only once it went in: a refused or empty frame never notifies.
   const notify = f.notify === true && queued.length > 0 && f.from?.sessionId !== "unknown";
   if (notify) turnWatches.push({ chatId: target.chatId, sessionId: target.sessionId, ids: queued, from: f.from });
+  // An informational message (a "turn ended" notice) is queued for the
+  // session's next real turn, not a new one: waking to answer "Acknowledged"
+  // re-sends the whole context for nothing (2026-10-31 spend incident).
   const idle = (text || applied.startTurn) && !hostImpl.isBusy(target.chatId);
-  if (idle) hostImpl.wake(target.chatId);
+  if (idle && !f.informational) hostImpl.wake(target.chatId);
   return {
     ok: true,
     ...(applied.notice ? { applied: applied.notice } : {}),
@@ -908,7 +918,7 @@ export function sendPeerMessage(
   from: PeerFrame["from"],
   text: string,
   set?: PeerFrame["set"],
-  opts: { notify?: boolean } = {},
+  opts: { notify?: boolean; informational?: boolean } = {},
 ): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean; notify?: boolean }> {
   // Delivering to a CLI's placeholder first creates its session (seconds).
   return sendFrame(
@@ -921,6 +931,7 @@ export function sendPeerMessage(
       text,
       ...(set ? { set } : {}),
       ...(opts.notify ? { notify: true } : {}),
+      ...(opts.informational ? { informational: true } : {}),
       from,
     },
     "that session did not answer",
@@ -1009,6 +1020,9 @@ async function tellTurnEnded(w: TurnWatch): Promise<void> {
     to.row,
     { sessionId: s.sessionId, name: s.name, surface: s.surface ?? surface, workspace: s.workspace },
     text,
+    undefined,
+    // A notice, not a request: never start a turn in the sender just to read it.
+    { informational: true },
   ).catch(() => {});
 }
 

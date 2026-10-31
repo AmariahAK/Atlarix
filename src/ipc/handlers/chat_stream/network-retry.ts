@@ -264,3 +264,22 @@ export class NetworkStreamDisconnectedError extends Error {
     if (m) this.detail = m;
   }
 }
+
+/** Waits after a provider says it is rate-limited or overloaded: per-minute limits need the minute. */
+export const PROVIDER_BUSY_DELAYS_MS = [10_000, 30_000, 60_000];
+
+/**
+ * A provider error that passes if we wait: a rate limit, an overload, a server
+ * error, delivered INSIDE the stream (no HTTP status; the Atlarix proxy passes
+ * OpenAI's `response.failed` through as `{ error: { code, message } }`). Before
+ * this it fell through to the one-second empty-output retry and then "Something
+ * went wrong" (2026-10-31, six sessions on one OpenAI account).
+ */
+export function isProviderBusyError(err: unknown): boolean {
+  const e = ((err as { error?: unknown } | null)?.error ?? err) as { code?: unknown; type?: unknown; message?: unknown } | null;
+  if (!e || typeof e !== "object") return false;
+  const status = (e as { statusCode?: unknown }).statusCode ?? (err as { statusCode?: unknown } | null)?.statusCode;
+  if (typeof status === "number") return false; // HTTP errors keep their existing paths
+  const text = `${String(e.code ?? "")} ${String(e.type ?? "")} ${String(e.message ?? "")}`;
+  return /rate.?limit|too many requests|overloaded|server_error|temporarily unavailable|try again (later|in)|capacity/i.test(text);
+}

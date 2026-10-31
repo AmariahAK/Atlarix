@@ -28,6 +28,7 @@ import {
   isNativeComputerToolRejection,
   jitteredDelay,
   retryAfterMs,
+  PROVIDER_BUSY_DELAYS_MS,
   NetworkStreamDisconnectedError,
 } from "@/ipc/handlers/chat_stream/network-retry";
 import { sentryAddBreadcrumbSafe } from "@/ipc/handlers/chat_stream/sentry-safe";
@@ -319,6 +320,24 @@ export async function runStreamRoundWithEmptyOutputRetry(
 
       // The provider refused the request itself (bad key, no access): the same
       // request is refused again, and onError already said why.
+      // The provider is busy (rate limit, overload): it clears. Wait longer than
+      // a network blip, then run the round again from scratch.
+      const busy = bundle?.getRecordedBusy?.();
+      if (busy != null && isEmptyOutputStreamError(err) && networkAttempt < PROVIDER_BUSY_DELAYS_MS.length) {
+        const delay = jitteredDelay(networkAttempt, PROVIDER_BUSY_DELAYS_MS[networkAttempt]);
+        networkAttempt++;
+        noteTurn(params.chatId, "retries");
+        logger.warn(
+          `[stream] Provider busy (${refusalMessage(busy).slice(0, 160)}), retrying after ${delay}ms (attempt ${networkAttempt}/${PROVIDER_BUSY_DELAYS_MS.length})`,
+        );
+        safeSend(event.sender, "chat:stream:reset-partial", { chatId: params.chatId });
+        fullResponse = initialFullResponse;
+        partialResponses.delete(params.chatId);
+        await new Promise((r) => setTimeout(r, delay));
+        if (params.abortController.signal.aborted) throw new Error("aborted");
+        continue;
+      }
+
       const refusal = bundle?.getRecordedRefusal?.();
       if (refusal != null && isEmptyOutputStreamError(err)) {
         throw new ProviderRefusedRequestError(refusal);
