@@ -21,6 +21,7 @@ import {
   markInterrupted,
   interruptedRowIds,
   placeSteers,
+  collectAnchors,
   activityToolLine,
   locateBlocks,
   withDelegations,
@@ -1990,23 +1991,14 @@ export class AgentSession extends EventEmitter {
 
   /** A steer's message appearing in the list: remember where in the answer it arrived. */
   private anchorSteers(): void {
-    let lastAssistant = -1;
-    this.messages.forEach((m, i) => {
-      if (m.role === "assistant") lastAssistant = i;
+    const { anchors, steerTexts } = collectAnchors({
+      messages: this.messages,
+      steerTexts: this.steerTexts,
+      taken: this.steerTakenAt,
+      seen: this.seenUserIds,
     });
-    this.messages.forEach((m, i) => {
-      const id = String(m.id);
-      if (m.role !== "user" || this.seenUserIds.has(id)) return;
-      this.seenUserIds.add(id);
-      const k = this.steerTexts.indexOf(m.content.trim());
-      if (k < 0 || lastAssistant < i) return;
-      this.steerTexts.splice(k, 1);
-      const answer = this.messages[lastAssistant]!;
-      const taken = this.steerTakenAt.get(m.content.trim());
-      this.steerTakenAt.delete(m.content.trim());
-      const at = taken && taken.assistantId === String(answer.id) ? taken.offset : answer.content.length;
-      this.anchors.set(id, { messageId: id, assistantId: String(answer.id), offset: Math.min(at, answer.content.length) });
-    });
+    this.steerTexts = steerTexts;
+    for (const [id, a] of anchors) this.anchors.set(id, a);
   }
 
   async answerApproval(

@@ -843,21 +843,65 @@ export function placeSteers(
     if (!a) continue;
     const answer = messages.find((x) => String(x.id) === a.assistantId);
     const firstIdx = cells.findIndex((c) => c.id.startsWith(`${a.assistantId}:`));
-    const cell: Cell = { kind: "user", id: `${String(m.id)}:u`, text: m.content.trim() };
+    // The message as it normally draws: a steer is a user band, a peer message a
+    // "Message from X" tool line (lib/peers: never the user's own band).
+    const rendered = messageCells(m, false);
     if (!answer || firstIdx < 0) {
       // The answer it came during shows nothing (stopped or failed before any
       // output): in its own place, before anything sent after it. Appended,
       // it sank below later turns (QA).
       const mine = order.get(String(m.id)) ?? Infinity;
       const at = cells.findIndex((c) => (order.get(c.id.split(":")[0]!) ?? -1) > mine);
-      if (at < 0) cells.push(cell);
-      else cells.splice(at, 0, cell);
+      if (at < 0) cells.push(...rendered);
+      else cells.splice(at, 0, ...rendered);
       continue;
     }
     const before = toCells([{ ...answer, content: answer.content.slice(0, a.offset) }], { streaming: true }).length;
-    cells.splice(firstIdx + before, 0, cell);
+    cells.splice(firstIdx + before, 0, ...rendered);
   }
   return cells;
+}
+
+/**
+ * Turn delivered steers and peer messages into anchors (pure, for tests).
+ *
+ * A user message that is a steer (`steerTexts`) or a peer message is anchored
+ * against the answer `taken` recorded when it was delivered, and only then is
+ * it marked seen. A steer whose row lands after the growing answer (a long
+ * single turn) is left un-seen so a later pass anchors it instead of sinking
+ * to the bottom of the transcript (owner, 2026-10-31). `taken` and `seen` are
+ * mutated; the remaining `steerTexts` and the anchors are returned.
+ */
+export function collectAnchors(opts: {
+  messages: readonly ChatMessageLike[];
+  steerTexts: readonly string[];
+  taken: Map<string, { assistantId: string; offset: number }>;
+  seen: Set<string>;
+}): { anchors: Map<string, SteerAnchor>; steerTexts: string[] } {
+  const anchors = new Map<string, SteerAnchor>();
+  const nextTexts = opts.steerTexts.slice();
+  for (const m of opts.messages) {
+    if (m.role !== "user") continue;
+    const id = String(m.id);
+    if (opts.seen.has(id)) continue;
+    const text = m.content.trim();
+    const k = nextTexts.indexOf(text);
+    const isPeer = splitPeerMessages(m.content)?.some((s) => s.kind === "peer") ?? false;
+    if (k < 0 && !isPeer) {
+      // A real user message: nothing to anchor.
+      opts.seen.add(id);
+      continue;
+    }
+    const taken = opts.taken.get(text);
+    if (!taken) continue; // not delivered yet; a later pass records it
+    opts.seen.add(id);
+    if (k >= 0) nextTexts.splice(k, 1);
+    opts.taken.delete(text);
+    const answer = opts.messages.find((x) => String(x.id) === taken.assistantId);
+    const offset = answer ? Math.min(taken.offset, answer.content.length) : taken.offset;
+    anchors.set(id, { messageId: id, assistantId: taken.assistantId, offset });
+  }
+  return { anchors, steerTexts: nextTexts };
 }
 
 /**

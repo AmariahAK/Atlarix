@@ -109,6 +109,75 @@ describe("placeSteers", () => {
     );
     expect(cells.map((c) => (c.kind === "user" ? c.text : c.kind))).toEqual(["First", "Second", "Third", "Fourth", "Fifth"]);
   });
+
+  it("draws a peer message anchored inline as 'Message from X', never a user band", async () => {
+    const { placeSteers } = await import("@/cli/agent/transcript");
+    const { wrapPeerMessage } = await import("@/lib/peers/peer-message");
+    const answer = '<atlarix-tool-call tool="run_command" status="running">\n{"command":"sleep 1"}\n</atlarix-tool-call>\n';
+    const longer = `${answer}<atlarix-tool-result tool="run_command" status="complete">\n{"success":true,"output":"","exitCode":0}\n</atlarix-tool-result>\n\nDone.`;
+    const peer = wrapPeerMessage({ sessionId: "a", name: "alpha", surface: "cli", workspace: "/w" }, "look at this");
+    const messages = [
+      { id: 1, role: "user", content: "start" },
+      { id: 6, role: "user", content: peer },
+      { id: 2, role: "assistant", content: longer },
+    ];
+    const cells = placeSteers(messages, new Map([["6", { messageId: "6", assistantId: "2", offset: answer.length }]]));
+    const msgs = cells.filter((c) => c.kind === "tool" && c.tool.verb === "Message");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ kind: "tool", tool: { verb: "Message", target: expect.stringContaining("alpha") } });
+    // The peer's words never show as the user's own band.
+    expect(cells.some((c) => c.kind === "user" && c.text.includes("look at this"))).toBe(false);
+  });
+});
+
+describe("collectAnchors (owner, 2026-10-31)", () => {
+  it("anchors a steer whose row lands after the growing answer, at the offset it was taken", async () => {
+    const { collectAnchors } = await import("@/cli/agent/transcript");
+    // A long single turn: the answer (id 2) grew, and the steer (id 3) landed
+    // after it in the list. The old code marked it seen before deciding and let
+    // it sink to the bottom.
+    const messages = [
+      { id: 1, role: "user", content: "start" },
+      { id: 2, role: "assistant", content: "working on it" },
+      { id: 3, role: "user", content: "STEER-ALPHA" },
+    ];
+    const seen = new Set<string>();
+    const taken = new Map([["STEER-ALPHA", { assistantId: "2", offset: 9 }]]);
+    const r = collectAnchors({ messages, steerTexts: ["STEER-ALPHA"], taken, seen });
+    expect(r.anchors.get("3")).toEqual({ messageId: "3", assistantId: "2", offset: 9 });
+    expect(seen.has("3")).toBe(true);
+    expect(r.steerTexts).toEqual([]);
+  });
+
+  it("leaves a not-yet-delivered steer un-seen, so a later pass anchors it", async () => {
+    const { collectAnchors } = await import("@/cli/agent/transcript");
+    const messages = [
+      { id: 1, role: "user", content: "start" },
+      { id: 2, role: "assistant", content: "working on it" },
+      { id: 3, role: "user", content: "STEER-BETA" },
+    ];
+    const seen = new Set<string>();
+    const taken = new Map<string, { assistantId: string; offset: number }>();
+    const r = collectAnchors({ messages, steerTexts: ["STEER-BETA"], taken, seen });
+    expect(r.anchors.size).toBe(0);
+    expect(seen.has("3")).toBe(false);
+    expect(r.steerTexts).toEqual(["STEER-BETA"]);
+  });
+
+  it("anchors a peer message by its wrapped text", async () => {
+    const { collectAnchors } = await import("@/cli/agent/transcript");
+    const { wrapPeerMessage } = await import("@/lib/peers/peer-message");
+    const text = wrapPeerMessage({ sessionId: "s", name: "other", surface: "cli", workspace: "/w" }, "do the thing");
+    const messages = [
+      { id: 1, role: "user", content: "start" },
+      { id: 2, role: "assistant", content: "working on it" },
+      { id: 3, role: "user", content: text },
+    ];
+    const seen = new Set<string>();
+    const taken = new Map([[text.trim(), { assistantId: "2", offset: 9 }]]);
+    const r = collectAnchors({ messages, steerTexts: [], taken, seen });
+    expect(r.anchors.get("3")).toEqual({ messageId: "3", assistantId: "2", offset: 9 });
+  });
 });
 
 describe("a turn that ended on questions", () => {
