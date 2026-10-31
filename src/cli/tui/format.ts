@@ -94,3 +94,14 @@ function firstSentenceOf(line: string): string {
   return line;
 }
 
+/** "context 23%", or null before the first step reports.
+ *
+ * A PERCENTAGE ONLY, deliberately (owner, 2026-10-31). The raw pair ("47k/205k")
+ * told the reader nothing they could act on, and it invited them to compare two
+ * numbers that are not always measured against the same window. What matters is
+ * how full the session is and that compaction runs; `/context` holds the detail.
+ * It lives here, not in App.tsx, so a test can import it without the whole TUI. */
+export function contextLabel(s: Pick<SessionState, "contextPercent">): string | null {
+  if (s.contextPercent == null) return null;
+  return `context ${s.contextPercent}%`;
+}
