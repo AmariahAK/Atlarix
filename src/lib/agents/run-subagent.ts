@@ -27,6 +27,10 @@ import {
   resolveModelContextLimit,
   GENERIC_CONTEXT_FALLBACK,
 } from "@/lib/context/resolve-model-context-limit";
+import {
+  compactionPoint,
+  contextWorkingWindowTokens,
+} from "@/lib/context/mid-loop-threshold";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import { estimateModelMessagesTokens } from "@/lib/ai/native-history";
@@ -496,9 +500,26 @@ export async function runSubagent(
     let round = 0;
 
     let tierLimit = GENERIC_CONTEXT_FALLBACK;
+    let compactionLimit = tierLimit;
     try {
-      tierLimit = (await resolveModelContextLimit(effectiveModel, settings))
-        .tierLimit;
+      const resolved = await resolveModelContextLimit(effectiveModel, settings);
+      tierLimit = resolved.tierLimit;
+      // Same working-window rule as the main turn: a sub-agent's mid-loop check
+      // compacts at threshold × working window (capped by the tier limit), so a
+      // long scout doesn't grow past it and re-send more each step.
+      const raw = resolved.rawContextLength ?? tierLimit / 0.8;
+      const workingWindowTokens = contextWorkingWindowTokens(
+        raw,
+        settings.contextWorkingWindow,
+      );
+      const threshold =
+        settings.aiConfiguration?.contextSummarization?.compactionThreshold ??
+        0.75;
+      compactionLimit = compactionPoint({
+        usableTokens: tierLimit,
+        workingWindowTokens,
+        threshold,
+      });
     } catch (e) {
       logger.warn("[Subagent] tier-limit resolve failed; generic fallback:", e);
     }
@@ -655,6 +676,7 @@ export async function runSubagent(
         messages: msgs,
         systemPromptEstimate: systemEstimate,
         tierLimit,
+        compactionLimit,
         chatId: args.chatId ?? 0,
         loopLabel: "Subagent",
         onInfo: (msg) => logger.log(msg),

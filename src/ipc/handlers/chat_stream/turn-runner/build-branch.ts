@@ -155,6 +155,8 @@ export interface BuildBranchDeps {
   abortController: AbortController;
   /** Window minus the reply reserve — what a request may actually occupy. */
   usableTokens: number;
+  /** The turn's compaction point — the mid-turn check's trigger (see 0c). */
+  compactionLimit: number;
   processResponseChunkUpdate: (args: {
     fullResponse: string;
   }) => Promise<string>;
@@ -210,6 +212,7 @@ export async function runBuildBranch(
     handleToolInputDelta,
     abortController,
     usableTokens,
+    compactionLimit,
     processResponseChunkUpdate,
     applyTierEscalation,
     buildToolStreamOpts,
@@ -1998,6 +2001,7 @@ export async function runBuildBranch(
           streamTurnId,
           tierLimit: modelContextResolved.tierLimit,
           usableTokens,
+          compactionLimit,
           maxContinuationAttempts: STREAM_CONTINUATION_MAX,
           taskLedger: taskLedgerBlock,
           permissionInterceptor,
