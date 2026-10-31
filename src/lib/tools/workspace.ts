@@ -900,11 +900,17 @@ ToolRegistry.register({
         !attachment ||
         !attachmentInScope(attachment, _scopeChatId, _scopeSessionId)
       ) {
+        // A screenshot PATH typed as the id (e.g. answering an ask_user question
+        // with the file's path): read_attachment only takes attachment ids, so
+        // name view_image, which does take a path (QA 2026-10-31).
+        const isPath = /[\\/]|^~|\.(png|jpe?g|gif|webp|bmp)$/i.test(id);
         return {
           name: id,
           success: false as const,
           error: `Attachment not found in this conversation: ${id}. It may have expired or belong to a different session.`,
-          suggestion: "Use list_attachments to see current IDs.",
+          suggestion: isPath
+            ? "That looks like a file path — use view_image to look at an image at a path (or list_attachments for current IDs)."
+            : "Use list_attachments to see current IDs.",
         };
       }
       try {
