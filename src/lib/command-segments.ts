@@ -46,12 +46,17 @@ const SEGMENT_SPLIT_RE = /&&|\|\||[|&;\n]/;
  * (`env`, `command`, `builtin`, `exec`, `nohup`, `time`, `nice`). NOT `sudo`,
  * which changes what the command may do and is classified as itself.
  *
+ * An assignment may also end the word it sits on — `f=x; grep` (a variable
+ * set, then the next command) and a bare `f=x` — not just the
+ * whitespace-separated `X=1 grep` form, so a leading assignment never keys a
+ * command category (0o e).
+ *
  * ONE definition for both segmenters. Before it, the permission gate stripped
  * none of `NAME=value`, `env`, `command`, `exec`, `nohup`, so the first word of
  * `X=1 rm a.txt` was "x=1": not a risky command, not an installer, so it ran
  * without asking. `X=1 curl …` and `FOO=bar ssh host` went through the same way.
  */
-const ASSIGNMENT = String.raw`[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s;&|'"]*)\s+`;
+const ASSIGNMENT = String.raw`[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s;&|'"]*)(?:\s+|[;&|]\s*|$)`;
 // `timeout`, `stdbuf` and `xargs`, and options of the others, were missing:
 // `timeout 5 git reset -q --hard` auto-ran in Build, and `timeout 5 git commit`
 // ran as a read in Explore (coordinator's review, 2026-10-20).

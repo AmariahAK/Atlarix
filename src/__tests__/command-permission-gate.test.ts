@@ -316,3 +316,28 @@ describe("leading comment lines are skipped when keying a command (0o d)", () =>
     });
   });
 });
+
+describe("leading variable assignments are skipped when keying a command (0o e)", () => {
+  it("getCommandCategory keys the real command, not the leading assignment", () => {
+    expect(getCommandCategory("f=build/tmp.txt; grep foo")).toBe("grep");
+    expect(getCommandCategory("NODE_ENV=production; npm test")).toBe("npm");
+    // Whitespace-separated assignments (the shell's per-command env) still work.
+    expect(getCommandCategory("A=1 B=2 npm test")).toBe("npm");
+    // A bare assignment has no command word.
+    expect(getCommandCategory("f=alone.txt")).toBe("");
+  });
+
+  it("two commands differing only in the assigned value share a key", () => {
+    expect(getCommandCategory("f=a86f57b1-abc.txt; grep foo")).toBe(
+      getCommandCategory("f=deadbeef-xyz.txt; grep foo"),
+    );
+    expect(getCommandCategory("f=a86f57b1-abc.txt; grep foo")).toBe("grep");
+  });
+
+  it("the gate keys an assignment-first command on the real command", () => {
+    expect(resolveRunCommandPermissionGate("f=x.txt; brew install jq", APP)).toMatchObject({
+      action: "prompt",
+      category: "brew",
+    });
+  });
+});
