@@ -45,6 +45,26 @@ const NAME = process.platform === "win32" ? "atlarix-computer.exe" : "atlarix-co
 /** Typing a long text is the slowest op; a stuck helper must still surface. */
 const REQUEST_TIMEOUT_MS = 60_000;
 
+/**
+ * Dev fallback: the executor built from source. Resolved from the CLI binary's
+ * own directory (dist-bun/ → one up → project root) and from __dirname (for
+ * running under tsx/Node), NOT from process.cwd(). The working directory
+ * changes with `start-atlarix.sh` and user shells, so a CWD-relative lookup
+ * silently made computer use unavailable unless the user happened to launch
+ * from the project root (0n).
+ */
+function devExecutorPath(): string | null {
+  const rel = path.join("native", "atlarix-computer", "target", "release", NAME);
+  // Compiled CLI: process.execPath IS the binary (dist-bun/atlarix); one up is
+  // the project root (Atlarix/).
+  const fromBin = path.resolve(path.dirname(process.execPath), "..", rel);
+  if (fs.existsSync(fromBin)) return fromBin;
+  // Dev under Node/tsx: __dirname is src/lib/computer/; three up is the project root.
+  const fromSrc = path.resolve(__dirname, "..", "..", "..", rel);
+  if (fs.existsSync(fromSrc)) return fromSrc;
+  return null;
+}
+
 /** The binary, or null when this build does not carry one. */
 export async function resolveHelperPath(): Promise<string | null> {
   const override = process.env.ATLARIX_COMPUTER_HELPER;
@@ -56,8 +76,7 @@ export async function resolveHelperPath(): Promise<string | null> {
   }
   const embedded = await unpackEmbeddedBinary(NAME, process.env.ATLARIX_EMBEDDED_COMPUTER);
   if (embedded) return embedded;
-  const dev = path.join(process.cwd(), "native", "atlarix-computer", "target", "release", NAME);
-  return fs.existsSync(dev) ? dev : null;
+  return devExecutorPath();
 }
 
 /**
@@ -72,7 +91,7 @@ export function helperPresent(): boolean {
   if (resourcesPath && fs.existsSync(path.join(resourcesPath, NAME))) return true;
   const embedded = process.env.ATLARIX_EMBEDDED_COMPUTER;
   if (embedded) return true;
-  return fs.existsSync(path.join(process.cwd(), "native", "atlarix-computer", "target", "release", NAME));
+  return devExecutorPath() !== null;
 }
 
 type Pending = {
@@ -97,7 +116,7 @@ async function ensureChild(): Promise<ChildProcessWithoutNullStreams> {
   if (child) return child;
   const bin = await resolveHelperPath();
   if (!bin) {
-    throw new HelperError("unavailable", "Computer use is not available in this build (atlarix-computer is missing).");
+    throw new HelperError("unavailable", "Computer use is unavailable: the atlarix-computer executor is not included in this build.");
   }
   const c = spawn(bin, [], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   child = c;
