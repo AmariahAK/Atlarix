@@ -91,17 +91,22 @@ export function realTarget(abs: string): string {
  * or `.atlarix/plugins` / `plugins.json` / `.atlarix/hooks.json` in any spelling
  * (`~/.atlarix/…`, `$HOME/.atlarix/…`).
  *
- * Every home-folder match stops at a SEGMENT boundary (see `SEGMENT_END_SOURCE`),
- * so a sibling folder named `.atlarix-e2e`, `.atlarix-notes` or `.atlarix.bak`
- * never reads as the home folder. `\b` sat between `x` and `-`/`.`, and a plain
+ * Every home-folder match stops at a SEGMENT boundary (see `SEGMENT_END`), so a
+ * sibling folder named `.atlarix-e2e`, `.atlarix-notes` or `.atlarix.bak` never
+ * reads as the home folder. `\b` sat between `x` and `-`/`.`, and a plain
  * `includes(homeDir)` matched the folder as a prefix of a longer path — both
  * made every write into `~/.atlarix-e2e/…` ask for a card it could not answer.
  */
 
-/** What may follow a path segment in a shell command: the end, a `/`, a quote,
- * whitespace or a shell operator. Any other character continues the segment into
- * a different name. */
-const SEGMENT_END_SOURCE = "(?:[/\\s'\"`&|;()<>]|$)";
+/**
+ * What may follow the home folder (or `.atlarix`) in a shell command: anything
+ * that does NOT continue the filename. `norm` is lowercased, so `a-z0-9_.-`
+ * are the continuation characters — a segment followed by one of them is a
+ * DIFFERENT name. Everything else — the end, `/`, a quote, whitespace, a shell
+ * operator, and a `,` or `}` from brace expansion (`~/{.atlarix,/tmp}/x`) —
+ * still names the folder, so it still asks.
+ */
+const SEGMENT_END = "(?![a-z0-9_.-])";
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -109,7 +114,7 @@ function escapeRegExp(s: string): string {
 
 /** True when `norm` names `dir` as a whole segment, not a longer name. */
 function namesSegment(norm: string, dir: string): boolean {
-  return new RegExp(escapeRegExp(dir) + SEGMENT_END_SOURCE).test(norm);
+  return new RegExp(escapeRegExp(dir) + SEGMENT_END).test(norm);
 }
 
 function commandNamesPluginControl(command: string): boolean {
@@ -132,7 +137,7 @@ function commandNamesPluginControl(command: string): boolean {
   // (`cat ~/.atlarix/…`) is not stopped; the sandbox denies the whole folder
   // anyway, and this is the layer for machines and runs without one.
   const mentionsHome = new RegExp(
-    "\\.atlarix" + SEGMENT_END_SOURCE + "|\\.atl[a-z]*[*?[]",
+    "\\.atlarix" + SEGMENT_END + "|\\.atl[a-z]*[*?[]",
   ).test(norm);
   return (
     mentionsHome &&

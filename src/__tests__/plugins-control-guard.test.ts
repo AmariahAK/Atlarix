@@ -217,12 +217,16 @@ describe("commands", () => {
     }
   });
 
-  it("still asks for the home folder itself and for globs to it", () => {
+  it("still asks for the home folder itself, globs to it, and brace forms", () => {
     for (const c of [
       "> ~/.atlarix/edicts.json",
       "cd ~/.atlarix && > x",
       "rm ~/.atl*/edicts.json",
       "> ~/.atlarix*",
+      // Brace expansion and a trailing `:` name the folder, not a sibling.
+      "tee ~/{.atlarix,/tmp}/x",
+      "cp a ~/{x,.atlarix}/y",
+      "cp a ~/.atlarix:",
     ]) {
       expect(touchesPluginControl(cmd(c), "/p"), c).toBe(true);
     }
