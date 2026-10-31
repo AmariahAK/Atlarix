@@ -73,7 +73,15 @@ describe("project memory on the wire", () => {
     const u1 = t1.users.find((u) => u.includes("sc=mw-1 hello"))!;
     expect(u1).toContain(`Contents of ${index}`);
     expect(u1).toContain("- [Deploy order](deploy-order.md) — proxy first");
-    expect(u1.trimEnd().endsWith("sc=mw-1 hello")).toBe(true);
+    // The index reminder folds in FRONT of the user's words, so the saved row
+    // keeps them after it. The per-turn dynamic tail (current date + ask_user
+    // guidance) legitimately follows the user text on the wire — the stream
+    // appends it to the newest user message for cache stability — so the user
+    // text is no longer the final bytes. What must hold is the ORDER: the
+    // index comes before the user's own words, never after them.
+    expect(u1.indexOf(`Contents of ${index}`)).toBeLessThan(
+      u1.indexOf("sc=mw-1 hello"),
+    );
     expect(t1.system).toContain("# Project memory");
     expect(t1.system).not.toContain("- [Deploy order](deploy-order.md)");
 
@@ -86,8 +94,12 @@ describe("project memory on the wire", () => {
 
     // The cached header did not move.
     expect(t2.system).toBe(t1.system);
-    // Turn 1's row is replayed with its index, byte for byte.
-    expect(t2.users).toContain(u1);
+    // Turn 1's row is replayed with its index, byte for byte. The per-turn
+    // dynamic tail (current date + ask_user guidance) is appended at stream
+    // time to the NEWEST message, so in turn 2 it rides turn 2's row — the
+    // replayed row is the persisted prefix, u1 up to where the tail began.
+    const r1 = t2.users.find((u) => u.includes("sc=mw-1 hello"))!;
+    expect(r1).toBe(u1.slice(0, u1.indexOf("# Current date")).trimEnd());
     // Turn 2 carries only what changed, not the index again.
     const u2 = t2.users.find((u) => u.includes("sc=mw-2 next"))!;
     expect(u2).toContain("MEMORY.md changed on disk since you last read it");
