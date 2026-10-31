@@ -86,7 +86,9 @@ const THOUGHT_OPEN_OR_CLOSE_OR_TOOL_START =
  * and left the second closer over as prose: a reply that read "</reasoning>".
  */
 function closeThoughtsAtBoundaries(content: string): string {
-  if (!/<(?:think|thinking|reasoning|redacted_thinking)\b/i.test(content)) return content;
+  // A CLOSER alone is enough to run this pass: a chunk can carry one with its
+  // opener in an earlier part, and a stray closer printed as prose is the bug.
+  if (!/<\/?(?:think|thinking|reasoning|redacted_thinking)\b/i.test(content)) return content;
   let out = "";
   let cursor = 0;
   let open: string | null = null;
@@ -95,7 +97,17 @@ function closeThoughtsAtBoundaries(content: string): string {
   while ((m = re.exec(content)) !== null) {
     const isThought = m[2] !== undefined;
     if (isThought && m[1] === "/") {
-      if (open && m[2]!.toLowerCase() === open) open = null;
+      // A closer with NO thought open is dropped, never printed. The owner saw
+      // a reply whose answer was the bare line `</redacted_thinking>`
+      // (2026-10-31): the thought had already been closed at a tool call by the
+      // rule below, so the model's own closer arrived orphaned — and
+      // `stripUnmatchedClosers` leaves it, because counted over the whole
+      // message the opener and closer look like a pair. Any closer also ends an
+      // open thought whatever name it carries, re-emitted under the opener's
+      // name, so a provider that opens and closes with different names pairs.
+      out += content.slice(cursor, m.index) + (open ? `</${open}>` : "");
+      cursor = m.index + m[0].length;
+      open = null;
       continue;
     }
     if (open) {

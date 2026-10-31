@@ -354,6 +354,38 @@ describe("parseAssistantMessageParts pure-prose fast path", () => {
   });
 });
 
+describe("a thought closed under a DIFFERENT name (DeepSeek, owner 2026-10-31)", () => {
+  it("</redacted_thinking> closes a <think>, so the answer is prose and no closer leaks", () => {
+    for (const streaming of [true, false]) {
+      const parts = parseAssistantMessageParts(
+        "<think>Let me check the typecheck commands.</redacted_thinking>Both items are built.",
+        streaming,
+      );
+      expect(parts.map((p) => p.type)).toEqual(["thought", "markdown"]);
+      expect((parts[1] as { content: string }).content).toBe("Both items are built.");
+      expect(JSON.stringify(parts)).not.toContain("redacted_thinking");
+    }
+  });
+
+  it("a closer with no thought open is dropped, never printed as the answer", () => {
+    const parts = parseAssistantMessageParts("</redacted_thinking>\nthen continue with your tasks", false);
+    expect(parts.filter((p) => p.type === "markdown").map((p) => (p as { content: string }).content)).toEqual([
+      "then continue with your tasks",
+    ]);
+    expect(JSON.stringify(parts)).not.toContain("redacted_thinking");
+  });
+
+  it("a mismatched closer still ends the thought at a tool call, and the tool shows", () => {
+    const parts = parseAssistantMessageParts(
+      '<think>plan it<atlarix-tool-call tool="read_file" call="c9" status="running">\n{"path":"a.ts"}\n</atlarix-tool-call>\n' +
+        '<atlarix-tool-result tool="read_file" call="c9" status="complete">\n{"success":true}\n</atlarix-tool-result>\nDone.</redacted_thinking>',
+      false,
+    );
+    expect(parts.map((p) => p.type).slice(0, 2)).toEqual(["thought", "tool"]);
+    expect(JSON.stringify(parts)).not.toContain("redacted_thinking");
+  });
+});
+
 describe("a thought left open across a tool call (gpt-oss on Bedrock, CLI QA 2026-10-30)", () => {
   const shape =
     '<reasoning>Create the DONE file.<atlarix-tool-call tool="edit_file" call="c1" status="running">\n{"path":"DONE"}\n</atlarix-tool-call>\n' +

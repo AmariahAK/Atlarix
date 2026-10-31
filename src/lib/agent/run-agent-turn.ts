@@ -422,6 +422,13 @@ async function runAgentTurnInner(
               // bounding the degenerate case where a model still emits a tool call
               // despite tools being off (text-tool models / scripted evals).
               maxStepsPerRound: forceTextFinish ? 1 : undefined,
+              // End the round at the compaction point so the mid-turn
+              // compaction below runs and the next round starts smaller: the
+              // SDK keeps every tool step inside ONE round, so without this a
+              // long turn never reached the check (owner, 2026-10-31).
+              ...(typeof rt.compactionLimit === "number" && rt.compactionLimit > 0
+                ? { compactionLimit: rt.compactionLimit }
+                : {}),
             }),
           fullResponse,
           abortController: roundAbortController,

@@ -8,6 +8,7 @@ import {
   compactionBudgets,
   compactionPoint,
   compactionShouldTrigger,
+  roundShouldEndForCompaction,
   compactionWouldTrigger,
   contextWorkingWindowTokens,
   usableContextBudget,
@@ -288,5 +289,22 @@ describe("mid-turn check follows the working window (compactionLimit)", () => {
       usableTokens: 900,
     });
     expect(oldRule.willTrigger).toBe(false);
+  });
+});
+
+describe("a round ends at the compaction point (owner, 2026-10-31)", () => {
+  // The SDK keeps every tool step inside ONE round, so the between-rounds check
+  // never ran and a session sat at 238k of a 256k working window.
+  const point = 192_000; // 0.75 × 256k
+  it("ends the round once the provider's input count passes the point", () => {
+    expect(roundShouldEndForCompaction(238_000, point)).toBe(true);
+  });
+  it("does nothing under the point, or with no point", () => {
+    expect(roundShouldEndForCompaction(150_000, point)).toBe(false);
+    expect(roundShouldEndForCompaction(238_000, undefined)).toBe(false);
+    expect(roundShouldEndForCompaction(238_000, 0)).toBe(false);
+  });
+  it("a step that reported nothing yet never ends the round", () => {
+    expect(roundShouldEndForCompaction(0, point)).toBe(false);
   });
 });
