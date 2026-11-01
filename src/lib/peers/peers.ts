@@ -1147,21 +1147,13 @@ export function noteSessionModel(sessionId: string, label: string | undefined): 
  * Mirrors the check in session.ts's isPeerApprovable; kept here so the gate fires in
  * receive() regardless of which applySettings implementation the host uses.
  *
- * High-risk = systemScope, isDangerous, sandbox_escalation, remote shells,
- * cloud/billing CLIs, destructive git, mass deletes, credential tools, sudo installs.
+ * Dynamic signals only — no static command regex (owner verdict, 2026-11-01).
+ * The gate that raised the request already sets isDangerous / systemScope when
+ * it detected a risky pattern; we trust those flags rather than re-parsing text.
  */
 function isHighRiskApproval(a: PendingApprovalSummary): boolean {
   if (a.isDangerous || a.systemScope) return true;
   if (a.operation === "sandbox_escalation") return true;
-  const cmd = a.summary.trim().toLowerCase();
-  if (/\b(ssh|scp|sftp|rsync)\b/.test(cmd)) return true;
-  if (/\b(aws|gcloud|az|railway|vercel|supabase|fly|heroku|netlify)\b/.test(cmd)) return true;
-  if (/\bgit\b.*\b(push\s+.*--(force|delete)|reset\s+--hard|rebase\s+-i|filter-branch|filter-repo)\b/.test(cmd)) return true;
-  if (/\brm\s+(-[a-z]*r[a-z]*f?|-[a-z]*f[a-z]*r?)\b/.test(cmd)) return true;
-  if (/\bfind\b.*\b-delete\b/.test(cmd)) return true;
-  if (/\bgit\s+clean\b.*\b-[a-z]*f/.test(cmd)) return true;
-  if (/\b(ssh-keygen|gpg|security\s+(find|add|delete|import)|pass\b|op\s+(signin|item|vault))\b/.test(cmd)) return true;
-  if (/\bsudo\s+(npm|pip|pip3|brew)\b/.test(cmd)) return true;
   return false;
 }
 

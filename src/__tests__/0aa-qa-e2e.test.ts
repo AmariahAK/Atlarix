@@ -151,13 +151,16 @@ describe("0aa QA: end-to-end two-session peer review", () => {
   });
 
   it("step 4: worker also has a high-risk ssh command — reviewer's approval is refused", async () => {
-    // Register the high-risk request.
+    // Register the high-risk request.  isDangerous:true mirrors what the runtime
+    // gate sets for ssh commands via isDangerousCommand(); the peer layer trusts
+    // that flag rather than re-parsing the command text (dynamic-only guard).
     noteSessionApproval(WORKER_ID, true, [
       {
         operationId: HIGH_RISK_OP_ID,
         operation: "run_command",
         summary: HIGH_RISK_COMMAND,
         cwd: SAFE_CWD,
+        isDangerous: true,
       },
     ]);
 

@@ -6,12 +6,8 @@
  * messages sent over the real socket. The `applySettings` host method is
  * stubbed to capture what the approval handler would broadcast.
  *
- * Tests required by coordinator review:
- *  - reviewer text contains operationId + command (not just "has one or more")
- *  - peer approval of outside-workspace write is refused
- *  - peer approval of ssh command is refused
- *  - in-workspace edit is accepted
- *  - each security test must fail without the fix
+ * High-risk guard uses dynamic signals only (isDangerous, systemScope,
+ * sandbox_escalation) — no static command regex (owner verdict 2026-11-01).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { DatabaseSync } from "node:sqlite";
@@ -81,12 +77,10 @@ function target(name: string) {
 
 describe("0aa: cross-session review", () => {
   it("list_sessions shows 'approval waiting' when a session has a pending approval", () => {
-    // Before: no approval flag.
     let rows = listPeerSessions(REVIEWER_ID);
     const asker = rows.find((r) => r.sessionId === ASKER_ID);
     expect(asker?.hasApproval).toBeFalsy();
 
-    // Asker raises a permission request.
     noteSessionApproval(ASKER_ID, true);
 
     rows = listPeerSessions(REVIEWER_ID);
@@ -106,7 +100,6 @@ describe("0aa: cross-session review", () => {
     ];
     noteSessionApproval(ASKER_ID, true, approvals);
 
-    // The local session should now carry the details.
     const s = localSession(ASKER_ID);
     expect(s?.pendingApprovals).toHaveLength(1);
     expect(s?.pendingApprovals?.[0].operationId).toBe(operationId);
@@ -115,7 +108,6 @@ describe("0aa: cross-session review", () => {
 
   it("reviewer sends approval answer; applySettings receives the operationId and mode", async () => {
     const operationId = "op-run-cmd-abc123";
-    // Register a safe in-workspace command so the security check passes.
     noteSessionApproval(ASKER_ID, true, [
       { operationId, operation: "run_command", summary: "npm run build", cwd: "/w/ask" },
     ]);
@@ -137,25 +129,23 @@ describe("0aa: cross-session review", () => {
     expect(last.target.sessionId).toBe(ASKER_ID);
   });
 
-  it("reviewer can deny a pending approval", async () => {
-    const operationId = "op-run-cmd-def456";
-    // Deny does not need a security check (denying is always safe).
+  it("deny is always allowed even when isDangerous is set", async () => {
+    const operationId = "op-deny-dangerous";
     noteSessionApproval(ASKER_ID, true, [
-      { operationId, operation: "run_command", summary: "rm -rf /tmp/x", isDangerous: true },
+      { operationId, operation: "run_command", summary: "some risky op", isDangerous: true },
     ]);
     const before = appliedSettings.length;
 
     const r = await sendPeerMessage(
       target("Asker"),
       fromReviewer,
-      "Denied — command looks unsafe.",
+      "Denied — looks unsafe.",
       { approval: { operationId, mode: "deny" } },
     );
 
     expect(r.ok).toBe(true);
     expect(r.applied).toMatch(/denied/i);
-    const last = appliedSettings.at(-1)!;
-    expect(last.set.approval).toMatchObject({ operationId, mode: "deny" });
+    expect(appliedSettings.at(-1)!.set.approval).toMatchObject({ operationId, mode: "deny" });
     expect(appliedSettings.length).toBe(before + 1);
   });
 
@@ -170,21 +160,16 @@ describe("0aa: cross-session review", () => {
     expect(r.error).toMatch(/operationId/);
   });
 
-  it("peer approval of an outside-workspace write (systemScope) is refused", async () => {
-    const operationId = "op-outside-ws-write";
+  it("peer approval refused when isDangerous flag is set (dynamic signal)", async () => {
+    const operationId = "op-is-dangerous";
     noteSessionApproval(ASKER_ID, true, [
-      {
-        operationId,
-        operation: "edit_file",
-        summary: "edit /etc/hosts",
-        systemScope: true,
-      },
+      { operationId, operation: "run_command", summary: "anything", isDangerous: true },
     ]);
 
     const r = await sendPeerMessage(
       target("Asker"),
       fromReviewer,
-      "Approving outside-workspace write.",
+      "Approving.",
       { approval: { operationId, mode: "once" } },
     );
 
@@ -193,21 +178,16 @@ describe("0aa: cross-session review", () => {
     expect(r.error).toContain(operationId);
   });
 
-  it("peer approval of an ssh command is refused", async () => {
-    const operationId = "op-ssh-deploy";
+  it("peer approval refused when systemScope flag is set (dynamic signal)", async () => {
+    const operationId = "op-system-scope";
     noteSessionApproval(ASKER_ID, true, [
-      {
-        operationId,
-        operation: "run_command",
-        summary: "ssh user@prod.example.com 'deploy.sh'",
-        cwd: "/w/ask",
-      },
+      { operationId, operation: "edit_file", summary: "edit /etc/hosts", systemScope: true },
     ]);
 
     const r = await sendPeerMessage(
       target("Asker"),
       fromReviewer,
-      "Approving ssh deploy.",
+      "Approving.",
       { approval: { operationId, mode: "once" } },
     );
 
@@ -216,15 +196,28 @@ describe("0aa: cross-session review", () => {
     expect(r.error).toContain(operationId);
   });
 
-  it("peer approval of a safe in-workspace edit is accepted", async () => {
+  it("peer approval refused for sandbox_escalation operation (dynamic signal)", async () => {
+    const operationId = "op-sandbox-esc";
+    noteSessionApproval(ASKER_ID, true, [
+      { operationId, operation: "sandbox_escalation", summary: "grant /secrets" },
+    ]);
+
+    const r = await sendPeerMessage(
+      target("Asker"),
+      fromReviewer,
+      "Approving.",
+      { approval: { operationId, mode: "once" } },
+    );
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/high-risk/i);
+    expect(r.error).toContain(operationId);
+  });
+
+  it("peer approval accepted for safe in-workspace edit (no risk flags)", async () => {
     const operationId = "op-safe-edit";
     noteSessionApproval(ASKER_ID, true, [
-      {
-        operationId,
-        operation: "edit_file",
-        summary: "update src/components/Button.tsx",
-        cwd: "/w/ask",
-      },
+      { operationId, operation: "edit_file", summary: "update src/components/Button.tsx", cwd: "/w/ask" },
     ]);
     const before = appliedSettings.length;
 
@@ -232,6 +225,26 @@ describe("0aa: cross-session review", () => {
       target("Asker"),
       fromReviewer,
       "Looks good.",
+      { approval: { operationId, mode: "once" } },
+    );
+
+    expect(r.ok).toBe(true);
+    expect(appliedSettings.length).toBe(before + 1);
+  });
+
+  it("peer approval accepted for ssh command with no risk flags set (gate decides, not peer)", async () => {
+    // Without isDangerous/systemScope the peer layer does NOT block it —
+    // the gate that raised the request is responsible for setting those flags.
+    const operationId = "op-ssh-no-flags";
+    noteSessionApproval(ASKER_ID, true, [
+      { operationId, operation: "run_command", summary: "ssh user@host", cwd: "/w/ask" },
+    ]);
+    const before = appliedSettings.length;
+
+    const r = await sendPeerMessage(
+      target("Asker"),
+      fromReviewer,
+      "Approved.",
       { approval: { operationId, mode: "once" } },
     );
 

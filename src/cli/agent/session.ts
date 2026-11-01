@@ -87,37 +87,16 @@ function approvalSummary(a: PendingApproval): import("@/lib/peers/peers").Pendin
  *
  *  - systemScope / isDangerous (outside-workspace writes, dangerous commands)
  *  - sandbox_escalation (granting a new writable path)
- *  - remote shells: ssh, scp, sftp, rsync over ssh
- *  - cloud/billing CLIs: aws, gcloud, az, railway, vercel, supabase, fly, heroku, netlify
- *  - destructive git: push --force / --delete, reset --hard, rebase -i, filter-branch
- *  - mass deletes: rm -r, rm -rf, find … -delete, git clean -fd
- *  - credential / keychain access: ssh-keygen, gpg, security (macOS), pass, op
- *  - network package installs that run postinstall scripts as root: sudo npm/pip/brew
+ *
+ * Dynamic signals only — no static command regex (owner verdict, 2026-11-01).
  */
 function isPeerApprovable(a: PendingApproval): boolean {
   const p = firstPreview(a);
+  // Dynamic signals only — no static command regex (owner verdict, 2026-11-01).
   // Any request the gate already flagged as dangerous or system-scope.
   if (p.isDangerous || p.systemScope) return false;
   // Sandbox escalation: granting a new writable path is always owner-only.
   if (a.request.operation === "sandbox_escalation") return false;
-  // Command-based checks.
-  if (p.command) {
-    const cmd = p.command.trim().toLowerCase();
-    // Remote shells and file transfer.
-    if (/\b(ssh|scp|sftp|rsync)\b/.test(cmd)) return false;
-    // Cloud / billing CLIs.
-    if (/\b(aws|gcloud|az|railway|vercel|supabase|fly|heroku|netlify)\b/.test(cmd)) return false;
-    // Destructive git operations.
-    if (/\bgit\b.*\b(push\s+.*--(force|delete)|reset\s+--hard|rebase\s+-i|filter-branch|filter-repo)\b/.test(cmd)) return false;
-    // Mass deletes.
-    if (/\brm\s+(-[a-z]*r[a-z]*f?|-[a-z]*f[a-z]*r?)\b/.test(cmd)) return false;
-    if (/\bfind\b.*\b-delete\b/.test(cmd)) return false;
-    if (/\bgit\s+clean\b.*\b-[a-z]*f/.test(cmd)) return false;
-    // Credential / keychain tools.
-    if (/\b(ssh-keygen|gpg|security\s+(find|add|delete|import)|pass\b|op\s+(signin|item|vault))\b/.test(cmd)) return false;
-    // Sudo installs that run postinstall scripts.
-    if (/\bsudo\s+(npm|pip|pip3|brew)\b/.test(cmd)) return false;
-  }
   return true;
 }
 
