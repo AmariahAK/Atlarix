@@ -22,6 +22,7 @@ import {
   CORE_TIER_3,
   CORE_TIER_4,
   CORE_TIER_5,
+  CORE_TIER_6,
 } from "../shared/compass_constants";
 
 const requireElectron = createRequire(
@@ -66,6 +67,7 @@ const TIER_ENV: Record<string, string> = {
   [CORE_TIER_3]: "ATLARIX_CORE_MODEL_3",
   [CORE_TIER_4]: "ATLARIX_CORE_MODEL_4",
   [CORE_TIER_5]: "ATLARIX_CORE_MODEL_5",
+  [CORE_TIER_6]: "ATLARIX_CORE_MODEL_6",
 };
 
 /** Local-shell OpenRouter model id for a Core tier (dev/unpackaged only). */

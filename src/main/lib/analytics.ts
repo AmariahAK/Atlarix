@@ -25,6 +25,7 @@ import { atlarixEditor, atlarixSurface } from "@/ipc/shared/core_proxy";
 import { drainTurnStats, type AutoBilling } from "@/lib/analytics/turn-stats";
 import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import type { TurnEnd, TurnErrorKind } from "@/lib/analytics/turn-end";
+import { gateOf } from "@/lib/analytics/turn-end";
 
 const ANALYTICS_ID_FILE = "analytics-id.json";
 const POSTHOG_HOST = "https://eu.i.posthog.com";
@@ -476,7 +477,7 @@ export function trackTurnCompleted(
     const n = (turnsInProcess.get(r.chatId) ?? 0) + 1;
     turnsInProcess.set(r.chatId, n);
 
-    let { outcome, errorKind, httpStatus } = r.end;
+    let { outcome, errorKind, httpStatus, gateKind } = r.end;
     const se = stats.streamError;
     // The stream saw the real failure; the turn only saw the SDK's stand-in.
     if (se && outcome === "error" && (errorKind === "no_output" || errorKind === "other")) {
@@ -487,10 +488,20 @@ export function trackTurnCompleted(
       errorKind = se.kind as TurnErrorKind;
       httpStatus = se.httpStatus;
     }
+    // A refusal that is policy, not failure (turn-end.ts, GateKind): whichever
+    // path named it, the turn is a gate, never an error.
+    if (outcome === "error") {
+      const gate = gateOf(errorKind, httpStatus);
+      if (gate) {
+        outcome = "gate";
+        gateKind = gate;
+      }
+    }
     resolved = {
       outcome,
       ...(errorKind ? { errorKind } : {}),
       ...(httpStatus ? { httpStatus } : {}),
+      ...(gateKind ? { gateKind } : {}),
       ...(stats.autoBilling ? { autoBilling: stats.autoBilling } : {}),
     };
     if (!isOptedIn()) return resolved;
@@ -520,6 +531,7 @@ export function trackTurnCompleted(
       };
       captureSafe("turn_completed", {
         outcome,
+        ...(gateKind ? { gate_kind: gateKind } : {}),
         ...(errorKind ? { error_kind: errorKind } : {}),
         ...(httpStatus ? { http_status: httpStatus } : {}),
         ...(se && outcome === "ok" ? { recovered_error_kind: se.kind } : {}),

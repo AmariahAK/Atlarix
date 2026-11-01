@@ -28,6 +28,7 @@ import {
 } from "@/lib/agent/mutation-verify";
 import { noteTurn, noteTurnLoopTotals } from "@/lib/analytics/turn-stats";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
+import { estimateToolSetTokens } from "@/lib/context/mid-loop-threshold";
 import {
   hasNativeToolParts,
   flattenNativeForCompaction,
@@ -78,6 +79,8 @@ export interface TurnRuntime {
   readonly streamTurnId: string;
   readonly tierLimit: number;
   readonly usableTokens: number;
+  /** The turn's compaction point — the mid-turn check's trigger (see 0c). */
+  readonly compactionLimit: number;
   readonly maxContinuationAttempts: number;
   /**
    * v14.8.7 §A2: compact task ledger for this session (or null). Threaded into
@@ -117,6 +120,8 @@ export interface TurnRuntime {
     abortSignal?: AbortSignal;
     /** Backstop in-round step cap forwarded to streamText's stopWhen. */
     maxStepsPerRound?: number;
+    /** The turn's compaction point — ends the round so the loop can compact. */
+    compactionLimit?: number;
   }): Promise<unknown>;
   runStreamRound(params: {
     runSimpleStream: (opts?: { abortSignal?: AbortSignal }) => Promise<unknown>;
@@ -231,16 +236,6 @@ async function runAgentTurnInner(
   const loopStartTime = Date.now();
   let agenticIteration = 0;
   let agenticProseOnlyStreak = 0;
-  // v14.8.9 continue-until-done: the plan-completeness gate has its OWN, higher
-  // consecutive cap than the red-verification gates — a legit multi-phase task
-  // that briefly yields at several phase boundaries shouldn't be cut at 3. Both
-  // reset on any productive round.
-  let planNudgeStreak = 0;
-  // v14.8.10: absolute per-turn total that NEVER resets — the consecutive streak
-  // resets on any productive round, so a model alternating one trivial tool call
-  // with a yield re-arms the 6-cap indefinitely (observed: 3+ full nudge cycles
-  // in a single turn). This bounds the whole turn, not just the streak.
-  let planNudgeTotal = 0;
   let agenticMessages: ModelMessage[] = [...rt.seedMessages];
   const allToolResults: Array<{ tool: string; result: string }> = [];
   let totalToolExecutions = 0;
@@ -255,10 +250,6 @@ async function runAgentTurnInner(
   // (stop hook / failed command / unverified edit) we nudge it on at most this
   // many times before ending anyway, so a persistent failure can never loop.
   const PROSE_YIELD_MAX_NUDGES = 3;
-  // Plan-completeness nudges get more headroom (see planNudgeStreak above).
-  const PLAN_YIELD_MAX_NUDGES = 6;
-  // Hard per-turn ceiling on plan nudges regardless of streak resets.
-  const PLAN_YIELD_TOTAL_MAX = 12;
 
   // Park-on-wait: when the model would END the turn but background work is still
   // outstanding (running/pending background commands OR sub-agents), we DON'T
@@ -420,6 +411,13 @@ async function runAgentTurnInner(
               // bounding the degenerate case where a model still emits a tool call
               // despite tools being off (text-tool models / scripted evals).
               maxStepsPerRound: forceTextFinish ? 1 : undefined,
+              // End the round at the compaction point so the mid-turn
+              // compaction below runs and the next round starts smaller: the
+              // SDK keeps every tool step inside ONE round, so without this a
+              // long turn never reached the check (owner, 2026-10-31).
+              ...(typeof rt.compactionLimit === "number" && rt.compactionLimit > 0
+                ? { compactionLimit: rt.compactionLimit }
+                : {}),
             }),
           fullResponse,
           abortController: roundAbortController,
@@ -709,16 +707,23 @@ async function runAgentTurnInner(
         // Ask semantics: the model stopped producing tool work — turn over.
         break;
       }
-      // Build/debug: run the completion gates before ending. A red gate (a
-      // failed command or an unverified edit) nudges the model on — bounded, so
-      // a persistent failure can never loop forever.
-      // A `profile.taskCompleteGate` seam ran first here, supplied only by
-      // `.atlarix/hooks/` stop hooks. Hooks were removed in v14.26.0 and nothing
-      // else ever produced one, so the seam went with them rather than staying
-      // as an extension point with no extensions.
-      let gateFeedback: string | null = getMutationFailureFeedback(
-        rt.streamTurnId,
-      );
+      // Build/debug: run the completion gates before ending. A red gate (a stop
+      // hook, a failed command or an unverified edit) nudges the model on —
+      // bounded, so a persistent failure can never loop forever.
+      // Stop hooks were workspace files until v14.26.0 (deleted: a repo's file
+      // ran as shell); since 15.12 they come only from the person's hooks.json
+      // and installed plugins (lib/plugins/hooks.ts).
+      let gateFeedback: string | null = null;
+      if (profile.taskCompleteGate) {
+        try {
+          gateFeedback = await profile.taskCompleteGate();
+        } catch (gateErr) {
+          logger.warn(`${L} stop-hook gate failed to run: ${String(gateErr)}`);
+        }
+      }
+      if (gateFeedback == null) {
+        gateFeedback = getMutationFailureFeedback(rt.streamTurnId);
+      }
       if (gateFeedback == null) {
         gateFeedback = getUnverifiedEditFeedback(rt.streamTurnId);
       }
@@ -728,38 +733,15 @@ async function runAgentTurnInner(
       // merely opened. Since v14.52.0 the agent's browser is the user's Chrome;
       // it checks the console itself with browser_inspect (since its last
       // navigate), which is the one reading that knows which page it meant.
-      // v14.8.9 continue-until-done: after the red-verification gates, the
-      // plan-completeness gate keeps the turn going while the session plan has
-      // steps left. It uses its OWN (higher) cap so it isn't the red gates' 3.
-      let usePlanGate = false;
-      if (gateFeedback == null && profile.planCompletionGate) {
-        try {
-          gateFeedback = await profile.planCompletionGate();
-          usePlanGate = gateFeedback != null;
-        } catch (planErr) {
-          logger.warn(
-            `${L} plan-completion gate failed to run: ${String(planErr)}`,
-          );
-        }
-      }
-      const gateStreak = usePlanGate ? planNudgeStreak : agenticProseOnlyStreak;
-      const gateCap = usePlanGate
-        ? PLAN_YIELD_MAX_NUDGES
-        : PROSE_YIELD_MAX_NUDGES;
-      if (
-        gateFeedback == null ||
-        gateStreak >= gateCap ||
-        (usePlanGate && planNudgeTotal >= PLAN_YIELD_TOTAL_MAX)
-      ) {
+      const gateStreak = agenticProseOnlyStreak;
+      const gateCap = PROSE_YIELD_MAX_NUDGES;
+      if (gateFeedback == null || gateStreak >= gateCap) {
         logger.info(
           `${L} Model yielded (no tool calls) — ending turn at iteration ${agenticIteration + 1}`,
         );
         break;
       }
-      if (usePlanGate) {
-        planNudgeStreak++;
-        planNudgeTotal++;
-      } else agenticProseOnlyStreak++;
+      agenticProseOnlyStreak++;
       // Fold this round's native tool messages for context on the gate-nudge
       // continuation (a tool-using round can now reach this path); fall back to
       // prose for a pure-prose round. Stage 2: fold into BOTH request + envelope
@@ -777,16 +759,21 @@ async function runAgentTurnInner(
         role: "user" as const,
         content: systemReminder(gateFeedback),
       });
+      // The reply goes on in the SAME message: end this round's text with a
+      // paragraph break, or every surface shows "All finished.Now it is done."
+      // (an editor over ACP most plainly — QA 2, a stop hook keeping a turn going).
+      if (fullResponse.trim() && !/\n\s*$/.test(fullResponse)) {
+        fullResponse += "\n\n";
+      }
       agenticIteration++;
       logger.log(
-        `${L} ${usePlanGate ? "Plan not complete" : "Completion gate not satisfied"} — nudge ${gateStreak + 1} of ${gateCap} allowed; continuing`,
+        `${L} Completion gate not satisfied — nudge ${gateStreak + 1} of ${gateCap} allowed; continuing`,
       );
       continue;
     }
 
-    // Productive round — reset BOTH yield counters (§continue-until-done).
+    // Productive round — reset the yield counter.
     agenticProseOnlyStreak = 0;
-    planNudgeStreak = 0;
 
     if (hasTextToolCalls && (textToolCalls?.length ?? 0) === 0) {
       logger.log(`${L} No parseable tool calls found, ending loop`);
@@ -864,6 +851,11 @@ async function runAgentTurnInner(
         systemPromptEstimate: estimateTokens(roundSystemPromptEstimateText),
         tierLimit: rt.tierLimit,
         usableTokens: rt.usableTokens,
+        compactionLimit: rt.compactionLimit,
+        // The tool half of the prefix the estimate used to omit (0j) — without
+        // it a round-ended turn re-decided "under the point" and skipped
+        // compaction.
+        toolSurfaceTokens: estimateToolSetTokens(profile.tools),
         chatId: rt.chatId,
         loopLabel: profile.compactionLabel,
         emitActivity: rt.emitCompactionActivity,

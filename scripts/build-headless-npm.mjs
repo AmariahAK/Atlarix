@@ -44,6 +44,7 @@ const RUNTIME_FILES = [
   "atlarix-headless.mjs",
   "AGENTS.md",
   "tiktoken_bg.wasm",
+  "quickjs.wasm",
   "models-snapshot.json.gz",
   "mcp-registry-snapshot.json.gz",
 ];

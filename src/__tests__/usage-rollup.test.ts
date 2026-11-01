@@ -62,9 +62,12 @@ describe("usage counts", () => {
     recordTurnUsage({ ...ok, provider: "compass", model: "core-auto", end: { outcome: "ok", autoBilling: "paid" } }, cloud);
     recordTurnUsage({ ...ok, provider: "compass", model: "core-auto", end: { outcome: "error", errorKind: "quota" } }, cloud);
     recordTurnUsage({ ...ok, provider: "compass", model: "core-2" }, cloud);
+    // A gate is a turn, not a failed turn.
+    recordTurnUsage({ ...ok, provider: "compass", model: "core-2", end: { outcome: "gate", gateKind: "insufficient_credit", errorKind: "quota", httpStatus: 402 } }, cloud);
     await flush();
     await flushClientUsage();
     expect(sent[0]!.map((r) => r.billing)).toEqual(["auto_paid", "auto", "core"]);
+    expect(sent[0]![2]).toMatchObject({ turns: 2, failed_turns: 0 });
   });
 
   it("a provider the user added is its type only", async () => {

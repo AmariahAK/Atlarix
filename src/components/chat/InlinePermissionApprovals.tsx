@@ -79,6 +79,7 @@ function queueEntryFromPermission(
     canAlwaysAllowDirectory: preview.canAlwaysAllowDirectory as
       | boolean
       | undefined,
+    canAlwaysAllowFolder: preview.canAlwaysAllowFolder as boolean | undefined,
     canAlwaysAllowExtension: preview.canAlwaysAllowExtension as
       | boolean
       | undefined,
@@ -143,6 +144,7 @@ export function FilePermissionCard({
   appId,
   onOnce,
   onAlwaysFile,
+  onAlwaysFolder,
   onAlwaysDirectory,
   onAlwaysExtension,
   onDeny,
@@ -153,6 +155,7 @@ export function FilePermissionCard({
   appId: number | null;
   onOnce: (id: string) => void;
   onAlwaysFile: (id: string) => void;
+  onAlwaysFolder: (id: string) => void;
   onAlwaysDirectory: (id: string) => void;
   onAlwaysExtension: (id: string) => void;
   onDeny: (id: string) => void;
@@ -276,6 +279,20 @@ export function FilePermissionCard({
           </Button>
         ) : null}
         {showScopedAlways &&
+        operation.canAlwaysAllowFolder !== false &&
+        parentDir ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-7 text-xs"
+            onClick={() => onAlwaysFolder(operation.id)}
+            title="Saves a workspace rule for this folder only — direct files, not its subfolders."
+          >
+            Always allow {parentDir}
+          </Button>
+        ) : null}
+        {showScopedAlways &&
         operation.canAlwaysAllowDirectory !== false &&
         parentDir ? (
           <Button
@@ -284,7 +301,7 @@ export function FilePermissionCard({
             variant="secondary"
             className="h-7 text-xs"
             onClick={() => onAlwaysDirectory(operation.id)}
-            title="Saves a workspace rule: matching edits won't ask again."
+            title="Saves a workspace rule for this folder and everything under it."
           >
             Always allow {parentDir}/**
           </Button>
@@ -866,6 +883,7 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
       approvalMode:
         | "once"
         | "always_allow_file"
+        | "always_allow_folder"
         | "always_allow_directory"
         | "always_allow_extension"
         | "deny",
@@ -915,6 +933,11 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
 
   const handleFileAlwaysDirectory = useCallback(
     (id: string) => void runFileApproval(id, "always_allow_directory"),
+    [runFileApproval],
+  );
+
+  const handleFileAlwaysFolder = useCallback(
+    (id: string) => void runFileApproval(id, "always_allow_folder"),
     [runFileApproval],
   );
 
@@ -1066,6 +1089,7 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
           appId={appId}
           onOnce={handleFileOnce}
           onAlwaysFile={handleFileAlwaysFile}
+          onAlwaysFolder={handleFileAlwaysFolder}
           onAlwaysDirectory={handleFileAlwaysDirectory}
           onAlwaysExtension={handleFileAlwaysExtension}
           onDeny={handleFileDeny}
@@ -1114,6 +1138,7 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
           appId={appId}
           onOnce={handleFileOnce}
           onAlwaysFile={handleFileAlwaysFile}
+          onAlwaysFolder={handleFileAlwaysFolder}
           onAlwaysDirectory={handleFileAlwaysDirectory}
           onAlwaysExtension={handleFileAlwaysExtension}
           onDeny={handleFileDeny}

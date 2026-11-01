@@ -16,6 +16,9 @@ import type { StreamThreadItem } from "@/lib/chat/stream-thread";
 export const chatMessagesByIdAtom = atom<Map<number, Message[]>>(new Map());
 export const chatErrorByIdAtom = atom<Map<number, string | null>>(new Map());
 
+/** Chats whose last turn offered Atlarix Zenith (Auto's top rung kept failing), until dismissed. */
+export const zenithOfferChatIdsAtom = atom<ReadonlySet<number>>(new Set<number>());
+
 // Atom to hold the currently selected chat ID
 export const selectedChatIdAtom = atom<number | null>(null);
 

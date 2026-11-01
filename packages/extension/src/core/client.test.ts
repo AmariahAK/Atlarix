@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CoreError,
   freeLimitMessage,
+  creditRefusalMessage,
   listModels,
   streamTurn,
   type CoreEvent,
@@ -312,25 +313,46 @@ describe("tool-call assembly", () => {
 });
 
 describe("errors say what to do about them", () => {
-  it("says when Atlarix Auto's free share comes back, and does not retry it", async () => {
+  it("says when Atlarix Auto's free share comes back, as a countdown, and does not retry it", async () => {
     const error = await collect(
       streamTurn(
         TURN,
         failing(429, { error: "free_usage_limit", retry_after_seconds: 7200 }),
       ),
     ).catch((e: CoreError) => e);
-    expect((error as CoreError).message).toMatch(/free share is used up · resets at \d{1,2}:\d{2}/);
+    expect((error as CoreError).message).toMatch(/^Today's free Atlarix Auto is used up\. Resets in (2h|1h 59m)\./);
     expect((error as CoreError).message).toContain(CREDIT_FIRST_LINE);
     expect((error as CoreError).retryable).toBe(false);
+    expect((error as CoreError).resetsAt).toBeGreaterThan(Date.now() + 7100 * 1000);
   });
 
-  it("names the reset on the user's clock — 00:00 UTC is 3:00 AM in Nairobi", () => {
-    const midnightUtc = Date.UTC(2026, 8, 24);
-    expect(
-      freeLimitMessage({ retry_after_seconds: 7200 }, midnightUtc - 7200 * 1000, "Africa/Nairobi"),
-      // The user's own locale writes the time: "3:00 AM" (en-US), "3:00 am"
-      // (en-GB), "3:00 a.m." — the point is the hour is 3:00 in Nairobi.
-    ).toMatch(/resets at 3:00\s?a\.?m\.?/i);
+  it("counts down to resets_at when the proxy sends it", () => {
+    const now = Date.UTC(2026, 9, 29, 20, 40);
+    expect(freeLimitMessage({ resets_at: new Date(now + 200 * 60_000).toISOString() }, now)).toMatch(/Resets in 3h 20m\./);
+  });
+
+  it("free_busy is shown once, never retried, and keeps its own message", async () => {
+    const error = await collect(streamTurn(TURN, failing(503, { error: "free_busy" }))).catch((e: CoreError) => e);
+    expect((error as CoreError).retryable).toBe(false);
+    expect((error as CoreError).message).toMatch(/^Atlarix Auto's free models are busy right now\./);
+    expect((error as CoreError).message).not.toMatch(/Resets/);
+  });
+
+  it("a 503 that is not free_busy is still retried", () => {
+    expect(new CoreError(503, "core_unavailable", "x").retryable).toBe(true);
+    expect(new CoreError(503, "http_503", "x").retryable).toBe(true);
+  });
+
+  it("the 402 says which of the three states the account is in", () => {
+    expect(creditRefusalMessage({ plan: "free", ever_funded: false }, 125)).toBe(
+      `Atlarix Core runs on credit. ${CREDIT_FIRST_LINE} You need at least $1.25.`,
+    );
+    expect(creditRefusalMessage({ plan: "pro", renews_at: "2026-11-05T12:00:00Z" }, undefined, "UTC")).toMatch(
+      /^Your Pro allowance for this month is used up\. It resets on (November 5|5 November)\. Add credit to keep going\.$/,
+    );
+    expect(creditRefusalMessage({ plan: "pro" })).not.toMatch(/get Pro|\$19/);
+    // An older proxy: the spent-credit sentence, as before.
+    expect(creditRefusalMessage({})).toBe(`Your Atlarix Core balance is used up. ${CREDIT_FIRST_LINE}`);
   });
 
   it("sends the routing hints, and never a free-consent header (paid-only surface)", async () => {
@@ -361,7 +383,7 @@ describe("errors say what to do about them", () => {
     const error = await collect(streamTurn(TURN, f)).catch((e: CoreError) => e);
     const message = (error as CoreError).message;
     expect(message).toContain(CREDIT_FIRST_LINE);
-    expect(message.indexOf("Add credit from $10")).toBeLessThan(message.indexOf("Atlarix Pro"));
+    expect(message.indexOf("Add credit (from $10)")).toBeLessThan(message.indexOf("Pro ($19/month)"));
   });
 
   it("does not tell a banned account to top up", async () => {

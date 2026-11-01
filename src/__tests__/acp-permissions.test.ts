@@ -46,6 +46,7 @@ describe("approval → request_permission", () => {
     expect(approvalOptions(edit).map((o) => [o.optionId, o.kind])).toEqual([
       ["once", "allow_once"],
       ["always_allow_file", "allow_always"],
+      ["always_allow_folder", "allow_always"],
       ["always_allow_directory", "allow_always"],
       ["deny", "reject_once"],
     ]);

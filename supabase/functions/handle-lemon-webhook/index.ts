@@ -64,10 +64,8 @@ import {
 
 const WEBHOOK_SECRET = Deno.env.get("LEMONSQUEEZY_WEBHOOK_SECRET");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-// New API-key system: prefer the secret key; fall back to the auto-injected legacy service_role.
-const SUPABASE_SERVICE_KEY =
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
-  Deno.env.get("NEXT_PUBLIC_SUPABASE_SECRET_KEY");
+// The sb_secret key only: the auto-injected legacy service_role JWT is being turned off.
+const SUPABASE_SERVICE_KEY = Deno.env.get("NEXT_PUBLIC_SUPABASE_SECRET_KEY");
 
 /**
  * Cents of Core credit included per paid month.

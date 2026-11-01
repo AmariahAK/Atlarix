@@ -94,11 +94,10 @@ export interface AgentProfile {
   stripTextToolXML?(text: string): string;
 
   /**
-   * v14.8.9 continue-until-done: called on a build prose-yield. Returns a nudge
-   * when the session plan still has incomplete steps (else null), so the turn
-   * drives the plan to completion instead of stopping at a phase boundary. Uses
-   * its OWN higher bound (PLAN_YIELD_MAX_NUDGES) vs the red-gate cap; resets on
-   * productive work. ask_user (a tool pause) and background-park are unaffected.
+   * `stop` hooks — the person's hooks.json and installed plugins', never a
+   * workspace's (lib/plugins/hooks.ts). Runs FIRST when a build/debug turn would
+   * end; a non-null feedback string keeps the turn going (bounded by the red-gate
+   * cap) and is fed back to the model. Supplied only when such a hook exists.
    */
-  planCompletionGate?(): Promise<string | null>;
+  taskCompleteGate?(): Promise<string | null>;
 }

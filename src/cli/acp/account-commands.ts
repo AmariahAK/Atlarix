@@ -22,6 +22,25 @@ export async function accountCommandText(
     await a.signOut();
     return `Signed out of ${email}. The CLI on this computer shares this sign-in, so it's signed out too; the Atlarix app keeps its own. To sign in again, start a new chat (the editor will ask), or run \`atlarix login\`.`;
   }
+  if (cmd === "silks" || cmd === "augments" || cmd === "plugins") {
+    // An editor has no dialog for installing: the list is read-only here, and
+    // installing (with its two confirms) happens in the CLI or the app.
+    const plugins = await realServices.plugins.list().catch(() => []);
+    const lines: string[] = plugins.length
+      ? [
+          "**Silks**",
+          "",
+          ...plugins.map((p) => {
+            const state = p.problem ? `! ${p.problem}` : p.enabled ? (p.folders ? "on in some folders" : "on") : "off";
+            const what = [...p.skills.map((x) => `skill ${x}`), ...p.agents.map((x) => `agent ${x}`), ...p.commands].join(", ");
+            return `- ${p.problem ? "!" : p.enabled ? "●" : "○"} ${p.name} — ${state}${what ? ` · ${what}` : ""}`;
+          }),
+          "",
+        ]
+      : ["No silks installed.", ""];
+    lines.push("Add, update or remove silks with `/silks` in the Atlarix CLI, or in the app's Integrations → Silks.");
+    return lines.join("\n");
+  }
   if (cmd === "mcp") {
     const [account, servers, found, defaults] = await Promise.all([
       realServices.mcp.account().catch(() => null),
@@ -90,12 +109,20 @@ export async function accountCommandText(
     startSignIns([added], session.appId, realServices);
     return mcpAddedText([added]);
   }
+  // Usage is this computer's: it needs no sign-in, only its Credits part does.
+  if (cmd === "usage" || cmd === "stats") {
+    const [{ statsMarkdown }, { usageMarkdown }] = await Promise.all([
+      import("@/lib/stats/activity-format"),
+      import("@/lib/stats/usage-format"),
+    ]);
+    const [report, credits] = await Promise.all([
+      realServices.usage({}),
+      realServices.usageCredits().catch(() => ({ state: "unavailable" }) as const),
+    ]);
+    return usageMarkdown(report, credits, statsMarkdown(report.overview));
+  }
   if (!email) return "You're not signed in to Atlarix. Run `atlarix login` in a terminal, then try again.";
   const [kind, balance] = await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)]);
-  if (cmd === "stats") {
-    const { statsMarkdown } = await import("@/lib/stats/activity-format");
-    return statsMarkdown(await realServices.stats());
-  }
   if (cmd === "billing") {
     const lines = ["**Atlarix billing**", "", `Plan: ${PLAN[kind ?? ""] ?? "unknown"} · Credit: ${money(balance)}`, ""];
     if (kind !== "pro") {

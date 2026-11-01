@@ -135,7 +135,7 @@ If the confirmed fix turns out to span several steps or files, write a plan for 
 
     review: `## Current mode: ${L("review")}
 
-You are in Review mode. Read-only quality review for this chat turn.
+You are in Review mode. Read-only review of the part the user names and everything connected to it — callers, data, other repos, shared state.
 
 You CAN:
 - Read files, glob, grep, and run_command for evidence — git history, the project's own typecheck, linter and test suite all run normally here
@@ -165,7 +165,7 @@ export function getActiveModeReanchor(mode: ModeRegistryKey): string {
     plan: `Current mode: ${L("plan")}. Create/revise the session plan via the plan tool. You CAN run commands to check your assumptions before writing them down; you have no edit_file, and a command that changes the source asks the user first. Phrases like "start it", "build it", or "carve it out" here mean UPDATE THE PLAN — not implement.`,
     build: `Current mode: ${L("build")}. Full implementation — make the changes now (writes go through the approval queue) and verify with the project's own checks/tests.`,
     debug: `Current mode: ${L("debug")}. Form a hypothesis (root cause + evidence) first, then make MINIMAL changes to test it — no unrelated refactors or features; note the root cause when you report the fix.`,
-    review: `Current mode: ${L("review")}. Output a LIST of recommended changes (file:line → issue → fix). Run the project's own checks for evidence; you have no edit_file, and a command that changes the source asks the user first.`,
+    review: `Current mode: ${L("review")}. Review the part the user named and what connects to it (callers, data, other repos, shared state); answer with the path to each point, then a LIST of recommended changes (file:line → issue → fix). Run the project's own checks for evidence; you have no edit_file, and a command that changes the source asks the user first.`,
   };
   return lines[mode] ?? lines.ask;
 }

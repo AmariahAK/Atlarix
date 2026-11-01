@@ -7,7 +7,7 @@
  * category used for non-dangerous command always-allow rules.
  */
 
-import { stripLeadingWrappers } from "./command-segments";
+import { stripLeadingCommentLines, stripLeadingWrappers } from "./command-segments";
 
 export type CommandPermissionDecision = "always_allow" | "always_deny";
 
@@ -15,7 +15,10 @@ export function getCommandCategory(command: string): string {
   // The same prefix-stripping the gate classifies with (`X=1 npm test` → npm).
   // An "always allow" is SAVED under this key and CHECKED by the gate's; when
   // they differed, a rule saved for a prefixed command could never match.
-  const trimmed = stripLeadingWrappers(command);
+  // A leading `#` line is a comment, not the command (0o d): `# note\nnpm test`
+  // keys "npm", so "always allow npm commands" matches the next one instead of
+  // saving a dead "#" rule.
+  const trimmed = stripLeadingWrappers(stripLeadingCommentLines(command));
   if (!trimmed) return "";
   const first = trimmed.split(/\s+/)[0] ?? "";
   return first.toLowerCase();

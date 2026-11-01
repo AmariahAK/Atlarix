@@ -86,7 +86,7 @@ ToolRegistry.register({
   isReadOnly: false,
   allowInAskMode: true,
   description:
-    "Inspect or control a still-running background command (finished ones are delivered to you, so never poll). `job` is its id or part of its command. " +
+    "Inspect or control a still-running background command (finished ones are delivered to you). `job` is its id or part of its command. " +
     "Operations: list; output (new output since your last check, or mode:\"tail\" for the latest); cancel; watch (wake_on: wake when output contains it); allow_stalled (expected to be quiet); wake_in (seconds: re-check it then); adjust_timer (delta_seconds).",
   parameters: {
     type: "object",

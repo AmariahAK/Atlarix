@@ -38,6 +38,7 @@ import {
   setCoreModelRouting,
   getCoreTierRouting,
   __resetCoreModelOverridesForTests,
+  setCoreAuto,
 } from "@/ipc/shared/core-model-override-store";
 import {
   CORE_TIER_ORDER,
@@ -415,63 +416,44 @@ describe("resolving a tier that is not in the lineup", () => {
     });
   });
 
-  it("substitutes forward for a tier dropped from the lineup", () => {
-    // A user who had Core 1 selected before Kimi was removed keeps working.
-    setCoreModelOverrides({
-      "core-2": "z-ai/glm-5.2",
-      "core-3": "deepseek/deepseek-v4-pro",
-    });
-    expect(resolveConfiguredCoreTier("core-1")).toEqual({
-      tier: "core-2",
-      substituted: true,
-    });
-  });
-
   /**
-   * Substitution must NOT use the default preference, and this is the test that says
-   * why. `getFirstConfiguredCoreTier` prefers core-3 because a caller with no opinion
-   * should get our best tier. A caller whose SAVED tier vanished is the opposite case:
-   * they chose, their choice is gone, and promoting them to the top of the lineup is a
-   * bill they never asked for — core-3 can cost several times core-1.
-   *
-   * So the two must disagree here, and asserting both in one test is what stops a
-   * future tidy-up from collapsing them back into one order.
+   * A saved paid slot the lineup stops mapping moves to ATLARIX AUTO, never to
+   * another paid slot (owner, 2026-10-29: "map everyone from now on to default
+   * atlarix auto … then nothing is broken"). Falling forward in slot order put
+   * a user on a model and a price they never picked, with only a log line.
    */
-  it("substitutes in SLOT order, not the default preference", () => {
+  it("moves a dropped paid slot to Atlarix Auto, not to another paid slot", () => {
     setCoreModelOverrides({
-      "core-1": "z-ai/glm-5.3",
-      "core-3": "openai/gpt-6-astra",
+      "core-2": "anthropic/claude-sonnet-5-5",
+      "core-3": "openai/gpt-6.1-sol",
     });
-    // The dropped middle slot falls back to the cheaper neighbour…
-    expect(resolveConfiguredCoreTier("core-2")).toEqual({
-      tier: "core-1",
-      substituted: true,
-    });
-    // …while an unopinionated caller still gets the top tier.
+    setCoreAuto({ id: "atlarix/auto", label: "Atlarix Auto" });
+    expect(resolveConfiguredCoreTier("core-1")).toEqual({ tier: "core-auto", substituted: true });
+    // An unopinionated caller still gets the preferred paid tier.
     expect(getFirstConfiguredCoreTier()).toBe("core-3");
   });
 
   it("never answers a slot this build doesn't know on another model", () => {
-    // A newer Atlarix offered core-6; this build has no such slot, so the pick is
-    // refused rather than billed on the first configured tier.
-    setCoreModelOverrides({ "core-1": "z-ai/glm-5.3", "core-6": "openai/gpt-7" });
-    expect(isCoreTierFromNewerBuild("core-6")).toBe(true);
-    expect(resolveConfiguredCoreTier("core-6")).toBeUndefined();
-    expect(isCoreTierFromNewerBuild("core-5")).toBe(false);
+    // A newer Atlarix offered core-7; this build has no such slot, so the pick is
+    // refused rather than billed on another tier, Auto included.
+    setCoreModelOverrides({ "core-1": "openai/gpt-6.1-terra", "core-7": "openai/gpt-7" });
+    setCoreAuto({ id: "atlarix/auto", label: "Atlarix Auto" });
+    expect(isCoreTierFromNewerBuild("core-7")).toBe(true);
+    expect(resolveConfiguredCoreTier("core-7")).toBeUndefined();
+    expect(isCoreTierFromNewerBuild("core-6")).toBe(false);
     expect(isCoreTierFromNewerBuild("core-auto")).toBe(false);
     expect(isCoreTierFromNewerBuild("compass-fast")).toBe(false);
   });
 
-  it("normalizes a legacy alias before substituting", () => {
-    setCoreModelOverrides({ "core-3": "deepseek/deepseek-v4-pro" });
-    // compass-fast -> core-1, which is unconfigured, so it falls forward to core-3.
-    expect(resolveConfiguredCoreTier("compass-fast")).toEqual({
-      tier: "core-3",
-      substituted: true,
-    });
+  it("normalizes a legacy alias before moving it", () => {
+    setCoreModelOverrides({ "core-3": "openai/gpt-6.1-sol" });
+    setCoreAuto({ id: "atlarix/auto", label: "Atlarix Auto" });
+    // compass-fast -> core-1, which is unconfigured, so it moves to Auto.
+    expect(resolveConfiguredCoreTier("compass-fast")).toEqual({ tier: "core-auto", substituted: true });
   });
 
-  it("returns undefined when there is nothing to substitute to", () => {
+  it("returns undefined when there is nothing to move to (no Auto offered)", () => {
+    setCoreModelOverrides({ "core-3": "openai/gpt-6.1-sol" });
     expect(resolveConfiguredCoreTier("core-1")).toBeUndefined();
   });
 });
@@ -531,9 +513,10 @@ describe("the new-user default tier", () => {
 
   it("survives its slot being dropped from the lineup", () => {
     // A new install must not be stranded by a config change it never saw. The
-    // constant still names core-3; resolution falls forward in slot order.
-    setCoreModelOverrides({ "core-1": "z-ai/glm-5.3" });
+    // constant still names core-3; an unmapped paid slot moves to Auto.
+    setCoreModelOverrides({ "core-1": "openai/gpt-6.1-terra" });
+    setCoreAuto({ id: "atlarix/auto", label: "Atlarix Auto" });
     const resolved = resolveConfiguredCoreTier(DEFAULT_PAID_CORE_TIER);
-    expect(resolved).toEqual({ tier: "core-1", substituted: true });
+    expect(resolved).toEqual({ tier: "core-auto", substituted: true });
   });
 });

@@ -353,19 +353,14 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               Help improve Atlarix
             </label>
             <p className="text-xs text-muted-foreground">
-              Share usage data — which features get used, and whether things
-              work — to help us understand what matters most. Never your code,
-              prompts, file names, or file contents. Anonymous when signed out.
-              When signed in, it's linked to your account and includes your
-              email and name, so your usage counts once across your devices.
-              Includes your approximate location (country and city), worked out
-              from your connection; the address itself isn't kept. Crash and
-              error reports are sent separately and are not covered by
-              this choice — they carry stack traces and device info, never your
-              code or prompts. Signed-in accounts also record which Atlarix you
-              use (app, CLI, editor), the provider type and model, and how many
-              turns — never prompts, code or keys — and this is not covered by
-              this choice either.
+              Share usage data — which features get used and whether they
+              work. Never your code, prompts or files. Anonymous when signed
+              out. Signed in, it's tied to your account (email and name) and
+              includes your rough location from your connection, never the
+              address itself. Not covered by this choice: crash reports (stack
+              traces and device info), and for signed-in accounts a daily count
+              of turns by surface, provider type, model and token size. Never
+              prompts, code or keys.
             </p>
           </div>
           <Switch
@@ -436,6 +431,37 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
                   {LOCALE_LABELS[l]}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {/* CONTEXT WINDOW — one rule for every model. Shared across the app, the
+            CLI (/context), ACP and the VS Code panel. */}
+        <div className="flex items-center justify-between gap-4 pt-4 border-t border-border mt-4">
+          <div className="space-y-0.5">
+            <label className="text-sm font-medium text-foreground">
+              Context window
+            </label>
+            <p className="text-xs text-muted-foreground">
+              How much of the conversation to keep before Atlarix compacts it.
+              {(settings?.contextWorkingWindow ?? "256k") !== "256k" &&
+                " Keeps more of the conversation; every step costs more."}
+            </p>
+          </div>
+          <Select
+            value={settings?.contextWorkingWindow ?? "256k"}
+            onValueChange={(v) =>
+              void updateSettings({
+                contextWorkingWindow: v as "256k" | "512k" | "full",
+              })
+            }
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="256k">256k (default)</SelectItem>
+              <SelectItem value="512k">512k · costs more</SelectItem>
+              <SelectItem value="full">Full window · costs more</SelectItem>
             </SelectContent>
           </Select>
         </div>

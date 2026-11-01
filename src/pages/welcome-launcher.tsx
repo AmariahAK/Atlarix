@@ -371,6 +371,12 @@ export default function WelcomeLauncher() {
                       appName: app.name,
                       navigate: (opts) => navigate(opts),
                       refreshApps,
+                      onFolderMissing: () =>
+                        setPendingRemoval({
+                          id: app.id,
+                          name: app.name,
+                          path: app.path,
+                        }),
                     })
                   }
                 >

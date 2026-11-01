@@ -29,6 +29,7 @@ vi.mock("@/lib/usage/turn-usage-aggregator", () => ({
 import {
   RECALL_MAX_NOTES,
   buildRecallPrompt,
+  localRecallMatch,
   parseRecallReply,
   selectRelevantMemories,
   type RecallCandidate,
@@ -85,6 +86,32 @@ describe("buildRecallPrompt", () => {
   });
 });
 
+describe("localRecallMatch", () => {
+  const notes: RecallCandidate[] = [
+    { file: "deploy-runbook.md", description: "how to deploy the app to Railway", ageDays: 2, type: "project" },
+    { file: "git-commit-identity.md", description: "author name and email for commits", ageDays: 5, type: "project" },
+    { file: "video-owner-preferences.md", description: "owner's rules for making videos", ageDays: 9, type: "feedback" },
+  ];
+
+  it("matches the message's words against names and descriptions", () => {
+    expect(localRecallMatch("how do I deploy to Railway?", notes)).toEqual(["deploy-runbook.md"]);
+    expect(localRecallMatch("what identity should commits use", notes)).toEqual(["git-commit-identity.md"]);
+  });
+
+  it("scores a name hit above a description-only hit", () => {
+    const out = localRecallMatch("deploy", [
+      { file: "deploy-runbook.md", description: "misc", ageDays: 1 },
+      { file: "other.md", description: "deploy stuff", ageDays: 1 },
+    ]);
+    expect(out[0]).toBe("deploy-runbook.md");
+  });
+
+  it("returns [] when nothing matches or the message is empty", () => {
+    expect(localRecallMatch("completely unrelated topic", notes)).toEqual([]);
+    expect(localRecallMatch("", notes)).toEqual([]);
+  });
+});
+
 describe("selectRelevantMemories", () => {
   it("asks as purpose=memory with reasoning off, one attempt and a timeout", async () => {
     generateText.mockResolvedValue({ text: '{"files":["n1.md"]}', usage: { totalTokens: 10 } });
@@ -114,6 +141,16 @@ describe("selectRelevantMemories", () => {
     generateText.mockRejectedValue(new Error("timeout"));
     expect(await selectRelevantMemories({ message: "q", candidates })).toEqual([]);
     expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a local keyword match when the selector fails", async () => {
+    generateText.mockRejectedValue(new Error("The service may be temporarily overloaded"));
+    const notes: RecallCandidate[] = [
+      { file: "deploy-runbook.md", description: "how to deploy to Railway", ageDays: 1, type: "project" },
+      { file: "git-commit-identity.md", description: "author name and email for commits", ageDays: 5, type: "project" },
+    ];
+    expect(await selectRelevantMemories({ message: "how do I deploy to Railway?", candidates: notes }))
+      .toEqual(["deploy-runbook.md"]);
   });
 
   it("never sends a BYOK prompt to Core", async () => {

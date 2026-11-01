@@ -13,6 +13,12 @@
  * retried; it fails as it would have, and the next request goes to the
  * fallback.
  *
+ * Nor on a 503 that is the proxy ANSWERING: `free_busy` (every free pool is
+ * full). The copy shares that free-tier state, so asking it changes nothing,
+ * and the 3-minute hold then sent every later request, paid ones included, to
+ * the copy (live QA 2026-10-30). Read from the small JSON body of the 503,
+ * which is never a stream.
+ *
  * After such a failure the primary is skipped for FALLBACK_HOLD_MS, then tried
  * again. Per process.
  *
@@ -125,11 +131,21 @@ export async function proxyFetch(
     return fetchImpl(onFallbackUrl(url, primary, fallback), init);
   }
   if (!FALLBACK_STATUSES.has(res.status)) return res;
+  if (res.status === 503 && (await answeredBusy(res))) return res;
   markPrimaryDown(String(res.status), now());
   if (!replayable(init?.body)) return res;
   // Its body is never read: drop it before asking the fallback.
   void res.body?.cancel().catch(() => {});
   return fetchImpl(onFallbackUrl(url, primary, fallback), init);
+}
+
+/** The proxy answered "all free pools are busy": an answer, not an outage. */
+async function answeredBusy(res: Response): Promise<boolean> {
+  try {
+    return /"error"\s*:\s*"free_busy"/.test(await res.clone().text());
+  } catch {
+    return false;
+  }
 }
 
 /** Test hook. */

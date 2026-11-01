@@ -8,6 +8,8 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { guardPluginControl } from "@/lib/plugins/control-guard";
+import { hasHooksFor, runStopHooks } from "@/lib/plugins/hooks";
 import { rememberWritePrevious } from "@/lib/chat/write-previous";
 import type { IpcMainInvokeEvent } from "electron";
 import { recordFileWrite, resolveReadScope } from "@/lib/tools/file-read-log";
@@ -96,7 +98,6 @@ import {
   resolveReasoningCatalogModelId,
 } from "@/lib/routing/reasoning-detector";
 import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
-import { getPlanCompletionFeedback } from "@/lib/tasks/plan-completion-gate";
 import { recordToolOnLedger } from "@/lib/tasks/task-ledger";
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
 import { cancelChatStream } from "@/ipc/handlers/chat_stream/lifecycle-handlers";
@@ -153,6 +154,8 @@ export interface BuildBranchDeps {
   abortController: AbortController;
   /** Window minus the reply reserve — what a request may actually occupy. */
   usableTokens: number;
+  /** The turn's compaction point — the mid-turn check's trigger (see 0c). */
+  compactionLimit: number;
   processResponseChunkUpdate: (args: {
     fullResponse: string;
   }) => Promise<string>;
@@ -208,6 +211,7 @@ export async function runBuildBranch(
     handleToolInputDelta,
     abortController,
     usableTokens,
+    compactionLimit,
     processResponseChunkUpdate,
     applyTierEscalation,
     buildToolStreamOpts,
@@ -732,6 +736,14 @@ export async function runBuildBranch(
               );
               if (filePref.earlyReturn) return filePref.earlyReturn;
               permRequest = filePref.permRequest;
+              // Plugin files and hooks.json: a file write is refused, a command
+              // always asks, whatever else would have approved it.
+              const pluginGuard = guardPluginControl(permRequest, workspacePath);
+              if (pluginGuard.refusal) {
+                activityStatus = "error";
+                return recordActivityResult(pluginGuard.refusal);
+              }
+              permRequest = pluginGuard.permRequest;
               // Denied once this turn: refused again without a card, whoever
               // makes it (a retry, or a writer sub-agent's accepted proposal).
               if (permissionInterceptor.isDeniedChange(permRequest)) {
@@ -745,6 +757,7 @@ export async function runBuildBranch(
                     "")
                   : "";
               const skipPermissionWait = shouldSkipPermissionWait(permRequest, {
+                pluginControl: pluginGuard.pluginControl,
                 reviewOverridden: permissionInterceptor.overridesEditReview(permRequest),
                 autoApproved:
                   filePref.skipPermissionWait ||
@@ -1689,6 +1702,15 @@ export async function runBuildBranch(
                 continue;
               }
               permRequest = filePref.permRequest;
+              const pluginGuard = guardPluginControl(permRequest, workspacePath);
+              if (pluginGuard.refusal) {
+                iterationResults.push({
+                  tool: toolCall.toolName,
+                  result: pluginGuard.refusal,
+                });
+                continue;
+              }
+              permRequest = pluginGuard.permRequest;
               if (permissionInterceptor.isDeniedChange(permRequest)) {
                 iterationResults.push({
                   tool: toolCall.toolName,
@@ -1703,6 +1725,7 @@ export async function runBuildBranch(
                     "")
                   : "";
               const skipPermissionWait = shouldSkipPermissionWait(permRequest, {
+                pluginControl: pluginGuard.pluginControl,
                 reviewOverridden: permissionInterceptor.overridesEditReview(permRequest),
                 autoApproved:
                   filePref.skipPermissionWait ||
@@ -1944,17 +1967,16 @@ export async function runBuildBranch(
               }>,
             ),
           stripTextToolXML: stripToolCallXML,
-          // v14.8.9 continue-until-done: drive an active session plan to
-          // completion (self-gates on plan existence + pending steps).
-          // NOT in plan mode: there the plan itself is the deliverable —
-          // a fresh plan's steps are pending by construction and the mode
-          // has no build tools, so the nudge reads as "proceed without
-          // the user" (observed: model started implementing right after
-          // presenting the plan).
-          ...(effectiveWorkMode !== "plan"
+          // Stop hooks (the person's and installed plugins'): "not done until
+          // the tests pass". Attached only when one applies to this folder.
+          ...(effectiveWorkMode !== "plan" &&
+          hasHooksFor("stop", { workspacePath })
             ? {
-                planCompletionGate: () =>
-                  getPlanCompletionFeedback(req.workspaceSessionId),
+                taskCompleteGate: () =>
+                  runStopHooks({
+                    workspacePath,
+                    sessionId: req.workspaceSessionId ?? undefined,
+                  }),
               }
             : {}),
         },
@@ -1965,6 +1987,7 @@ export async function runBuildBranch(
           streamTurnId,
           tierLimit: modelContextResolved.tierLimit,
           usableTokens,
+          compactionLimit,
           maxContinuationAttempts: STREAM_CONTINUATION_MAX,
           taskLedger: taskLedgerBlock,
           permissionInterceptor,
@@ -1987,6 +2010,7 @@ export async function runBuildBranch(
               repetition: agenticRepetition,
               abortSignalOverride: opts.abortSignal,
               maxStepsPerRound: opts.maxStepsPerRound,
+              compactionLimit: opts.compactionLimit,
             }),
           runStreamRound: (
             params: Parameters<typeof runStreamRoundWithEmptyOutputRetry>[2],

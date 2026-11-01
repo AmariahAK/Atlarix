@@ -179,3 +179,41 @@ describe("the whole-folder rule (an editor's \"Edit files in this folder without
     expect(gate("src/a.ts", [{ scopeType: "directory", scopeValue: "", decision: "always_allow" }]).action).toBe("prompt");
   });
 });
+
+describe("the two folder choices (0g)", () => {
+  it("a recursive directory covers a nested folder (subtree)", () => {
+    const dir: ListedFilePermission = { scopeType: "directory", scopeValue: "src/cli", decision: "always_allow" };
+    expect(gate("src/cli/tui/a.ts", [dir]).action).toBe("auto_allow");
+  });
+
+  it("a non-recursive folder covers direct files but not a nested folder", () => {
+    const folder: ListedFilePermission = { scopeType: "folder", scopeValue: "src/cli", decision: "always_allow" };
+    expect(gate("src/cli/a.ts", [folder]).action).toBe("auto_allow");
+    expect(gate("src/cli/tui/a.ts", [folder]).action).toBe("prompt");
+  });
+
+  it("a deny on a deeper folder still beats a wider allow", () => {
+    const allow: ListedFilePermission = { scopeType: "directory", scopeValue: "src", decision: "always_allow" };
+    const deny: ListedFilePermission = { scopeType: "folder", scopeValue: "src/secrets", decision: "always_deny" };
+    expect(gate("src/secrets/key.pem", [allow, deny]).action).toBe("auto_deny");
+    expect(gate("src/other/a.ts", [allow, deny]).action).toBe("auto_allow");
+  });
+
+  it("offers both folder choices, and neither for a top-level file", () => {
+    const g = gate("src/cli/a.ts");
+    if (g.action !== "prompt") throw new Error("expected a prompt");
+    expect(g.canAlwaysAllowFolder).toBe(true);
+    expect(g.canAlwaysAllowDirectory).toBe(true);
+    const top = gate("README.md");
+    if (top.action !== "prompt") throw new Error("expected a prompt");
+    expect(top.canAlwaysAllowFolder).toBe(false);
+    expect(top.canAlwaysAllowDirectory).toBe(false);
+  });
+
+  it("a protected/empty path offers neither", () => {
+    const g = gate("");
+    if (g.action !== "prompt") throw new Error("expected a prompt");
+    expect(g.canAlwaysAllowFolder).toBe(false);
+    expect(g.canAlwaysAllowDirectory).toBe(false);
+  });
+});

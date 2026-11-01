@@ -21,6 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assetFiles, cliPlugin, root } from "./bun-cli-plugin";
 import { windowsExeMetadata } from "./lib/windows-exe-metadata";
+import { sentryDsnForBuild } from "../src/lib/sentry-gate";
 // Bun 1.3.8 crashed compiled binaries natively 30-60 s into a session (a
 // JavaScriptCore wasm compiler thread freeing memory twice). .bun-version pins
 // the release this binary is tested on; an older Bun must not build it.
@@ -112,12 +113,16 @@ const PUBLIC_KEYS = [
   "ATLARIX_CORE_MODEL_3",
   "ATLARIX_CORE_MODEL_4",
   "ATLARIX_CORE_MODEL_5",
+  "ATLARIX_CORE_MODEL_6",
   "POSTHOG_API_KEY",
-  // Crash reports (src/headless/sentry-stub.ts). A DSN is public by design: it
-  // can only send events to the project.
-  "SENTRY_DSN",
 ] as const;
-const buildEnv = Object.fromEntries(PUBLIC_KEYS.map((k) => [k, process.env[k] ?? ""]));
+const buildEnv: Record<string, string> = Object.fromEntries(
+  PUBLIC_KEYS.map((k) => [k, process.env[k] ?? ""]),
+);
+// The prod DSN ships only in an explicit release build (ATLARIX_RELEASE=1);
+// dev/QA CLI binaries embed none, so a local or QA crash can never reach the
+// production Sentry project (0t). build-env.ts skips empty values at startup.
+buildEnv["SENTRY_DSN"] = sentryDsnForBuild();
 const missing = PUBLIC_KEYS.slice(0, 3).filter((k) => !buildEnv[k]);
 if (missing.length) {
   console.warn(`[build-bun] WARN: ${missing.join(", ")} unset: sign-in and Core will not work in this build`);

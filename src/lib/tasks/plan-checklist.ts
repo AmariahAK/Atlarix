@@ -22,8 +22,9 @@ export type PlanStepState =
   | "external";
 
 /**
- * States the model can still act on. The completion gate nudges on these and ONLY
- * these — see `plan-completion-gate.ts`.
+ * States the model can still act on (`todo` / `in_progress`). Everything else is
+ * a disposition — `done`, `blocked` (stuck, with a reason) or `external` (the
+ * user's by nature) — and no longer triggers a completion nudge.
  */
 export function isActionableStepState(state: PlanStepState): boolean {
   return state === "todo" || state === "in_progress";

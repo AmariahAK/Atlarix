@@ -17,9 +17,186 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-28
 
 ---
+
+## 🚨 Attack 2026-10-28 (19:12–02:30 MYT): what held, what was closed, what is left
+
+One throwaway account (`istevens599@6gdfg.zone.id`, user `88e201ae…`, one Google Cloud IP 34.145.17.47) fuzzed every
+endpoint for ~7 h. The owner's notes are in the calendar ("Atlarix alerts fixes", 2026-10-29). Facts checked 2026-10-29:
+
+- **Money:** 14 `debit_wallet` calls with `p_cents` up to 2^31 took its wallet to −8,589,934,601 cents (int32-shaped
+  fuzz; the column is bigint, nothing overflowed). No other wallet is negative. The owner reset its balance to 0, so
+  its ledger rows (sum −8.59e9, kind `debit`, source `app`) no longer match its balance: anything that SUMS debits
+  (revenue or spend charts) must exclude this user or get a compensating `adjustment` row of +8,589,934,601.
+- **Proxy (Railway http log, 501 requests from the IP):** 110 free-Auto chats answered 200, then 123 × 402 and 2 × 429,
+  so the per-user share held. 45 `/v1/mcp/call` returned HTTP 200, but 33 of 238 logged calls were `ok`, ALL to the
+  attacker's own public test servers (httpbingo canned JSON, webhook.site). The ~230 connectors it registered were an
+  SSRF suite (169.254.169.254 and metadata.google.internal, Railway-internal hosts, nip.io/sslip.io/1u.ms/rbndr.us
+  rebinding, NAT64, 6to4, hex/octal/decimal IPs, redirect-to, userinfo tricks): every private target was refused or
+  unreachable. `POST /v1/connectors/probe1/credential` → 200 was `{ok:false,error:"not_found"}` (ownership is
+  checked), not a stored credential.
+- **Supabase:** 148 forged Lemon webhooks 401; RLS held; `send-email` was an open relay (client chose `to`, subject
+  and body), 28 sends, none to a real person (Resend, owner).
+
+**Closed 2026-10-29 (ai-2c):**
+- Migration `20261029030000_harden_wallet_and_usage_after_attack.sql`, APPLIED: `account_is_banned(uuid)` reads
+  both `users.banned_at` and `auth.users.banned_until`; `debit_wallet` refuses banned accounts, caps one call at
+  5,000 cents and refuses a debit that would take the wallet below −5,000 cents; `get_credit_balance`,
+  `record_client_usage`, `record_client_seen` refuse banned accounts. ACLs verified (authenticated keeps
+  `debit_wallet`; the helper is service_role only).
+- `public.users.banned_at` set for the attacker (the auth-level ban alone was invisible to app checks).
+- `send-email` edge function REPLACED by a stub answering 410 (version 49): nothing in the app, website or reviewer
+  calls it (`src/lib/email/resend.ts` is dead code). If transactional email returns, the server picks the recipient
+  (the signed-in user) and a fixed template, never the client.
+- Proxy SSRF guard (atlarix-proxy main): IPv6 judged by global-unicast (2000::/3) minus 6to4, Teredo and
+  documentation, mapped/translated addresses judged as their IPv4; IPv4 adds 198.18.0.0/15 and the TEST-NETs. Tests
+  for every probe spelling. Residual, written in `ssrf.ts`: DNS rebinding between check and fetch (rbndr.us) needs
+  resolve-then-pin.
+
+**Left for the proper fix (owner):**
+- Delete or keep the attacker's ~230 `account_mcp_servers` rows (inert: banned on both levels).
+- The ledger compensation row or an exclusion in every spend chart (above).
+- PostHog token leak + revocations and the CLI handoff to PKCE (the 2026-10-28 plan; unchanged).
+- Resolve-then-pin in the proxy's connector fetches; rate-limit connector creation per account (230 in one night).
+- An alert when one account's refusals, failed webhooks or edge-function calls pass a threshold in an hour: this ran
+  for 7 h before anyone looked.
+- Bedrock/free-Auto cost for the IP: not checked here (110 free chats at most; the daily digest has the number).
+
+## 🔨 Queued 2026-10-28 (planned today, built 2026-10-29 with the two calendar events)
+
+- **Peer messaging: a one-shot "tell me when it's done" (owner, 2026-10-28).** Today a session that messages another
+  (`send_message`, `src/lib/tools/peers.ts`) learns the outcome only by polling `list_sessions` with `result_of` or by
+  asking the peer to message back. Add an opt-in on `send_message` (e.g. `notify_when_done`) that delivers ONE
+  notice to the sender when the target's turn ends (how it ended + the `result_of` line), on every surface, and
+  nothing when the target refuses or never runs. Implemented in `src/lib/peers/peers.ts` where a turn's end is
+  already recorded for `result_of`.
+- **Resume sessions started by other sessions, on every surface (owner, 2026-10-28).** A session can come from
+  another one (`/fork`, a sub-agent's run, a peer that messaged a pending session, a cloud or automation run) and
+  today nothing records that lineage: `src/db/schema.ts` has no parent/origin on a chat, so `/resume` (CLI, "from
+  this folder, the app's too"), the app's recent chats, the VS Code panel's Past chats and an ACP editor's session
+  list show flat rows. Record the lineage (parent chat, how it was started, by which session/surface), and let the
+  user open the whole tree from any surface, from the first turn on: resume the parent and see its children, resume a
+  child and see where it came from, with the same session visible from the app, the CLI, VS Code and ACP
+  (`session/load`). Design in plan mode first; the stores are shared, so one schema change serves all four.
+
+- **atlarix-proxy: `railway.json` config-as-code is deprecated, stops working 2026-12-01** (Railway CLI warning,
+  2026-10-29). Migrate with `railway config migrate` to `.railway/railway.ts` (which already exists for variables) and
+  keep the `watchPatterns` that make Railway deploy only when deployed code changes (f5f2485). Reliability bundle.
+
+## 🔨 Handover 2026-10-25 (ai-27) — 15.11.1 released overnight; what is left
+
+- **Microsoft Store: 15.11.1 SUBMITTED, in Certification (2026-10-25 ~08:20 MYT), replacing 15.11.0 (owner's call).**
+  Submission 32 now carries the support info the 10.6.3 rejection asked for (https://atlarix.dev, support@atlarix.dev).
+  The package was built by `msix.yml` `store_resubmit_run` (run 40142829118, the release run's Landlock helper, strict
+  sandbox check) and uploaded by the owner in Partner Center, because the API refuses to refill a cancelled draft:
+  `PUT` → 409 "InvalidState … PreProcessing" while `--status` says "Canceled". **Fix `store-submit.mjs`:** "Canceled" is
+  not reusable through the API; stop with a message that says to upload in Partner Center (deleting would lose the
+  support info). Don't replace this submission; wait for Microsoft.
+- **Done 2026-10-25 morning (security leftovers):**
+  - Actions secret `OPENAI_API_KEY` deleted; inactive IAM keys …FOFY and …GNQH deleted (…KVKO, …7FFI in use).
+  - Proxy: `OPENROUTER_FREE_API_KEY` (dead, 401) and `VIRUSTOTAL_API_KEY` (unused) removed; VirusTotal also removed
+    from Supabase. `.railway/railway.ts` still lists `VIRUSTOTAL_API_KEY: preserve()`: drop it at the next proxy push.
+  - Discord: both webhooks regenerated by the owner ("Atlarix Releases v2", "Atlarix Core Logs V2"), set on Railway,
+    the Actions secret and Supabase; both answer. No edge function reads either Supabase copy.
+  - Edge functions (bind-github-install, cancel-subscription, cli-device, handle-lemon-webhook, relics) use the
+    `sb_secret` key (b4096620), deployed and smoke-tested; then the **legacy JWT keys were DISABLED** (the 24 h log
+    showed only Supabase's own `supabase_admin` using a JWT apikey). Re-enable on the API Keys page if anything breaks.
+  - Slack Events and Interactivity Request URLs point at the inbox Lambda (Slack verified the challenge). Not yet
+    seen with a real Slack event: check a `[trace] {"area":"inbox"…}` line after the next Slack message.
+  - Unmerged branches kept on origin, worktrees removed: launchpad `team/logging-15-11` (e743ddd, site sign-in records
+    where the account started: the site half of Dev 3 logging, never merged) and reviewer `team/slack-byok`
+    (82c2b8b, moot since the cloud agent is paid-only).
+- **Supabase billing banner (2026-10-25):** the dashboard says "Grace period is over: your projects will not be able to
+  serve requests when you use up your quota". Owner: check Usage / billing.
+- **Owed checks:** the Windows approval toast (named chat, click opens it; Squirrel + MSIX) needs a signed-in app in
+  the VM, so one owner device-code approval as agent@. The Mac notification click is the owner's check.
+- **Auto-update on every desktop platform: a failed download leaves the banner stuck and nothing retries soon
+  (owner, 2026-10-26).** Seen on the owner's Mac (/Applications, 15.11.0): it found 15.11.1 at 21:20, the download died at
+  17% with `net::ERR_NETWORK_CHANGED` (main.log), and the banner stayed on "Downloading…" (the owner saw "stuck at
+  installing"). The owner's app has never auto-updated (the 2026-10-25 01:45 "Update downloaded" lines in main.log came
+  from the QA ~/Applications test). The fix must cover all three:
+  - **The banner (all platforms):** `src/components/UpdateBanner.tsx` shows "Downloading update X…" on
+    `update:downloading` and clears it only on `update:downloaded`. It never listens to `update:status`, so an error
+    recorded by electron-updater (`downloadUpdate().catch` and the `error` event in `src/main.ts`) or by Squirrel on
+    Windows (`squirrelUpdater.on("error")`) leaves it stuck. Subscribe `onUpdateStatus` and clear (or say it will
+    retry) on "error".
+  - **macOS and Linux (electron-updater: dmg/zip, AppImage, .deb, .rpm):** after a failed download nothing retries until
+    the 4 h `UPDATE_RECHECK_INTERVAL_MS`. Re-check after a short backoff (e.g. 2 min, doubling up to 4 h, reset on
+    `update-downloaded`). Check the deb/rpm pkexec install path fails visibly too.
+  - **Windows (Squirrel via update-electron-app):** re-checks hourly; confirm a mid-download network change recovers
+    on the next check and the banner clears. MSIX installs update through the Store (nothing to fix there).
+  - **Tests:** a failed download clears the banner and schedules a re-check (electron-updater path); a Squirrel error
+    clears the banner. Then a real network-drop test on Mac, Windows (VM) and Linux.
+- **New free users pick a paid Core model first and hit a misleading refusal: fix on EVERY surface (owner,
+  2026-10-27).** Both CLI sign-ups of 2026-10-26 (Linux, 15.11.1, $0 wallet) chose a Core tier in their first minute
+  (core-1, core-5), got 402 quota, then switched to Auto, OK'd consent and worked (PostHog `turn_completed`;
+  `prev_model` null on turn 1 = picked, not a default; every surface defaults to `core-auto`). The owner wants both
+  fixes on all four surfaces, with a QA confirmation on each:
+  - **1. Say Core costs credit wherever a model is picked** (for accounts without Pro or credit), the same way Auto
+    is tagged "Free":
+    - App: `src/components/ModelPicker.tsx` (and the chat's model menu, `ChatConfigDropdown.tsx` / `ChatInputControls.tsx`).
+    - CLI: `/model` (`openPicker` in `src/cli/tui/App.tsx`), which tags Auto "Free" but shows Core rows with only a
+      context size.
+    - VS Code panel: `packages/vscode/webview/chat/picker.ts`.
+    - ACP editors (Zed, JetBrains): the session model options in `src/cli/acp/agent.ts` (the option name or
+      description is all the editor shows).
+  - **2. "Your Atlarix Core balance is used up" is wrong for an account that never had a balance.** For a $0,
+    never-topped-up account, say Core runs on credit, keeping the way out: `/billing` (add credit or Pro) and Atlarix
+    Auto (free). The text lives in `CORE_EXHAUSTED_MESSAGE` (`src/shared/billing_copy.ts`); each surface matches it
+    by marker, so add or keep a marker every surface recognises:
+    - App: `src/components/chat/ChatErrorBox.tsx`, `src/components/SimpleInlineChat.tsx` (its Add credit / Upgrade
+      to Pro / Auto buttons must still show).
+    - CLI: `src/cli/tui/limits.ts` (`errorNotice` keys on `CORE_EXHAUSTED_MARKER`).
+    - VS Code panel and ACP editors: they receive the CLI's error text, so check the hint line still renders there.
+  - **Approved wording (owner, 2026-10-27; use exactly):**
+    - Picker tag for Core, accounts with no Pro and no credit: `Credit` (muted) in the app, CLI and VS Code panel,
+      next to Auto's `Free`; in ACP editors the model's description says `Uses credit` (Auto: `Free`). Pro users and
+      anyone with a balance see no tag.
+    - Refusal for a $0 account that has NEVER added credit: "**Atlarix Core models run on credit.** Add credit or get
+      Pro to use them, or switch to Atlarix Auto, which is free." Plus, when the proxy sends `required_cents`: "This
+      model needs at least $X of credit." App: the existing Add credit / Upgrade to Pro / Use Atlarix Auto buttons
+      under it. CLI, VS Code panel and ACP: title "Atlarix Core runs on credit", detail "Add credit or get Pro to use
+      it, or switch to Atlarix Auto (free).", actions "/billing add credit or get Pro · /model Atlarix Auto (free) or
+      your own key".
+    - An account that HAD credit and spent it keeps today's "Your Atlarix Core balance is used up" message.
+  - **QA (full confirmation):** a fresh free account with a $0 wallet, on each of app, CLI, VS Code panel and Zed:
+    the picker shows Core as paid, picking it gives the new wording plus the `/billing` / Auto way out, and a paid
+    account (Pro or credit) sees no "Credit" tag and no change in the refusal it can still get.
+- **Sentry: two issues from 2026-10-24/26 (owner, 2026-10-27).**
+  - **ATLARIX-46, CLI browser sign-in crash** (`TypeError: null is not an object (evaluating 'server.address().port')`,
+    `src/cli/auth/browser-sign-in.ts:118`, 15.11.1, Linux, bun; new user d345dde0 at sign-up). Not the user's doing:
+    after sign-in `finish()` calls `server.close()`, and the browser's follow-up request on the still-open keep-alive
+    connection (typically `/favicon.ico`) reaches the handler, where `server.address()` is now null, thrown uncaught.
+    Sign-in had already succeeded (the user ran turns a minute later). Fix: take the port once in the `listen`
+    callback and use it in the handler; after `finish`, answer any request with 503/close (or
+    `server.closeAllConnections()`); a test that sends a request after sign-in finishes.
+  - **ATLARIX-45 "Source folder does not exist"** (`src/ipc/handlers/import_handlers.ts:65`): opening a moved or deleted
+    workspace (usually from Recent). The user IS told (`showError` in `src/lib/open-workspace-session.ts:474`), but as
+    raw text "[import-app] Error: Source folder does not exist". Ignored forever in Sentry 2026-10-27 at the owner's
+    request. Code side: `createLoggedHandler` (`src/ipc/handlers/safe_handle.ts`) sends EVERY IPC error to Sentry;
+    mark expected user-condition errors (missing folder, and similar) so they are logged but not reported, show a
+    plain message ("That folder no longer exists. It may have been moved or deleted."), and offer to remove it from
+    Recent.
+- **Add GPT-6.1 Terra to Atlarix Core as a new slot, core-6 (owner, 2026-10-27).** Make it one of the available models
+  and selectable in every model picker (app, CLI `/model`, VS Code panel, ACP options). All five slots are taken
+  (`routing` in atlarix-releases `core-models.json` has core-1…core-5), so it needs a sixth:
+  - App: `CORE_TIER_6` and its env lookup in `src/ipc/shared/compass_constants.ts` (next to `CORE_TIER_5`, line ~285),
+    `src/ipc/utils/dev_core_env.ts`, the label row in `src/shared/compass_product_copy.ts`, and `ATLARIX_CORE_MODEL_6`
+    in `.github/workflows/release.yml`, `msix.yml` (and every other workflow that lists 1-5).
+  - atlarix-releases `core-models.json`: a `core-6` routing entry and its provider (OpenAI); check pricing, context
+    window and the API model id against OpenAI's model page first, never from memory.
+  - atlarix-proxy: confirm it routes any slot named in `core-models.json` (no hardcoded list), and that billing prices it.
+  - Launchpad: the Core lineup is derived from `core-models.json` and CI-checked (`check:core-lineup`); regenerate.
+  - Older apps must ignore an unknown slot without breaking; check a 15.11.1 build against the new JSON before
+    publishing it.
+- **15.11.2 small items:** a reply label shows a prettified raw id for ~10–20 s after launch, until the model list
+  loads; a provider renamed by the CLI keeps its old name in an open app until restart (the cached model list).
+- **Bun on CI:** `npm run test:bun` runs in the quality job now; the first runs passed. Locally the team uses the same
+  command (a plain multi-file `bun test` fails on purpose).
+- **The first real deb/rpm auto-update is 15.11.1 → 15.11.2:** check it on a Linux desktop when 15.11.2 ships,
+  including the pkexec prompt (unreachable in containers).
 
 ## 🔨 Handover 2026-10-24 (ai-27) — 15.11.0 released overnight; what is left
 
@@ -31,7 +208,8 @@ The owner approved the scope 2026-10-23 and asked for a full release overnight. 
 - **GitHub App "Atlarix Cloud Agent" → Permissions:** set Repository "Secrets" and "Variables" to "No access". Nothing
   uses them since the cloud agent went paid-only (reviewer ae7061c, agent-action v1.4.0). GitHub asks for sudo mode,
   so it's yours.
-- **VS Code Marketplace:** upload the 8 `.vsix` from the Desktop folder.
+- **VS Code Marketplace:** DONE for 15.11.1 (owner, 2026-10-25; all 8 platforms public). CI publishes Open VSX only,
+  so every release still needs this upload by hand.
 - **Proxy copies drift on a scripts-only push (2026-10-24).** Every push to atlarix-proxy main redeploys Railway, but the
   AWS copy only moves with `scripts/aws/90-proxy-failover.sh`, so the uptime watcher emailed "proxy copies differ" after a
   one-line change to scripts/aws/60-lambdas.sh. Fix: compare only the deployed code (e.g. a hash of the bundle, not the
@@ -73,18 +251,7 @@ DeepSeek, Z.ai, Lemon Squeezy, Resend, Cloudflare R2 and both GitHub Apps; the o
 the database password reset; GitHub, Slack and Lemon Squeezy webhook secrets changed; the Slack install's token
 re-encrypted under a new `SLACK_TOKEN_KEY`. Teleios Centre Kenya's Postgres was rotated by its own session.
 
-- **Discord:** `DISCORD_WEBHOOK_URL` and `CORE_ALERT_WEBHOOK_URL` (proxy and Supabase edge secrets) were in the
-  leak. Regenerate the webhooks in Discord, then update both places.
-- **VirusTotal:** `VIRUSTOTAL_API_KEY` (proxy, edge) can't be reset from its dashboard (free key). Rotate via the
-  account or accept the risk.
-- **Legacy Supabase JWT keys:** the `service_role` JWT was in Railway (removed there now) and is still valid. Edge
-  functions read `SUPABASE_SERVICE_ROLE_KEY`; move them to a `sb_secret_` key, then disable the legacy keys. The
-  2026-10-22 log audit found 0 uses.
-- **Old AWS keys:** `atlarix-proxy-runtime` …FOFY and `atlarix-reviewer-runtime` …GNQH are INACTIVE. Delete them
-  after a week with no errors.
-- **Stale secrets:** the Atlarix repo's Actions secret `OPENAI_API_KEY` is used by no workflow and held a revoked
-  key, so delete it. The proxy's `OPENROUTER_FREE_API_KEY` is a disabled, never-used OpenRouter key: remove it or
-  replace it.
+- Discord, VirusTotal, legacy JWT keys, old AWS keys, stale secrets: DONE 2026-10-25 (see the 2026-10-25 handover).
 - **Proxy `/health` shows `commit: null`** because it was deployed with `railway up`. Deploy from git next time so
   the SHA shows (the AWS uptime STALE check compares it).
 - **Where keys live now:** Supabase secret keys `railway_20261022` (proxy, reviewer), `aws_lambdas_20261022`
@@ -107,7 +274,8 @@ re-encrypted under a new `SLACK_TOKEN_KEY`. Teleios Centre Kenya's Postgres was 
     `ai-c4/aws-relief` into the proxy so Railway and the copy run ONE sha, and add the copy to the uptime TARGETS
     in `60-lambdas.sh`. Client rule: fall back on connect failure, 502 or 503 only, never 504.
   - **Webhook URL switch to the inbox** (https://l7k2phhezgchepvhsuuplipzre0uxubo.lambda-url.eu-west-1.on.aws):
-    `/github/reviewer`, `/github/agent`, `/slack/events`, `/slack/interactions`. The inbox passes end to end with
+    `/github/reviewer`, `/github/agent`, `/slack/events`, `/slack/interactions` (Slack's two switched 2026-10-25;
+    the two GitHub Apps are the owner's). The inbox passes end to end with
     the new secrets (stored → claimed → done in ~1 s). The Reviewer App's webhook still points at
     `atlarix-reviewer-production.up.railway.app/webhooks/github`; its secret was missing until 2026-10-23 and is
     set again now. The owner does the App webhook change (a session's classifier refused it).

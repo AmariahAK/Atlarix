@@ -100,10 +100,36 @@ import type { RelicSummary } from "@/lib/relics/relic-store";
 import type { AddedServer, PasteOutcome } from "@/lib/mcp/mcp-add";
 import type { ConnectorView } from "@/lib/mcp/account-connectors";
 import type { CatalogEntry } from "@/shared/mcp-catalog";
+import type { PluginListItem, PluginPreviewView } from "@/ipc/handlers/plugin_handlers";
 
 export interface CliServices {
+  /** Installed plugins (/plugins): the same `plugins:*` handlers as Settings → Plugins. */
+  plugins: {
+    list(): Promise<PluginListItem[]>;
+    /** Installed plugins' slash commands for this folder (expanded by chat:stream). */
+    commands(workspacePath: string | null): Promise<
+      Array<{ name: string; description: string; argumentHint: string | null; plugin: string }>
+    >;
+    problems(workspacePath: string | null): Promise<Array<{ name: string; message: string }>>;
+    prepare(source: string, cwd: string): Promise<PluginPreviewView>;
+    prepareUpdate(name: string): Promise<PluginPreviewView>;
+    commit(stagingId: string, runnablesConfirmed: boolean, folders?: string[] | null): Promise<{ name: string }>;
+    discard(stagingId: string): Promise<void>;
+    remove(name: string): Promise<boolean>;
+    setEnabled(name: string, enabled: boolean): Promise<boolean>;
+    setFolders(name: string, folders: string[] | null): Promise<boolean>;
+    setModel(name: string, model: string | null): Promise<boolean>;
+    review(name: string): Promise<string[]>;
+    approve(name: string, shown: string[]): Promise<boolean>;
+  };
   /** Your activity on this computer (/stats). */
   stats(): Promise<import("@/lib/stats/usage-stats").ActivityStats>;
+  /** Usage on this computer (/usage): activity, tokens, MCP & skills, Auto picks, BYOK estimate. */
+  usage(filters: import("@/lib/stats/usage-report").UsageFilters): Promise<import("@/lib/stats/usage-report").UsageReport>;
+  /** The account's Atlarix credits (/usage Credits). */
+  usageCredits(): Promise<import("@/lib/billing/usage-credits").UsageCredits>;
+  /** Writes the share card (SVG) to Downloads; returns its path. */
+  saveUsageCard(svg: string): Promise<string>;
   automations: {
     list(appId: number | null): Promise<AutomationSummary[]>;
     runs(appId: number): Promise<AutomationRun[]>;
@@ -238,16 +264,18 @@ let registered = false;
 async function ensureHandlers(): Promise<void> {
   if (registered) return;
   registered = true;
-  const [{ registerAutomationHandlers }, { registerMcpHandlers }, { registerCommandPermissionHandlers }, { registerFilePermissionHandlers }, { registerMcpOAuthHandlers }] =
+  const [{ registerAutomationHandlers }, { registerMcpHandlers }, { registerCommandPermissionHandlers }, { registerFilePermissionHandlers }, { registerMcpOAuthHandlers }, { registerPluginHandlers }] =
     await Promise.all([
       import("@/ipc/handlers/automation_handlers"),
       import("@/ipc/handlers/mcp_handlers"),
       import("@/ipc/handlers/command_permission_handlers"),
       import("@/ipc/handlers/file_permission_handlers"),
       import("@/ipc/handlers/mcp_oauth_handlers"),
+      import("@/ipc/handlers/plugin_handlers"),
     ]);
   registerAutomationHandlers();
   registerMcpHandlers();
+  registerPluginHandlers();
   registerMcpOAuthHandlers();
   registerCommandPermissionHandlers();
   registerFilePermissionHandlers();
@@ -297,8 +325,45 @@ async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 export const realServices: CliServices = {
+  plugins: {
+    list: () => call("plugins:list"),
+    commands: (workspacePath) => call("plugins:commands", { workspacePath }),
+    problems: (workspacePath) => call("plugins:problems", { workspacePath }),
+    prepare: (source, cwd) => call("plugins:prepare", { source, cwd }),
+    prepareUpdate: (name) => call("plugins:prepare-update", { name }),
+    commit: (stagingId, runnablesConfirmed, folders) =>
+      call("plugins:commit", { stagingId, runnablesConfirmed, folders }),
+    discard: (stagingId) => call("plugins:discard", { stagingId }),
+    remove: (name) => call("plugins:remove", { name }),
+    setEnabled: (name, enabled) => call("plugins:set-enabled", { name, enabled }),
+    setFolders: (name, folders) => call("plugins:set-folders", { name, folders }),
+    setModel: (name, model) => call("plugins:set-model", { name, model }),
+    review: (name) => call("plugins:review", { name }),
+    approve: (name, shown) => call("plugins:approve", { name, shown }),
+  },
   /** Your activity on this computer: read straight from the shared database. */
   stats: async () => (await import("@/lib/stats/usage-stats")).getActivityStats(),
+  /** Usage on this computer: read straight from the shared database. */
+  usage: async (filters) => (await import("@/lib/stats/usage-report")).getUsageReport(filters),
+  usageCredits: async () => (await import("@/lib/billing/usage-credits")).getUsageCredits(),
+  async saveUsageCard(svg) {
+    const [{ promises: fs }, os, path] = await Promise.all([import("node:fs"), import("node:os"), import("node:path")]);
+    const dir = path.join(os.homedir(), "Downloads");
+    await fs.mkdir(dir, { recursive: true });
+    // The local day, as the page's "As of" says, not UTC's.
+    const { localDayKey } = await import("@/lib/stats/edit-stats");
+    const stem = path.join(dir, `atlarix-usage-${localDayKey()}`);
+    // Never over a file that is already there (an earlier card, or anything else).
+    for (let n = 1; ; n++) {
+      const file = n === 1 ? `${stem}.svg` : `${stem}-${n}.svg`;
+      try {
+        await fs.writeFile(file, svg, { encoding: "utf8", flag: "wx" });
+        return file;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST" || n >= 100) throw e;
+      }
+    }
+  },
   automations: {
     async list(appId) {
       if (appId != null) {

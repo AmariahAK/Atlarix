@@ -29,6 +29,22 @@ const history: ModelMessage[] = [
   { role: "user", content: "second question" },
 ];
 
+/** All text in a message's content, whether a string or an array of parts. */
+const textOf = (m: ModelMessage): string => {
+  const c = m.content;
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) {
+    return c
+      .filter(
+        (p): p is { type: "text"; text: string } =>
+          (p as { type?: string })?.type === "text",
+      )
+      .map((p) => p.text)
+      .join("");
+  }
+  return "";
+};
+
 describe("resolveCacheMarkerPlacement", () => {
   it("direct anthropic → message-level regardless of model name", () => {
     expect(resolveCacheMarkerPlacement("anthropic", "claude-sonnet-4-6")).toBe(
@@ -74,7 +90,7 @@ describe("resolveCacheMarkerPlacement", () => {
 });
 
 describe("buildStreamMessagesWithCacheBreakpoints", () => {
-  it("message placement: breakpoints on system header + last two history messages", () => {
+  it("message placement: breakpoints on system header + last two messages", () => {
     const out = buildStreamMessagesWithCacheBreakpoints({
       systemHeader: "HEADER",
       dynamicTail: "TAIL",
@@ -82,20 +98,28 @@ describe("buildStreamMessagesWithCacheBreakpoints", () => {
       placement: "message",
     });
 
-    // [header, tail, ...history]
-    expect(out).toHaveLength(2 + history.length);
+    // [header, ...history] — the tail is a text part on the LAST (user) message,
+    // never its own system message.
+    expect(out).toHaveLength(1 + history.length);
     expect(out[0].role).toBe("system");
     expect(out[0].content).toBe("HEADER");
     expect(cacheControlOf(out[0])).toEqual({ type: "ephemeral" });
 
-    // Tail is its own system message with NO breakpoint (it changes daily).
-    expect(out[1].role).toBe("system");
-    expect(out[1].content).toBe("TAIL");
-    expect(cacheControlOf(out[1])).toBeUndefined();
+    // Exactly one system message — the header — for every placement. A second
+    // system message is what makes @ai-sdk/google ("System messages are only
+    // supported at the beginning") and @ai-sdk/amazon-bedrock ("Multiple system
+    // messages … separated by user/assistant") throw.
+    expect(out.filter((m) => m.role === "system")).toHaveLength(1);
 
-    // Breakpoints on the last TWO history messages (previous exchange tail +
-    // the new user message), nowhere else.
-    const historyOut = out.slice(2);
+    // The tail rides in the last user message's content.
+    const last = out.at(-1)!;
+    expect(last.role).toBe("user");
+    expect(Array.isArray(last.content)).toBe(true);
+    expect(textOf(last)).toBe("second questionTAIL");
+
+    // Breakpoints on the last TWO messages (previous exchange + the new user
+    // message), nowhere else.
+    const historyOut = out.slice(1);
     for (const [i, m] of historyOut.entries()) {
       if (i >= historyOut.length - 2) {
         expect(cacheControlOf(m)).toEqual({ type: "ephemeral" });
@@ -103,6 +127,81 @@ describe("buildStreamMessagesWithCacheBreakpoints", () => {
         expect(cacheControlOf(m)).toBeUndefined();
       }
     }
+  });
+
+  it("no tail and a history ending in an assistant message → the tail is its own user message", () => {
+    const assistantEnding: ModelMessage[] = [
+      { role: "user", content: "question" },
+      { role: "assistant", content: "answer" },
+    ];
+    const out = buildStreamMessagesWithCacheBreakpoints({
+      systemHeader: "H",
+      dynamicTail: "T",
+      history: assistantEnding,
+      placement: "message",
+    });
+    expect(out.filter((m) => m.role === "system")).toHaveLength(1);
+    expect(out.at(-1)).toMatchObject({ role: "user", content: "T" });
+    expect(out).toHaveLength(1 + assistantEnding.length + 1);
+  });
+
+  it("exactly one system message (the header) for every placement", () => {
+    // @ai-sdk/google throws on any system message after the start, and
+    // @ai-sdk/amazon-bedrock on multiple system messages separated by turns, so
+    // a single leading system message is the invariant that keeps both providers
+    // (and every other) converting without throwing.
+    for (const placement of ["message", "content", "none"] as const) {
+      const out = buildStreamMessagesWithCacheBreakpoints({
+        systemHeader: "H",
+        dynamicTail: "T",
+        history,
+        placement,
+      });
+      const systems = out.filter((m) => m.role === "system");
+      expect(systems).toHaveLength(1);
+      expect(systems[0]!.content).toBe("H");
+      // The tail rides in the last user message, never a second system message.
+      expect(out.at(-1)!.role).toBe("user");
+      expect(textOf(out.at(-1)!)).toContain("T");
+    }
+  });
+
+  it("keeps the prefix byte-identical across turns (tail merged into the newest user message)", () => {
+    const u = (s: string): ModelMessage => ({ role: "user", content: s });
+    const a = (s: string): ModelMessage => ({ role: "assistant", content: s });
+    const turn1 = buildStreamMessagesWithCacheBreakpoints({
+      systemHeader: "HEADER",
+      dynamicTail: "TAIL-1",
+      history: [u("first question"), a("first answer"), u("second question")],
+      placement: "message",
+    });
+    const turn2 = buildStreamMessagesWithCacheBreakpoints({
+      systemHeader: "HEADER",
+      dynamicTail: "TAIL-2",
+      history: [
+        u("first question"),
+        a("first answer"),
+        u("second question"),
+        a("second answer"),
+        u("third question"),
+      ],
+      placement: "message",
+    });
+
+    // Everything BEFORE the newest user message is byte-identical between the
+    // two turns — the whole point of keeping the tail out of the cacheable
+    // prefix. Compare role + content only (cache markers are control signals).
+    const shape = (m: ModelMessage) => ({ role: m.role, content: m.content });
+    expect(shape(turn1[0])).toEqual(shape(turn2[0])); // header
+    expect(shape(turn1[1])).toEqual(shape(turn2[1])); // first question
+    expect(shape(turn1[2])).toEqual(shape(turn2[2])); // first answer
+
+    // The per-turn tail still reaches the model — this turn's, in the newest
+    // user message.
+    expect(textOf(turn1.at(-1)!)).toContain("TAIL-1");
+    expect(textOf(turn2.at(-1)!)).toContain("TAIL-2");
+    expect(turn1.at(-1)!.role).toBe("user");
+    expect(turn2.at(-1)!.role).toBe("user");
   });
 
   it("marker carries all provider keys at once (openrouter/bedrock/openaiCompatible)", () => {
@@ -228,9 +327,13 @@ describe("buildStreamMessagesWithCacheBreakpoints", () => {
       expect(cacheControlOf(m)).toBeUndefined();
       expect(openRouterCacheControlOf(m)).toBeUndefined();
     }
-    // History objects pass through unmodified (same references).
-    expect(out.slice(2)).toEqual(history);
-    expect(out[2]).toBe(history[0]);
+    // History objects pass through unmodified (same references) — except the
+    // last user message, which is a copy carrying the tail.
+    expect(out[1]).toBe(history[0]);
+    expect(out[2]).toBe(history[1]);
+    expect(out[3]).not.toBe(history[2]);
+    expect(out).toHaveLength(1 + history.length);
+    expect(textOf(out[3])).toBe("second questionT");
   });
 
   it("omits the tail message when dynamicTail is null or blank", () => {
@@ -296,10 +399,9 @@ describe("advanceCacheBreakpointsForStep (v13.3 per-step advancement)", () => {
   it("step 0 is position-stable: same marker layout as the initial build", () => {
     const out = advanceCacheBreakpointsForStep(initial(), "message");
     expect(cacheControlOf(out[0])).toEqual({ type: "ephemeral", ttl: "1h" });
-    expect(cacheControlOf(out[1])).toBeUndefined(); // tail
-    expect(cacheControlOf(out[2])).toBeUndefined();
-    expect(cacheControlOf(out[3])).toEqual({ type: "ephemeral" });
-    expect(cacheControlOf(out[4])).toEqual({ type: "ephemeral" });
+    expect(cacheControlOf(out[1])).toBeUndefined(); // q1 — outside the last two
+    expect(cacheControlOf(out[2])).toEqual({ type: "ephemeral" }); // a1
+    expect(cacheControlOf(out[3])).toEqual({ type: "ephemeral" }); // q2+tail
   });
 
   it("later steps: markers move to the new last two, old positions stripped", () => {
@@ -312,14 +414,14 @@ describe("advanceCacheBreakpointsForStep (v13.3 per-step advancement)", () => {
       } as unknown as ModelMessage,
     ];
     const out = advanceCacheBreakpointsForStep(stepMessages, "message");
-    // Header keeps its 1h marker; tail untouched.
+    // Header keeps its 1h marker.
     expect(cacheControlOf(out[0])).toEqual({ type: "ephemeral", ttl: "1h" });
-    // Old history breakpoints (idx 3,4) stripped.
+    // Old history breakpoints (a1, q2+tail) stripped.
+    expect(cacheControlOf(out[2])).toBeUndefined();
     expect(cacheControlOf(out[3])).toBeUndefined();
-    expect(cacheControlOf(out[4])).toBeUndefined();
-    // New last two marked.
+    // New last two marked (assistant + tool).
+    expect(cacheControlOf(out[4])).toEqual({ type: "ephemeral" });
     expect(cacheControlOf(out[5])).toEqual({ type: "ephemeral" });
-    expect(cacheControlOf(out[6])).toEqual({ type: "ephemeral" });
     // Exactly 3 breakpoints total (≤4 Anthropic limit).
     const marked = out.filter((m) => cacheControlOf(m) != null);
     expect(marked).toHaveLength(3);

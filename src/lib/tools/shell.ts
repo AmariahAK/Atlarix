@@ -67,7 +67,7 @@ ToolRegistry.register({
     "Run a shell command (builds, tests, package managers, git, logs). " +
     `Runs on ${os.type()} ${os.release()} (${os.arch()}) through \`${resolveDescriptionShell()}\`. ` +
     "Use the cwd parameter rather than `cd … &&`, and read_file / edit_file / glob / grep for file work (cheaper and reviewable). " +
-    "Work longer than ~15s goes to the background by itself (background=true detaches at once); its result is delivered to you, so keep working or end your turn rather than polling. A quiet job MAY not be stuck: rather than cancel it, set wake_on (wake when a marker appears), timeout_ms, or allow_stalled (a dev server is expected to be quiet). " +
+    "Work longer than ~15s goes to the background by itself (background=true detaches at once); its result is delivered to you, so keep working or end your turn. A quiet job MAY not be stuck: rather than cancel it, set wake_on (wake when a marker appears), timeout_ms, or allow_stalled (a dev server is expected to be quiet). " +
     'Open a printed http://localhost:PORT with browser({action:"navigate", url}). ' +
     "Git: commit, push or open a PR only when asked; never skip hooks, force-push or discard work you did not create. " +
     "In Explore, Plan and Review, a command that changes the source waits for the user's approval: a pause, not a failure. To change files, ask the user to switch to Build or Debug rather than retrying. " +

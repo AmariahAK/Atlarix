@@ -11,6 +11,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { turnErrorText } from "@/shared/billing_copy";
 import type { IpcMainInvokeEvent } from "electron";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
 import type { StreamTurnContext } from "@/ipc/handlers/chat_stream/turn-context";
@@ -78,6 +79,7 @@ import {
 } from "@/lib/usage/turn-usage-aggregator";
 import { readSettings } from "@/main/settings";
 import {
+  UserFacingRefusal,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   SAFETY_FILTER_BLOCKED_MESSAGE,
@@ -136,6 +138,10 @@ export async function finalizeTurn(
   // card is the reply. The empty-response fallback ("Something went wrong")
   // was saved above the card on every such turn.
   if (!ctx.fullResponse.trim() && !ctx.askUserEndedTurn) {
+    // A user-visible generic failure must log its cause: an idle session woken
+    // by a peer message that produced no text showed this with no log line
+    // (QA 2026-10-31).
+    logger.warn(`[stream:${req.chatId}] turn ended with no response text — empty fallback shown`);
     ctx.fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
   }
   let responseToStore = stripQuestionsBlockFromResponse(ctx.fullResponse);
@@ -387,6 +393,7 @@ export async function finalizeTurn(
     // v10 token accuracy: fold sub-agent + compaction usage into this
     // turn's totals so the usage meter is exact.
     const auxUsage = takeAuxUsage(req.chatId);
+    ctx.turnAuxUsage = auxUsage;
     const auxBySource = summarizeAuxBySource(auxUsage);
     if (auxUsage) {
       // The estimated portion is reported SEPARATELY, never folded into the
@@ -767,7 +774,7 @@ export async function handleTurnError(
       safeSend(event.sender, "chat:response:error", {
         chatId: req.chatId,
         streamId,
-        error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${error instanceof Error ? error.message : String(error)}`,
+        error: turnErrorText(error instanceof Error ? error.message : String(error)),
       });
       safeSend(event.sender, "chat:response:end", {
         chatId: req.chatId,
@@ -782,7 +789,9 @@ export async function handleTurnError(
       return;
     }
   }
-  const errMessage = isNoUsableModelOutputError(error)
+  const errMessage = error instanceof UserFacingRefusal
+    ? error.message
+    : isNoUsableModelOutputError(error)
     ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
     : modelFailureUserMessage(
         error instanceof Error ? error.message : String(error),

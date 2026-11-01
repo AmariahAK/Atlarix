@@ -8,7 +8,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  migrateLegacyAtlarixFiles,
+  readAtlarixMd,
   statMemoryMd,
   buildProjectDocsPromptHint,
   isWorkspaceMemoryMdPath,
@@ -38,48 +38,55 @@ async function writeMemoryFile(content: string) {
   );
 }
 
-describe("migrateLegacyAtlarixFiles", () => {
-  it("does NOT archive .atlarix/memory.md (first-class file)", async () => {
-    await writeMemoryFile("# Project memory\n\nStack: TypeScript + Electron\n");
-    await migrateLegacyAtlarixFiles(workspace);
-    const stillThere = await fs
-      .readFile(path.join(workspace, ".atlarix", "memory.md"), "utf8")
-      .catch(() => null);
-    expect(stillThere).toContain("Stack: TypeScript + Electron");
-    const archived = await fs
-      .access(path.join(workspace, ".atlarix", "memory.md.old"))
-      .then(() => true)
-      .catch(() => false);
-    expect(archived).toBe(false);
-  });
-
-  it("does not touch a root MEMORY.md", async () => {
+describe("readAtlarixMd — case-insensitive, in place, never renamed (QA 2026-10-31)", () => {
+  it("finds root ATLARIX.md (any casing) and leaves it untouched", async () => {
     await fs.writeFile(
-      path.join(workspace, "MEMORY.md"),
-      "user file\n",
+      path.join(workspace, "ATLARIX.md"),
+      "# rules\n\nuppercase root\n",
       "utf8",
     );
-    await migrateLegacyAtlarixFiles(workspace);
-    const content = await fs.readFile(
-      path.join(workspace, "MEMORY.md"),
-      "utf8",
-    );
-    expect(content).toBe("user file\n");
+    expect(await readAtlarixMd(workspace)).toContain("uppercase root");
+    // In place: still there, never renamed to .old, nothing copied into .atlarix/.
+    expect(
+      await fs.readFile(path.join(workspace, "ATLARIX.md"), "utf8"),
+    ).toContain("uppercase root");
+    await expect(fs.access(path.join(workspace, "ATLARIX.md.old"))).rejects.toThrow();
+    await expect(
+      fs.stat(path.join(workspace, ".atlarix", "atlarix.md")),
+    ).rejects.toThrow();
   });
 
-  it("still folds legacy .atlarix/ATLARIX.md into atlarix.md", async () => {
+  it("finds .atlarix/Atlarix.md (mixed case) in place", async () => {
     await fs.mkdir(path.join(workspace, ".atlarix"), { recursive: true });
     await fs.writeFile(
-      path.join(workspace, ".atlarix", "ATLARIX.md"),
-      "# Rules\n\nlegacy instructions\n",
+      path.join(workspace, ".atlarix", "Atlarix.md"),
+      "# rules\n\ndot mixed case\n",
       "utf8",
     );
-    await migrateLegacyAtlarixFiles(workspace);
-    const canonical = await fs.readFile(
+    expect(await readAtlarixMd(workspace)).toContain("dot mixed case");
+    await expect(
+      fs.access(path.join(workspace, ".atlarix", "Atlarix.md.old")),
+    ).rejects.toThrow();
+  });
+
+  it("reads both root and .atlarix/ together, root first", async () => {
+    await fs.writeFile(path.join(workspace, "atlarix.md"), "ROOT-FIRST\n", "utf8");
+    await fs.mkdir(path.join(workspace, ".atlarix"), { recursive: true });
+    await fs.writeFile(
       path.join(workspace, ".atlarix", "atlarix.md"),
+      "DOT-SECOND\n",
       "utf8",
     );
-    expect(canonical).toContain("legacy instructions");
+    const content = await readAtlarixMd(workspace);
+    expect(content).toContain("ROOT-FIRST");
+    expect(content).toContain("DOT-SECOND");
+    expect(content!.indexOf("ROOT-FIRST")).toBeLessThan(
+      content!.indexOf("DOT-SECOND"),
+    );
+  });
+
+  it("returns null when there is no instruction file", async () => {
+    expect(await readAtlarixMd(workspace)).toBeNull();
   });
 });
 

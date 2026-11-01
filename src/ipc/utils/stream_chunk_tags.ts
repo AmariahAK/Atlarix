@@ -452,6 +452,12 @@ export async function processStreamChunks({
           part.type,
         )
       ) {
+        // Close the open thought before whatever ends it. The part handlers below
+        // must APPEND to this (`chunk +=`), not assign: tool-call/result/error
+        // overwrote `chunk` and dropped this closer, leaving `<think>` unclosed in
+        // the stored content — a dangling opener the app renderer (which has no
+        // boundary-close rule) swallowed the tool call and answer into one thought
+        // (DeepSeek reasoning leak, item 0k).
         chunk = "</think>";
         inThinkingBlock = false;
       }
@@ -551,9 +557,9 @@ export async function processStreamChunks({
         const { serverName, toolName } = parseMcpToolKey(toolKey);
         const content = escapeAtlarixTags(JSON.stringify(part.input));
         if (!serverName || serverName === toolName) {
-          chunk = `<atlarix-tool-call tool="${toolName}"${callAttr(part)} status="running">\n${content}\n</atlarix-tool-call>\n`;
+          chunk += `<atlarix-tool-call tool="${toolName}"${callAttr(part)} status="running">\n${content}\n</atlarix-tool-call>\n`;
         } else {
-          chunk = `<atlarix-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-call>\n`;
+          chunk += `<atlarix-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-call>\n`;
         }
       } else if (part.type === "tool-result") {
         toolExecutionInFlight = Math.max(0, toolExecutionInFlight - 1);
@@ -574,9 +580,9 @@ export async function processStreamChunks({
           const status = isFailedToolResult(parseToolOutput(part.output))
             ? "error"
             : "complete";
-          chunk = `<atlarix-tool-result tool="${toolName}"${callAttr(part)} status="${status}">\n${content}\n</atlarix-tool-result>\n`;
+          chunk += `<atlarix-tool-result tool="${toolName}"${callAttr(part)} status="${status}">\n${content}\n</atlarix-tool-result>\n`;
         } else {
-          chunk = `<atlarix-mcp-tool-result server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-result>\n`;
+          chunk += `<atlarix-mcp-tool-result server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-result>\n`;
         }
       } else if (part.type === "tool-error") {
         // A call that never produced a result: a tool the model named that is
@@ -594,7 +600,7 @@ export async function processStreamChunks({
           JSON.stringify({ success: false, error: message }),
         );
         if (!serverName || serverName === toolName) {
-          chunk = `<atlarix-tool-result tool="${toolName}"${callAttr(part)} status="error">\n${content}\n</atlarix-tool-result>\n`;
+          chunk += `<atlarix-tool-result tool="${toolName}"${callAttr(part)} status="error">\n${content}\n</atlarix-tool-result>\n`;
         }
       }
 

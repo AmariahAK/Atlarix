@@ -5,7 +5,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { byokLimitUserMessage } from "@/shared/texts";
-import { coreExhaustedUserMessage, freeUsageLimitUserMessage } from "@/shared/billing_copy";
+import {
+  coreExhaustedUserMessage,
+  coreRefusalMessage,
+  freeAutoBusyMessage,
+  freeAutoLimitMessage,
+  parseCreditRefusal,
+} from "@/shared/billing_copy";
 import { errorNotice } from "@/cli/tui/limits";
 
 describe("your own key's limits", () => {
@@ -28,12 +34,37 @@ describe("your own key's limits", () => {
 });
 
 describe("the terminal's notice", () => {
-  it("free usage over says come back tomorrow and when, and nothing more", () => {
-    const n = errorNotice(freeUsageLimitUserMessage(3600, Date.UTC(2026, 9, 3, 10), "UTC"));
-    // Written in this machine's locale ("11:00 AM", "11:00"): pin the time, not the format.
-    expect(n.title).toMatch(/^Today's usage is over\. Come back tomorrow \(it resets at 11:00(\s?AM|\s?am)?\)\.$/);
-    expect(n.actions).toBeUndefined();
+  it("free Auto used up: when it resets, and the ways to keep going", () => {
+    const now = Date.UTC(2026, 9, 3, 10);
+    const n = errorNotice(freeAutoLimitMessage(now + (3 * 60 + 20) * 60_000, now));
+    expect(n.title).toBe("Today's free Atlarix Auto is used up");
+    expect(n.detail).toBe("Resets in 3h 20m.");
+    expect(n.actions).toBe("/billing Pro or credit · /model your own key");
     expect(n.tone).toBe("warn");
+  });
+
+  it("free Auto busy can be sent again, with the same ways out", () => {
+    const n = errorNotice(freeAutoBusyMessage());
+    expect(n.title).toBe("Atlarix Auto's free models are busy right now");
+    expect(n.actions).toContain("send it again");
+    expect(n.actions).toContain("/billing");
+  });
+
+  it("a $0 account that never added credit is told Core runs on credit, with Auto as the way out", () => {
+    const text = coreRefusalMessage(parseCreditRefusal('{"error":"insufficient_credit","required_cents":40,"plan":"free","ever_funded":false}'));
+    const n = errorNotice(`Sorry, there was an error from the AI: ${text}`);
+    expect(n.title).toBe("Atlarix Core runs on credit");
+    expect(n.detail).toBe("Add credit or get Pro to use it, or switch to Atlarix Auto (free). This model needs at least $0.40 of credit.");
+    expect(n.actions).toBe("/billing add credit or get Pro · /model Atlarix Auto (free) or your own key");
+  });
+
+  it("Pro with the allowance spent is never told to get Pro", () => {
+    const text = coreRefusalMessage(parseCreditRefusal({ error: "insufficient_credit", plan: "pro", ever_funded: true, renews_at: "2026-11-05T12:00:00Z" }), "UTC");
+    const n = errorNotice(text);
+    expect(n.title).toBe("Your Pro allowance for this month is used up");
+    expect(n.detail).toMatch(/^It resets on /);
+    expect(n.actions).toBe("/billing add credit · /model your own key");
+    expect(`${n.title} ${n.detail} ${n.actions}`).not.toMatch(/get Pro/i);
   });
 
   it("Core credit used up names what this turn needs", () => {

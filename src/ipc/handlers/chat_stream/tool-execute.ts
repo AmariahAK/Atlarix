@@ -1,5 +1,5 @@
 /**
- * The single tool-execution funnel (permission ruleset + hooks + MCP consent +
+ * The single tool-execution funnel (permission ruleset + plugin/user hooks + MCP consent +
  * mutation verification) and the search-routing activity shim — extracted from
  * chat_stream_handlers.ts. Pure leaves, no module state. (Satellite: never
  * imports the parent handler.)
@@ -23,6 +23,7 @@ import { ToolRegistry } from "@/lib/tools";
 import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
 import { recordMutationOutcome } from "@/lib/agent/mutation-verify";
 import { safeSend } from "@/ipc/utils/safe_sender";
+import { runPostToolUseHooks, runPreToolUseHooks } from "@/lib/plugins/hooks";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -104,6 +105,32 @@ export async function runToolExecute(
         error: `Blocked by permission rule \`${decision.rule}\` (.atlarix/permissions.json — workspace or global ~/.atlarix). Do not retry this exact call; choose a different approach or ask the user to adjust the rule.`,
       });
     }
+  }
+
+  // Hooks: the person's hooks.json and installed plugins, never a workspace's
+  // (lib/plugins/hooks.ts). A pre_tool_use hook can only deny.
+  const hookCtx = {
+    workspacePath: gateWorkspace ?? null,
+    sessionId: streamOpts?.workspaceSessionId,
+  };
+  const hookDenial = await runPreToolUseHooks(hookCtx, toolName, executeArgs);
+  if (hookDenial) {
+    logger.warn(`[hooks] ${toolName} denied by ${hookDenial.deniedBy}`);
+    return JSON.stringify({
+      success: false,
+      error: `Blocked by an edict (${hookDenial.deniedBy}):\n${hookDenial.reason}`,
+    });
+  }
+  // Mods with the `tool` capability can deny too (lib/plugins/mod-host.ts).
+  // Loaded lazily: QuickJS is only started when a verified plugin has a mod.
+  const { modsToolCall } = await import("@/lib/plugins/mod-host");
+  const modDenial = await modsToolCall(hookCtx, toolName, executeArgs);
+  if (modDenial) {
+    logger.warn(`[mods] ${toolName} denied by ${modDenial.plugin}`);
+    return JSON.stringify({
+      success: false,
+      error: `Blocked by the ${modDenial.plugin} mod:\n${modDenial.reason}`,
+    });
   }
 
   // v14.8.11: attachment tools are scoped to the calling chat/session (the
@@ -199,8 +226,15 @@ export async function runToolExecute(
       recordMutationOutcome(streamOpts.turnId, true);
     }
   }
+  // An edit returns its permission payload here; its post_tool_use hooks fire
+  // in the interceptor once the approved write has landed.
+  if (!PAYLOAD_TOOLS.has(toolName)) {
+    runPostToolUseHooks(hookCtx, toolName, executeArgs, result);
+  }
   return result;
 }
+
+const PAYLOAD_TOOLS = new Set(["edit_file", "delete_file", "rename_file"]);
 
 /** Optional callback injected into `search` so the UI shows resolved engine (text / semantic-lite / etc.). */
 export function attachSearchRoutingActivity(

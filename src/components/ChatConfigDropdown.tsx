@@ -14,12 +14,11 @@
  */
 
 import { useSettings } from "@/hooks/useSettings";
-import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   COMPASS_PROVIDER_ID,
-  isCoreAutoTier,
+  isCoreRouterTier,
 } from "@/ipc/shared/compass_constants";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useTranscriptionProviders } from "@/hooks/useTranscriptionProviders";
@@ -81,10 +80,11 @@ export function ChatConfigDropdown({ chatId }: { chatId?: number | null } = {}) 
     ? chosenLevel(effortChoices, chat.effort, chat.deepThinking && !chat.effort)
     : undefined;
   const selectEffort = useSelectEffort();
-  const { t } = useTranslation("chat");
   const { t: tSettings } = useTranslation("settings");
-  const onAuto =
-    chatModel?.provider === COMPASS_PROVIDER_ID && isCoreAutoTier(chatModel.name);
+  // Auto and Zenith pick the model per turn, so they offer no effort control
+  // (owner, 2026-10-29); /effort still exists for the other models.
+  const onRouter =
+    chatModel?.provider === COMPASS_PROVIDER_ID && isCoreRouterTier(chatModel.name);
   // Derived in main from (providers with a key) ∩ (providers with an
   // audio-input model), so the menu can't offer something that would fail at
   // transcription time.
@@ -98,7 +98,6 @@ export function ChatConfigDropdown({ chatId }: { chatId?: number | null } = {}) 
   const { data: voiceProviders } = useTranscriptionProviders();
   const VOICE_PROVIDERS = voiceProviders ?? [];
   const [menuOpen, setMenuOpen] = useState(false);
-  const { balanceCents } = useCreditBalance();
   // `"local"` is a setting for an engine that no longer exists — treat it as unset
   // rather than leaving a checkmark on a row that is not there.
   const stored = settings?.voiceTranscriptionProvider;
@@ -150,48 +149,39 @@ export function ChatConfigDropdown({ chatId }: { chatId?: number | null } = {}) 
             avoiding: two controls that both change the model, one of which
             shows you what it currently is.
           */}
-          {reasoningCapable ? (
+          {reasoningCapable && !onRouter ? (
             <>
               <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Brain className="h-3.5 w-3.5" />
                 Effort
               </DropdownMenuLabel>
-              {onAuto && balanceCents === 0 ? (
-                // Free Auto runs at one level: the cost of being free (owner).
-                <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-                  {t("atlarixAuto.effortFree")}
-                </p>
-              ) : (
-                <>
-                  <DropdownMenuRadioGroup
-                    value={effortNow}
-                    onValueChange={(v) => chatModel && selectEffort(chatModel, effortSettingsPatch(effortChoices!, v))}
+              <DropdownMenuRadioGroup
+                value={effortNow}
+                onValueChange={(v) => chatModel && selectEffort(chatModel, effortSettingsPatch(effortChoices!, v))}
+              >
+                {effortChoices!.levels.map((level) => (
+                  <DropdownMenuRadioItem
+                    key={level}
+                    value={level}
+                    onSelect={(e) => e.preventDefault()}
+                    data-testid={`effort-${level}`}
                   >
-                    {effortChoices!.levels.map((level) => (
-                      <DropdownMenuRadioItem
-                        key={level}
-                        value={level}
-                        onSelect={(e) => e.preventDefault()}
-                        data-testid={`effort-${level}`}
-                      >
-                        {level}
-                        {level === effortChoices!.defaultLevel ? (
-                          <span className="ml-auto text-[10px] text-muted-foreground">default</span>
-                        ) : null}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                  <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-                    {onAuto ? t("atlarixAuto.effortHint") : "As this model lists them; higher thinks longer and costs more."}
-                  </p>
-                </>
-              )}
+                    {level}
+                    {level === effortChoices!.defaultLevel ? (
+                      <span className="ml-auto text-[10px] text-muted-foreground">default</span>
+                    ) : null}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
+                As this model lists them; higher thinks longer and costs more.
+              </p>
             </>
           ) : null}
           {/* Only a separator when there is something above it to separate —
               the Reasoning block is conditional, and a rule at the very top of
               the menu reads as a rendering slip. */}
-          {reasoningCapable && VOICE_PROVIDERS.length > 0 ? (
+          {reasoningCapable && !onRouter && VOICE_PROVIDERS.length > 0 ? (
             <DropdownMenuSeparator />
           ) : null}
           {/* Nothing to choose between with no BYOK speech key — the whole

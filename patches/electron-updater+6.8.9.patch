@@ -1,0 +1,16 @@
+diff --git a/node_modules/electron-updater/out/DebUpdater.js b/node_modules/electron-updater/out/DebUpdater.js
+index cb55d12..d887e7d 100644
+--- a/node_modules/electron-updater/out/DebUpdater.js
++++ b/node_modules/electron-updater/out/DebUpdater.js
+@@ -56,6 +56,11 @@ class DebUpdater extends LinuxUpdater_1.LinuxUpdater {
+                 commandRunner(["dpkg", "-i", installerPath]);
+             }
+             catch (error) {
++                // A cancelled or refused password prompt is the user's answer:
++                // never ask again for apt-get (Atlarix, EC2 run 2026-10-30).
++                if (/^Command pkexec exited with code 12[67]$/.test((error && error.message) || "")) {
++                    throw error;
++                }
+                 // Handle missing dependencies via apt-get
+                 logger.warn((_a = error.message) !== null && _a !== void 0 ? _a : error);
+                 logger.warn("dpkg installation failed, trying to fix broken dependencies with apt-get");

@@ -12,6 +12,7 @@ import {
   classifyPaste,
   freshCounters,
   labelFor,
+  placeholdersInText,
   type Placeholder,
   type Submission,
 } from "../composer/model";
@@ -22,6 +23,8 @@ export interface ComposerApi {
   text(): string;
   clear(): void;
   setText(text: string): void;
+  /** Set the text and restore these chips in it (history recall). */
+  setDraft(text: string, placeholders: Placeholder[]): void;
   /** What would be sent right now (placeholders expanded). */
   submission(): Submission;
   focus(): void;
@@ -96,11 +99,10 @@ export function Composer({
     apiRef.current = {
       text: () => ta.current?.plainText ?? "",
       clear: reset,
-      setText: (t) => {
-        reset();
-        ta.current?.insertText(t);
-        onChange?.(t);
-      },
+      // A label still in the new text must keep its chip: wiping the record
+      // would send the paste as its literal label on submit (0ab).
+      setText: (t) => setDraft(t, placeholdersInText(placeholders.current, t)),
+      setDraft: (t, restore) => setDraft(t, restore),
       submission: () => buildSubmission(ta.current?.plainText ?? "", placeholders.current),
       focus: () => ta.current?.focus(),
       beforeCursor: () => {
@@ -116,6 +118,35 @@ export function Composer({
       },
     };
   });
+
+  /** Set the box's text, re-registering any chip whose label it still carries. */
+  const setDraft = (t: string, restore: Placeholder[]) => {
+    reset();
+    if (!t) return;
+    ta.current?.insertText(t);
+    const kept = placeholdersInText(restore, t);
+    for (const { label, attachment } of kept) {
+      placeholders.current.push({ label, attachment });
+      const start = t.indexOf(label);
+      if (!typeId.current) typeId.current = ta.current!.extmarks.registerType("prompt-part");
+      const style =
+        syntax.getStyleId(
+          attachment.kind === "paste" ? "extmark.paste" : attachment.kind === "image" ? "extmark.image" : "extmark.file",
+        ) ?? undefined;
+      const id = ta.current!.extmarks.create({
+        start,
+        end: start + label.length,
+        virtual: true,
+        styleId: style,
+        typeId: typeId.current,
+      });
+      marks.current.set(label, id);
+      // A restored #2 must not collide with a fresh paste also numbered #2.
+      if (attachment.kind === "paste") counters.current.paste = Math.max(counters.current.paste, attachment.n);
+      if (attachment.kind === "image") counters.current.image = Math.max(counters.current.image, attachment.n);
+    }
+    onChange?.(t);
+  };
 
   const onPaste = (event: PasteEvent) => {
     const input = ta.current;

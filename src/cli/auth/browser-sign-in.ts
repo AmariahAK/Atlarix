@@ -114,8 +114,15 @@ export async function signInWithBrowser(opts: BrowserSignInOptions): Promise<str
   let settled = false;
 
   return new Promise<string>((resolve, reject) => {
+    // Taken once when listening: after close() server.address() is null, and a
+    // request still arriving then (ATLARIX-46) must not read it.
+    let port = 0;
     const server = http.createServer((req, res) => {
-      const port = (server.address() as AddressInfo).port;
+      if (settled) {
+        res.writeHead(503, { "content-type": "text/plain; charset=utf-8", connection: "close" });
+        res.end("This sign-in has already finished.");
+        return;
+      }
       if (req.headers.host !== `127.0.0.1:${port}`) {
         res.writeHead(403).end();
         return;
@@ -183,7 +190,7 @@ export async function signInWithBrowser(opts: BrowserSignInOptions): Promise<str
     (timer as { unref?: () => void }).unref?.();
 
     server.listen(0, "127.0.0.1", () => {
-      const port = (server.address() as AddressInfo).port;
+      port = (server.address() as AddressInfo).port;
       const page = new URL(opts.signInPage ?? SIGN_IN_PAGE);
       page.searchParams.set("client", "cli");
       page.searchParams.set("port", String(port));

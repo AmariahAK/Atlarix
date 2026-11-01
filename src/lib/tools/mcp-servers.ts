@@ -15,6 +15,7 @@
  * Adding, editing and deleting servers stays with `manage_mcp_server` and its
  * approval card.
  */
+import { isPluginMcpTag } from "@/lib/plugins/mcp-sync";
 import { ToolRegistry } from "./registry";
 
 interface SuggestContext {
@@ -200,6 +201,11 @@ ToolRegistry.register({
         };
       }
       if (here.enabled === on) return { server: here.name, on, message: `"${here.name}" is already ${on ? "on" : "off"}.` };
+      // A plugin's server is turned on by the person, never by the agent: it runs
+      // a command from a plugin (plugins/mcp-sync.ts).
+      if (on && here.where !== "account" && isPluginMcpTag(here.registryName)) {
+        return { error: `"${here.name}" comes from a silk. The user turns it on in /mcp or Settings → MCP servers.` };
+      }
       if (on && here.needs) {
         return { error: `"${here.name}" needs ${here.needs === "sign-in" ? "a sign-in" : "its key"} first. Suggest it so the user can connect it.` };
       }

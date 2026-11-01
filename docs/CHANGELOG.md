@@ -3,6 +3,22 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.12.0] (2026-11-02) — Silks and Edicts, a workspace that pays, and a context that compacts before it hurts
+
+**Silks, Edicts, and mods.** Plugins are now **Silks** and hooks are now **Edicts**, everywhere you see them; mods keep their name. A Silk is a folder you install that can add skills, agents, MCP servers and slash commands to Atlarix, and it runs in its own isolated sandbox with a status line, toasts and a `/silks` view on every surface. An Edict runs around a tool — before or after it, or to block it — and a Silk's or Edict's refusal reads as a rule gate, not an error.
+
+**A workspace that pays.** In Slack, one account can pay for a whole workspace's Atlarix work, hand that role to another member, or give it up (back to everyone paying for themselves); if the payer goes, it falls back to everyone pays. The Usage screen, `/usage` and the VS Code Usage view gain a Team section: who's in the workspace, what the pot paid, per-workspace totals, and channel labels.
+
+**One context window, and compaction that works at it.** One working window for every model — default 256,000 tokens, set in Settings → General, `/context`, the VS Code settings, and the ACP "Context" command. The meter is a percentage, and compaction runs at that same window, mid-turn too, with a hard ceiling on very large models. The prompt cache now survives from turn to turn (the per-turn tail no longer sits in front of the history), so repeat turns cost less; a provider that rate-limits now backs off instead of failing; and a session already over its window can always be compacted — `compress_context` compacts instead of answering "nothing worth summarising".
+
+**Sessions review each other's permissions.** One session can now review another's pending permission requests and plans — approve, deny or replace them — on top of following, steering, stopping and forking it.
+
+**Billing and refusals that read right.** Billing and gate refusals are answers, not "AI errors"; a model keeps one name everywhere (Core rows named alone, no vendor suffix); and the picker shows Credit and Free tags, the five wallet-and-limit messages, and a free-Auto hold with a countdown. The Core lineup gains a sixth slot.
+
+**Reliability.** macOS signing now retries and then fails the build (no unsigned release), and every Mach-O must carry the Team ID; Linux .deb/.rpm installs relaunch after an update; the Windows update banner re-checks after a failed download; and a stalled background command shows as "supervising" instead of "running".
+
+Plus the usual: a paste sent with a typed message is never dropped, a genuinely short chat reads "still short" again, an approval receipt anchors under the row that asked, and the CLI's Message and Sessions rows say what they did.
+
 ## [15.11.1] (2026-10-25) — updates that really install, sign-in first, and a chat keeps its own model
 
 **Auto-update everywhere.** Intel Macs now update: the Mac feed lists both chips (the live 15.11.0 feed was fixed the same day, so Intel installs already reach 15.11.0). Linux .deb and .rpm installs update themselves like the AppImage: the new version downloads in the background and installs when you quit, asking for your password once. The .deb/.rpm declare the libraries computer use needs, the Windows CLI's file details carry Atlarix's copyright, and a failed install on quit no longer crashes the app.
@@ -261,102 +277,3 @@ the CLI, a "finished" line for background work stays where it happened instead o
 the reply, a long command no longer pushes the Yes / No choices off the screen (ctrl+o shows more),
 and the tab title says `<!> needs you` when Atlarix is waiting on you. Choosing "none" or "off" now
 really turns thinking off on OpenRouter and Claude models, and Gemini gets the level you pick.
-
-## [15.7.1] (2026-10-15) — your activity, MCP defaults, more free Auto, and fixes
-
-A stopped reply stays saved as stopped, in every mode, so after you reopen the chat the next
-message (yours or a contributor's) is answered and the stopped request isn't re-run. An edited
-file's card shows the real change even when the model sends an empty file field. Without Git
-installed, the chat says Revert is off, instead of never offering it; and the Revert dialog takes
-a fresh look at what it will keep each time it opens. Automations: the form says what's missing
-before Create, and a Run now is labelled as yours, not as a scheduled run.
-
-There's more free Atlarix Auto to go round: it can now answer from more free models. Because that
-shares your prompts with more providers, Atlarix asks you once more before you use free Auto. The
-ask is two short lines now, and VS Code, Zed and JetBrains can give it too (before, a free user
-there was told to accept something that wasn't on screen).
-
-Choose the MCP servers every workspace offers: star a server in the marketplace (or ask the AI) and
-it shows up, ready to connect, in the chat menu of every workspace, new ones included.
-
-In the Chrome extension, Atlarix now asks before every call to a connected service, so a web page
-can never get the agent to act on your accounts without your yes. It only asks for a call that can
-run: a tool the service doesn't have is sent back to the agent first.
-
-**Your activity.** See how you use Atlarix on this computer: lifetime tokens, your busiest day and
-longest chat, streaks, a year-long activity calendar, your favourite models and modes, and the
-skills and MCP servers you use most. On the Account page in the app, in VS Code's Account panel,
-and as `/stats` in the CLI and any ACP editor. It's stored only on this computer.
-
-Also fixed: stopping a reply before it starts no longer saves the previous reply in its place, and
-a stopped reply is marked as stopped (with Continue) right away, not only after you reopen the
-chat, and a stopped reply stays stopped after you quit (the CLI's `-c` marks it too, and it isn't
-re-run); switching workspace from the ⌘K search opens that workspace's own chat, so your next message
-goes where the header says (and a workspace never opened in the app no longer hangs on "Loading
-workspace…"); search results show a chat's words, not its tool markup; chats on free Auto get
-proper titles; Connect on an MCP server that needs a key opens its marketplace entry; removing a server that's
-on all your devices asks first; a whole-file rewrite's card in the CLI and your editor counts the
-lines it replaced; the agent
-finds files in folders like `.atlarix/` when asked for them; and after "Not now" in an editor,
-sending again asks again.
-
-Known issue: if an older Atlarix (15.7.0) runs on the same computer after this one, for example
-the VS Code extension before it updates, it can reset your MCP defaults and ask for free Auto's
-consent once more. From this version on, settings from newer versions are kept.
-
-## [15.7.0] (2026-10-14) — MCP servers from the official MCP Registry, on every surface
-
-**The marketplace is the official MCP Registry, with five Verified servers on top.** Settings → MCP
-→ Marketplace searches every server published to registry.modelcontextprotocol.io. Sentry, Notion,
-Supabase, Canva and Linear are Verified and add in one click with a browser sign-in. Every other card
-shows who published it (`io.github.someone`), whether it runs on the web or on this computer, and its
-icon. The catalog is synced in the background every hour and searched on your computer, so the
-marketplace works when the registry is slow or down; a copy ships with the app for a first run with
-no network. Only the latest version of each server is shown, and deprecated or deleted ones drop out.
-
-**Web servers follow you everywhere.** A server at a public https address is saved to your account,
-so the app, the CLI, your editor and the Chrome extension all have it. A command, or an address on
-this computer or your network, stays on this computer for the folder, shared by the app, the CLI and
-your editors. Up to 10 are on at a time, counting both; one more is added switched off and says so.
-
-**Add your own: paste anything.** Paste a URL, a command, or the `mcpServers` block from Claude
-Desktop, Cursor, VS Code or Zed (or import the file), and each server goes where it belongs: a URL is
-checked for how it signs in (browser sign-in, a key, or nothing), a server that needs a key asks for
-it. The same box is `/mcp` → `a` in the CLI (it also takes a config file's path) and Add in the editor
-extension; `/mcp` → `b` and Browse search the marketplace there too.
-
-**Your editor's own MCP servers work in Atlarix.** An ACP editor (Zed, JetBrains, Atlarix's VS Code
-extension) passes the MCP servers you set up in it; Atlarix now connects them for that chat, stdio and
-http, with the same per-tool approval as your other servers. In an editor without an Atlarix panel,
-`/mcp` lists the Verified servers and `/mcp add` takes a URL, a command or a marketplace name.
-
-**Atlarix finds the server a task needs and asks you to connect it.** When a question or task needs
-a service you haven't connected, Atlarix searches the registry and puts a "Recommended for you" card
-above the box (the app, the editor extension, the Chrome extension) or a Connect / Not now prompt (the
-CLI, other ACP editors). Connect adds it, signs you in or takes its key, and Atlarix is told: it either
-waited for your answer or is woken when you connect, like a finished background task. A server it
-added, or one that is signed out, gets the same card. On the desktop and in editors the agent can also
-turn servers on and off, and sign one out for you to reconnect. MCP tool rows name what they use
-("Using Linear: list issues…", then "Linear · list issues" with its result).
-
-**Every server shows its own logo:** in the marketplace, your server lists, the suggestion cards, the
-chat's MCP rows and the automation form in the app; in the editor extension; on the Chrome extension's
-card; and on atlarix.dev's Connectors. The box's settings menu now lists the Verified five, so you can
-connect one or switch it on and off without leaving the chat.
-
-**Revert keeps the work you did after the turn.** Going back to an earlier message restores the
-files that turn changed, except ones you (or another session) changed since, and it names those
-files before and after it runs. Files come back byte for byte whatever the folder's
-`.gitattributes` say, and a turn you stopped records its end state too, so its revert is as safe.
-
-**Automations can watch your account's MCP servers,** not only ones on this computer, from the app,
-the CLI and the editor extension.
-
-**Smaller fixes.** Messages from another Atlarix session read "from contributor". An MCP server's sign-in now opens from the CLI and from editors (the link went
-nowhere without an app window). Turning a server on now respects the limit of 10, which only adding
-one did. Servers reached by URL can send any headers a config gives them, stored encrypted.
-`manage_mcp_server` puts a public https server on your account. Adding the same server twice says
-it is already added, and re-importing a config skips what is already there. A command whose program
-isn't installed is refused. A reply that quotes JSON in a sentence (e.g. `{"success":true,…}`) no
-longer turns into an 'unknown' tool step with the JSON cut out. In the app, a reply woken by a finished automation
-now starts by saying which automation woke it, as the CLI and editors already did.

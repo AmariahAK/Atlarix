@@ -7,6 +7,14 @@
  * never goes through innerHTML (the markdown renderer builds nodes). The only
  * markup set as HTML is our own SVG.
  */
+import {
+  CORE_EXHAUSTED_MARKER,
+  CORE_NEVER_FUNDED_MARKER,
+  FREE_BUSY_MARKER,
+  FREE_LIMIT_MARKER,
+  PRO_ALLOWANCE_MARKER,
+  ZENITH_OFFER_MARKER,
+} from "../../../src/shared/billing_copy";
 import type { SessionUpdate } from "@agentclientprotocol/sdk";
 import * as S from "./chat/suggestions";
 import type { HostMessage } from "../src/protocol";
@@ -19,6 +27,7 @@ import { onHost, post, rpc } from "./rpc";
 import { applyOptions, emit, loadProviders, on, state } from "./state";
 import { button, el, iconButton, MODE_NAME, relTime, rixGlyph } from "./ui";
 import { renderAccount } from "./views/account";
+import { renderUsage } from "./views/usage";
 import { renderAddProvider } from "./views/addProvider";
 import { historyChanged, leaveHistory, renderHistory, renderUndo } from "./views/history";
 import { clearRating, maybeAskRating } from "./chat/rating";
@@ -101,6 +110,7 @@ function go(v: View): void {
   if (v.name === "history") void renderHistory(page, navApi);
   else if (v.name === "undo") void renderUndo(page, navApi, (id, text) => void C.goBack(id, text, null));
   else if (v.name === "account") void renderAccount(page, navApi);
+  else if (v.name === "usage") void renderUsage(page, navApi);
   else if (v.name === "mcp") void renderMcp(page, navApi);
   else if (v.name === "automations") void renderAutomations(page, navApi, () => setAutomationUnread(0));
   else if (v.name === "settings") renderSettings(page, navApi, v.tab);
@@ -128,10 +138,16 @@ async function showHome(): Promise<void> {
   big.innerHTML = rixGlyph(96);
   home.append(big, el("h1", "home__title", "What are we building?"));
   T.log.append(home);
-  const r = await rpc<{ sessions: Array<{ sessionId: string; title: string | null; updatedAt: string; mode: string | null }> }>("_atlarix/sessions", {
+  const r = await rpc<{
+    sessions: Array<{ sessionId: string; title: string | null; updatedAt: string; mode: string | null; via?: string | null }>;
+  }>("_atlarix/sessions", {
     cwd: state.workspace,
   }).catch(() => ({ sessions: [] }));
-  const recent = r.sessions.filter((s) => s.sessionId !== state.sessionId && s.title && !/^untitled$/i.test(s.title)).slice(0, 3);
+  // The chats last worked in; the list comes as trees, and an automation's runs are not chats you worked in.
+  const recent = r.sessions
+    .filter((s) => s.sessionId !== state.sessionId && s.title && !/^untitled$/i.test(s.title) && s.via !== "automation")
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 3);
   if (!recent.length || !home.isConnected) return;
   const sec = el("section", "home__recent");
   const head = el("div", "row between");
@@ -257,15 +273,33 @@ function onUpdate(u: SessionUpdate): void {
 
 /** Out of free share or credit, or a key that stopped working: the way on is right here. */
 function turnError(text: string): void {
-  const actions = /free share|insufficient.credit|add credit|out of credit|balance|free usage/i.test(text)
-    ? [
-        button("Add credit", "primary small", () => post({ type: "checkout", kind: "credit" })),
-        button("Get Pro", "small", () => post({ type: "checkout", kind: "pro" })),
-        button("Use your own key", "link small", () => go({ name: "settings", tab: "keys" })),
-      ]
-    : /api key|rejected|unauthori[sz]ed|\b401\b/i.test(text)
-      ? [button("Models & keys", "small", () => go({ name: "settings", tab: "keys" }))]
-      : [];
+  const credit = () => button("Add credit", "primary small", () => post({ type: "checkout", kind: "credit" }));
+  const pro = () => button("Get Pro", "small", () => post({ type: "checkout", kind: "pro" }));
+  const ownKey = () => button("Use your own key", "link small", () => go({ name: "settings", tab: "keys" }));
+  const auto = () =>
+    button("Use Atlarix Auto (free)", "small", () => {
+      state.modelValue = "compass/core-auto";
+      post({ type: "set-option", configId: "model", value: state.modelValue });
+    });
+  const actions = text.includes(PRO_ALLOWANCE_MARKER)
+    ? [credit(), ownKey()] // never "Get Pro" to a Pro account
+    : text.includes(CORE_NEVER_FUNDED_MARKER)
+      ? [credit(), pro(), auto()]
+      : [FREE_LIMIT_MARKER, FREE_BUSY_MARKER, CORE_EXHAUSTED_MARKER].some((m) => text.includes(m)) ||
+          /insufficient.credit|out of credit/i.test(text)
+        ? [credit(), pro(), ownKey()]
+        : /api key|rejected|unauthori[sz]ed|\b401\b/i.test(text)
+          ? [button("Models & keys", "small", () => go({ name: "settings", tab: "keys" }))]
+          : [];
+  // Auto's whole ladder failed and Zenith is offered (once per chat).
+  if (text.includes(ZENITH_OFFER_MARKER)) {
+    actions.push(
+      button("Use Atlarix Zenith", "small", () => {
+        state.modelValue = "compass/core-zenith";
+        post({ type: "set-option", configId: "model", value: state.modelValue });
+      }),
+    );
+  }
   T.showError(text, actions);
 }
 
@@ -323,6 +357,15 @@ onHost((m: HostMessage) => {
         // After a replay its last reply stays open: a turn still running in
         // the CLI carries on in it, not in a second reply (QA E14).
         if (!replayed) T.endTurn();
+        // Where it came from: one line above the conversation that opens it.
+        T.log.querySelector(".from-parent")?.remove();
+        if (m.parent) {
+          const parent = m.parent;
+          const crumb = button(`↳ from ${parent.title || "Untitled"}`, "from-parent link small", () =>
+            post({ type: "load-session", sessionId: parent.id }),
+          );
+          T.log.prepend(crumb);
+        }
         void showHome();
         void C.refreshApproveLine();
         C.sessionArrived();

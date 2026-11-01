@@ -131,10 +131,25 @@ describe("turn_completed", () => {
   });
 
   it("the stream's own error replaces the SDK's stand-in", async () => {
+    noteTurnStreamError(nextChat, { kind: "provider_5xx", httpStatus: 502 });
+    trackTurnCompleted(base({ end: { outcome: "error", errorKind: "no_output" }, outputTokens: 0 }));
+    await flush();
+    expect(turns()[0]).toMatchObject({ outcome: "error", error_kind: "provider_5xx", http_status: 502 });
+  });
+
+  it("a 402 the stream showed behind the SDK's stand-in is the insufficient-credit gate", async () => {
     noteTurnStreamError(nextChat, { kind: "quota", httpStatus: 402 });
     trackTurnCompleted(base({ end: { outcome: "error", errorKind: "no_output" }, outputTokens: 0 }));
     await flush();
-    expect(turns()[0]).toMatchObject({ outcome: "error", error_kind: "quota", http_status: 402 });
+    expect(turns()[0]).toMatchObject({ outcome: "gate", gate_kind: "insufficient_credit", error_kind: "quota", http_status: 402 });
+  });
+
+  it("a gate the stream showed is a gate on the event, never an error", async () => {
+    noteTurnStreamError(nextChat, { kind: "quota", httpStatus: 429 });
+    trackTurnCompleted(base({ outputTokens: 0 }));
+    await flush();
+    expect(turns()[0]).toMatchObject({ outcome: "gate", gate_kind: "free_usage_limit", error_kind: "quota", http_status: 429 });
+    expect(turns()[0]!.outcome).not.toBe("error");
   });
 
   it("an error the stream showed, on a turn that then returned nothing, is an error", async () => {

@@ -5,10 +5,10 @@
  *
  * Credit leads: the side-panel agent needs a balance, and $10 of credit is
  * what unblocks someone today. It used to lead with the $19 plan, which read
- * as "subscribe to use".
+ * as "subscribe to use". Prices only, never what a plan includes (owner,
+ * 2026-10-28).
  */
-export const CREDIT_FIRST_LINE =
-  "Add credit from $10 and pay only for what you use, or get Atlarix Pro ($19/month), which includes Core usage across the app, the Chrome extension and Reviewer.";
+export const CREDIT_FIRST_LINE = "Add credit (from $10) or get Pro ($19/month).";
 
 /** Where the two buttons go. Constants — never read from a message. */
 export const PRICING_URL = "https://atlarix.dev/pricing";

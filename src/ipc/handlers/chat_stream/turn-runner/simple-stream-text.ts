@@ -26,6 +26,8 @@ import {
   totalTokensFromAiUsage,
 } from "@/lib/usage/ai-usage";
 import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
+import { takeZenithOffer } from "@/lib/core/zenith-offer";
+import { ZENITH_OFFER_LINE, turnErrorText } from "@/shared/billing_copy";
 import { isInsufficientCreditError } from "@/lib/billing/insufficient-credit";
 import { markCreditExhausted } from "@/lib/agents/credit-halt";
 import { failQueuedDelegationsForChat } from "@/lib/agents/delegation-limiter";
@@ -39,7 +41,11 @@ import {
   isNoUsableModelOutputError,
 } from "@/ipc/utils/no_usable_model_output";
 import { safeSend } from "@/ipc/utils/safe_sender";
-import { bucketNativeTokensByTool } from "@/lib/ai/native-history";
+import {
+  bucketNativeTokensByTool,
+  flattenNativeForCompaction,
+} from "@/lib/ai/native-history";
+import { compactAgenticMessagesIfNeeded } from "@/lib/routing/tier_context_budget";
 import { isReasoningOff, levelShare } from "@/lib/routing/model-reasoning-profile";
 import {
   chosenEffortFor,
@@ -49,6 +55,7 @@ import {
 import { getMaxTokensWithFloor, getTemperature } from "@/ipc/utils/token_utils";
 import {
   isNetworkStreamError,
+  isProviderBusyError,
   isForcedToolChoiceRejection,
   isNativeComputerToolRejection,
 } from "@/ipc/handlers/chat_stream/network-retry";
@@ -91,8 +98,10 @@ import {
   resolveCacheMarkerPlacement,
 } from "@/lib/ai/anthropic-cache-breakpoints";
 import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
+import { estimateToolSetTokens } from "@/lib/context/mid-loop-threshold";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
 import { perfReportOnce } from "@/lib/perf-marks";
+import { forceGcBetweenSteps } from "@/lib/agent/bun-gc";
 import { inputOutputTokensFromUsage } from "@/lib/routing/byok-pricing";
 import {
   buildReasoningProviderOptions,
@@ -106,7 +115,6 @@ import { isCustomAnthropicFormat } from "@/lib/routing/custom-provider-format";
 import { systemReminder } from "@/lib/streaming/system-reminder";
 import { buildStepMessages } from "@/lib/streaming/step-messages";
 import {
-  AI_STREAMING_ERROR_MESSAGE_PREFIX,
   byokLimitUserMessage,
   modelFailureUserMessage,
 } from "@/shared/texts";
@@ -148,6 +156,17 @@ export interface SimpleStreamTextArgs {
   repetition?: AgenticRepetitionState;
   /** Backstop in-round step cap (opencode `agent.steps`); undefined = unbounded. */
   maxStepsPerRound?: number;
+  /**
+   * The turn's compaction point (threshold × working window). A round ENDS once
+   * the provider's own input count passes it, so the turn loop's existing
+   * mid-turn compaction runs and the next round starts from the summary.
+   *
+   * Without this a long agentic turn is ONE round — the SDK runs every tool step
+   * inside it — so the between-rounds check never fired and a session sat at
+   * 238k of a 256k working window, re-sending all of it on every step
+   * (owner, 2026-10-31).
+   */
+  compactionLimit?: number;
 }
 
 export interface SimpleStreamTextDeps {
@@ -170,6 +189,30 @@ export interface SimpleStreamTextDeps {
   abortController: AbortController;
 }
 
+/**
+ * The tokens of a stopped round's FINISHED steps, added to the turn's tallies
+ * (onAbort; onEnd, which adds them otherwise, never runs after a stop).
+ */
+export function addFinishedStepsUsage(
+  ctx: Pick<
+    StreamTurnContext,
+    | "turnInputTokens"
+    | "turnOutputTokens"
+    | "turnCachedInputTokens"
+    | "turnCacheCreationTokens"
+  >,
+  steps: ReadonlyArray<{ usage?: unknown }>,
+): void {
+  for (const s of steps) {
+    const split = inputOutputTokensFromUsage(s.usage);
+    if (!split) continue;
+    ctx.turnInputTokens += split.inputTokens;
+    ctx.turnOutputTokens += split.outputTokens;
+    ctx.turnCachedInputTokens += split.cachedInputTokens ?? 0;
+    ctx.turnCacheCreationTokens += split.cacheCreationInputTokens ?? 0;
+  }
+}
+
 export async function simpleStreamText(
   ctx: StreamTurnContext,
   deps: SimpleStreamTextDeps,
@@ -182,6 +225,7 @@ export async function simpleStreamText(
     repetition,
     abortSignalOverride,
     maxStepsPerRound,
+    compactionLimit,
   }: SimpleStreamTextArgs,
 ) {
   const {
@@ -535,6 +579,17 @@ export async function simpleStreamText(
   // "redoing the whole task" symptom). Populated incrementally in
   // onStepFinish and backstopped by onAbort (authoritative at abort).
   // Passive on the happy path — only read on a genuine stall.
+  /** The provider's input count on the last finished step: real context occupancy. */
+  let lastStepInputTokens = 0;
+  /**
+   * After an attempt that failed (the summariser errored) or freed too little, the
+   * next attempt waits until the count passes this - a tenth of the point above
+   * where it stood. Never a once-per-round limit: with native tools one turn is one
+   * round, and a long turn must compact again each time it grows back past the
+   * point; never a retry on every step either, which would call a broken
+   * summariser once per step.
+   */
+  let retryAbove: number | undefined;
   const completedStepMessages: ModelMessage[] = [];
   const recordStepMessages = (msgs: readonly ModelMessage[] | undefined) => {
     if (msgs && msgs.length) completedStepMessages.push(...msgs);
@@ -568,6 +623,8 @@ export async function simpleStreamText(
    * be refused again nor replaces that reason with "Something went wrong".
    */
   let recordedRefusal: unknown = null;
+  /** A rate limit / overload the provider sent inside the stream: round-retry waits and retries. */
+  let recordedBusy: unknown = null;
   /**
    * The request was too long for the model. Not a refusal: handleTurnError
    * compacts and retries once, and says so only if that fails too. Reported
@@ -588,6 +645,11 @@ export async function simpleStreamText(
     searchResults: 0,
     otherToolOutput: 0,
   };
+  // The tool half of the dispatched prefix, measured from the ACTUAL toolset
+  // sent (what dispatches) so the mid-round compaction count cannot drift from
+  // it. ~6,700–9,300 tokens; omitted before 0j, which is why a round ended at
+  // the point re-decided "under the point" and skipped compaction.
+  const toolSurfaceTokens = estimateToolSetTokens(effectiveTools);
   const streamResult = streamText({
     // ai@7 REJECTS `role: "system"` inside `messages` by default —
     // "Invalid prompt: System messages are not allowed…" — which failed
@@ -621,16 +683,30 @@ export async function simpleStreamText(
         : undefined,
     maxOutputTokens,
     temperature,
+    // Atlarix Core never takes the SDK's own retries: its gates (free limit,
+    // free_busy, core_rate_limited) are answers, not faults, and the SDK
+    // retries any 429/503 regardless of body. Our network retry handles the
+    // transient ones by code.
     maxRetries:
-      tools != null && Object.keys(tools as object).length > 0 ? 0 : 2,
+      (tools != null && Object.keys(tools as object).length > 0) ||
+      modelClient.builtinProviderId === "compass"
+        ? 0
+        : 2,
     model: modelClient.model,
     // The optional step cap (interactive build only) bounds an
     // in-round runaway so it returns to the round boundary instead of
     // spinning unbounded — undefined leaves headless/ask uncapped.
-    stopWhen:
-      typeof maxStepsPerRound === "number" && maxStepsPerRound > 0
+    stopWhen: [
+      ...(typeof maxStepsPerRound === "number" && maxStepsPerRound > 0
         ? [isStepCount(maxStepsPerRound)]
-        : [() => false],
+        : []),
+      // 0j: the round no longer ENDS at the compaction point. Compaction is
+      // decided and applied in `prepareStep` (below) BEFORE each step, from the
+      // ONE complete count (system + tools + messages) — a long native-tool
+      // round compacts in place instead of ending, declining, and re-sending
+      // everything as one step per round. The provider's input count is kept
+      // only for calibration (logged alongside the estimate in onStepEnd).
+    ],
     // v12 0.1 close-out: mid-round correction reinject. Repetition
     // corrections are queued inside the SDK's multi-step inner loop
     // (the tool wrappers call record() during execute), where the
@@ -643,7 +719,55 @@ export async function simpleStreamText(
     // The injected message is step-input only — it never enters
     // response.messages, so native-history folding (B1/B2) is
     // unaffected (transient steering nudge, not persisted history).
-    prepareStep: ({ messages, stepNumber }) => {
+    prepareStep: async ({ messages, stepNumber }) => {
+      // ── 0j: mid-round compaction, decided BEFORE this step. ──
+      // The ONE complete count = the messages (which already carry the system
+      // header + history + accumulated tool steps) + the tool schemas. Past the
+      // compaction point, summarise the older head and send the SMALLER messages
+      // for this and every later step (`prepareStep`'s messages override carries
+      // forward). The provider's `lastStepInputTokens` is logged beside it for
+      // calibration only — the decision no longer reads it.
+      let baseMessages = messages;
+      if (
+        typeof compactionLimit === "number" &&
+        compactionLimit > 0
+      ) {
+        const comp = await compactAgenticMessagesIfNeeded({
+          // Flattened for the summarizer's counting (tool results capped); the
+          // native view reconstructs the protected tail so recent tool results
+          // stay full-fidelity. The system header is already a message here.
+          messages: flattenNativeForCompaction(messages),
+          nativeMessages: messages,
+          systemPromptEstimate: 0,
+          // `tierLimit` is a fallback only — `compactionLimit` decides.
+          tierLimit: compactionLimit,
+          compactionLimit,
+          toolSurfaceTokens,
+          chatId: req.chatId,
+          ...(retryAbove != null ? { attemptAbove: retryAbove } : {}),
+          ...(effectiveModel?.provider && effectiveModel?.name
+            ? { model: { provider: effectiveModel.provider, name: effectiveModel.name } }
+            : {}),
+        });
+        logger.log(
+          `[compaction] step ${stepNumber}: provider input=${lastStepInputTokens}, estimate=${comp.beforeTokens}, point=${compactionLimit}, compacted=${comp.compacted}`,
+        );
+        if (comp.compacted) {
+          baseMessages = comp.messages;
+          logger.log(
+            `[compaction] mid-round compaction: ${comp.beforeTokens} -> ${comp.afterTokens} tokens (point ${compactionLimit})`,
+          );
+          const freed = comp.beforeTokens - comp.afterTokens;
+          retryAbove =
+            comp.afterTokens > compactionLimit || freed < compactionLimit * 0.1
+              ? comp.afterTokens + Math.floor(compactionLimit * 0.1)
+              : undefined;
+        } else if (comp.beforeTokens > compactionLimit) {
+          // Over the point and it still declined (the reason is logged by the
+          // compactor): wait for real growth before calling the summariser again.
+          retryAbove = comp.beforeTokens + Math.floor(compactionLimit * 0.1);
+        }
+      }
       // v13 7A: finished background-command results land on the very
       // next step (same step-input-only contract as corrections).
       // R2: when the wake turn uses the FORCED collect_results tool
@@ -813,7 +937,7 @@ export async function simpleStreamText(
       // tagged block below is appended after `messages` that may itself
       // end with a user turn — so this is not a new provider shape.)
       const assembled = buildStepMessages({
-        messages,
+        messages: baseMessages,
         injected,
         interjections,
         tag: systemReminder,
@@ -846,7 +970,12 @@ export async function simpleStreamText(
       // interjection-only step changes the messages with an empty
       // `injected`, and returning `undefined` there would drop the
       // user's message on the floor.
-      const changedMessages = assembled.changed;
+      // Compaction above replaces `baseMessages` with the smaller history; that is
+      // a change too. `assembled.changed` only sees injections, so without this a
+      // provider with no cache markers (DeepSeek, any OpenAI-compatible endpoint)
+      // got `undefined` back and the SDK sent the ORIGINAL full messages - the
+      // summary was paid for and then thrown away (0j).
+      const changedMessages = assembled.changed || baseMessages !== messages;
       const base =
         cacheMarkerPlacement !== "none" && (stepNumber > 0 || changedMessages)
           ? {
@@ -876,6 +1005,10 @@ export async function simpleStreamText(
     // and the callback TYPES are identical aliases, so this is a rename
     // and nothing else.
     onStepEnd: async (step) => {
+      // 0q: the CLI is one long-lived Bun process; reclaim the SDK's per-step
+      // re-serialization churn so bmalloc reuses it instead of growing to the
+      // turn's peak working set. No-op under Node/Electron.
+      forceGcBetweenSteps();
       // Capture this step's native messages for stall-resume BEFORE any
       // provider-specific early return below.
       recordStepMessages(
@@ -911,6 +1044,11 @@ export async function simpleStreamText(
       }
       try {
         const split = inputOutputTokensFromUsage(step.usage);
+        // The provider's own input count IS the context occupancy; the stopWhen
+        // above reads it to end the round at the compaction point.
+        if (split && typeof split.inputTokens === "number" && split.inputTokens > 0) {
+          lastStepInputTokens = split.inputTokens;
+        }
         const total = totalTokensFromAiUsage(step.usage);
         if (split || total != null) {
           safeSend(event.sender, "chat:token-usage", {
@@ -944,6 +1082,10 @@ export async function simpleStreamText(
     // step. This is the authoritative completed-step set — prefer it
     // over the incremental onStepFinish buffer if it carries more.
     onAbort: ({ steps }) => {
+      // A stopped round never reaches onEnd, so its finished steps' tokens
+      // (spent, and billed) would go uncounted. The step in flight at the
+      // stop has no usage: providers send it only at the end of a reply.
+      addFinishedStepsUsage(ctx, steps);
       const fromAbort = steps.flatMap(
         (s) => (s.response?.messages ?? []) as ModelMessage[],
       );
@@ -1078,6 +1220,11 @@ export async function simpleStreamText(
       // For `turn_completed`: the SDK hands the turn a bare "no output" in its
       // place, so the status and kind are kept here (a word, never the text).
       noteTurnStreamError(req.chatId, classifyTurnError(error));
+      if (isProviderBusyError(error)) {
+        recordedBusy = error;
+        logger.warn("[stream] onError: provider busy / rate-limited (will wait and retry)", error);
+        return;
+      }
       if (isNetworkStreamError(error)) {
         recordedNetworkError = error;
         logger.warn(
@@ -1163,6 +1310,8 @@ export async function simpleStreamText(
         // arrives as 403 and MUST NOT be reported as an expired session.
         const classified = classifyCompassFailure(statusCode, bodyStr);
         message = classified.message;
+        // Auto's whole ladder failed: offer Zenith, once per chat.
+        if (takeZenithOffer(req.chatId)) message = `${message} ${ZENITH_OFFER_LINE}`;
         isCompassInfraError = classified.isCompassInfraError;
         /**
          * The PARENT ran out of credit — so its children must stop too.
@@ -1221,7 +1370,7 @@ export async function simpleStreamText(
       safeSend(event.sender, "chat:response:error", {
         chatId: req.chatId,
         streamId,
-        error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${message}`,
+        error: turnErrorText(message),
       });
       // Clean up the abort controller
       if (activeStreamId.get(req.chatId) === streamId)
@@ -1279,6 +1428,7 @@ export async function simpleStreamText(
     getRecordedNetworkError: (): unknown => recordedNetworkError,
     /** A refusal `onError` already reported; see `recordedRefusal`. */
     getRecordedRefusal: (): unknown => recordedRefusal,
+    getRecordedBusy: (): unknown => recordedBusy,
     /** A too-long request `onError` held back for the turn's compact-and-retry; see `recordedOverflow`. */
     getRecordedOverflow: (): unknown => recordedOverflow,
     /** The provider refused its own computer tool; see `recordedNativeComputerRejection`. */
@@ -1289,8 +1439,17 @@ export async function simpleStreamText(
 /**
  * A 4xx the same request would get again: bad key, no access, bad request.
  * Not 408 (timeout), 409 or 429 (rate limit): those can pass on a retry.
+ *
+ * Except Atlarix Core's GATES, which are answers, not faults, whatever their
+ * status: free Auto's daily limit (429 `free_usage_limit`), its full pools (503
+ * `free_busy`) and a paid model the provider made wait (429
+ * `core_rate_limited`). Not refusals, they went through the empty-output retry:
+ * a second request, then "Something went wrong" instead of their own message
+ * (live QA 2026-10-30). Matched by the proxy's body code, never by status.
  */
 export function isProviderRefusal(error: unknown): boolean {
+  const body = (error as { responseBody?: unknown; error?: { responseBody?: unknown } } | null) ?? null;
+  if (/"error"\s*:\s*"(free_usage_limit|free_busy|core_rate_limited)"/.test(String(body?.responseBody ?? body?.error?.responseBody ?? ""))) return true;
   const e = error as { statusCode?: unknown; status?: unknown; error?: { statusCode?: unknown; status?: unknown } } | null;
   const status = [e?.statusCode, e?.status, e?.error?.statusCode, e?.error?.status].find((x) => typeof x === "number") as
     | number

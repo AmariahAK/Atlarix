@@ -745,18 +745,29 @@ function buildDiffView(
   plainText?: string,
   args?: unknown,
 ): Extract<ToolExpandView, { kind: "diff" }> | null {
-  const path =
-    (typeof payload.path === "string" && payload.path) ||
-    (typeof payload.normalizedPath === "string" && payload.normalizedPath) ||
-    pathFromArgs(args) ||
-    "";
-
   // v13.8.1: the diff content is sourced from the model's own tool-call ARGS
   // (which already hold it — it's in the transcript exactly once), NOT echoed in
   // the result. So a completed/persisted write card renders an accurate diff with
   // ZERO extra tokens. Falls back to the result payload for older sessions.
   const a =
     args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+
+  // 0w: when DISPLAY_PREVIEW_ARG is set, this is a merged preview whose args.path
+  // is the authoritative file path (set by mergeWritePreviewIntoThread). In a
+  // batched approval the fallback may have merged b.txt's content into a.txt's
+  // tool item, so payload.path still says "a.txt" — prefer args.path in that case.
+  // The constant "__display_preview" matches DISPLAY_PREVIEW_ARG in stream-thread.ts;
+  // not imported to avoid a circular dependency (stream-thread imports this file).
+  const isDisplayPreview = Boolean(a["__display_preview"]);
+  const path = isDisplayPreview
+    ? (pathFromArgs(args) ||
+        (typeof payload.path === "string" && payload.path) ||
+        (typeof payload.normalizedPath === "string" && payload.normalizedPath) ||
+        "")
+    : ((typeof payload.path === "string" && payload.path) ||
+        (typeof payload.normalizedPath === "string" && payload.normalizedPath) ||
+        pathFromArgs(args) ||
+        "");
   // Some models fill every schema field: a `replace` arrived with `content: ""`
   // beside its new_content/edits, and the card drew the old text all removed.
   const blankContent =

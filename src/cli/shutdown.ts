@@ -109,14 +109,17 @@ export function installProcessGuards(): void {
   };
   // Crash reports, as the app sends them (separate from the analytics answer,
   // scrubbed; nothing when the editor's own telemetry is off).
-  void Promise.all([import("@sentry/electron/main"), import("@/lib/sentry-before-send"), import("electron")])
-    .then(([Sentry, { sentryBeforeSendDropExpected }, electron]) =>
+  void Promise.all([import("@sentry/electron/main"), import("@/lib/sentry-before-send"), import("@/lib/sentry-gate"), import("electron")])
+    .then(([Sentry, { sentryBeforeSendDropExpected }, { sentryInitAllowed }, electron]) => {
+      // Belt to the build-time braces (0t): even if a binary carried a DSN,
+      // a test/QA harness sets ATLARIX_SENTRY_DISABLED=1 so nothing is sent.
+      if (!sentryInitAllowed() || !process.env.SENTRY_DSN) return;
       Sentry.init({
         dsn: process.env.SENTRY_DSN,
         release: electron.app.getVersion(),
         beforeSend: sentryBeforeSendDropExpected,
-      }),
-    )
+      });
+    })
     .catch(() => {});
   process.on("unhandledRejection", survive("unhandled rejection"));
   process.on("uncaughtException", survive("uncaught exception"));

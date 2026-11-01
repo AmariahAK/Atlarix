@@ -28,6 +28,12 @@ export interface ModelOption extends ModelRef {
   effortChoices?: EffortChoices;
   /** Costs nothing (Atlarix Auto): the picker's "Free" badge. */
   free?: boolean;
+  /**
+   * A paid Atlarix model (a Core slot or Zenith) on an account with no Pro and no
+   * credit: the picker's muted "Credit" tag (owner, 2026-10-27). Never set for
+   * an account that pays.
+   */
+  credit?: boolean;
   /** Whether computer use can be switched on for this model, or why not. */
   computerUse?: ComputerUseEligibility;
   /** "200K": the context window, for the picker's right column. */
@@ -51,14 +57,16 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
     getLanguageModelProviders(),
   ]);
   const names = new Map(providers.map((p) => [p.id, p.name]));
-  const { isCoreAutoTier } = await import("@/ipc/shared/compass_constants");
+  const { isCoreAutoTier, isCoreRouterTier } = await import("@/ipc/shared/compass_constants");
   // A provider switched off in an editor's Models & keys keeps its key but
   // offers no models here (the terminal and the editors).
   const off = await disabledProviders();
   const entries = Object.entries(byProvider).filter(([id, models]) => (models?.length ?? 0) > 0 && !off.has(id));
   // Auto is free only on a free account: Pro and credit pay for it, so it shows
-  // its context size there, not "Free" (owner, 2026-10-18).
-  const paysForAuto = byProvider[COMPASS]?.some((m) => isCoreAutoTier(m.apiName)) ? await accountPaysForAuto() : false;
+  // its context size there, not "Free" (owner, 2026-10-18). Paid rows say
+  // "Credit" to the same free account, and to nobody else.
+  const kind = byProvider[COMPASS]?.length ? await accountKind() : "unknown";
+  const paysForAuto = kind === "pro" || kind === "payg";
   entries.sort(([a], [b]) => (a === COMPASS ? -1 : b === COMPASS ? 1 : 0));
   const out: ModelOption[] = [];
   for (const [provider, models] of entries) {
@@ -74,11 +82,14 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
         name: m.apiName,
         label: m.displayName || m.apiName,
         providerName,
-        detail: [provider === COMPASS ? (paidAuto ? "" : m.description) : providerName, ctx].filter(Boolean).join(" · "),
+        detail: [provider === COMPASS ? m.description : providerName, ctx].filter(Boolean).join(" · "),
         deepThinking: Boolean((m as { supportsDeepThinking?: boolean }).supportsDeepThinking),
-        effortChoices: (m as { effortChoices?: EffortChoices }).effortChoices,
+        // Auto and Zenith pick the model per turn: no effort control (owner, 2026-10-29).
+        effortChoices:
+          provider === COMPASS && isCoreRouterTier(m.apiName) ? undefined : (m as { effortChoices?: EffortChoices }).effortChoices,
         computerUse: m.computerUse,
         free: provider === COMPASS && isCoreAutoTier(m.apiName) && !paidAuto,
+        credit: provider === COMPASS && !isCoreAutoTier(m.apiName) && kind === "free",
         context: window ? `${formatWindow(window)}` : undefined,
       });
     }
@@ -101,14 +112,13 @@ function formatWindow(tokens: number): string {
   return tokens >= 1_000_000 ? `${Math.round(tokens / 100_000) / 10}M` : `${Math.round(tokens / 1000)}K`;
 }
 
-/** Whether the signed-in account pays for Auto (Pro or credit); false when unknown. */
-async function accountPaysForAuto(): Promise<boolean> {
+/** Who pays for Core on the signed-in account; "unknown" when it can't be told. */
+async function accountKind(): Promise<string> {
   try {
     const { realServices } = await import("./services");
-    const kind = await realServices.account.kind?.();
-    return kind === "pro" || kind === "payg";
+    return (await realServices.account.kind?.()) ?? "unknown";
   } catch {
-    return false;
+    return "unknown";
   }
 }
 

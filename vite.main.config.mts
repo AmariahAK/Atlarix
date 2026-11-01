@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import path from "path";
 import { createRequire } from "module";
+import { sentryDsnForBuild } from "./src/lib/sentry-gate";
 
 const require = createRequire(import.meta.url);
 try {
@@ -27,7 +28,6 @@ const MAIN_KEYS = [
   // NEVER add NEXT_PUBLIC_SUPABASE_SECRET_KEY here: despite the NEXT_PUBLIC_ prefix
   // it is the RLS-bypassing SECRET key and must never ship in the client bundle.
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
-  "SENTRY_DSN",
   "POSTHOG_API_KEY",
   // COMPASS_OPENROUTER_API_KEY intentionally REMOVED — the managed key must never
   // ship in the client (SB-02/06). Core routes through atlarix-proxy instead; the
@@ -38,6 +38,8 @@ const MAIN_KEYS = [
   "ATLARIX_CORE_MODEL_2",
   "ATLARIX_CORE_MODEL_3",
   "ATLARIX_CORE_MODEL_4",
+  "ATLARIX_CORE_MODEL_5",
+  "ATLARIX_CORE_MODEL_6",
   "TEMPLATE_TOKEN",
 ] as const;
 
@@ -49,6 +51,14 @@ export const mainRollupExternals: readonly string[] = [
   "@anthropic-ai/tokenizer",
   "tiktoken/lite",
   "tiktoken",
+  // The QuickJS engine mods run in (lib/plugins/mod-host.ts). Its ES-module
+  // entry reads `import.meta.url` when it loads, which this CommonJS bundle does
+  // not have, so a bundled copy threw before the .wasm was ever used (QA 1 A6:
+  // every mod off in the packaged app). External, Node loads the package's
+  // CommonJS build; packageAfterPrune installs it. The .wasm bytes still come
+  // from Resources/emscripten-module.wasm.
+  "quickjs-emscripten-core",
+  "@jitl/quickjs-wasmfile-release-sync",
   "unpdf",
   "@vscode/sudo-prompt",
   // Bundled ripgrep binary (grep/glob) — external so the binary resolves from
@@ -118,12 +128,17 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  define: Object.fromEntries(
-    MAIN_KEYS.map((k) => [
-      `process.env.${k}`,
-      JSON.stringify(process.env[k] ?? ""),
-    ]),
-  ),
+  define: {
+    ...Object.fromEntries(
+      MAIN_KEYS.map((k) => [
+        `process.env.${k}`,
+        JSON.stringify(process.env[k] ?? ""),
+      ]),
+    ),
+    // The prod DSN ships only in an explicit release build (ATLARIX_RELEASE=1);
+    // dev/QA packages embed none, so they can never write to prod Sentry (0t).
+    "process.env.SENTRY_DSN": JSON.stringify(sentryDsnForBuild()),
+  },
   build: {
     // "hidden": maps written beside the bundle for the release to upload to Sentry,
     // with no reference in the shipped code. packageAfterPrune (forge.config.ts)

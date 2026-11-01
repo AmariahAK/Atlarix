@@ -3,6 +3,8 @@ import {
   type UserSettings,
   AppSearchResultsSchema,
 } from "../lib/schemas";
+import type { PluginListItem, PluginPreviewView } from "./handlers/plugin_handlers";
+import type { ModNode, ModUiEvent } from "@/lib/plugins/mod-host";
 import {
   applyLiveTextPatch,
   type LiveTextPatch,
@@ -60,7 +62,7 @@ import { showError } from "@/lib/toast";
 import { classifyContent } from "@/lib/file-content-type";
 import { DeepLinkData } from "./deep_link_data";
 import { getDefaultStore } from "jotai";
-import { autonomousSessionReviewAtom } from "@/atoms/chatAtoms";
+import { autonomousSessionReviewAtom, zenithOfferChatIdsAtom } from "@/atoms/chatAtoms";
 
 export interface ChatStreamCallbacks {
   onUpdate: (messages: Message[]) => void;
@@ -569,6 +571,10 @@ export class IpcClient {
       // callbacks/state (observed: frozen inline chat after an error +
       // model-switch continue crossed in flight).
       if (this.shouldDropStreamEvent(chatId, streamId)) return;
+      // Atlarix Auto's top rung kept failing: the chat shows the Zenith offer.
+      if ((payload as unknown as ChatResponseEnd).zenithOffer === true) {
+        getDefaultStore().set(zenithOfferChatIdsAtom, (prev) => new Set([...prev, chatId]));
+      }
       this.streamMessages.delete(chatId);
       this.streamPhaseHandlers.forEach((h) =>
         h({ chatId, phase: "done", label: "" }),
@@ -1836,6 +1842,8 @@ export class IpcClient {
       effortOverride?: { effort: string; deepThinking: boolean };
       /** "Try with a stronger model" (paid Atlarix Auto). */
       escalate?: boolean;
+      /** The user's Retry (`X-Atlarix-Retry` on the first Core request). */
+      userRetry?: boolean;
     },
   ): void {
     const {
@@ -1855,6 +1863,7 @@ export class IpcClient {
       workModeOverride,
       effortOverride,
       escalate,
+      userRetry,
       displayPrompt,
       pasteAttachments,
     } = options;
@@ -1886,6 +1895,7 @@ export class IpcClient {
               workModeOverride: workModeOverride ?? undefined,
               effortOverride: effortOverride ?? undefined,
               escalate: escalate || undefined,
+              userRetry: userRetry || undefined,
             })
             .then((res) => this.endStreamDispatch(chatId, res))
             .catch((err) => {
@@ -1922,6 +1932,7 @@ export class IpcClient {
           workModeOverride: workModeOverride ?? undefined,
               effortOverride: effortOverride ?? undefined,
           escalate: escalate || undefined,
+          userRetry: userRetry || undefined,
         })
         .then((res) => this.endStreamDispatch(chatId, res))
         .catch((err) => {
@@ -2610,6 +2621,59 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-db-ready");
   }
 
+  // --- Plugins (plugin_handlers.ts) ---
+  public async listPlugins(): Promise<PluginListItem[]> {
+    return this.ipcRenderer.invoke("plugins:list");
+  }
+
+  public async pluginProblems(workspacePath: string | null): Promise<Array<{ name: string; message: string }>> {
+    return this.ipcRenderer.invoke("plugins:problems", { workspacePath });
+  }
+
+  public async preparePluginInstall(source: string): Promise<PluginPreviewView> {
+    return this.ipcRenderer.invoke("plugins:prepare", { source });
+  }
+
+  public async preparePluginUpdate(name: string): Promise<PluginPreviewView> {
+    return this.ipcRenderer.invoke("plugins:prepare-update", { name });
+  }
+
+  public async commitPluginInstall(params: {
+    stagingId: string;
+    runnablesConfirmed: boolean;
+    folders?: string[] | null;
+  }): Promise<{ name: string }> {
+    return this.ipcRenderer.invoke("plugins:commit", params);
+  }
+
+  public async discardPluginInstall(stagingId: string): Promise<void> {
+    return this.ipcRenderer.invoke("plugins:discard", { stagingId });
+  }
+
+  public async removePlugin(name: string): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:remove", { name });
+  }
+
+  public async setPluginEnabled(name: string, enabled: boolean): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:set-enabled", { name, enabled });
+  }
+
+  public async setPluginFolders(name: string, folders: string[] | null): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:set-folders", { name, folders });
+  }
+
+  public async setPluginModel(name: string, model: string | null): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:set-model", { name, model });
+  }
+
+  public async reviewPlugin(name: string): Promise<string[]> {
+    return this.ipcRenderer.invoke("plugins:review", { name });
+  }
+
+  public async approvePlugin(name: string, shown: string[]): Promise<boolean> {
+    return this.ipcRenderer.invoke("plugins:approve", { name, shown });
+  }
+
   // --- MCP Client Methods ---
   public async listMcpServers(filter?: {
     scope?: "workspace";
@@ -3273,6 +3337,7 @@ export class IpcClient {
       | "always_allow"
       | "deny"
       | "always_allow_file"
+      | "always_allow_folder"
       | "always_allow_directory"
       | "always_allow_extension";
     appId?: number | null;
@@ -3299,7 +3364,7 @@ export class IpcClient {
 
   public async upsertFilePermission(params: {
     appId: number;
-    scopeType: "file" | "directory" | "extension";
+    scopeType: "file" | "directory" | "folder" | "extension";
     scopeValue: string;
     decision: "always_allow" | "always_deny";
   }) {
@@ -3308,7 +3373,7 @@ export class IpcClient {
 
   public async revokeFilePermission(params: {
     appId: number;
-    scopeType: "file" | "directory" | "extension";
+    scopeType: "file" | "directory" | "folder" | "extension";
     scopeValue: string;
   }) {
     return this.ipcRenderer.invoke("file-permissions:revoke", params);
@@ -4122,9 +4187,21 @@ export class IpcClient {
     return this.ipcRenderer.invoke("edit-stats:summary");
   }
 
-  /** Your activity on this computer (the stats page). */
-  public async getActivityStats(): Promise<import("@/lib/stats/usage-stats").ActivityStats> {
-    return this.ipcRenderer.invoke("usage:activity");
+  /** Usage on this computer (the Usage page). */
+  public async getUsageReport(
+    filters: import("@/lib/stats/usage-types").UsageFilters = {},
+  ): Promise<import("@/lib/stats/usage-types").UsageReport> {
+    return this.ipcRenderer.invoke("usage:report", filters);
+  }
+
+  /** The account's Atlarix credits (the Usage page's Credits tab). */
+  public async getUsageCredits(): Promise<import("@/lib/stats/usage-types").UsageCredits> {
+    return this.ipcRenderer.invoke("usage:credits");
+  }
+
+  /** Save the share card (a PNG data URL); asks where. */
+  public async saveUsageCard(dataUrl: string): Promise<{ saved: boolean }> {
+    return this.ipcRenderer.invoke("usage:save-card", dataUrl);
   }
 
   /** One line on where a chat stands, for someone coming back to it (lib/recap). */
@@ -4250,6 +4327,28 @@ export class IpcClient {
       listener(payload as { type: "added" | "resolved"; chatId: number; suggestion: McpSuggestionView }),
     );
     return typeof off === "function" ? off : () => {};
+  }
+
+  public onModUi(listener: (e: ModUiEvent) => void): () => void {
+    const off = this.ipcRenderer.on("mods:ui", (payload) => listener(payload as ModUiEvent));
+    return typeof off === "function" ? off : () => {};
+  }
+
+  public async renderModPane(plugin: string, id: string, workspacePath: string | null): Promise<ModNode | null> {
+    return this.ipcRenderer.invoke("mods:render-pane", { plugin, id, workspacePath });
+  }
+
+  public async modAction(
+    plugin: string,
+    action: string,
+    workspacePath: string | null,
+    paneId?: string,
+  ): Promise<void> {
+    return this.ipcRenderer.invoke("mods:action", { plugin, action, workspacePath, paneId });
+  }
+
+  public async openModPanes(): Promise<Array<{ plugin: string; id: string; title: string }>> {
+    return this.ipcRenderer.invoke("mods:open-panes");
   }
 
   public onMcpServersChanged(listener: () => void): () => void {

@@ -47,4 +47,13 @@ describe("JSON in the model's own text", () => {
     expect(parts).toEqual(["Here you go.", "tool", "All set."]);
     expect(sanitizeMarkdownForDisplay('Here you go.\n{ "success": true, "result": "done" }\nAll set.')).not.toContain('"success"');
   });
+
+  it("a read_file result with _truncatedOutput on its own line is a tool step, not prose (QA 2026-10-31)", () => {
+    // The model echoed a read_file result whole: its `result` is a JSON string
+    // whose newlines are literal \n escapes, and it carries the _truncatedOutput
+    // marker. It must be read as an echoed tool result, never rendered as prose.
+    const s = 'Here you go.\n{"success":true,"result":"1: a\\n38: const visible = true","_truncatedOutput":false}\nAll set.';
+    const parts = shape(s);
+    expect(parts).toEqual(["Here you go.", "tool", "All set."]);
+  });
 });

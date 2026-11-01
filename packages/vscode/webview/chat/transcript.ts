@@ -5,6 +5,7 @@
  * output, checkpoints after turns that changed files (Compare, Restore), and
  * question cards.
  */
+import { RESETS_IN_PATTERN, formatResetsIn } from "../../../../src/shared/billing_copy";
 import type { ToolCallContent, ToolCallUpdate } from "@agentclientprotocol/sdk";
 import { linkifyText, renderMarkdown } from "../../../extension/src/panel/markdown";
 import type { ContextItem } from "../../src/protocol";
@@ -691,8 +692,28 @@ export function showQuestion(items: Array<{ question: string; options?: string[]
   scrollDown(true);
 }
 
+/**
+ * Free Auto's "Resets in 3h 20m", ticking down from when the refusal arrived.
+ * The agent holds the limit and answers every resend with a fresh countdown,
+ * so this only has to keep the one on screen honest. Stops once it is gone.
+ */
+function tickResetsIn(node: HTMLElement, text: string): void {
+  const m = RESETS_IN_PATTERN.exec(text);
+  if (!m) return;
+  const resetsAt = Date.now() + (Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60_000;
+  const first = node.firstChild;
+  const t = window.setInterval(() => {
+    if (!node.isConnected || !first) return window.clearInterval(t);
+    const left = resetsAt - Date.now();
+    first.textContent =
+      left > 0 ? text.replace(m[0].trimEnd(), `Resets in ${formatResetsIn(resetsAt)}`) : "Free Atlarix Auto is back. Send again.";
+    if (left <= 0) window.clearInterval(t);
+  }, 30_000);
+}
+
 export function showError(text: string, actions: HTMLElement[] = []): void {
   const err = el("div", "error", text);
+  tickResetsIn(err, text);
   if (actions.length) {
     const a = el("div", "card__options");
     a.append(...actions);

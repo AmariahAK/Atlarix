@@ -2,8 +2,10 @@
  * list_sessions / send_message — talk to the user's other Atlarix sessions on
  * this machine (CLI or app). The machinery and its rules are in lib/peers.
  */
-import { ToolRegistry, createParameters, stringParam } from "./registry";
+import { ToolRegistry, booleanParam, createParameters, stringParam } from "./registry";
 import {
+  endedText,
+  filesChangedText,
   latestReply,
   listPeerSessions,
   localSession,
@@ -17,6 +19,37 @@ import {
 } from "@/lib/peers/peers";
 import { peerSurfaceLabel } from "@/lib/peers/peer-message";
 import { MODE_NAMES, modelNames, parseMode, parsePlanAction, shortModelList } from "@/lib/peers/session-settings";
+
+/** Describe a session's pending state for a reviewer (0aa). */
+async function pendingStateText(sessionId: string): Promise<string> {
+  const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+  const parts: string[] = [];
+  // Pending permission approvals: read from the live session row via the local map.
+  const { localSession: ls } = await import("@/lib/peers/peers");
+  const s = ls(sessionId);
+  if (s?.hasApproval) {
+    const approvals = s.pendingApprovals ?? [];
+    if (approvals.length === 0) {
+      // Fallback: hasApproval is set but no details were stored (older CLI).
+      parts.push("This session has one or more permission requests waiting for an answer.\n(No details available — the session may be running an older version.)");
+    } else {
+      const lines = approvals.map((a, i) => {
+        const risk = a.isDangerous || a.systemScope ? " [HIGH-RISK]" : "";
+        const cwd = a.cwd ? `\n  cwd: ${a.cwd}` : "";
+        return `${i + 1}. operationId: ${a.operationId}${risk}\n  type: ${a.operation ?? "unknown"}\n  request: ${a.summary}${cwd}`;
+      });
+      parts.push(`Permission request${approvals.length > 1 ? "s" : ""} waiting for an answer:\n${lines.join("\n")}`);
+    }
+  }
+  // Plan awaiting approval.
+  const plan = await getLatestPlanArtifact(sessionId, "plan").catch(() => null);
+  if (plan) {
+    parts.push(`Plan awaiting approval: "${plan.title ?? "Plan"}"\n${plan.content}`);
+  }
+  return parts.length
+    ? parts.join("\n\n")
+    : "No pending requests or plans found for this session.";
+}
 
 ToolRegistry.register({
   name: "list_sessions",
@@ -56,7 +89,7 @@ ToolRegistry.register({
     const lines = rows.map((r) =>
       r.surface === "chrome"
         ? `- ${r.name} (id ${r.sessionId}, browser: the Atlarix extension's agent; it starts on a task when the user clicks the Atlarix icon)`
-        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}${settingsOf(r)}${toReview.has(r.sessionId) ? ` · plan to review: ${toReview.get(r.sessionId)}` : ""}) — ${r.workspace || "no workspace"}`,
+        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}${settingsOf(r)}${toReview.has(r.sessionId) ? ` · plan to review: ${toReview.get(r.sessionId)}` : ""}${r.hasApproval ? " · approval waiting" : ""}) — ${r.workspace || "no workspace"}`,
     );
     let planText = "";
     if (typeof plan_of === "string" && plan_of.trim()) {
@@ -118,21 +151,9 @@ async function resultOf(to: string, own: string | undefined): Promise<string> {
     full.length > RESULT_REPLY_CAP
       ? `${full.slice(0, RESULT_REPLY_CAP)}…\n[${RESULT_REPLY_CAP.toLocaleString("en-US")} of ${full.length.toLocaleString("en-US")} characters; ask ${row.name} for the rest with send_message.]`
       : full || "(no text)";
-  let files = "";
-  if (reply.snapshotTurnId && row.workspace) {
-    const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
-    const changed = await listSnapshotFiles(row.workspace, reply.snapshotTurnId).catch(() => null);
-    files = changed?.filesChanged.length ? changed.filesChanged.join(", ") : "";
-  }
+  const files = await filesChangedText(row.workspace, reply.snapshotTurnId);
   const { wrapUntrustedData } = await import("@/lib/streaming/untrusted-data");
   return `${head}\nFiles changed: ${files || "none"}.\nIts reply (its words, not the user's):\n${wrapUntrustedData(`session:${row.name}`, shown)}`;
-}
-
-function endedText(outcome: string, errorKind?: string): string {
-  if (outcome === "error") return `failed${errorKind ? ` (${errorKind.replace(/_/g, " ")})` : ""}`;
-  if (outcome === "stopped" || outcome === "aborted") return "stopped";
-  if (outcome === "ask_user") return "waiting for the user's answer";
-  return "done";
 }
 
 /** " · Build · Atlarix Auto": its mode, and its model when known. */
@@ -161,10 +182,20 @@ ToolRegistry.register({
         "Its plan awaiting approval: approve (it starts building), reject (message says why) or update (plan_text replaces it).",
       ),
       plan_text: stringParam("The whole new plan, for plan: update."),
+      notify_when_done: booleanParam("One notice here when its turn ends."),
+      review: booleanParam(
+        "Attach the target session's current pending state (permission requests, plan) to the message so the recipient can review and answer it. Only use when the user explicitly asks you to have another session review or approve something.",
+      ),
+      approval: stringParam(
+        "Answer a pending permission request in the target session: the operationId from its pending state. Combine with message for a deny reason. Only use when the user explicitly asks you to approve or deny a specific request.",
+      ),
+      approval_mode: stringParam(
+        "How to answer the approval: \"once\" (allow this time, default) or \"deny\". Only set when the user explicitly chose to approve or deny.",
+      ),
     },
     ["to"],
   ),
-  handler: async ({ to, message, mode, model, plan, plan_text, workspaceSessionId }) => {
+  handler: async ({ to, message, mode, model, plan, plan_text, notify_when_done, review, approval, approval_mode, workspaceSessionId }) => {
     const own =
       typeof workspaceSessionId === "string" ? workspaceSessionId : undefined;
     const text = typeof message === "string" ? message.trim() : "";
@@ -172,14 +203,22 @@ ToolRegistry.register({
     const setModel = typeof model === "string" && model.trim() ? model.trim() : undefined;
     const planAction = typeof plan === "string" && plan.trim() ? plan.trim().toLowerCase() : undefined;
     const planBody = typeof plan_text === "string" ? plan_text.trim() : "";
-    if (!text && !setMode && !setModel && !planAction) {
-      return { success: false, error: "Nothing to send: give a message, a mode, a model or a plan answer." };
+    const doReview = review === true;
+    const approvalId = typeof approval === "string" && approval.trim() ? approval.trim() : undefined;
+    const approvalModeVal = typeof approval_mode === "string" && approval_mode.trim().toLowerCase() === "deny" ? "deny" : "once";
+    if (!text && !setMode && !setModel && !planAction && !doReview && !approvalId) {
+      return { success: false, error: "Nothing to send: give a message, a mode, a model, a plan answer, review:true, or an approval." };
     }
     if (planAction && !parsePlanAction(planAction)) {
       return { success: false, error: `No plan action "${plan}": approve, reject or update.` };
     }
     if (planAction === "reject" && !text) return { success: false, error: "A reject needs a message saying why." };
     if (planAction === "update" && !planBody) return { success: false, error: "update needs plan_text: the whole new plan." };
+    // A notice is about a turn: only a message or an approval starts one.
+    const notify = notify_when_done === true;
+    if (notify && !text && planAction !== "approve") {
+      return { success: false, error: "notify_when_done needs a message (or a plan approval) that starts a turn." };
+    }
     if (setMode && !parseMode(setMode)) {
       return { success: false, error: `No mode "${setMode}": build, explore, plan, debug or review.` };
     }
@@ -196,6 +235,17 @@ ToolRegistry.register({
     }
     refreshLocalNames();
     const me = localSession(own);
+
+    // review:true — attach the target's pending state to the outgoing message.
+    let reviewText = "";
+    if (doReview) {
+      reviewText = await pendingStateText(target.row.session_id);
+    }
+    const fullText = [text, reviewText].filter(Boolean).join("\n\n");
+    if (!fullText && !setMode && !setModel && !planAction && !approvalId) {
+      return { success: false, error: "Nothing to send after building the review text." };
+    }
+
     const result = await sendPeerMessage(
       target.row,
       {
@@ -204,22 +254,27 @@ ToolRegistry.register({
         surface: peerSurface(),
         workspace: me?.workspace ?? "",
       },
-      text,
-      setMode || setModel || planAction
+      fullText,
+      setMode || setModel || planAction || approvalId
         ? {
             ...(setMode ? { mode: setMode } : {}),
             ...(setModel ? { model: setModel } : {}),
             ...(planAction ? { plan: planAction, ...(planBody ? { planText: planBody } : {}) } : {}),
+            ...(approvalId ? { approval: { operationId: approvalId, mode: approvalModeVal } } : {}),
           }
         : undefined,
+      // A browser's result already comes back as a message.
+      { notify: notify && target.row.surface !== "chrome" },
     );
     if (!result.ok)
       return {
         success: false,
         error: `Not sent: ${result.error ?? "unknown error"}`,
       };
+    // Said only when the other side took it on (an older Atlarix ignores it).
+    const noticeNote = result.notify ? " Notice when its turn ends." : "";
     // A change alone: say what it now shows, rather than "it starts a turn".
-    if (!text) return { success: true, text: `${target.row.name}: ${result.applied ?? "changed"}` };
+    if (!fullText) return { success: true, text: `${target.row.name}: ${result.applied ?? "changed"}${noticeNote}` };
     const replyNote = peerInboxRunning()
       ? ""
       : " (This session has no inbox, so it cannot be replied to.)";
@@ -231,7 +286,7 @@ ToolRegistry.register({
     }
     return {
       success: true,
-      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : result.waits ? "idle: it reads it with the user's next prompt there" : "idle: it starts a turn with it"}).${result.applied ? ` ${result.applied}` : ""}${replyNote}`,
+      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : result.waits ? "idle: it reads it with the user's next prompt there" : "idle: it starts a turn with it"}).${result.applied ? ` ${result.applied}` : ""}${noticeNote}${replyNote}`,
     };
   },
 });

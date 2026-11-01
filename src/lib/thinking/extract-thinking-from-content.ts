@@ -39,7 +39,7 @@ function preprocessUnclosedTags(content: string): string {
 
   for (const tagName of customTagNames) {
     const openTagPattern = new RegExp(`<${tagName}(?:\\s[^>]*)?>`, "g");
-    const closeTagPattern = new RegExp(`</${tagName}>`, "g");
+    const closeTagPattern = new RegExp(`<\\s*/\\s*${tagName}\\s*>`, "g");
     const openCount = (processed.match(openTagPattern) || []).length;
     const closeCount = (processed.match(closeTagPattern) || []).length;
     const missing = openCount - closeCount;

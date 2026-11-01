@@ -29,6 +29,7 @@ import { removeAtlarixTags, removeNonEssentialTags } from "@/ipc/handlers/chat_s
 import {
   runSteppedCompaction,
   getUsableBudget,
+  getContextWorkingWindow,
   countMessagesTokens,
 } from "../context/compaction";
 import { AttachmentStore, type AttachmentData } from "../attachment-store";
@@ -217,8 +218,13 @@ export async function forceCompactEphemeralChat(
   const chat = getStreamTransport(chatId);
   // Size decides, not count: one long explore turn is two messages and 100k
   // tokens (QA: a resumed session said "still short"). The compactor's own
-  // token floor turns a genuinely small one down.
-  if (!chat || chat.messages.length < 2) return { ok: false, reason: "short" };
+  // token floor turns a genuinely small one down — and says so, so it is
+  // reported as "short" rather than "nothing-freed".
+  // Said apart: no in-memory history at all is NOT "the conversation is short",
+  // and reporting it that way told the owner a 300k session was too small
+  // (2026-10-31).
+  if (!chat) return { ok: false, reason: "no-history" };
+  if (chat.messages.length < 2) return { ok: false, reason: "short" };
 
   const before = chat.messages as Array<(typeof chat.messages)[number] & { modelContent?: string | null }>;
   const msgList = forCompaction(before);
@@ -233,7 +239,13 @@ export async function forceCompactEphemeralChat(
     ...(opts?.summarize ? { summarize: true } : {}),
     ...(opts?.model ? { model: opts.model } : {}),
   });
-  if (!stepped.compactionApplied) return { ok: false, reason: stepped.summaryFailed ? "failed" : "short" };
+  if (!stepped.compactionApplied) {
+    return stepped.summaryFailed
+      ? { ok: false, reason: "failed" }
+      : stepped.declinedAsShort
+        ? { ok: false, reason: "short" }
+        : { ok: false, reason: "nothing-freed", tokens: currentTokens };
+  }
   // A manual /compact between turns lands on the next turn's count.
   noteTurn(chatId, "compactions");
 
@@ -288,7 +300,17 @@ export async function executeCompressContext(
   // The chat's own model (its turn's), not the app's current pick (15.11.1).
   const { turnModelForChat } = await import("@/lib/summarization_model");
   const { readSettings } = await import("@/main/settings");
-  const tierLimit = await getUsableBudget(ctx.providerId, await turnModelForChat(ctx.chatId, readSettings()));
+  const turnModel = await turnModelForChat(ctx.chatId, readSettings());
+  const tierLimit = await getUsableBudget(ctx.providerId, turnModel);
+  // The WORKING WINDOW (the session's compaction target — the number the meter
+  // reports against) drives the compactor's floors, while `tierLimit` stays the
+  // reply-fit backstop. Without this, a 1M-window session refuses to compact
+  // below half its USABLE budget and compress_context no-ops while the meter
+  // reads over 100% (0ac).
+  const workingWindowTokens = await getContextWorkingWindow(
+    ctx.providerId,
+    turnModel,
+  );
   // W6 (v14.8.11): the model asked for space — force past the 60% usage
   // gate, and measure usage in the METER's scope (history + system prompt
   // + input) so the tool never reports "nothing to do" while the meter
@@ -301,6 +323,7 @@ export async function executeCompressContext(
     {
       force: true,
       alreadyUsedTokens: (ctx.systemPromptTokens ?? 0) + (ctx.inputTokens ?? 0),
+      workingWindowTokens,
       // v11.1 durable compaction, now owned by the compactor: it writes the
       // `[COMPACTION MARKER]` row to the bound session itself, so a reload keeps
       // the compact model history (dispatch slices from the last marker).
@@ -322,8 +345,8 @@ export async function executeCompressContext(
       ? (stepped.summaryText ??
         `Context compressed: history ${tokensBefore} → ${tokensAfter} tokens (${stepped.strategy}).`)
       : `Already compact: history is ${tokensBefore} tokens (~${Math.round(
-          (tokensBefore / Math.max(tierLimit, 1)) * 100,
-        )}% of the ${tierLimit}-token usable budget) — nothing worth compacting. No action needed.`,
+          (tokensBefore / Math.max(workingWindowTokens, 1)) * 100,
+        )}% of the ${workingWindowTokens}-token working window) — nothing worth compacting. No action needed.`,
     status: applied ? "completed" : "noop",
     summaryPersisted,
     strategy: stepped.strategy,
@@ -850,7 +873,7 @@ ToolRegistry.register({
       offset: {
         type: "number",
         description:
-          "1-based line number to start reading extracted text from (default 1). Use the next-page offset stated in a prior result to continue.",
+          "1-based line number to start reading extracted text from (default 1).",
       },
       limit: {
         type: "number",
@@ -900,11 +923,17 @@ ToolRegistry.register({
         !attachment ||
         !attachmentInScope(attachment, _scopeChatId, _scopeSessionId)
       ) {
+        // A screenshot PATH typed as the id (e.g. answering an ask_user question
+        // with the file's path): read_attachment only takes attachment ids, so
+        // name view_image, which does take a path (QA 2026-10-31).
+        const isPath = /[\\/]|^~|\.(png|jpe?g|gif|webp|bmp)$/i.test(id);
         return {
           name: id,
           success: false as const,
           error: `Attachment not found in this conversation: ${id}. It may have expired or belong to a different session.`,
-          suggestion: "Use list_attachments to see current IDs.",
+          suggestion: isPath
+            ? "That looks like a file path — use view_image to look at an image at a path (or list_attachments for current IDs)."
+            : "Use list_attachments to see current IDs.",
         };
       }
       try {

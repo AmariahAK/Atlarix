@@ -39,18 +39,20 @@ import {
   mcpConsentDecision,
   mcpConsentToolCall,
 } from "./permissions";
-import { AUTO_CONSENT_MARKER, AUTO_CONSENT_TERMS } from "@/shared/billing_copy";
+import { AUTO_CONSENT_MARKER, AUTO_CONSENT_TERMS, CORE_CREDIT_DESCRIPTION } from "@/shared/billing_copy";
+import { type ErrorMark, refusalDelivery, turnErrorSince } from "./turn-error";
 import { diffUpdates, type Emitted } from "./updates";
 import { handler } from "../agent/ipc";
 import { groupOptions, type ModelOption } from "../agent/models";
 import { chosenLevel, effortAfterModelChange, effortSettingsPatch } from "@/lib/routing/model-reasoning-profile";
+import { treeLabel, type SessionOrigin } from "@/shared/session-lineage";
 
 const MODES: Array<{ id: WorkMode; name: string; description: string }> = [
   { id: "build", name: "Build", description: "Make changes; every edit and command waits for your yes." },
   { id: "ask", name: "Explore", description: "Read and answer; changes nothing." },
   { id: "plan", name: "Plan", description: "Write a plan to review before building." },
   { id: "debug", name: "Debug", description: "Find the cause before fixing it." },
-  { id: "review", name: "Review", description: "Review the changes in this folder." },
+  { id: "review", name: "Review", description: "Review what you name and everything it touches." },
 ];
 
 export interface AcpDeps {
@@ -71,6 +73,9 @@ export interface AcpDeps {
   rememberModel(ref: ModelChoice): void;
   /** /effort's level, as the TUI's /effort (the old deep-thinking switch kept in step). */
   setEffort?(patch: { effort: string; deepThinking: boolean }): void;
+  /** The context working window — one value shared across every surface. */
+  getContextWorkingWindow?(): "256k" | "512k" | "full";
+  setContextWorkingWindow?(v: "256k" | "512k" | "full"): void;
   /** Computer use for a model: the same per-model switch as the app and the TUI's /computer. */
   computerUse?: { isOn(m: ModelChoice): boolean; set(m: ModelChoice, on: boolean): void; notice(): Promise<string | null> };
   /**
@@ -80,8 +85,17 @@ export interface AcpDeps {
    * open on sign-in, not after a prompt fails (owner, 2026-10-24).
    */
   signedIn?(): Promise<boolean>;
-  /** This folder's stored sessions, newest first (the TUI's /resume list). */
-  listSessions(cwd: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date | string }>>;
+  /** This folder's stored sessions, each child under its parent (the TUI's /resume list). */
+  listSessions(cwd: string): Promise<
+    Array<{
+      id: string;
+      title: string | null;
+      updatedAt: Date | string;
+      parentSessionId?: string | null;
+      origin?: SessionOrigin | null;
+      depth?: number;
+    }>
+  >;
   /** Rename or delete a stored session (the editor's Past chats). */
   changeSession?(sessionId: string, change: { rename: string } | { delete: true }): Promise<void>;
   /**
@@ -142,6 +156,8 @@ class Thread {
   private readonly openCards = new Map<string, AbortController>();
   /** Where another process runs this session's turn, as last told to the editor. */
   private followingSent: string | null = null;
+  /** The chat this one was started from, for the panel's crumb (session/load). */
+  parent: { id: string; title: string } | null = null;
   /** `/fork`: a copy of this session, made by the agent (it may not be open here). */
   forkTo: ((title?: string) => Promise<{ id: string; title: string }>) | null = null;
   private turn: { done: () => void; cancelled: boolean } | null = null;
@@ -151,6 +167,8 @@ class Thread {
   private lastPlan: string | null = null;
   /** This folder's skills and the account's, offered as / commands. */
   private skills: Array<{ name: string; description: string; readPath: string }> = [];
+  /** Installed plugins' commands for this folder, listed beside the skills. */
+  private pluginCommands: Array<{ name: string; description: string; argumentHint?: string }> = [];
   private lastMode: WorkMode;
   /** The shared computer-use switch as last shown (it can be flipped in the app). */
   private lastComputerUse = false;
@@ -564,7 +582,7 @@ class Thread {
     this.turn = turn;
     this.emitted.clear();
     this.replayAll = true;
-    const errorBefore = this.session.state.lastError;
+    const before = this.errorMark();
     let kept: string[] = [];
     try {
       ({ kept } = await this.session.resendEdited(messageId, text, preview?.turnIds.length ? preview.turnIds : null));
@@ -580,8 +598,9 @@ class Thread {
     await this.afterTurn();
     await this.flush();
     if (this.stopped(turn, cellsBefore)) return { stopReason: "cancelled" };
-    const err = this.session.state.lastError;
-    if (err && err !== errorBefore) throw RequestError.internalError(undefined, err);
+    const err = this.turnError(before);
+    if (err && refusalDelivery(err, this.extras()) === "reply") return this.refusalAsReply(err);
+    if (err) throw RequestError.internalError(undefined, err);
     // Files the restore left alone (changed since): Atlarix's extension says so.
     return {
       stopReason: "end_turn",
@@ -690,7 +709,7 @@ class Thread {
     const { text, images } = promptInput(blocks, this.cwd);
     // Cells already on screen (the user's own message among them) are not news.
     diffUpdates(this.session.state.cells, this.emitted);
-    const errorBefore = this.session.state.lastError;
+    const before = this.errorMark();
     const slash = /^\/(\w+)\s*$/.exec(text);
     const skill = this.skillFor(text);
     // `/feedback [1|2|3] [text]`: to Atlarix, never to the model.
@@ -740,7 +759,7 @@ class Thread {
     // CLI's /status, /billing and /mcp, answered as a message.
     // `/automations`, `/automations run <name>`, `/automations on|off <name>`.
     const automations = /^\/automations(?:\s+([\s\S]+))?$/i.exec(text.trim());
-    if (automations || (slash && (slash[1] === "status" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout"))) {
+    if (automations || (slash && (slash[1] === "status" || slash[1] === "usage" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "silks" || slash[1] === "augments" || slash[1] === "plugins" || slash[1] === "logout"))) {
       const { accountCommandText } = await import("./account-commands");
       const cmd = automations ? `automations ${automations[1]?.trim() ?? ""}`.trim() : slash![1]!;
       const reply = await accountCommandText(cmd, this.session, this.editorMcpServers).catch((e: Error) => `Couldn't read that: ${e.message}`);
@@ -814,12 +833,29 @@ class Thread {
     await this.afterTurn();
     await this.flush();
     if (this.stopped(turn, cellsBefore)) return { stopReason: "cancelled" };
-    const err = this.session.state.lastError;
-    if (err && err !== errorBefore && err.includes(AUTO_CONSENT_MARKER)) return this.autoConsent();
-    if (err && err !== errorBefore) {
+    const err = this.turnError(before);
+    if (err && err.includes(AUTO_CONSENT_MARKER)) return this.autoConsent();
+    if (err) {
       if (isAuthError(err)) throw RequestError.authRequired(undefined, "Sign in to Atlarix first (`atlarix login`).");
+      if (refusalDelivery(err, this.extras()) === "reply") return this.refusalAsReply(err);
       throw RequestError.internalError(undefined, err);
     }
+    return { stopReason: "end_turn" };
+  }
+
+  /** Where the session's error stood: its text, and the last turn's start. */
+  private errorMark(): ErrorMark {
+    return { error: this.session.state.lastError, startedAt: this.session.state.turnStartedAt ?? null };
+  }
+
+  /** The error this turn ended with (turn-error.ts). */
+  private turnError(before: ErrorMark): string | null {
+    return turnErrorSince(before, this.errorMark());
+  }
+
+  /** A gate refusal as the agent's reply, ending the turn normally. */
+  private async refusalAsReply(text: string): Promise<PromptResponse> {
+    await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
     return { stopReason: "end_turn" };
   }
 
@@ -906,7 +942,7 @@ class Thread {
     const plan = s.planReady?.planId ?? null;
     if (plan !== this.lastPlan) {
       this.lastPlan = plan;
-      void this.send(commandsUpdate(!!plan, this.skills));
+      void this.send(commandsUpdate(!!plan, this.skills, this.pluginCommands));
     }
   }
 
@@ -922,7 +958,20 @@ class Thread {
     } catch {
       this.skills = [];
     }
-    await this.send(commandsUpdate(!!this.session.state.planReady, this.skills));
+    try {
+      const { listPluginCommands } = await import("@/lib/plugins/commands");
+      const builtin = new Set(BUILTIN_COMMANDS);
+      const skillNames = new Set(this.skills.map((s) => s.name));
+      const { modCommands } = await import("@/lib/plugins/mod-host");
+      const markdown = listPluginCommands(this.cwd);
+      const fromMods = (await modCommands({ workspacePath: this.cwd })).filter(
+        (c) => !markdown.some((m) => m.name === c.name),
+      );
+      this.pluginCommands = [...markdown, ...fromMods].filter((c) => !builtin.has(c.name) && !skillNames.has(c.name));
+    } catch {
+      this.pluginCommands = [];
+    }
+    await this.send(commandsUpdate(!!this.session.state.planReady, this.skills, this.pluginCommands));
   }
 
   /** "/deploy fix the staging url" → ask for the deploy skill, with the rest as the task. */
@@ -991,9 +1040,13 @@ class Thread {
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "feedback", "build"];
+const BUILTIN_COMMANDS = ["compact", "fork", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "silks", "augments", "plugins", "automations", "handoff", "logout", "feedback", "build"];
 
-function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
+function commandsUpdate(
+  planReady: boolean,
+  skills: Array<{ name: string; description: string }> = [],
+  pluginCommands: Array<{ name: string; description: string; argumentHint?: string }> = [],
+): SessionUpdate {
   return {
     sessionUpdate: "available_commands_update",
     availableCommands: [
@@ -1003,15 +1056,18 @@ function commandsUpdate(planReady: boolean, skills: Array<{ name: string; descri
       { name: "undo", description: "Go back to one of your messages, edit it and send it again." },
       { name: "keys", description: "Your own API keys, and whether each one works." },
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
-      { name: "stats", description: "Your activity on this computer: tokens, streaks, models, skills and MCP." },
+      { name: "usage", description: "Usage: activity, credits, tokens, MCP and skills, Auto's picks." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
+      { name: "silks", description: "Silks you installed, and whether each is on here." },
       { name: "automations", description: "Scheduled and triggered tasks in this folder; run one, or turn it on or off." },
       { name: "handoff", description: "Continue this chat in the Atlarix app." },
       { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },
       { name: "feedback", description: "Tell us what to improve; 1, 2 or 3 first also rates this chat.", input: { hint: "1|2|3 (optional), then what to improve" } },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),
       ...skills.map((s) => ({ name: s.name, description: `Skill: ${s.description || s.name}`, input: { hint: "what to do (optional)" } })),
+      // Sent to the model as typed; chat:stream expands them (plugins/commands.ts).
+      ...pluginCommands.map((c) => ({ name: c.name, description: c.description, input: { hint: c.argumentHint ?? "(optional)" } })),
     ],
   };
 }
@@ -1065,8 +1121,11 @@ export function modelGroups(
     options: g.options.map((o) => ({
       value: `${o.provider}/${o.name}`,
       name: o.label,
-      // "Free" once: Auto's own description already starts with it (QA: "Free · Free · …").
-      ...(o.detail || o.free ? { description: [o.free && !/^free\b/i.test(o.detail ?? "") ? "Free" : "", o.detail].filter(Boolean).join(" · ") } : {}),
+      // The tag first ("Free" on Auto, "Uses credit" on a paid row for an account
+      // with nothing to pay with), as the editor shows nothing but this text.
+      ...(o.detail || o.free || o.credit
+        ? { description: [o.free ? "Free" : o.credit ? CORE_CREDIT_DESCRIPTION : "", o.detail].filter(Boolean).join(" · ") }
+        : {}),
     })),
   }));
 }
@@ -1178,6 +1237,21 @@ export class AcpAgent {
         options: MODES.map((m) => ({ value: m.id, name: m.name, description: m.description })),
       },
     ];
+    // Context working window: one shared setting, surfaced beside mode/model.
+    if (this.deps.getContextWorkingWindow) {
+      out.push({
+        id: "context",
+        name: "Context",
+        category: "model_config",
+        type: "select",
+        currentValue: this.deps.getContextWorkingWindow(),
+        options: [
+          { value: "256k", name: "256K (default)" },
+          { value: "512k", name: "512K · costs more" },
+          { value: "full", name: "Full window · costs more" },
+        ],
+      });
+    }
     if (!options.length) return out;
     const key = (m: { provider: string; name: string }) => `${m.provider}/${m.name}`;
     const want = t.session.model ?? current;
@@ -1246,13 +1320,14 @@ export class AcpAgent {
     if (!path.isAbsolute(cwd)) throw RequestError.invalidParams(undefined, "cwd must be an absolute path");
     let session: AgentSession | null = null;
     let id = sessionId ?? "";
+    let parent: { id: string; title: string } | null = null;
     try {
       session = await this.deps.createSession(cwd);
       // A new chat gets its id now; the stored session is made at its first prompt.
       if (!sessionId) id = (await session.open()).sessionId;
       else {
         try {
-          await session.resume(sessionId);
+          parent = (await session.resume(sessionId)).parent ?? null;
         } catch (e) {
           // A new chat that never got a message isn't stored: an editor that
           // reopens it after the agent restarted gets it back, still empty.
@@ -1280,6 +1355,7 @@ export class AcpAgent {
     );
     t.setOption = (configId, value) => this.setConfigOption(t.id, configId, value);
     t.forkTo = (title) => this.forkCopy(t.id, title);
+    t.parent = parent;
     this.threads.set(t.id, t);
     void this.syncStoreWatch();
     return t;
@@ -1337,9 +1413,15 @@ export class AcpAgent {
     this.reportSessionOpened(t.id, "new");
     t.editorMcpServers = sessionMcpServersFrom(mcpServers);
     await this.deps.setSessionMcpServers?.(t.id, t.editorMcpServers);
-    // After the response, so the editor knows the session the list belongs to.
+    // The command list goes out AFTER the response, so the editor knows the
+    // session it belongs to. Everything async is finished before the timer is
+    // armed: an `await` after `setTimeout` let the timer fire first, and Zed
+    // and the VS Code panel dropped the list for a session they did not know
+    // yet (QA 2, 2026-10-31: a new Zed thread had no commands at all).
+    const configOptions = await this.configOptions(t);
+    const response: NewSessionResponse = { sessionId: t.id, configOptions, modes: this.modes(t) };
     setTimeout(() => void t.refreshCommands(), 0);
-    return { sessionId: t.id, configOptions: await this.configOptions(t), modes: this.modes(t) };
+    return response;
   }
 
   async loadSession(
@@ -1359,11 +1441,19 @@ export class AcpAgent {
     await t.replay();
     await t.resendPlan();
     t.sendUsage();
+    // Same order as newSession: nothing awaits after the timer is armed.
+    const configOptions = await this.configOptions(t);
+    const response = {
+      configOptions,
+      modes: this.modes(t),
+      // Where it came from, for the panel's crumb.
+      ...(this.atlarixClient && t.parent ? { _meta: { atlarix: { parent: t.parent } } } : {}),
+    };
     setTimeout(() => {
       void t.refreshCommands();
       t.resendWorking();
     }, 0);
-    return { configOptions: await this.configOptions(t), modes: this.modes(t) };
+    return response;
   }
 
   /**
@@ -1400,12 +1490,17 @@ export class AcpAgent {
   async listSessions(cwd: string | undefined): Promise<ListSessionsResponse> {
     if (!cwd) return { sessions: [] };
     const rows = await this.deps.listSessions(cwd);
+    // In tree order, a child indented under its parent: an editor that shows
+    // only titles still shows where each came from.
     return {
       sessions: rows.map((r) => ({
         sessionId: r.id,
         cwd,
-        title: r.title,
+        title: r.depth ? treeLabel(r.title?.trim() || "Untitled", r.depth) : r.title,
         updatedAt: new Date(r.updatedAt).toISOString(),
+        ...(r.parentSessionId
+          ? { _meta: { atlarix: { parentSessionId: r.parentSessionId, via: r.origin?.via ?? null, depth: r.depth ?? 0 } } }
+          : {}),
       })),
     };
   }
@@ -1585,6 +1680,12 @@ export class AcpAgent {
         throw RequestError.invalidParams(undefined, ineligibleReason(shown.computerUse));
       }
       this.deps.computerUse.set(shown, on);
+    } else if (configId === "context" && this.deps.setContextWorkingWindow) {
+      const v = String(value);
+      if (v !== "256k" && v !== "512k" && v !== "full") {
+        throw RequestError.invalidParams(undefined, `unknown context ${v}`);
+      }
+      this.deps.setContextWorkingWindow(v);
     } else throw RequestError.invalidParams(undefined, `unknown option ${configId}`);
     return this.configOptions(t);
   }

@@ -19,8 +19,8 @@ export const ATLARIX_DIR = ".atlarix";
 const CANONICAL_MD = "atlarix.md";
 export const MEMORY_MD = "memory.md";
 const LEGACY_DOT_ATLARIX_MD = "ATLARIX.md";
-const LEGACY_SPEC_FILE = "spec.md";
-const ROOT_LEGACY_ATLARIX_MD = "atlarix.md";
+/** An instruction file, whatever the casing: atlarix.md, ATLARIX.md, Atlarix.md. */
+const INSTRUCTION_FILE_RE = /^atlarix\.md$/i;
 
 export function getAtlarixDirPath(workspacePath: string): string {
   return path.join(workspacePath, ATLARIX_DIR);
@@ -32,18 +32,6 @@ export function getAtlarixMdPath(workspacePath: string): string {
 
 export function getMemoryMdPath(workspacePath: string): string {
   return path.join(workspacePath, ATLARIX_DIR, MEMORY_MD);
-}
-
-function legacyDotAtlarixMdPath(workspacePath: string): string {
-  return path.join(workspacePath, ATLARIX_DIR, LEGACY_DOT_ATLARIX_MD);
-}
-
-function rootLegacyAtlarixMdPath(workspacePath: string): string {
-  return path.join(workspacePath, ROOT_LEGACY_ATLARIX_MD);
-}
-
-async function ensureAtlarixDir(workspacePath: string): Promise<void> {
-  await fs.mkdir(getAtlarixDirPath(workspacePath), { recursive: true });
 }
 
 async function safeRead(filePath: string): Promise<string | null> {
@@ -61,56 +49,6 @@ async function safeRead(filePath: string): Promise<string | null> {
   }
 }
 
-async function safeRenameToOld(filePath: string): Promise<void> {
-  try {
-    await fs.rename(filePath, `${filePath}.old`);
-  } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    if (code !== "ENOENT") {
-      logger.warn(`Failed to archive ${path.basename(filePath)}:`, err);
-    }
-  }
-}
-
-export async function migrateLegacyAtlarixFiles(
-  workspacePath: string,
-): Promise<void> {
-  if (!workspacePath) return;
-  await ensureAtlarixDir(workspacePath);
-
-  const canonicalPath = getAtlarixMdPath(workspacePath);
-  const legacyDotPath = legacyDotAtlarixMdPath(workspacePath);
-  const rootAtlarixPath = rootLegacyAtlarixMdPath(workspacePath);
-  const legacySpecPath = path.join(
-    workspacePath,
-    ATLARIX_DIR,
-    LEGACY_SPEC_FILE,
-  );
-  // NOTE: `.atlarix/memory.md` is a live, first-class knowledge file (v10) —
-  // it is intentionally NOT part of this legacy migration.
-
-  const [canonical, legacyDot, rootAtlarix, specMd] = await Promise.all([
-    safeRead(canonicalPath),
-    safeRead(legacyDotPath),
-    safeRead(rootAtlarixPath),
-    safeRead(legacySpecPath),
-  ]);
-
-  let finalContent =
-    canonical?.trim() || legacyDot?.trim() || rootAtlarix?.trim() || "";
-  if (!finalContent && specMd) {
-    finalContent = `## Legacy spec notes\n\n${specMd.trim()}`;
-  }
-
-  if (finalContent && !canonical) {
-    await fs.writeFile(canonicalPath, finalContent.trim() + "\n", "utf8");
-    if (legacyDot) await safeRenameToOld(legacyDotPath);
-    if (rootAtlarix) await safeRenameToOld(rootAtlarixPath);
-  }
-
-  await safeRenameToOld(legacySpecPath);
-}
-
 /**
  * `capInject` is GONE (v14.23.0).
  *
@@ -124,12 +62,45 @@ export async function migrateLegacyAtlarixFiles(
  * These readers now return the file verbatim. The only caller that puts content in the
  * prompt is the pointer builder, which uses headings and a byte count, not the body.
  */
+/** The path of an atlarix.md (any casing) directly inside `dir`, or null. */
+async function findInstructionFile(dir: string): Promise<string | null> {
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const e of entries) {
+      if (e.isFile() && INSTRUCTION_FILE_RE.test(e.name)) {
+        return path.join(dir, e.name);
+      }
+    }
+  } catch {
+    /* dir does not exist */
+  }
+  return null;
+}
+
+/**
+ * Read the project instructions file(s) IN PLACE — never renamed, never moved,
+ * never copied into `.atlarix/`. A file named `atlarix.md`, `ATLARIX.md` or
+ * `Atlarix.md` is found case-insensitively at the workspace root and inside
+ * `.atlarix/`; when both exist they are read together, root first.
+ *
+ * The old migration folded a root / `.atlarix/ATLARIX.md` into `.atlarix/atlarix.md`
+ * and renamed the user's file to `*.old` — moving it under them, and hiding a
+ * root `ATLARIX.md` entirely on a case-sensitive disk (QA 2026-10-31).
+ */
 export async function readAtlarixMd(
   workspacePath: string,
 ): Promise<string | null> {
   if (!workspacePath) return null;
-  await migrateLegacyAtlarixFiles(workspacePath);
-  return (await safeRead(getAtlarixMdPath(workspacePath))) || null;
+  const rootFile = await findInstructionFile(workspacePath);
+  const dotFile = await findInstructionFile(getAtlarixDirPath(workspacePath));
+  const parts: string[] = [];
+  for (const file of [rootFile, dotFile]) {
+    if (!file) continue;
+    const content = await safeRead(file);
+    if (content) parts.push(content);
+  }
+  const joined = parts.join("\n\n").trim();
+  return joined || null;
 }
 
 /** Legacy single-file memory. Read only to MIGRATE it into the per-note store. */
@@ -187,9 +158,9 @@ export function getRulesDirPath(workspacePath: string): string {
  * the model, and a locale-sensitive sort would order differently on different machines
  * for the same repo.
  *
- * Creates nothing. `readAtlarixMd` below mkdirs `.atlarix/` as a migration side effect;
- * this must not add a second one, or every workspace that merely gets READ ends up with
- * a rules directory it never asked for.
+ * Creates nothing. `readAtlarixMd` no longer mkdirs `.atlarix/` (the legacy
+ * migration that did was removed); this must not add one, or every workspace that
+ * merely gets READ ends up with a rules directory it never asked for.
  */
 export async function readRulesDir(
   workspacePath: string,

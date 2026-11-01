@@ -23,6 +23,8 @@ import { automationAutoApprove } from "./auto-approve";
 import { PROCESS_OWNER } from "./process-owner";
 import type { AutomationRunStatus } from "./types";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
+import { serializeSessionOrigin } from "@/shared/session-lineage";
+import { currentSurface } from "@/lib/stats/usage-stats";
 
 const logger = log.scope("automations");
 
@@ -315,6 +317,9 @@ export async function executeAutomationRun(
     kind: "background",
     status: "running",
     agentMeta: JSON.stringify({ automationId, runId }),
+    // Under the chat whose agent set the automation up (none from the UI).
+    parentSessionId: automation.sessionId ?? null,
+    origin: serializeSessionOrigin({ via: "automation", automationId, surface: currentSurface() }),
     createdAt: now,
     updatedAt: now,
   });

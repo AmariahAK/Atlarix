@@ -6,11 +6,13 @@
 import {
   CORE_TIER_AUTO,
   CORE_TIER_ORDER,
+  CORE_TIER_ZENITH,
   getCoreModelIdForCoreTier,
   isCoreAutoTier,
+  isCoreZenithTier,
   normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
-import { getCoreAuto } from "@/ipc/shared/core-model-override-store";
+import { getCoreAuto, getCoreZenith } from "@/ipc/shared/core-model-override-store";
 
 /**
  * The slug shown when a Core model names no vendor. ATLARIX, not "openrouter":
@@ -46,6 +48,16 @@ function presentationForInternalTier(
   internalTierId: string,
 ): AtlarixCoreTierPresentation {
   const coreModelId = getCoreModelIdForCoreTier(internalTierId)?.trim() ?? "";
+  if (isCoreZenithTier(internalTierId) && coreModelId) {
+    const label = getCoreZenith()?.label ?? "Atlarix Zenith";
+    return {
+      internalTierId: CORE_TIER_ZENITH,
+      coreModelId,
+      modelDisplayName: label,
+      providerSlug: CORE_FALLBACK_SLUG,
+      labelWithProvider: label,
+    };
+  }
   if (isCoreAutoTier(internalTierId) && coreModelId) {
     const label = getCoreAuto()?.label ?? "Atlarix Auto";
     return {
@@ -67,7 +79,9 @@ function presentationForInternalTier(
     coreModelId,
     modelDisplayName,
     providerSlug,
-    labelWithProvider: formatModelWithProvider(modelDisplayName, providerSlug),
+    // A Core model is named alone, as the picker names it (QA C1); the slug is
+    // still kept for callers that group by vendor.
+    labelWithProvider: coreModelId ? modelDisplayName : formatModelWithProvider(modelDisplayName, providerSlug),
   };
 }
 
@@ -80,7 +94,7 @@ function presentationForInternalTier(
  */
 export function buildAtlarixCoreTierCatalog(): AtlarixCoreTierPresentation[] {
   // Auto first, as in the picker; filtered out below when not offered.
-  return [CORE_TIER_AUTO, ...CORE_TIER_ORDER].map((internalTierId) =>
+  return [CORE_TIER_AUTO, ...CORE_TIER_ORDER, CORE_TIER_ZENITH].map((internalTierId) =>
     presentationForInternalTier(internalTierId),
   ).filter((entry) => entry.coreModelId !== "");
 }
@@ -123,7 +137,9 @@ export function resolveAtlarixCoreIdentity(
   );
   const modelDisplayName = isCoreAutoTier(internalTierId)
     ? "Atlarix Auto"
-    : formatModelApiNameForDisplay(fallbackName);
+    : isCoreZenithTier(internalTierId)
+      ? "Atlarix Zenith"
+      : formatModelApiNameForDisplay(fallbackName);
   const slug = CORE_FALLBACK_SLUG;
   return {
     modelDisplayName,
@@ -151,6 +167,7 @@ export function displayLabelForCompassTier(
     return fromList;
   }
   if (isCoreAutoTier(internalTierId)) return "Atlarix Auto";
+  if (isCoreZenithTier(internalTierId)) return "Atlarix Zenith";
   return formatModelWithProvider(
     formatModelApiNameForDisplay(
       normalizeCoreTierId(internalTierId).replace(/^core-/, "Core "),

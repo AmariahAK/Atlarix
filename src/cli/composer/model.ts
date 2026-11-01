@@ -142,6 +142,16 @@ export function classifyPaste(
   return null;
 }
 
+/**
+ * The placeholders whose labels still appear in `text`: what re-setting the
+ * box's text (history recall, an unsent restore) must keep records for, so a
+ * label never sits in the box without its chip (0ab: a paste was sent as its
+ * literal "[Pasted text #1 +3 lines]" after a setText wiped the records).
+ */
+export function placeholdersInText(placeholders: Placeholder[], text: string): Placeholder[] {
+  return placeholders.filter((p) => text.includes(p.label));
+}
+
 export interface Submission {
   /** What the model receives: pastes expanded, file and folder labels carrying absolute paths. */
   prompt: string;
@@ -149,6 +159,8 @@ export interface Submission {
   display: string;
   /** Images to send as image parts, in label order. */
   images: Array<{ label: string; path: string; mime: string }>;
+  /** The chips the display still carries, so a recalled draft can restore them. */
+  placeholders: Placeholder[];
 }
 
 /**
@@ -175,5 +187,10 @@ export function buildSubmission(text: string, placeholders: Placeholder[]): Subm
         break;
     }
   }
-  return { prompt: prompt.trim(), display: text.trim(), images };
+  return {
+    prompt: prompt.trim(),
+    display: text.trim(),
+    images,
+    placeholders: placeholdersInText(placeholders, text),
+  };
 }

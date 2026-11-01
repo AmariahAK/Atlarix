@@ -7,6 +7,7 @@
  * and an update when its status or output changes. Pure (no I/O), so the edge
  * cases are unit-tested without an editor.
  */
+import { ZENITH_OFFER_MARKER } from "@/shared/billing_copy";
 import type { SessionUpdate, ToolCallContent, ToolKind, ToolCallStatus } from "@agentclientprotocol/sdk";
 import type { Cell, EditDiff, ToolLine } from "../agent/transcript";
 import { glyph } from "../tui/glyphs";
@@ -193,6 +194,16 @@ function movedText(c: Cell & { kind: "markdown" | "thought" }, emitted: Emitted,
   return best.text;
 }
 
+/** A markdown cell before `i` in the same turn (back to the user's message). */
+function earlierMarkdownInTurn(cells: readonly Cell[], i: number): boolean {
+  for (let j = i - 1; j >= 0; j--) {
+    const k = cells[j]!.kind;
+    if (k === "user") return false;
+    if (k === "markdown") return true;
+  }
+  return false;
+}
+
 export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { replay?: boolean; ids?: boolean } = {}): SessionUpdate[] {
   const out: SessionUpdate[] = [];
   const present = new Set(cells.map(key));
@@ -210,10 +221,12 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       if (!c.text.startsWith(prev)) continue;
       const delta = c.text.slice(prev.length);
       if (!delta) continue;
-      // A message straight after another (the Sources list after the reply) is
-      // the same stream to the editor: without a break it read
-      // "Here is the answer.**Sources**" (QA E3).
-      const apart = !prev && c.kind === "markdown" && cells[i - 1]?.kind === "markdown";
+      // A message after an earlier one in the same turn is the same stream to
+      // the editor: without a break it read "Here is the answer.**Sources**"
+      // (QA E3, adjacent cells) and "All finished.Now it is done." (QA 2 P2:
+      // text, a tool call, more text — each cell is trimmed, so the break has
+      // to be added here).
+      const apart = !prev && c.kind === "markdown" && earlierMarkdownInTurn(cells, i);
       out.push({
         sessionUpdate: c.kind === "markdown" ? "agent_message_chunk" : "agent_thought_chunk",
         content: { type: "text", text: apart ? `\n\n${delta}` : delta },
@@ -291,6 +304,12 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       // A turn's error kept in the CLI transcript once the next turn starts
       // (session.ts turnNotices): the editor showed it when that turn failed.
       // Sent again it landed in the NEXT turn, beside its "Interrupted" (QA).
+      // Except the Zenith offer, which is made once, at the end of its own turn.
+      if (c.id.includes(":turn-notice") && c.text.includes(ZENITH_OFFER_MARKER)) {
+        const text = c.text.replace(/^◇\s*/, "").replace("/model Atlarix Zenith", "Pick it in the model list");
+        out.push({ sessionUpdate: "tool_call", toolCallId: c.id, title: text, kind: "other", status: "completed" });
+        continue;
+      }
       if (c.id.includes(":turn-notice")) continue;
       if (c.level === "error") {
         out.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n${c.text}` } });

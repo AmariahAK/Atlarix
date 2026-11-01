@@ -109,6 +109,23 @@ describe("peer messaging", () => {
     busy.delete(-7);
   });
 
+  it("an informational message (a 'turn ended' notice) is queued but does NOT wake an idle session", async () => {
+    woken.length = 0;
+    const before = queued.length;
+    const r = await sendPeerMessage(
+      target("Editor"),
+      from,
+      "video brief's turn ended: done. Files changed: none.",
+      undefined,
+      { informational: true },
+    );
+    expect(r.ok).toBe(true);
+    // Delivered (queued for its next real turn)…
+    expect(queued.length).toBe(before + 1);
+    // …but no wake → no model call just to acknowledge.
+    expect(woken).toEqual([]);
+  });
+
   it("refuses a sender without the registry's token", async () => {
     const row = { ...target("Editor"), token: "wrong" };
     const r = await sendPeerMessage(row, from, "hi");

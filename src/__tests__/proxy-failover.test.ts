@@ -89,6 +89,20 @@ describe("when it falls back", () => {
     expect(calls).toEqual([URL_]);
   });
 
+  it("a 503 free_busy is the proxy answering: no fallback, and the primary is not marked down (live QA 2026-10-30)", async () => {
+    const f = async (input: string | URL): Promise<Response> => {
+      calls.push(String(input));
+      return String(input).startsWith(FALLBACK)
+        ? new Response("{}", { status: 200 })
+        : new Response(JSON.stringify({ error: "free_busy", message: "All free models are busy." }), { status: 503 });
+    };
+    const r = await proxyFetch(PRIMARY, URL_, { body: "{}" }, f as never, now);
+    expect(r.status).toBe(503);
+    expect(await r.text()).toContain("free_busy");
+    expect(calls).toEqual([URL_]);
+    expect(onFallback(t)).toBe(false);
+  });
+
   it("a 200 is never second-guessed: a stream that started stays where it is", async () => {
     const r = await proxyFetch(PRIMARY, URL_, { body: "{}" }, fake({ primary: 200, fallback: 200 }) as never, now);
     expect(r.status).toBe(200);

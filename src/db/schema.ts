@@ -77,8 +77,15 @@ export const workspaceFilePermissions = sqliteTable(
     appId: integer("app_id")
       .notNull()
       .references(() => apps.id, { onDelete: "cascade" }),
+    /**
+     * Git common dir (realpath) of the repo the scope belongs to. Set on rules
+     * shared across a repo's worktrees (0g); NULL on legacy per-workspace rules
+     * and on `sandbox_path` rows. A rule with a repo_key matches every worktree
+     * of that repo, not just the workspace that saved it.
+     */
+    repoKey: text("repo_key"),
     scopeType: text("scope_type", {
-      enum: ["file", "directory", "extension", "sandbox_path"],
+      enum: ["file", "directory", "folder", "extension", "sandbox_path"],
     }).notNull(),
     scopeValue: text("scope_value").notNull(),
     decision: text("decision", {
@@ -95,6 +102,7 @@ export const workspaceFilePermissions = sqliteTable(
       table.scopeValue,
     ),
     index("workspace_file_permissions_app_id_idx").on(table.appId),
+    index("workspace_file_permissions_repo_key_idx").on(table.repoKey),
   ],
 );
 
@@ -169,13 +177,25 @@ export const chatSessions = sqliteTable("chat_sessions", {
    * memory.
    */
   model: text("model"),
+  /**
+   * The chat this one was started from (a /fork's source, the session whose
+   * peer message started it, the chat that set up the automation behind a run).
+   * No foreign key: deleting a parent never deletes its forks, and a child whose
+   * parent is gone lists as a root. NULL for a chat the user started.
+   */
+  parentSessionId: text("parent_session_id"),
+  /**
+   * How it was started and where: JSON `SessionOrigin`
+   * (src/shared/session-lineage.ts). NULL for rows from before 0083.
+   */
+  origin: text("origin"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
-});
+}, (table) => [index("chat_sessions_parent_idx").on(table.parentSessionId)]);
 
 /**
  * What sort of row this is. THE source of truth — import this rather than
@@ -997,6 +1017,8 @@ export const automations = sqliteTable("automations", {
     .default(false),
   /** JSON {provider,name} model override; null → settings.selectedModel. */
   model: text("model"),
+  /** The chat whose agent created it; its runs list under that chat. NULL when made in the UI. */
+  sessionId: text("session_id"),
   /** JSON poller state (github cursors / mcp result hash); null until first poll. */
   cursor: text("cursor"),
   lastRunAt: integer("last_run_at", { mode: "timestamp" }),
@@ -1177,6 +1199,76 @@ export const usageToolStats = sqliteTable(
     runs: integer("runs").notNull().default(0),
   },
   (table) => [unique("usage_tool_stats_bucket_unique").on(table.day, table.kind, table.name)],
+);
+
+/**
+ * Usage: what `usage_stats` records, plus the editor, the source, the cache
+ * split and a BYOK cost estimate (migration 0082). New writes land here only;
+ * `usage_stats` keeps what older builds write, and the reader adds the two.
+ *
+ * `source` is chat | automation (a turn) or subagent | compaction | other (the
+ * auxiliary calls a turn made; `turns` stays 0 on those rows). `turns` counts
+ * finished turns; a stopped or failed turn still adds the tokens it spent.
+ * `est_cost_micros` is BYOK only, in millionths of a USD at list price, summed
+ * over the `priced_turns`; `unpriced_turns` had no reliable price.
+ */
+export const usageRollup = sqliteTable(
+  "usage_rollup",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    day: text("day").notNull(),
+    surface: text("surface").notNull(),
+    editor: text("editor").notNull().default(""),
+    source: text("source").notNull(),
+    provider: text("provider").notNull(),
+    modelId: text("model_id").notNull(),
+    mode: text("mode").notNull(),
+    turns: integer("turns").notNull().default(0),
+    deepTurns: integer("deep_turns").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    estCostMicros: integer("est_cost_micros").notNull().default(0),
+    pricedTurns: integer("priced_turns").notNull().default(0),
+    unpricedTurns: integer("unpriced_turns").notNull().default(0),
+  },
+  (table) => [
+    unique("usage_rollup_bucket_unique").on(
+      table.day,
+      table.surface,
+      table.editor,
+      table.source,
+      table.provider,
+      table.modelId,
+      table.mode,
+    ),
+  ],
+);
+
+/** Atlarix Auto replies per day by the model that answered (`X-Atlarix-Served-Model`). */
+export const usageAutoPicks = sqliteTable(
+  "usage_auto_picks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    day: text("day").notNull(),
+    surface: text("surface").notNull(),
+    /** free | paid, as the reply said. */
+    billing: text("billing").notNull(),
+    /** auto | zenith (`X-Atlarix-Tier`); '' from a proxy that does not say. */
+    tier: text("tier").notNull().default(""),
+    servedModel: text("served_model").notNull(),
+    steps: integer("steps").notNull().default(0),
+  },
+  (table) => [
+    unique("usage_auto_picks_bucket_unique").on(
+      table.day,
+      table.surface,
+      table.billing,
+      table.tier,
+      table.servedModel,
+    ),
+  ],
 );
 
 export const editStatsRelations = relations(editStats, ({ one }) => ({

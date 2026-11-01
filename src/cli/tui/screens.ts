@@ -8,6 +8,8 @@ import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import fs from "node:fs";
 import { AUTO_CONSENT_TERMS, CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
 import { activityFootnote, activitySections, activityTiles, calendarRows } from "@/lib/stats/activity-format";
+import { USAGE_RANGES, USAGE_TABS, autoText, creditsText, tokensText, toolsText, type UsageTab } from "@/lib/stats/usage-format";
+import { shareCardSvg } from "@/lib/stats/share-card";
 import os from "node:os";
 import path from "node:path";
 import type { AgentSession, PendingQuestion } from "../agent/session";
@@ -27,6 +29,7 @@ import {
   type PortableSession,
 } from "../sessions/portable";
 import { SOURCE_NAMES, listForeignSessions, type ImportSource } from "../sessions/importers";
+import { lineageNote, treeLabel } from "@/shared/session-lineage";
 
 /** What the session offers the screens (AgentSession, or the tests' fake). */
 export type ScreenSession = Pick<
@@ -108,6 +111,7 @@ const ago = (t: number | Date | string, now: Date): string => {
 
 export function openResume(ctx: ScreenContext): void {
   const now = ctx.now?.() ?? new Date();
+  const titles = new Map<string, string>();
   ctx.host.push(
     new ListDialog({
       title: "Resume a session",
@@ -115,15 +119,24 @@ export function openResume(ctx: ScreenContext): void {
       empty: "No earlier sessions in this folder yet.",
       footer: "type to search · ↑↓ move · enter open · esc close",
       items: async () =>
-        (await ctx.session.listSessions()).map((s) => ({
-          id: s.id,
-          label: s.title?.trim() || "Untitled session",
-          detail: [ago(s.updatedAt, now), s.workMode && s.workMode !== "build" ? s.workMode : null].filter(Boolean).join(" · "),
-        })),
+        (await ctx.session.listSessions()).map((s) => {
+          titles.set(s.id, s.title?.trim() || "Untitled session");
+          return {
+            id: s.id,
+            label: treeLabel(titles.get(s.id)!, s.depth),
+            detail: [
+              ago(s.updatedAt, now),
+              s.workMode && s.workMode !== "build" ? s.workMode : null,
+              lineageNote({ origin: s.origin ?? null, depth: s.depth, runs: s.runs, parentTitle: s.parentTitle }),
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          };
+        }),
       onChoose: async (item) => {
-        await ctx.session.resume(item.id);
+        const { parent } = await ctx.session.resume(item.id);
         ctx.host.closeAll();
-        ctx.flash(`Resumed “${item.label}”.`);
+        ctx.flash(`Resumed “${titles.get(item.id) ?? item.label}”${parent ? `, from “${parent.title}”` : ""}.`);
       },
     }),
   );
@@ -1946,15 +1959,9 @@ export function openAnalytics(ctx: ScreenContext, firstRun = false): void {
       new ListDialog({
         title: "Help improve Atlarix",
         intro: [
-          { text: "Share usage data — which features get used, and whether things work — to help us understand what matters most." },
-          {
-            text: "Never your code, prompts, file names, or file contents. Anonymous when signed out. When signed in, it's linked to your account and includes your email and name, so your usage counts once across your devices. Includes your approximate location (country and city), worked out from your connection; the address itself isn't kept.",
-          },
-          {
-            text: "Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.",
-            tone: "muted",
-          },
-          { text: "Signed-in accounts also record which Atlarix you use (app, CLI, editor), the provider type and model, and how many turns — never prompts, code or keys — and this is not covered by this choice either.", tone: "muted" },
+          { text: "Share usage data — which features get used and whether they work." },
+          { text: "Never your code, prompts or files. Anonymous when signed out. Signed in, it's tied to your account (email and name) and includes your rough location from your connection, never the address itself. Change it anytime in /analytics." },
+          { text: "Not covered by this choice: crash reports (stack traces and device info), and for signed-in accounts a daily count of turns by surface, provider type, model and token size. Never prompts, code or keys.", tone: "muted" },
           { text: "The same setting as the Atlarix app: one answer covers both.", tone: "muted" },
         ],
         footer: firstRun ? "↑↓ move · enter choose · /analytics changes it later" : "↑↓ move · enter choose · esc close",
@@ -2112,11 +2119,11 @@ export function openStatus(ctx: ScreenContext): void {
   ctx.host.push(new TextDialog({ title: "Status", lines: () => statusLines(ctx) }));
 }
 
-// ─── /stats ──────────────────────────────────────────────────────────────────
+// ─── /usage ──────────────────────────────────────────────────────────────────
 
-/** Your activity on this computer, as the terminal draws it (lib/stats/activity-format). */
+/** The overview tab: your activity on this computer (lib/stats/activity-format). */
 export function statsLines(s: import("@/lib/stats/usage-stats").ActivityStats): Line[] {
-  if (!s.since) return [{ text: "Nothing yet. Your first chat starts the count.", tone: "muted" }];
+  if (!s.since) return [{ text: "No activity yet.", tone: "muted" }];
   const tiles = activityTiles(s);
   const width = 16;
   const lines: Line[] = [
@@ -2134,8 +2141,92 @@ export function statsLines(s: import("@/lib/stats/usage-stats").ActivityStats): 
   return lines;
 }
 
-export function openStats(ctx: ScreenContext): void {
-  ctx.host.push(new TextDialog({ title: "Your activity", wide: true, lines: async () => statsLines(await ctx.services.stats()) }));
+type UsageState = {
+  tab: UsageTab;
+  filters: import("@/lib/stats/usage-report").UsageFilters;
+  report: import("@/lib/stats/usage-report").UsageReport | null;
+  credits: import("@/lib/billing/usage-credits").UsageCredits | null;
+};
+
+/** The next value of a filter: all, then each option in turn. */
+function cycleFilter(current: string | undefined, options: ReadonlyArray<{ key: string }>): string | undefined {
+  const keys = options.map((o) => o.key);
+  const at = current ? keys.indexOf(current) : -1;
+  return at + 1 < keys.length ? keys[at + 1] : undefined;
+}
+
+/** One tab of /usage as lines: the tab bar, then the tab. */
+export function usageLines(st: UsageState): Line[] {
+  const bar = USAGE_TABS.map((t) => (t.key === st.tab ? `[${t.label}]` : t.label)).join("  ");
+  const head: Line[] = [{ text: bar, bold: true }, { text: "" }];
+  if (st.tab === "credits") return [...head, ...creditsText(st.credits)];
+  const r = st.report;
+  if (!r) return [...head, { text: "Loading…", tone: "muted" }];
+  if (st.tab === "overview") return [...head, ...statsLines(r.overview)];
+  if (st.tab === "tokens") return [...head, ...tokensText(r)];
+  if (st.tab === "tools") return [...head, ...toolsText(r)];
+  return [...head, ...autoText(r)];
+}
+
+export function openUsage(ctx: ScreenContext): void {
+  const st: UsageState = { tab: "overview", filters: {}, report: null, credits: null };
+  const draw = (top = false) => view.setLines(usageLines(st), top);
+  const load = async () => {
+    st.report = await ctx.services.usage(st.filters);
+    draw();
+  };
+  const filter = (key: "model" | "surface" | "source") => () => {
+    if (!st.report) return;
+    const options = key === "model" ? st.report.filters.models : key === "surface" ? st.report.filters.surfaces : st.report.filters.sources;
+    st.filters = { ...st.filters, [key]: cycleFilter(st.filters[key], options) };
+    st.tab = "tokens";
+    return load().then(() => undefined);
+  };
+  const view: TextDialog = new TextDialog({
+    title: "Usage",
+    wide: true,
+    lines: [{ text: "Loading…", tone: "muted" }],
+    hints: [
+      { title: "tabs", key: "←→" },
+      { title: "model", key: "m" },
+      { title: "surface", key: "s" },
+      { title: "source", key: "o" },
+      { title: "range", key: "r" },
+      { title: "share card", key: "c" },
+    ],
+    actions: {
+      m: filter("model"),
+      s: filter("surface"),
+      o: filter("source"),
+      r: () => {
+        const ranges = USAGE_RANGES as readonly number[];
+        st.filters = { ...st.filters, days: ranges[(ranges.indexOf(st.report?.range ?? 30) + 1) % ranges.length] };
+        return load().then(() => undefined);
+      },
+      c: async () => {
+        if (!st.report) return;
+        const file = await ctx.services.saveUsageCard(shareCardSvg(st.report.overview));
+        return `Saved ${file}`;
+      },
+    },
+    step: (dir) => {
+      const at = USAGE_TABS.findIndex((t) => t.key === st.tab);
+      st.tab = USAGE_TABS[(at + dir + USAGE_TABS.length) % USAGE_TABS.length]!.key;
+      draw(true);
+    },
+  });
+  ctx.host.push(view);
+  void load().catch((e) => view.setLines([{ text: e instanceof Error ? e.message : String(e), tone: "error" }]));
+  void ctx.services
+    .usageCredits()
+    .then((c) => {
+      st.credits = c;
+      draw();
+    })
+    .catch(() => {
+      st.credits = { state: "unavailable" };
+      draw();
+    });
 }
 
 // ─── /export, /import ────────────────────────────────────────────────────────

@@ -341,6 +341,13 @@ const config: ForgeConfig = {
       // matches autoUpdater.setFeedURL(...) in src/main.ts. Copied in before code
       // signing, so it's covered by the bundle signature.
       path.join(__dirname, "build/app-update.yml"),
+      // The QuickJS engine mods run in (src/lib/plugins/mod-host.ts reads it from
+      // process.resourcesPath). Its JS is bundled into main; this binary is not.
+      // Shipped under its own name: Resources/emscripten-module.wasm.
+      path.join(
+        __dirname,
+        "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm",
+      ),
       // models.dev catalog snapshot — the floor beneath the disk cache in
       // src/lib/models_dev.ts. On a first run with no network there is no cache
       // either, so without this the provider list and model picker come up EMPTY.
@@ -870,35 +877,89 @@ const config: ForgeConfig = {
         } catch {
           haveIdentity = false;
         }
-        try {
-          execFileSync(
-            "codesign",
-            haveIdentity
-              ? [
+        // A failed re-sign used to be logged as non-fatal and the build went on
+        // with a bundle that was partly ad-hoc (libffmpeg, libEGL, better-sqlite3,
+        // node-pty) while `codesign --verify --deep` still passed; under the
+        // hardened runtime that crashes at load on a Team ID mismatch (2026-10-30,
+        // a timestamp-service outage). Now: retry the short outages, then check
+        // every Mach-O on its own, re-sign any that is off, and fail the build if
+        // one still is.
+        const sign = async (args: string[], what: string) => {
+          const waits = [15, 30, 60];
+          for (let attempt = 0; ; attempt++) {
+            try {
+              execFileSync("codesign", args, { stdio: "inherit" });
+              return;
+            } catch (err) {
+              if (attempt >= waits.length) {
+                throw new Error(
+                  `[postPackage] signing ${what} failed after ${attempt + 1} tries: ${String(err)}`,
+                );
+              }
+              console.warn(
+                `[postPackage] signing ${what} failed (try ${attempt + 1}), retrying in ${waits[attempt]}s: ${String(err)}`,
+              );
+              await new Promise((r) => setTimeout(r, waits[attempt] * 1000));
+            }
+          }
+        };
+        const bundleArgs = haveIdentity
+          ? [
+              "--force",
+              "--deep",
+              "--options",
+              "runtime",
+              "--entitlements",
+              path.join(__dirname, "entitlements.plist"),
+              "--sign",
+              identity,
+              appPath,
+            ]
+          : ["--force", "--deep", "--sign", "-", appPath];
+        await sign(bundleArgs, appPath);
+        if (haveIdentity) {
+          const { scanTeamIds } = await import(
+            pathToFileURL(path.join(__dirname, "scripts", "mac-team-id.mjs"))
+              .href
+          );
+          let { checked, off } = scanTeamIds(appPath);
+          if (off.length) {
+            // `--deep` skips loose Mach-O files under Resources (.node, rg,
+            // spawn-helper): sign each one, innermost first, then the bundle.
+            for (const { file, signer } of [...off].sort(
+              (a, b) => b.file.length - a.file.length,
+            )) {
+              console.warn(`[postPackage] ${file} was ${signer}; re-signing`);
+              await sign(
+                [
                   "--force",
-                  "--deep",
                   "--options",
                   "runtime",
-                  "--entitlements",
-                  path.join(__dirname, "entitlements.plist"),
                   "--sign",
                   identity,
-                  appPath,
-                ]
-              : ["--force", "--deep", "--sign", "-", appPath],
-            {
-              stdio: "inherit",
-            },
-          );
-          execFileSync("xattr", ["-cr", appPath]);
+                  path.join(appPath, file),
+                ],
+                file,
+              );
+            }
+            await sign(bundleArgs, appPath);
+            ({ checked, off } = scanTeamIds(appPath));
+          }
+          if (off.length) {
+            throw new Error(
+              `[postPackage] ${off.length} of ${checked} Mach-O file(s) lack Team ID 7VWW7N9R87:\n${off
+                .map((o: { file: string; signer: string }) => `  ${o.signer}\t${o.file}`)
+                .join("\n")}`,
+            );
+          }
           console.log(
-            `[postPackage] ${haveIdentity ? "Developer ID" : "ad-hoc"} re-signed local build: ${appPath}`,
-          );
-        } catch (err) {
-          console.warn(
-            `[postPackage] ad-hoc re-sign failed (non-fatal): ${String(err)}`,
+            `[postPackage] Team ID 7VWW7N9R87 on all ${checked} Mach-O file(s)`,
           );
         }
+        execFileSync("xattr", ["-cr", appPath]);
+        console.log(
+          `[postPackage] ${haveIdentity ? "Developer ID" : "ad-hoc"} re-signed local build: ${appPath}`,
+        );
       }
     },
   },

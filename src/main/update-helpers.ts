@@ -204,3 +204,101 @@ export function windowAlive<W extends { isDestroyed(): boolean; webContents: { i
 ): win is W {
   return !!win && !win.isDestroyed() && !win.webContents.isDestroyed();
 }
+
+/** The re-check cadence while updates are working (long-running sessions). */
+export const UPDATE_RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+/** The first re-check after a failure; each failure in a row doubles it, up to the cadence. */
+export const UPDATE_RETRY_FIRST_MS = 2 * 60 * 1000;
+
+/** How long until the next check, after `failuresInARow` failed ones (0 = the last one worked). */
+export function nextUpdateCheckDelayMs(failuresInARow: number): number {
+  if (failuresInARow <= 0) return UPDATE_RECHECK_INTERVAL_MS;
+  return Math.min(
+    UPDATE_RETRY_FIRST_MS * 2 ** (failuresInARow - 1),
+    UPDATE_RECHECK_INTERVAL_MS,
+  );
+}
+
+/**
+ * When electron-updater checks again. A download that died at 17% on a network
+ * change waited the full 4 h for the next check (owner's Mac, 2026-10-26): now
+ * a failure (check, download or install) re-checks after 2 min, doubling up to
+ * 4 h, and a good result goes back to every 4 h. A check is always pending, so
+ * one whose result never arrives is retried on the same clock.
+ */
+export function createUpdateRechecker(
+  check: () => void,
+  timers: {
+    set: (fn: () => void, ms: number) => unknown;
+    clear: (t: unknown) => void;
+  } = {
+    set: (fn, ms) => setTimeout(fn, ms),
+    clear: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+  },
+) {
+  let failures = 0;
+  let timer: unknown = null;
+  const schedule = (): number => {
+    if (timer != null) timers.clear(timer);
+    const ms = nextUpdateCheckDelayMs(failures);
+    timer = timers.set(() => {
+      schedule();
+      check();
+    }, ms);
+    return ms;
+  };
+  return {
+    /** Start the clock (the first check is made by the caller). */
+    start: schedule,
+    /** A check, download or install failed: returns the wait before the retry. */
+    failed: (): number => {
+      failures++;
+      return schedule();
+    },
+    /** Up to date, or an update is downloaded. */
+    succeeded: (): number => {
+      failures = 0;
+      return schedule();
+    },
+    stop: (): void => {
+      if (timer != null) timers.clear(timer);
+      timer = null;
+    },
+  };
+}
+
+/**
+ * Start this app again once the current process has exited, from a detached
+ * shell rather than `app.relaunch()`.
+ *
+ * Electron launches its relauncher with no-new-privs (Chromium's process
+ * launcher sets it), so the relaunched app cannot use the setuid
+ * `chrome-sandbox`: "The setuid sandbox is not running as root", then a fatal
+ * zygote check. On Ubuntu 24.04, where AppArmor blocks the namespace sandbox,
+ * every deb update installed by "Restart Now" left the app closed (EC2 run
+ * 2026-10-30; stock Electron 43.4.1 does the same). A child spawned through
+ * Node does not get the flag. The shell waits for this pid to be gone first,
+ * so the new process gets the single-instance lock.
+ */
+export function relaunchAfterExit(
+  pid: number,
+  execPath: string,
+  args: string[],
+  spawn: (
+    cmd: string,
+    argv: string[],
+    opts: { detached: true; stdio: "ignore" },
+  ) => { unref(): void },
+): void {
+  spawn(
+    "/bin/sh",
+    [
+      "-c",
+      'while kill -0 "$0" 2>/dev/null; do sleep 0.2; done; exec "$@"',
+      String(pid),
+      execPath,
+      ...args,
+    ],
+    { detached: true, stdio: "ignore" },
+  ).unref();
+}

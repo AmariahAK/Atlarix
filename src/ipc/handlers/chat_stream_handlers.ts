@@ -22,6 +22,7 @@ import {
 import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
 import { resolveAppPath } from "../../paths/paths";
+import { systemReminder } from "@/lib/streaming/system-reminder";
 import { readSettings } from "../../main/settings";
 import type { ChatResponseEnd, ChatStreamParams } from "../ipc_types";
 import { streamTestResponse } from "./testing_chat_handlers";
@@ -33,10 +34,6 @@ import {
 } from "../utils/get_model_client";
 import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
 import { resolveActiveModelIdentity } from "@/lib/model-identity-prompt";
-import {
-  setActiveModelDisplayName,
-  clearActiveModelDisplayName,
-} from "@/ipc/utils/active-model-identity";
 import { resetAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import {
   ASK_USER_STREAM_STOP,
@@ -122,6 +119,10 @@ import {
 } from "@/lib/routing/model-reasoning-profile";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { resolveUsableBudget } from "@/lib/context/compaction";
+import {
+  compactionPoint,
+  contextWorkingWindowTokens,
+} from "@/lib/context/mid-loop-threshold";
 import { AttachmentStore } from "../../lib/attachment-store";
 import {
   buildPasteAttachmentDirective,
@@ -159,7 +160,7 @@ import {
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 import { awaitWithTimeout, isTextFile } from "./chat_stream/stream-misc";
 import { dispatchedModelIdentity, resolveEditStatsModel } from "../../lib/stats/edit-stats";
-import { recordTurnUsageSafely } from "../../lib/stats/usage-stats";
+import { recordLocalTurnUsage } from "./chat_stream/turn-runner/local-usage";
 import {
   activeStreams,
   activeStreamRuns,
@@ -887,6 +888,52 @@ export function registerChatStreamHandlers() {
         if (!req.continueAfterQuestions && !req.continueInterrupted) {
           userDisplayContent = req.displayPrompt ?? req.prompt;
           userPrompt = req.prompt;
+          // `/<name> …` naming an installed plugin's command: the model gets its
+          // prompt, the message shown stays what was typed (plugins/commands.ts).
+          const typedSlash = userPrompt.trimStart().startsWith("/")
+            ? userPrompt
+            : null;
+          if (typedSlash) {
+            const { expandPluginCommand } = await import("@/lib/plugins/commands");
+            const expanded = expandPluginCommand(
+              userPrompt,
+              chat.app?.path ? resolveAppPath(chat.app.path) : null,
+            );
+            if (expanded) userPrompt = expanded;
+          }
+          // Mods: a mod's own command answers with the prompt to send, and
+          // `prompt.submit` may rewrite what the model gets (plugins/mod-host.ts).
+          // The message shown stays what was typed.
+          {
+            const { modsPromptSubmit, modsRunCommand } = await import(
+              "@/lib/plugins/mod-host"
+            );
+            const modCtx = {
+              workspacePath: chat.app?.path ? resolveAppPath(chat.app.path) : null,
+              sessionId: req.workspaceSessionId ?? undefined,
+            };
+            if (userPrompt.trimStart().startsWith("/")) {
+              const fromMod = await modsRunCommand(modCtx, userPrompt);
+              if (fromMod) userPrompt = fromMod;
+            }
+            // `/name` of an installed silk that is not loaded here: say why,
+            // rather than send the raw text as a message (QA 1 A4).
+            if (typedSlash !== null && userPrompt === typedSlash) {
+              const { unavailableCommandReason } = await import(
+                "@/lib/plugins/commands"
+              );
+              const { offModCommandReason } = await import("@/lib/plugins/mod-host");
+              const offMod = offModCommandReason(userPrompt, modCtx);
+              const reason =
+                unavailableCommandReason(userPrompt, modCtx.workspacePath) ??
+                (offMod ? { message: offMod, rule: "silk_broken" as const } : null);
+              if (reason) {
+                const { UserFacingRefusal } = await import("@/shared/texts");
+                throw new UserFacingRefusal(reason.message, reason.rule);
+              }
+            }
+            userPrompt = await modsPromptSubmit(modCtx, userPrompt);
+          }
         }
         // v14.8.11 (W9): every live chat is a negative-id stream-transport chat —
         // renderer, headless CLI, and evals all mint them. The legacy positive-id
@@ -935,6 +982,59 @@ export function registerChatStreamHandlers() {
           );
           if (memoryReminders) {
             userModelContent = withMemoryContext(userPrompt, memoryReminders);
+          }
+        }
+
+        // prompt_submit / session_start hooks: the person's hooks.json and
+        // installed plugins' (lib/plugins/hooks.ts). What they print joins this
+        // message's model content, like memory above; a prompt_submit hook can
+        // stop the message before anything is saved or sent.
+        if (
+          !req.continueAfterQuestions &&
+          !req.continueInterrupted &&
+          !req.prompt.startsWith("Summarize from chat-id=")
+        ) {
+          const { runPromptSubmitHooks, runSessionStartHooks } = await import(
+            "@/lib/plugins/hooks"
+          );
+          const hookCtx = {
+            workspacePath: chat.app?.path ? resolveAppPath(chat.app.path) : null,
+            sessionId: req.workspaceSessionId ?? undefined,
+          };
+          const firstTurn = !(getStreamTransport(req.chatId)?.messages ?? []).some(
+            (m) => m.role === "assistant",
+          );
+          const startContext = firstTurn
+            ? await runSessionStartHooks(hookCtx)
+            : [];
+          const mods = await import("@/lib/plugins/mod-host");
+          if (firstTurn) await mods.modsSessionStart(hookCtx);
+          const modSections = await mods.modsPromptSections(hookCtx);
+          const promptHooks = await runPromptSubmitHooks(hookCtx, userPrompt);
+          if (promptHooks.blocked) {
+            const { UserFacingRefusal } = await import("@/shared/texts");
+            throw new UserFacingRefusal(
+              `An edict stopped this message (${promptHooks.blocked})`,
+              "edict_stop",
+            );
+          }
+          const hookContext = [
+            ...startContext,
+            ...promptHooks.context,
+            ...modSections,
+          ];
+          if (hookContext.length > 0) {
+            const { withMemoryContext } = await import(
+              "@/lib/memory/session-context"
+            );
+            userModelContent = withMemoryContext(
+              userModelContent ?? userPrompt,
+              // Labelled as the hooks' output: it can echo the project's own
+              // text, which must not read as Atlarix speaking.
+              systemReminder(
+                `Output of the user's edicts and mods:\n\n${hookContext.join("\n\n")}`,
+              ),
+            );
           }
         }
 
@@ -1129,6 +1229,7 @@ export function registerChatStreamHandlers() {
               selectedChatMode: settings.selectedChatMode ?? "ask",
             }),
             escalate: req.escalate === true,
+            userRetry: req.userRetry === true,
             chatId: req.chatId,
           };
           let effectiveModel = getEffectiveModel(settings);
@@ -1155,6 +1256,13 @@ export function registerChatStreamHandlers() {
             () => getModelClient(effectiveModel, settings, mainOptions),
           );
           let modelClient = initialModelClientBundle.modelClient;
+          // The Usage page records the turn in `finally`, whatever the outcome.
+          ctx.usageModel = () => ({
+            model: resolveEditStatsModel(effectiveModel, modelClient ? dispatchedModelIdentity(modelClient) : null),
+            pricing: { name: effectiveModel?.name ?? "", builtinProviderId: modelClient?.builtinProviderId },
+            mode: lastTurnModeByChat.get(req.chatId) ?? "build",
+            deep: !!settings.deepThinking,
+          });
           // For this turn's `turn_completed`, sent once it has ended. No lookup
           // here: who pays is worked out then, and only for people who opted in.
           Object.assign(ctx.analyticsTurn, {
@@ -1508,8 +1616,6 @@ export function registerChatStreamHandlers() {
               settings,
               buildAtlarixCoreTierCatalog(),
             );
-            // Commit authorship reflects the model doing the work for this stream.
-            setActiveModelDisplayName(modelIdentity.modelDisplayName);
             // v10 token accuracy: collect sub-agent/compaction usage for this turn.
             resetAuxUsage(req.chatId);
             const promptIdentityOpts = {
@@ -1828,8 +1934,27 @@ export function registerChatStreamHandlers() {
               effectiveModel,
               contextWindowTokens,
             );
+            // The context WORKING WINDOW — one rule for every model. The session
+            // compacts at `compactionThreshold` × this (default 256k → ~192k),
+            // never past `usableTokens` (the reply must fit). The raw window still
+            // bounds the hard backstop; this only governs WHEN to compact and what
+            // the context meter reports against.
+            const workingWindowTokens = contextWorkingWindowTokens(
+              contextWindowTokens,
+              settings.contextWorkingWindow,
+            );
+            const compactionThreshold =
+              settings.aiConfiguration?.contextSummarization
+                ?.compactionThreshold ?? 0.75;
+            // The one number both gates share: the pre-dispatch gate and the
+            // mid-turn check (a long agentic turn) compact at this point.
+            const compactionLimit = compactionPoint({
+              usableTokens,
+              workingWindowTokens,
+              threshold: compactionThreshold,
+            });
             logger.info(
-              `[budget] window=${contextWindowTokens} usable=${usableTokens} reserve=${contextWindowTokens - usableTokens}`,
+              `[budget] window=${contextWindowTokens} working=${workingWindowTokens} threshold=${compactionThreshold} usable=${usableTokens} reserve=${contextWindowTokens - usableTokens}`,
             );
 
             const applyTierEscalation = async (_args: {
@@ -1955,13 +2080,14 @@ export function registerChatStreamHandlers() {
                 event,
                 modelContextResolved,
                 promptBundleDeps,
-                // Both, deliberately: `usableTokens` is what the compaction gate
-                // DECIDES on, `contextWindowTokens` is the raw window the fill
-                // percentage and the context meter are REPORTED against. Conflating
-                // them would either make the meter lie about the model's capacity or
-                // make the gate ignore the room the reply needs.
+                // `usableTokens` is the compaction gate's hard backstop (the reply
+                // must fit); `workingWindowTokens` + `compactionThreshold` decide
+                // WHEN to compact, and the fill percentage / context meter report
+                // against the working window.
                 usableTokens,
                 contextWindowTokens,
+                workingWindowTokens,
+                compactionThreshold,
                 toolSurfaceTokens,
               },
             );
@@ -2350,6 +2476,7 @@ export function registerChatStreamHandlers() {
                 handleToolInputDelta,
                 abortController,
                 usableTokens,
+                compactionLimit,
                 processResponseChunkUpdate,
                 applyTierEscalation,
               };
@@ -2404,6 +2531,7 @@ export function registerChatStreamHandlers() {
                 handleToolInputDelta,
                 abortController,
                 usableTokens,
+                compactionLimit,
                 processResponseChunkUpdate,
                 applyTierEscalation,
                 buildToolStreamOpts,
@@ -2438,15 +2566,6 @@ export function registerChatStreamHandlers() {
               usedCompassThisStream,
               userPrompt,
               abortController,
-            });
-            // Your activity (the stats page): a finished turn, on this computer.
-            recordTurnUsageSafely({
-              model: resolveEditStatsModel(effectiveModel, modelClient ? dispatchedModelIdentity(modelClient) : null),
-              mode: lastTurnModeByChat.get(req.chatId) ?? "build",
-              deep: !!settings.deepThinking,
-              inputTokens: ctx.turnInputTokens,
-              outputTokens: ctx.turnOutputTokens,
-              messages: ctx.nativeTurnMessages,
             });
           }
 
@@ -2538,6 +2657,11 @@ export function registerChatStreamHandlers() {
             },
             providerOf,
           );
+          // The Usage page, on this computer: a finished turn counts; a stopped
+          // or failed one still adds the tokens it spent.
+          if (ctx.usageModel) {
+            recordLocalTurnUsage(ctx, ended.outcome === "ok" || ended.outcome === "ask_user", !!req.automation, req.chatId);
+          }
           // How it ended, for another session's list_sessions `result_of`.
           void import("@/lib/peers/peers")
             .then((m) => m.noteTurnEnded(req.chatId, ended, turnStartedAt))
@@ -2547,7 +2671,6 @@ export function registerChatStreamHandlers() {
         // hand the renderer a reference to play them back (proof of work).
         ctx.stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
-        clearActiveModelDisplayName();
         ensureTerminal();
       }
     };

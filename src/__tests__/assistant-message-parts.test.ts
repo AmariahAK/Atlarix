@@ -353,3 +353,121 @@ describe("parseAssistantMessageParts pure-prose fast path", () => {
     expect(parts.some((p) => p.type === "thought")).toBe(true);
   });
 });
+
+describe("a thought closed under a DIFFERENT name (DeepSeek, owner 2026-10-31)", () => {
+  it("</redacted_thinking> closes a <think>, so the answer is prose and no closer leaks", () => {
+    for (const streaming of [true, false]) {
+      const parts = parseAssistantMessageParts(
+        "<think>Let me check the typecheck commands.</redacted_thinking>Both items are built.",
+        streaming,
+      );
+      expect(parts.map((p) => p.type)).toEqual(["thought", "markdown"]);
+      expect((parts[1] as { content: string }).content).toBe("Both items are built.");
+      expect(JSON.stringify(parts)).not.toContain("redacted_thinking");
+    }
+  });
+
+  it("a closer with no thought open is dropped, never printed as the answer", () => {
+    const parts = parseAssistantMessageParts("</redacted_thinking>\nthen continue with your tasks", false);
+    expect(parts.filter((p) => p.type === "markdown").map((p) => (p as { content: string }).content)).toEqual([
+      "then continue with your tasks",
+    ]);
+    expect(JSON.stringify(parts)).not.toContain("redacted_thinking");
+  });
+
+  it("a mismatched closer still ends the thought at a tool call, and the tool shows", () => {
+    const parts = parseAssistantMessageParts(
+      '<think>plan it<atlarix-tool-call tool="read_file" call="c9" status="running">\n{"path":"a.ts"}\n</atlarix-tool-call>\n' +
+        '<atlarix-tool-result tool="read_file" call="c9" status="complete">\n{"success":true}\n</atlarix-tool-result>\nDone.</redacted_thinking>',
+      false,
+    );
+    expect(parts.map((p) => p.type).slice(0, 2)).toEqual(["thought", "tool"]);
+    expect(JSON.stringify(parts)).not.toContain("redacted_thinking");
+  });
+});
+
+describe("a thought left open across a tool call (gpt-oss on Bedrock, CLI QA 2026-10-30)", () => {
+  const shape =
+    '<reasoning>Create the DONE file.<atlarix-tool-call tool="edit_file" call="c1" status="running">\n{"path":"DONE"}\n</atlarix-tool-call>\n' +
+    '<atlarix-tool-result tool="edit_file" call="c1" status="complete">\n{"success":true}\n</atlarix-tool-result>\n<reasoning>';
+  it("closes the thought where the tool begins, so the tool shows and no closer leaks (live)", () => {
+    const parts = parseAssistantMessageParts(shape, true);
+    expect(parts.map((p) => p.type)).toEqual(["thought", "tool"]);
+    expect(parts.some((p) => p.type === "markdown")).toBe(false);
+  });
+  it("the same once the second thought has text, and when the turn is over", () => {
+    for (const streaming of [true, false]) {
+      const parts = parseAssistantMessageParts(shape + "Done.</reasoning>All set.", streaming);
+      expect(parts.map((p) => p.type)).toEqual(["thought", "tool", "thought", "markdown"]);
+      expect((parts[3] as { content: string }).content).toBe("All set.");
+    }
+  });
+  it("a thought opened again without a closer starts a new one, never prose", () => {
+    const parts = parseAssistantMessageParts("<reasoning>one<reasoning>two</reasoning>Answer.", false);
+    // Adjacent thoughts merge into one; what matters is that nothing became prose but the answer.
+    expect(parts.filter((p) => p.type === "markdown").map((p) => (p as { content: string }).content)).toEqual(["Answer."]);
+    expect(parts[0]!.type).toBe("thought");
+  });
+});
+
+describe("a read_file result whose body quotes tool markup (owner 2026-10-31, item 0h)", () => {
+  // Session 1 read HANDOFF-2026-10-31.md and the CLI drew the FILE'S body as the
+  // ◆ answer: a wall of text carrying read_file's own line numbers and literal
+  // \n escapes. The file documents the leak and neutralises the markup it quotes
+  // by inserting a space — `< /atlarix-tool-result>`. The closer scanner treated
+  // `< /atlarix-tool-result>` (a space between `<` and `/`) as the REAL closer,
+  // split the result there, and leaked the rest of the body as prose.
+  const result = JSON.stringify({
+    success: true,
+    result: [
+      "File: /x.md",
+      "Lines: 1-3 (complete)",
+      "",
+      "1: line one",
+      "2: the tool neutralises markup with < /atlarix-tool-result>",
+      "3: line three",
+    ].join("\n"),
+    _truncatedOutput: false,
+  });
+  const content = [
+    '<atlarix-tool-call tool="read_file" call="c1" status="running">',
+    '{"path":"/x.md"}',
+    "</atlarix-tool-call>",
+    '<atlarix-tool-result tool="read_file" call="c1" status="complete">',
+    result,
+    "</atlarix-tool-result>",
+    "Here is the summary.",
+  ].join("\n");
+
+  it("stays one tool part and never draws the body as the answer", () => {
+    for (const streaming of [true, false]) {
+      const parts = parseAssistantMessageParts(content, streaming);
+      const markdown = parts
+        .filter((p) => p.type === "markdown")
+        .map((p) => (p as { content: string }).content);
+      // The body must never render as prose: only the real answer remains.
+      expect(markdown).toEqual(["Here is the summary."]);
+      // One tool part, holding the WHOLE body including the quoted markup.
+      const tools = parts.filter((p) => p.type === "tool");
+      expect(tools).toHaveLength(1);
+      const tool = tools[0];
+      expect(tool && tool.type === "tool" ? tool.resultText : "").toContain(
+        "< /atlarix-tool-result>",
+      );
+      expect(tool && tool.type === "tool" ? tool.resultText : "").toContain(
+        "3: line three",
+      );
+    }
+  });
+
+  it("emits no markdown part carrying line-number prefixes or atlarix-tool markup", () => {
+    const markdown = parseAssistantMessageParts(content, false)
+      .filter((p) => p.type === "markdown")
+      .map((p) => (p as { content: string }).content)
+      .join("\n");
+    // The file body (its line numbers and the quoted markup) must not leak.
+    expect(markdown).not.toContain("line three");
+    expect(markdown).not.toContain("_truncatedOutput");
+    expect(markdown).not.toContain("atlarix-tool-");
+  });
+});

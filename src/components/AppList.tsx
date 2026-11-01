@@ -9,6 +9,7 @@ import {
   workspaceSessionsRefreshAtom,
 } from "@/atoms/sessionAtoms";
 import { WorkspaceSessionList } from "@/components/workspace/WorkspaceSessionList";
+import type { WorkspaceChatSession } from "@/ipc/ipc_types";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -80,7 +81,8 @@ export function AppList({ show }: { show?: boolean }) {
           try {
             const sessions =
               await IpcClient.getInstance().listWorkspaceSessions(app.id);
-            const chats = sessions.map(
+            // An automation's runs listed under a chat are not chats of their own here.
+            const chats = (sessions as WorkspaceChatSession[]).filter((s) => s.origin?.via !== "automation").map(
               (s: { id: string; title: string | null; createdAt: Date }) => ({
                 id: s.id as unknown as number,
                 title: s.title,

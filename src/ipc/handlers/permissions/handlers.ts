@@ -21,7 +21,10 @@ import type { CommandPermissionDecision } from "@/lib/terminal-command-category"
 import { getCommandCategory } from "@/lib/terminal-command-category";
 import { isDangerousCommand, dangerLabelKey } from "@/lib/dangerous-commands";
 import { upsertWorkspaceCommandPermission } from "@/lib/command-permissions-store";
-import { upsertWorkspaceFilePermission } from "@/lib/file-permissions-store";
+import {
+  toRepoRelativePathForApp,
+  upsertWorkspaceFilePermission,
+} from "@/lib/file-permissions-store";
 import {
   getParentDirectory,
   getPathExtension,
@@ -90,6 +93,7 @@ export type PermissionApprovalMode =
   | "deny"
   | "always_allow_file"
   | "always_allow_directory"
+  | "always_allow_folder"
   | "always_allow_extension";
 
 function isFileScopeApprovalMode(
@@ -97,10 +101,12 @@ function isFileScopeApprovalMode(
 ): mode is
   | "always_allow_file"
   | "always_allow_directory"
+  | "always_allow_folder"
   | "always_allow_extension" {
   return (
     mode === "always_allow_file" ||
     mode === "always_allow_directory" ||
+    mode === "always_allow_folder" ||
     mode === "always_allow_extension"
   );
 }
@@ -367,7 +373,8 @@ const executePermissionHandler = async (
 
   if (appId != null && request && isFileScopeApprovalMode(approvalMode)) {
     const fp = request.preview as FileOperationPreview;
-    const rel = fp?.path ? normalizeRelativePath(fp.path) : "";
+    // `fp.path` is workspace-relative; path scopes are stored repo-relative (0g).
+    const rel = fp?.path ? toRepoRelativePathForApp(appId, fp.path) : "";
     const boundAppId = appId;
     if (rel && !isProtectedRelativePath(rel)) {
       persistPermissionPreferenceSafely("file permission", () => {
@@ -384,6 +391,16 @@ const executePermissionHandler = async (
             upsertWorkspaceFilePermission(
               boundAppId,
               "directory",
+              dir,
+              "always_allow",
+            );
+          }
+        } else if (approvalMode === "always_allow_folder") {
+          const dir = getParentDirectory(rel);
+          if (dir) {
+            upsertWorkspaceFilePermission(
+              boundAppId,
+              "folder",
               dir,
               "always_allow",
             );

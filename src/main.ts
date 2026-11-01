@@ -1,5 +1,6 @@
 import { startBridge, stopBridge } from "@/main/bridge-lifecycle";
 import "./preload-env";
+import { spawn } from "node:child_process";
 import {
   app,
   autoUpdater as squirrelUpdater,
@@ -35,6 +36,8 @@ import {
   readLinuxPackageType,
   windowAlive,
   chooseUpdaterKind,
+  createUpdateRechecker,
+  relaunchAfterExit,
   type UpdateStatus,
 } from "./main/update-helpers";
 import { BackupManager } from "./backup_manager";
@@ -66,6 +69,7 @@ import {
 } from "./main/lib/analytics";
 import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
+import { sentryInitAllowed } from "./lib/sentry-gate";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
 import { DISCORD_INVITE_URL } from "./lib/community/discord";
 import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
@@ -193,7 +197,7 @@ dotenv.config();
 resolveSystemPath();
 
 // Sentry: init in main process before app.whenReady(); DSN from env or fallback for packaged app
-if (SENTRY_DSN) {
+if (SENTRY_DSN && sentryInitAllowed()) {
   Sentry.init({
     dsn: SENTRY_DSN,
     release: app.getVersion(),
@@ -921,12 +925,16 @@ export async function onReady() {
 const ATLARIX_RELEASES_API =
   "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest";
 
-const UPDATE_RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4h — long-running sessions
 
 /** Which silent updater is driving this install: electron-updater (mac/Linux),
  * squirrel (Windows via update-electron-app), or none (notify-only handles it). */
 let activeUpdaterKind: "electron-updater" | "squirrel" | "none" = "none";
-let updateRecheckTimer: ReturnType<typeof setInterval> | null = null;
+/** electron-updater's next check: 4 h, or sooner after a failure (update-helpers). */
+const updateRechecker = createUpdateRechecker(() => {
+  autoUpdater.checkForUpdates().catch((err) => {
+    log.warn("[AutoUpdater] re-check failed:", err?.message ?? err);
+  });
+});
 /** Set on cold start when the user deferred an update last session: install as
  * soon as this session finishes downloading it, instead of showing the banner. */
 let installDeferredUpdateOnDownload = false;
@@ -943,6 +951,27 @@ function setUpdateStatus(partial: Partial<UpdateStatus>): void {
   if (windowAlive(mainWindow)) {
     mainWindow.webContents.send("update:status", { ...updateStatus });
   }
+}
+
+/**
+ * electron-updater's quit-and-install. On a deb/rpm install the app is started
+ * again by relaunchAfterExit (update-helpers) instead of app.relaunch(), whose
+ * no-new-privs relauncher cannot use the setuid sandbox: the app stayed closed
+ * after every "Restart Now" on Ubuntu 24.04.
+ */
+function electronUpdaterQuitAndInstall(): void {
+  if (linuxPackageType()) {
+    squirrelUpdater.once("before-quit-for-update", () => {
+      log.info("[AutoUpdater] Installed; starting again after exit");
+      relaunchAfterExit(
+        process.pid,
+        process.execPath,
+        process.argv.slice(1),
+        spawn,
+      );
+    });
+  }
+  autoUpdater.quitAndInstall();
 }
 
 /** IPC: live status + a manual "Check for updates now". Always registered. */
@@ -982,7 +1011,7 @@ function registerUpdateStatusIpc(): void {
     if (activeUpdaterKind === "squirrel") {
       squirrelUpdater.quitAndInstall();
     } else {
-      autoUpdater.quitAndInstall();
+      electronUpdaterQuitAndInstall();
     }
   });
 
@@ -1132,6 +1161,9 @@ function initAutoUpdater(): void {
   }
 
   activeUpdaterKind = "electron-updater";
+  // deb/rpm: Atlarix starts itself again after the install
+  // (electronUpdaterQuitAndInstall), never through app.relaunch().
+  if (packageType) autoUpdater.autoRunAppAfterInstall = false;
 
   // Allow pre-releases to be downloaded if they are published (matches existing releaseChannel behavior).
   autoUpdater.allowPrerelease = false;
@@ -1177,6 +1209,7 @@ function initAutoUpdater(): void {
 
   autoUpdater.on("update-not-available", (info) => {
     log.info("[AutoUpdater] Up to date:", info.version);
+    updateRechecker.succeeded();
     setUpdateStatus({ lastResult: "up-to-date", lastCheckAt: Date.now() });
   });
 
@@ -1189,6 +1222,7 @@ function initAutoUpdater(): void {
 
   autoUpdater.on("update-downloaded", (info) => {
     log.info("[AutoUpdater] Update downloaded:", info.version);
+    updateRechecker.succeeded();
     setUpdateStatus({
       lastResult: "downloaded",
       availableVersion: info.version,
@@ -1199,7 +1233,7 @@ function initAutoUpdater(): void {
     if (installDeferredUpdateOnDownload) {
       installDeferredUpdateOnDownload = false;
       log.info("[AutoUpdater] Installing deferred update now (quitAndInstall)");
-      autoUpdater.quitAndInstall();
+      electronUpdaterQuitAndInstall();
       return;
     }
     if (windowAlive(mainWindow)) {
@@ -1209,8 +1243,14 @@ function initAutoUpdater(): void {
     }
   });
 
+  // Every failure lands here: the check, the download (downloadUpdate's own
+  // .catch only records the detail) and the install (pkexec refused on Linux).
   autoUpdater.on("error", (err) => {
     log.error("[AutoUpdater] Error:", err?.message ?? err);
+    const retryMs = updateRechecker.failed();
+    log.info(
+      `[AutoUpdater] Checking again in ${Math.round(retryMs / 60_000)} min`,
+    );
     // Record it so the Settings panel can show WHY — previously swallowed.
     setUpdateStatus({
       lastResult: "error",
@@ -1226,17 +1266,8 @@ function initAutoUpdater(): void {
     log.warn("[AutoUpdater] checkForUpdates failed:", err?.message ?? err);
   });
 
-  // Periodic re-check so a long-running session still updates (Cursor-style).
-  if (!updateRecheckTimer) {
-    updateRecheckTimer = setInterval(() => {
-      autoUpdater.checkForUpdates().catch((err) => {
-        log.warn(
-          "[AutoUpdater] periodic re-check failed:",
-          err?.message ?? err,
-        );
-      });
-    }, UPDATE_RECHECK_INTERVAL_MS);
-  }
+  // The next check: every 4 h, sooner after a failure.
+  updateRechecker.start();
 }
 
 /**
@@ -2248,11 +2279,8 @@ app.on("will-quit", () => {
   shutdownHiddenPages();
   analyticsShutdown();
 
-  // Stop the periodic update re-check.
-  if (updateRecheckTimer) {
-    clearInterval(updateRecheckTimer);
-    updateRecheckTimer = null;
-  }
+  // Stop the update re-check.
+  updateRechecker.stop();
 
   // Stop performance monitoring and capture final metrics
   stopPerformanceMonitoring();

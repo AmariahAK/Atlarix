@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Loader2, MessageSquare, MoreHorizontal } from "lucide-react";
+import { CornerDownRight, Loader2, MessageSquare, MoreHorizontal } from "lucide-react";
 import { getDefaultStore, useAtomValue, useSetAtom } from "jotai";
 import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
@@ -38,6 +38,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { lineageNote, treeFirst } from "@/shared/session-lineage";
 import { appsListAtom } from "@/atoms/appAtoms";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
 import {
@@ -418,15 +419,11 @@ export function WorkspaceSessionList({
    * something that happened IN the conversation", and drift there once caused a
    * real data-loss bug. Presentation order is a presentation concern.
    *
-   * Stable within each group, so the rest of the list keeps recency order.
+   * Stable within each group, so the rest of the list keeps recency order. The
+   * whole tree moves (src/shared/session-lineage.ts), so an open fork stays
+   * under the chat it came from.
    */
-  const ordered = useMemo(() => {
-    if (!activeSessionId) return sessions;
-    const active = sessions.filter((s) => s.id === activeSessionId);
-    return active.length
-      ? [...active, ...sessions.filter((s) => s.id !== activeSessionId)]
-      : sessions;
-  }, [sessions, activeSessionId]);
+  const ordered = useMemo(() => treeFirst(sessions, activeSessionId), [sessions, activeSessionId]);
 
   // A session handed over from the CLI, or a fork: open it as if it had been clicked.
   useEffect(() => {
@@ -462,6 +459,8 @@ export function WorkspaceSessionList({
         {ordered.map((session) => (
           <div
             key={session.id}
+            // A child sits under the chat it came from.
+            style={session.depth ? { paddingLeft: 8 + session.depth * 12 } : undefined}
             className={cn(
               // `sidebar-accent`, NOT `accent`. `--accent` is #f59e0b in BOTH
               // themes, so a selected row painted with it was a full-bleed amber
@@ -504,10 +503,11 @@ export function WorkspaceSessionList({
               const bgStream =
                 activeSessionId !== session.id &&
                 backgroundStreamingSessionIds.has(session.id);
+              const Icon = session.depth ? CornerDownRight : MessageSquare;
               return bgStream ? (
                 <Loader2 className="h-3 w-3 text-amber-600 animate-spin flex-shrink-0" />
               ) : (
-                <MessageSquare
+                <Icon
                   className={cn(
                     "h-3 w-3 flex-shrink-0",
                     activeSessionId === session.id
@@ -532,7 +532,10 @@ export function WorkspaceSessionList({
               />
             ) : (
               <>
-                <span className="flex-1 min-w-0 truncate text-xs">
+                <span
+                  className="flex-1 min-w-0 truncate text-xs"
+                  title={lineageNote({ origin: session.origin ?? null, depth: session.depth, runs: session.runs, parentTitle: session.parentTitle }) ?? undefined}
+                >
                   {titleGeneratingIds.has(session.id) &&
                   session.title === "Untitled"
                     ? "Naming…"

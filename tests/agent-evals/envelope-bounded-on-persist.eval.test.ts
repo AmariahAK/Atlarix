@@ -49,6 +49,11 @@ describe("the persisted turn envelope is bounded, the display transcript is not"
         .toolCall("read_file", { path: "gamma.ts" })
         .toolCall("read_file", { path: "delta.ts" })
         .text("Read all four. They are filler.")
+        // With a 16k cap, mid-turn compaction now genuinely runs in this turn and
+        // its summariser side-call can land on this last scripted reply; repeat it
+        // so the model's closing request still gets it. Compaction is not what
+        // this eval measures - the persisted envelope's bound is.
+        .repeatLast()
         .build(),
     );
 

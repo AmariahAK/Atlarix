@@ -7,7 +7,8 @@
 export interface SlashCommand {
   name: string;
   description: string;
-  group: "session" | "work" | "tools" | "account";
+  /** "plugin": an installed plugin's command, sent as a message (plugins/commands.ts). */
+  group: "session" | "work" | "tools" | "account" | "plugin";
   /** Another name for a command that is listed: works when typed, not shown in lists. */
   alias?: boolean;
 }
@@ -24,6 +25,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/compact", description: "Summarise the conversation so far to free up context", group: "session" },
   { name: "/fork", description: "Carry on in a copy of this session; the original stays as it is (/fork <name> names it)", group: "session" },
   { name: "/effort", description: "How hard the model thinks: its own levels, as it lists them (ctrl+t: top or default)", group: "session" },
+  { name: "/context", description: "How much of the context window to use before compacting: 256k, 512k or full", group: "session" },
   { name: "/plan", description: "This session's plan: show it, or /plan share to save it as a page", group: "session" },
   { name: "/build", description: "Build the plan that is ready", group: "session" },
   { name: "/export", description: "Save this session as Markdown (--json, --sanitize, a file name)", group: "session" },
@@ -36,6 +38,10 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/recap", description: "One line on where this session stands; /recap on|off for the automatic one", group: "work" },
   { name: "/automations", description: "Scheduled and triggered tasks for this folder", group: "work" },
   { name: "/mcp", description: "MCP servers for this folder: turn on/off, add, test", group: "tools" },
+  { name: "/silks", description: "Silks you installed: add, update, turn on/off", group: "tools" },
+  { name: "/augments", description: "Same as /silks", group: "tools", alias: true },
+  { name: "/plugins", description: "Same as /silks", group: "tools", alias: true },
+  { name: "/mods", description: "Panes your mods opened", group: "tools" },
   { name: "/chrome", description: "The Chrome extension: connected, or how to connect it", group: "tools" },
   { name: "/computer", description: "Let this model see your screen and use the mouse and keyboard: /computer on|off", group: "tools" },
   { name: "/permissions", description: "What Atlarix may do here without asking", group: "tools" },
@@ -46,7 +52,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/analytics", description: "Usage analytics: on or off (shared with the app)", group: "account" },
   { name: "/feedback", description: "Tell us what to improve; /feedback 1|2|3 rates this session too", group: "account" },
   { name: "/status", description: "Account, balance, model, usage, Chrome, MCP", group: "account" },
-  { name: "/stats", description: "Your activity: tokens, streaks, models, skills and MCP on this computer", group: "account" },
+  { name: "/usage", description: "Usage: activity, credits, tokens, MCP and skills, Auto's picks", group: "account" },
+  { name: "/stats", description: "Same as /usage", group: "account", alias: true },
   { name: "/login", description: "Sign in to Atlarix", group: "account" },
   { name: "/logout", description: "Sign out of the CLI", group: "account" },
   { name: "/help", description: "Keys and commands", group: "session" },
@@ -65,15 +72,17 @@ export function parseCommandLine(line: string): { name: string; rest: string } |
 }
 
 /** Commands matching what has been typed after "/", best first. */
-export function matchCommands(typed: string): SlashCommand[] {
+export function matchCommands(typed: string, installed: SlashCommand[] = []): SlashCommand[] {
   const q = typed.trim().toLowerCase();
   // Once arguments are being typed, the palette has done its job.
   if (!q.startsWith("/") || /\s/.test(q)) return [];
   const needle = q.slice(1);
+  // A built-in of the same name wins, as it does when run.
+  const all = COMMANDS.concat(installed.filter((p) => !COMMANDS.some((c) => c.name === p.name)));
   // The exact name first: "/mode" + enter ran /model, the first prefix match.
   // Aliases only when typed in full.
-  const exact = COMMANDS.filter((c) => c.name === q);
-  const listed = COMMANDS.filter((c) => !c.alias && c.name !== q);
+  const exact = all.filter((c) => c.name === q);
+  const listed = all.filter((c) => !c.alias && c.name !== q);
   return exact.concat(listed.filter((c) => c.name.slice(1).startsWith(needle))).concat(
     listed.filter((c) => !c.name.slice(1).startsWith(needle) && c.name.includes(needle)),
   );

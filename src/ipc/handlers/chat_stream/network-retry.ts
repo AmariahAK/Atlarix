@@ -58,6 +58,12 @@ export function jitteredDelay(
   return Math.round(half + Math.random() * half);
 }
 
+/** The response body of an API error, here or one `.error`/`.cause` deep. */
+function gateBody(err: unknown): string {
+  const e = err as { responseBody?: unknown; error?: { responseBody?: unknown }; cause?: { responseBody?: unknown } } | null;
+  return String(e?.responseBody ?? e?.error?.responseBody ?? e?.cause?.responseBody ?? "");
+}
+
 /**
  * Distinguish a network/provider mid-stream failure (worth silently retrying)
  * from a user abort or a malformed-request error (must not be retried).
@@ -72,7 +78,14 @@ export function isNetworkStreamError(err: unknown, depth = 0): boolean {
   // Atlarix Auto's daily limit is a 429 with a Retry-After of HOURS. Retrying it
   // (capped at 60s) would spin, then surface as a disconnect instead of the
   // "resets in Xh" message the classifier gives it. A decision, not a fault.
-  if (/free_usage_limit/.test(String((err as { responseBody?: unknown })?.responseBody ?? ""))) {
+  //
+  // `free_busy` (every free pool full; 503) and `core_rate_limited` (a paid
+  // model the provider made wait; 429) are gates too, matched by the proxy's
+  // BODY CODE and never by status: a 503 from the edge or `core_unavailable`
+  // after upstream retries is still worth retrying. Retrying `free_busy` cost
+  // ~15 s per attempt at the proxy and showed "Couldn't connect, retrying…"
+  // for a full pool (13 refusals in 10 min, 2026-10-28).
+  if (/free_usage_limit|free_busy|core_rate_limited/.test(gateBody(err))) {
     return false;
   }
   // A provider error delivered as a successful finish reason (HTTP 200, clean
@@ -250,4 +263,23 @@ export class NetworkStreamDisconnectedError extends Error {
     const m = cause instanceof Error ? cause.message : (cause as { error?: Error } | undefined)?.error?.message;
     if (m) this.detail = m;
   }
+}
+
+/** Waits after a provider says it is rate-limited or overloaded: per-minute limits need the minute. */
+export const PROVIDER_BUSY_DELAYS_MS = [10_000, 30_000, 60_000];
+
+/**
+ * A provider error that passes if we wait: a rate limit, an overload, a server
+ * error, delivered INSIDE the stream (no HTTP status; the Atlarix proxy passes
+ * OpenAI's `response.failed` through as `{ error: { code, message } }`). Before
+ * this it fell through to the one-second empty-output retry and then "Something
+ * went wrong" (2026-10-31, six sessions on one OpenAI account).
+ */
+export function isProviderBusyError(err: unknown): boolean {
+  const e = ((err as { error?: unknown } | null)?.error ?? err) as { code?: unknown; type?: unknown; message?: unknown } | null;
+  if (!e || typeof e !== "object") return false;
+  const status = (e as { statusCode?: unknown }).statusCode ?? (err as { statusCode?: unknown } | null)?.statusCode;
+  if (typeof status === "number") return false; // HTTP errors keep their existing paths
+  const text = `${String(e.code ?? "")} ${String(e.type ?? "")} ${String(e.message ?? "")}`;
+  return /rate.?limit|too many requests|overloaded|server_error|temporarily unavailable|try again (later|in)|capacity/i.test(text);
 }

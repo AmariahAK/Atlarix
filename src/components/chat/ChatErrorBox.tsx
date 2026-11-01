@@ -12,16 +12,25 @@ import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
 import {
   AUTO_CONSENT_MARKER,
   CORE_EXHAUSTED_MARKER,
+  CORE_NEVER_FUNDED_MARKER,
+  CORE_RATE_LIMIT_MARKER,
   CORE_REACHABILITY_MARKER,
+  FREE_BUSY_MARKER,
   FREE_LIMIT_MARKER,
+  PRO_ALLOWANCE_MARKER,
+  RESETS_IN_PATTERN,
   UPGRADE_LINE,
+  USE_OWN_KEY_LABEL,
+  ZENITH_OFFER_LINE,
+  formatResetsIn,
 } from "@/shared/billing_copy";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSelectModel } from "@/hooks/useSelectModel";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "@/hooks/useSettings";
 import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
 import { UpgradeButtons } from "@/components/billing/UpgradeActions";
-import { autoConsentAccepted } from "@/ipc/shared/compass_constants";
+import { CORE_TIER_AUTO, CORE_TIER_ZENITH, autoConsentAccepted } from "@/ipc/shared/compass_constants";
 
 /** Open Settings → AI so the user can switch provider / model or add an API key. */
 function openAiSettings() {
@@ -49,7 +58,25 @@ function openAiSettings() {
  * `TokenBar.tsx`) and is theme-agnostic by construction rather than by duplication.
  */
 
-export function ChatErrorBox({
+/**
+ * The error, plus Atlarix Zenith when the proxy offered it: Auto's top rung
+ * failed too, and Zenith (frontier models, higher cost) may get further. Shown
+ * once per chat; main decides that (zenith-offer.ts).
+ */
+export function ChatErrorBox(props: Parameters<typeof ChatErrorBoxBody>[0]) {
+  if (!props.error.includes(ZENITH_OFFER_LINE)) return <ChatErrorBoxBody {...props} />;
+  return (
+    <>
+      <ChatErrorBoxBody {...props} error={props.error.replace(` ${ZENITH_OFFER_LINE}`, "")} />
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm" data-testid="zenith-offer">
+        <span className="text-muted-foreground">{ZENITH_OFFER_LINE}</span>
+        <UseZenithButton onDone={props.onDismiss} />
+      </div>
+    </>
+  );
+}
+
+function ChatErrorBoxBody({
   onDismiss,
   onRetry,
   error,
@@ -63,6 +90,35 @@ export function ChatErrorBox({
   onRetry?: () => void;
   error: string;
 }) {
+  const text = error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "");
+
+  // A $0 account that never added credit picked a Core model: Core is paid,
+  // Atlarix Auto is the free way to keep going (owner, 2026-10-27).
+  if (error.includes(CORE_NEVER_FUNDED_MARKER)) {
+    return (
+      <ChatInfoContainer onDismiss={onDismiss}>
+        <span data-testid="core-never-funded">{text}</span>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <UpgradeButtons />
+          <UseAutoButton onDone={onDismiss} />
+        </div>
+      </ChatInfoContainer>
+    );
+  }
+
+  // Pro with the month's allowance spent: credit or your own key, never "get Pro".
+  if (error.includes(PRO_ALLOWANCE_MARKER)) {
+    return (
+      <ChatInfoContainer onDismiss={onDismiss}>
+        <span data-testid="pro-allowance">{text}</span>
+        <div className="mt-2 space-y-2 space-x-2">
+          <TopUpButton>Add credit</TopUpButton>
+          <SwitchProviderButton>{USE_OWN_KEY_LABEL}</SwitchProviderButton>
+        </div>
+      </ChatInfoContainer>
+    );
+  }
+
   // Atlarix Core credit used up (PAYG) — top up, or switch to a BYOK model,
   // without losing the chat.
   if (error.includes(CORE_EXHAUSTED_MARKER)) {
@@ -77,12 +133,45 @@ export function ChatErrorBox({
     );
   }
 
-  // Atlarix Auto's free usage is over for today: that, and when it comes
-  // back. Nothing else (owner: "come back tomorrow, and let it be").
+  // Atlarix Auto's free usage is over for today: a live countdown to the
+  // reset, and the ways to keep going now (owner, 2026-10-28). No Retry: the
+  // same request is refused until the reset.
   if (error.includes(FREE_LIMIT_MARKER)) {
     return (
       <ChatInfoContainer onDismiss={onDismiss}>
-        <span data-testid="free-limit">{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
+        <span data-testid="free-limit">
+          <LiveCountdown text={text} />
+        </span>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <UpgradeButtons />
+          <SwitchProviderButton>{USE_OWN_KEY_LABEL}</SwitchProviderButton>
+        </div>
+      </ChatInfoContainer>
+    );
+  }
+
+  // Free Auto's pools are full: no reset time, so sending again is fine — with
+  // the same ways out, so nobody is left pressing resend.
+  if (error.includes(FREE_BUSY_MARKER)) {
+    return (
+      <ChatInfoContainer onDismiss={onDismiss}>
+        <span data-testid="free-busy">{text}</span>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <UpgradeButtons />
+          <SwitchProviderButton>{USE_OWN_KEY_LABEL}</SwitchProviderButton>
+        </div>
+      </ChatInfoContainer>
+    );
+  }
+
+  // A paid model the provider made wait: try again shortly, or another model.
+  if (error.includes(CORE_RATE_LIMIT_MARKER)) {
+    return (
+      <ChatInfoContainer onDismiss={onDismiss}>
+        <span>{text}</span>
+        <div className="mt-2 space-y-2 space-x-2">
+          <SwitchProviderButton>Choose another model</SwitchProviderButton>
+        </div>
       </ChatInfoContainer>
     );
   }
@@ -279,6 +368,79 @@ function AutoConsentError({
   );
 }
 
+/**
+ * When each free-limit message was first shown, so its countdown keeps ticking
+ * from that moment across re-renders (the text carries "Resets in 3h 20m" as
+ * of when the refusal arrived, and a fresh refusal is a fresh string).
+ */
+const firstShown = new Map<string, number>();
+
+/** The free-limit text with its "Resets in …" ticking down each minute. */
+function LiveCountdown({ text }: { text: string }) {
+  // The tick only re-renders; the time is read here, AFTER `firstShown` may be
+  // set below. A `now` captured at mount ran a few ms behind it, and the
+  // rounded-up minute then read one more than the message said ("3h 21m" for
+  // a fresh "3h 20m"; seen as a flaky test).
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const m = RESETS_IN_PATTERN.exec(text);
+  if (!m) return <>{text}</>;
+  if (!firstShown.has(text)) firstShown.set(text, Date.now());
+  const now = Date.now();
+  const left = (Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60_000;
+  const resetsAt = firstShown.get(text)! + left;
+  const live = resetsAt > now ? `Resets in ${formatResetsIn(resetsAt, now)}` : "Free Atlarix Auto is back";
+  return <>{text.replace(m[0].trimEnd(), live)}</>;
+}
+
+/** Switches the chat in front to Atlarix Auto, the free way to keep going. */
+function UseAutoButton({ onDone }: { onDone: () => void }) {
+  const selectModel = useSelectModel();
+  return (
+    <button
+      type="button"
+      data-testid="use-atlarix-auto"
+      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+      onClick={() => void selectModel({ provider: "compass", name: CORE_TIER_AUTO }).then(onDone)}
+    >
+      Use Atlarix Auto (free)
+    </button>
+  );
+}
+
+/**
+ * The Zenith offer after a turn that ENDED (no error): Auto's top rung kept
+ * failing, so Zenith (frontier models, higher cost) may get further.
+ */
+export function ZenithOfferNotice({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <ChatInfoContainer onDismiss={onDismiss}>
+      <span data-testid="zenith-offer">{ZENITH_OFFER_LINE}</span>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <UseZenithButton onDone={onDismiss} />
+      </div>
+    </ChatInfoContainer>
+  );
+}
+
+/** Switches the chat in front to Atlarix Zenith. */
+function UseZenithButton({ onDone }: { onDone: () => void }) {
+  const selectModel = useSelectModel();
+  return (
+    <button
+      type="button"
+      data-testid="use-atlarix-zenith"
+      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+      onClick={() => void selectModel({ provider: "compass", name: CORE_TIER_ZENITH }).then(onDone)}
+    >
+      Use Atlarix Zenith
+    </button>
+  );
+}
+
 /** Opens Settings → AI where the Atlarix Core credit balance + top-up live. */
 function TopUpButton({ children }: { children: React.ReactNode }) {
   const baseClasses =
@@ -368,6 +530,8 @@ function ChatInfoContainer({
   return (
     <div className="relative mt-2 bg-sky-500/10 border border-sky-500/40 rounded-md shadow-sm p-2 mx-4">
       <button
+        type="button"
+        aria-label="Dismiss"
         onClick={onDismiss}
         className="absolute top-2.5 left-2 p-1 hover:bg-sky-500/20 rounded"
       >

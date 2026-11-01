@@ -1,4 +1,5 @@
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
+import { ModUiLayer } from "@/components/mods/ModUiLayer";
 import { subscribeToPeerSessionSettings } from "@/lib/peers/peer-settings-window";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "../contexts/ThemeContext";
@@ -580,6 +581,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   margins rather than floating over the title bar. Renders nothing
                   unless there is an undismissed note. */}
                 <WhatsNewPanel />
+                {/* Mods' status chips and panes (lib/plugins/mod-host.ts). */}
+                <ModUiLayer />
               </div>
               <Toaster richColors />
             </SidebarProvider>

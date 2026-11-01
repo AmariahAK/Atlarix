@@ -69,6 +69,10 @@ import {
 } from "../../../lib/terminal-instance-store";
 import { isAgentMemoryDisabled, memoryDirFor } from "@/lib/agent-memory";
 import { isAutoWritablePath } from "@/lib/auto-writable-paths";
+import { grantCoversPluginControl } from "@/lib/plugins/control-guard";
+import { runPostToolUseHooks } from "@/lib/plugins/hooks";
+
+const POST_HOOK_OPS = new Set(["edit_file", "delete_file", "rename_file"]);
 import { agentScratchDirFor } from "@/lib/agent-scratch";
 import { isOutsidePathOnlySystemScope } from "@/lib/system-scope-commands";
 import { injectAgentGitIdentity } from "../../utils/git_author";
@@ -1004,6 +1008,17 @@ export class PermissionInterceptor extends EventEmitter {
         recordMutationOutcome(this.snapshotTurnId, true);
       }
 
+      // post_tool_use hooks for a write fire HERE, once it has landed — at the
+      // tool funnel the file was not written yet (tool-execute.ts).
+      if (POST_HOOK_OPS.has(request.operation)) {
+        runPostToolUseHooks(
+          { workspacePath: this.workspacePath || null },
+          request.operation,
+          { ...(request.preview as Record<string, unknown>) },
+          { success: true },
+        );
+      }
+
       const preview = request.preview as FileOperationPreview;
 
       // Edit stats: count what LANDED, from the same LCS diff the approval card
@@ -1912,7 +1927,11 @@ export class PermissionInterceptor extends EventEmitter {
 
     if (preview.action === "create") {
       if (this.workspaceId == null) throw new Error("Workspace required");
-      const { id } = await svc.createAutomation(this.workspaceId, input);
+      // The chat whose agent set it up: its runs list under that chat.
+      const { sessionForTransport } = await import("@/lib/chat/stream-transport");
+      const { id } = await svc.createAutomation(this.workspaceId, input, {
+        sessionId: sessionForTransport(this.activeChatId) ?? null,
+      });
       // Stash the new id on the preview so getExecutionResult can report it
       // back to the model (same mechanism as `verified` for file writes).
       // Logging it alone left the model unable to run what it just created.
@@ -2282,6 +2301,9 @@ export class PermissionInterceptor extends EventEmitter {
     granted: ReadonlySet<string>,
   ): boolean {
     if (granted.has(p)) return true;
+    // Never offer a grant that would open plugin files or hooks.json to the
+    // sandbox: a persisted grant outlives the card that asked for it.
+    if (grantCoversPluginControl(p)) return true;
     const workspaceReal = this.workspacePath;
     return !!(
       workspaceReal &&

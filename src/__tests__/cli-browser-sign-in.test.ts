@@ -3,6 +3,7 @@
  * the page is fetched, then the fragment is POSTed to /token.
  */
 import http from "node:http";
+import net from "node:net";
 import { describe, expect, it } from "vitest";
 import { signInWithBrowser, type Tokens } from "@/cli/auth/browser-sign-in";
 
@@ -119,5 +120,34 @@ describe("browser sign-in", () => {
     const res = await post(port, `access_token=a&refresh_token=r&state=${state}`);
     expect(res.status).toBe(400);
     expect(String(await outcome)).toContain("no email");
+  });
+
+  // ATLARIX-46: a request still arriving when the sign-in finished (the page's
+  // second fetch, a favicon) reached a closed server and read a null address.
+  it("answers 503 to a request that arrives after the sign-in finished, and never throws", async () => {
+    const s = start();
+    const { port, state } = await s.ready();
+    const thrown: unknown[] = [];
+    const onUncaught = (e: unknown) => thrown.push(e);
+    process.on("uncaughtException", onUncaught);
+    try {
+      // Headers started before the sign-in finishes, completed after it.
+      const sock = net.connect(Number(port), "127.0.0.1");
+      await new Promise((r) => sock.once("connect", r));
+      sock.write(`GET /callback HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n`);
+      await new Promise((r) => setTimeout(r, 50));
+      await post(port, `access_token=a&refresh_token=r&state=${state}`);
+      expect(await s.done).toBe("me@example.com");
+      let raw = "";
+      sock.on("data", (c: Buffer) => (raw += c.toString("utf8")));
+      const closed = new Promise((r) => sock.once("close", r));
+      sock.write("\r\n");
+      await Promise.race([closed, new Promise((r) => setTimeout(r, 2_000))]);
+      sock.destroy();
+      expect(raw).toMatch(/^HTTP\/1\.1 503/);
+      expect(thrown).toEqual([]);
+    } finally {
+      process.off("uncaughtException", onUncaught);
+    }
   });
 });

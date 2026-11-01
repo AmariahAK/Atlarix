@@ -165,6 +165,22 @@ export async function getContextWindowDetailed(
       return { contextWindow: raw, source: "live" };
     }
   }
+  // A model with no catalog window resolves the SAME way the compaction gate
+  // does — through resolveModelContextLimit — so the meter's denominator,
+  // /context and the gate cannot disagree (0m). The gate's generic fallback for
+  // an unknown model is 128k; returning DEFAULT_CONTEXT_WINDOW (200k) here made
+  // the meter read "82% full" on a session the gate had already passed at 96k.
+  const { resolveModelContextLimit } = await import(
+    "@/lib/context/resolve-model-context-limit"
+  );
+  const resolved = await resolveModelContextLimit(target, settings).catch(
+    () => null,
+  );
+  const fallbackRaw = resolved?.rawContextLength;
+  if (typeof fallbackRaw === "number" && fallbackRaw > 0) {
+    contextWindowMemo.set(key, fallbackRaw);
+    return { contextWindow: fallbackRaw, source: "live" };
+  }
   return { contextWindow: DEFAULT_CONTEXT_WINDOW, source: "fallback" };
 }
 

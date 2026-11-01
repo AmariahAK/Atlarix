@@ -228,6 +228,20 @@ export class Chat {
           await vscode.env.clipboard.writeText(m.text);
           this.toast("Copied.");
           return;
+        case "save-image": {
+          const png = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(m.dataUrl);
+          if (!png) return;
+          const name = m.name.replace(/[^\w.-]/g, "_").slice(0, 80) || "atlarix.png";
+          const os = await import("node:os");
+          const target = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(os.homedir(), "Downloads", name)),
+            filters: { "PNG image": ["png"] },
+          });
+          if (!target) return;
+          await vscode.workspace.fs.writeFile(target, Buffer.from(png[1]!, "base64"));
+          this.toast("Saved.");
+          return;
+        }
         case "compare":
           return this.compare(m.turnId, m.path);
         case "undo-resend":
@@ -319,7 +333,8 @@ export class Chat {
         this.post({ type: "session", sessionId, title: null, modes: null, configOptions: [], replay: true });
         const r = await c.loadSession(cwd, sessionId);
         this.noteOptions(r?.configOptions ?? []);
-        this.post({ type: "session", sessionId, title: null, modes: r?.modes ?? null, configOptions: r?.configOptions ?? [], replay: false });
+        const parent = (r?._meta as { atlarix?: { parent?: { id: string; title: string } } } | undefined)?.atlarix?.parent ?? null;
+        this.post({ type: "session", sessionId, title: null, modes: r?.modes ?? null, configOptions: r?.configOptions ?? [], replay: false, parent });
       } else {
         const r = await c.newSession(cwd);
         this.sessionId = r.sessionId;

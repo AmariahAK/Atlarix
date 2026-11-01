@@ -41,6 +41,7 @@ const modelsDev = vi.hoisted(() => ({
 vi.mock("@/lib/models_dev", () => modelsDev);
 
 import {
+  getContextWindow,
   getEffectiveBudget,
   setCompassContextWindow,
   clearCompassContextWindow,
@@ -52,6 +53,10 @@ import {
   setCoreModelRouting,
   __resetCoreModelOverridesForTests,
 } from "@/ipc/shared/core-model-override-store";
+import {
+  resolveModelContextLimit,
+  GENERIC_CONTEXT_FALLBACK,
+} from "@/lib/context/resolve-model-context-limit";
 
 const CORE_ENV_KEYS = [
   "ATLARIX_CORE_MODEL_1",
@@ -215,7 +220,11 @@ describe("getEffectiveBudget — dynamic resolution for non-compass providers", 
     expect(mockFindLanguageModel).not.toHaveBeenCalled();
   });
 
-  it("falls back to DEFAULT_CONTEXT_WINDOW (200_000) when the registry has no value", async () => {
+  it("falls back to the gate's generic window (128_000), not 200_000, when the registry has no value (0m)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
     mockReadSettings.mockReturnValue({
       // Use an exotic model name so the per-model memo from a prior test
       // can't pollute this one (memo key is `provider:name:customModelId`).
@@ -224,7 +233,37 @@ describe("getEffectiveBudget — dynamic resolution for non-compass providers", 
     } as any);
     mockFindLanguageModel.mockResolvedValue(undefined as any);
     const { budget, source } = await getEffectiveBudget("openai");
-    expect(budget).toBe(200_000);
+    expect(budget).toBe(GENERIC_CONTEXT_FALLBACK);
     expect(source).toBe("model");
+    vi.unstubAllGlobals();
+  });
+
+  it("getContextWindow matches the compaction gate for an unknown model (0m)", async () => {
+    // The meter (/context, the status line) reads getContextWindow; the gate
+    // reads resolveModelContextLimit. For a model with no catalog window both
+    // must resolve to the SAME raw window, so "82% full" cannot mean different
+    // things to the two.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+    mockReadSettings.mockReturnValue({
+      selectedModel: { name: "unknown-model-0m", provider: "openai" },
+      tokenBudgetOverrides: {},
+    } as any);
+    mockFindLanguageModel.mockResolvedValue(undefined as any);
+    const meter = await getContextWindow({
+      name: "unknown-model-0m",
+      provider: "openai",
+    } as any);
+    const gate = (
+      await resolveModelContextLimit(
+        { name: "unknown-model-0m", provider: "openai" } as any,
+        mockReadSettings() as any,
+      )
+    ).rawContextLength;
+    expect(meter).toBe(gate);
+    expect(meter).toBe(GENERIC_CONTEXT_FALLBACK);
+    vi.unstubAllGlobals();
   });
 });

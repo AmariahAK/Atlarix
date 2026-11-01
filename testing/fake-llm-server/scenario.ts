@@ -29,7 +29,11 @@ export type ScenarioResponse =
         total_tokens: number;
       };
     }
-  | { kind: "tool_call"; calls: Array<{ name: string; args: unknown }> }
+  | { kind: "tool_call"; calls: Array<{ name: string; args: unknown }>; usage?: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+    } }
   | { kind: "error"; status: number; message?: string }
   /**
    * v14.8.7: emit one chunk (so the stream "started") then HANG — never ends.
@@ -178,6 +182,11 @@ function streamText(
 function streamToolCalls(
   res: Response,
   calls: Array<{ name: string; args: unknown }>,
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  },
 ): void {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -225,7 +234,15 @@ function streamToolCalls(
     }
   });
 
-  res.write(mkChunk({}, "tool_calls"));
+  const finalChunk: Record<string, unknown> = {
+    id: `chatcmpl-${now}`,
+    object: "chat.completion.chunk",
+    created: Math.floor(now / 1000),
+    model: "fake-model",
+    choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+  };
+  if (usage) finalChunk.usage = usage;
+  res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
   res.write("data: [DONE]\n\n");
   res.end();
 }
@@ -245,6 +262,57 @@ export function handleScenarioChatCompletion(
   }
 
   state.requests.push(req.body);
+
+  // Reject an orphan tool result exactly as DeepSeek / OpenAI do: a role "tool"
+  // message must answer a tool_call in the assistant message before it. Without
+  // this a history that real providers refuse (e.g. a compaction cut that kept a
+  // tool result but summarised away its call) passed every eval.
+  const msgs: any[] = Array.isArray(req.body?.messages) ? req.body.messages : [];
+  for (let i = 0; i < msgs.length; i++) {
+    if (msgs[i]?.role !== "tool") continue;
+    let j = i - 1;
+    while (j >= 0 && msgs[j]?.role === "tool") j--;
+    const calls: any[] = msgs[j]?.role === "assistant" ? (msgs[j].tool_calls ?? []) : [];
+    if (!calls.some((c) => c?.id === msgs[i].tool_call_id)) {
+      res.status(400).json({
+        error: {
+          message:
+            "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'",
+        },
+      });
+      return;
+    }
+  }
+
+  // A NON-streaming request is the harness's own side call (the compaction
+  // summariser uses generateText), not the agent's next step. When the script's
+  // next step is a TOOL CALL - the agent's work - answer the side call with a
+  // generic summary and leave the script where it is, so real mid-turn
+  // compaction cannot eat an eval's scripted tool calls. The summary keeps the
+  // scenario tag, as a real summary keeps the task, so the compacted requests
+  // that follow still route here. A scripted TEXT step is still consumed, which
+  // is how an eval scripts its own summary.
+  const nextKind = state.scenario.responses[state.step]?.kind;
+  if (req.body?.stream !== true && nextKind === "tool_call") {
+    res.json({
+      id: `chatcmpl-${Date.now()}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: "fake-model",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: `Earlier work summarized. Task: sc=${scenarioId}`,
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    });
+    return;
+  }
 
   let stepIndex = state.step;
   if (stepIndex >= state.scenario.responses.length) {
@@ -272,10 +340,43 @@ export function handleScenarioChatCompletion(
 
   switch (response.kind) {
     case "text":
+      // A NON-streaming request (the compaction summariser uses generateText)
+      // must get a chat.completion JSON body: answering it with SSE made the
+      // summariser fail with "Invalid JSON response", so no mid-turn compaction
+      // could ever be exercised end to end.
+      if (req.body?.stream === false || req.body?.stream === undefined) {
+        res.json({
+          id: `chatcmpl-${Date.now()}`,
+          object: "chat.completion",
+          created: Math.floor(Date.now() / 1000),
+          model: "fake-model",
+          choices: [
+            {
+              index: 0,
+              // A summary must keep the task (a real one does): append the scenario
+              // tag so requests made after compaction - whose original prompt was
+              // summarised away - still route to this scenario.
+              message: {
+                role: "assistant",
+                content: /\bsc=/.test(response.text)
+                  ? response.text
+                  : `${response.text}\nTask: sc=${scenarioId}`,
+              },
+              finish_reason: "stop",
+            },
+          ],
+          usage: response.usage ?? {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+          },
+        });
+        return;
+      }
       streamText(res, response.text, response.usage);
       return;
     case "tool_call":
-      streamToolCalls(res, response.calls);
+      streamToolCalls(res, response.calls, response.usage);
       return;
     case "finish_reason": {
       // Deliberately a COMPLETE, well-formed stream: headers, a delta, a final

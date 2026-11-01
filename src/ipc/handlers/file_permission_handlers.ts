@@ -16,6 +16,7 @@ import {
   listWorkspaceFilePermissions as listFilePermsFromDb,
   revokeSandboxWritablePath,
   revokeWorkspaceFilePermission,
+  toRepoRelativePathForApp,
   upsertSandboxWritablePath,
   upsertWorkspaceFilePermission,
 } from "@/lib/file-permissions-store";
@@ -36,6 +37,7 @@ export type FilePermissionPreflight =
       extension: string;
       canAlwaysAllowFile: boolean;
       canAlwaysAllowDirectory: boolean;
+      canAlwaysAllowFolder: boolean;
       canAlwaysAllowExtension: boolean;
     };
 
@@ -71,7 +73,11 @@ export function runFilePermissionPreflight(
   appId: number | null | undefined,
 ): FilePermissionPreflight {
   const perms = appId != null ? listFilePermsFromDb(appId) : [];
-  const gate = resolveFilePermissionGate(relativePath, operation, perms);
+  // Stored path scopes are repo-relative (0g); the incoming path is
+  // workspace-relative, so re-express it before comparing.
+  const gatePath =
+    appId != null ? toRepoRelativePathForApp(appId, relativePath) : relativePath;
+  const gate = resolveFilePermissionGate(gatePath, operation, perms);
 
   if (gate.action === "auto_allow") {
     const scopeLabel =
@@ -102,6 +108,7 @@ export function runFilePermissionPreflight(
     extension: gate.extension,
     canAlwaysAllowFile: gate.canAlwaysAllowFile,
     canAlwaysAllowDirectory: gate.canAlwaysAllowDirectory,
+    canAlwaysAllowFolder: gate.canAlwaysAllowFolder,
     canAlwaysAllowExtension: gate.canAlwaysAllowExtension,
   };
 }

@@ -26,11 +26,13 @@ import {
 } from "@/ipc/shared/compass_constants";
 import {
   setCoreAuto,
+  setCoreZenith,
   setCoreModelOverrides,
   setCoreModelWebSearch,
   setCoreModelRouting,
   type CoreAutoConfig,
   type CoreTierRouting,
+  type CoreZenithConfig,
 } from "@/ipc/shared/core-model-override-store";
 
 const logger = log.scope("core-models");
@@ -113,6 +115,8 @@ function applyOverridesAndNotify(raw: unknown): void {
   setCoreModelRouting(parseCoreRouting(raw));
   const auto = parseCoreAuto(raw);
   setCoreAuto(auto);
+  const zenith = parseCoreZenith(raw);
+  setCoreZenith(zenith);
   const efforts = parseModelEfforts(raw);
   registerEffortOverrides(efforts);
   // The proxy's fallback (item 10): here first, so it changes without a release.
@@ -125,6 +129,7 @@ function applyOverridesAndNotify(raw: unknown): void {
     ? JSON.stringify([
         Object.entries(map).sort(([a], [b]) => a.localeCompare(b)),
         auto,
+        zenith,
         efforts,
       ])
     : null;
@@ -258,13 +263,62 @@ export function parseCoreAuto(raw: unknown): CoreAutoConfig | null {
     .flatMap((l) => (Array.isArray(l) ? l : []))
     .map(ref)
     .filter((x): x is { providerId: string; modelId: string } => x !== null);
+  const zenith = a.zenith && typeof a.zenith === "object" ? (a.zenith as Record<string, unknown>) : null;
+  const zenithLevels =
+    zenith?.levels && typeof zenith.levels === "object" ? Object.values(zenith.levels as Record<string, unknown>) : [];
+  const rungId = (r: unknown) => {
+    if (!r || typeof r !== "object") return null;
+    const o = r as Record<string, unknown>;
+    if (o.pinServed === true || o.discover === true) return null;
+    const m = typeof o.apiModelId === "string" ? o.apiModelId.trim() : "";
+    // A versioned cloud id ("us.anthropic.…-v1:0") is a route, not a name.
+    return m && !m.includes(":") ? m : null;
+  };
+  const slots = Object.values(parseCoreRouting(raw) ?? {}).map((r) => rungId(r));
+  const nameableModels = [
+    ...new Set(
+      [
+        ...(Array.isArray(a.chain) ? a.chain : []).map(rungId),
+        ...[...levels, ...zenithLevels].flatMap((l) => (Array.isArray(l) ? l : [])).map(rungId),
+        ...slots,
+      ].filter((x): x is string => !!x),
+    ),
+  ];
   return {
     id,
     label,
     ...(providerId && modelId ? { capability: { providerId, modelId } } : {}),
     ...(freeModels.length ? { freeModels } : {}),
     ...(paidModels.length ? { paidModels } : {}),
+    ...(nameableModels.length ? { nameableModels } : {}),
   };
+}
+
+/**
+ * Atlarix Zenith (`auto.zenith`): paid Auto on the top lane. Its levels have the
+ * same shape as `auto.paid`; the client needs the wire id, the name, and the
+ * models a step can land on (for the context window).
+ */
+export function parseCoreZenith(raw: unknown): CoreZenithConfig | null {
+  if (!raw || typeof raw !== "object") return null;
+  const auto = (raw as CoreModelsPayload).auto as Record<string, unknown> | undefined;
+  const z = auto && typeof auto === "object" ? auto.zenith : null;
+  if (!z || typeof z !== "object") return null;
+  const o = z as Record<string, unknown>;
+  const id = typeof o.id === "string" && o.id.trim() ? o.id.trim() : "atlarix/zenith";
+  const label = typeof o.label === "string" && o.label.trim() ? o.label.trim() : "Atlarix Zenith";
+  const levels = o.levels && typeof o.levels === "object" ? Object.values(o.levels as Record<string, unknown>) : [];
+  const models = levels
+    .flatMap((l) => (Array.isArray(l) ? l : []))
+    .map((r) => {
+      if (!r || typeof r !== "object") return null;
+      const e = r as Record<string, unknown>;
+      const p = typeof e.provider === "string" ? e.provider.replace(/-shared$/, "") : "";
+      const m = typeof e.apiModelId === "string" ? e.apiModelId : "";
+      return p && m ? { providerId: p, modelId: m } : null;
+    })
+    .filter((x): x is { providerId: string; modelId: string } => x !== null);
+  return { id, label, ...(models.length ? { models } : {}) };
 }
 
 /** Read + JSON-parse the cached raw payload, or null on miss/invalid. */

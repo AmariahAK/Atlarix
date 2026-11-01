@@ -9,6 +9,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { guardPluginControl } from "@/lib/plugins/control-guard";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import type { ModelMessage, ToolSet } from "ai";
@@ -130,6 +131,8 @@ export interface AskBranchDeps {
   abortController: AbortController;
   /** Window minus the reply reserve — what a request may actually occupy. */
   usableTokens: number;
+  /** The turn's compaction point — the mid-turn check's trigger (see 0c). */
+  compactionLimit: number;
   processResponseChunkUpdate: (args: {
     fullResponse: string;
   }) => Promise<string>;
@@ -173,6 +176,7 @@ export async function runAskBranch(
     handleToolInputDelta,
     abortController,
     usableTokens,
+    compactionLimit,
     processResponseChunkUpdate,
     applyTierEscalation,
   } = deps;
@@ -650,6 +654,9 @@ export async function runAskBranch(
               );
               if (filePref.earlyReturn) return filePref.earlyReturn;
               permRequest = filePref.permRequest;
+              const pluginGuard = guardPluginControl(permRequest, appPath);
+              if (pluginGuard.refusal) return pluginGuard.refusal;
+              permRequest = pluginGuard.permRequest;
               const operationId =
                 askPermissionInterceptor.generateOperationId();
               const runCmd =
@@ -658,7 +665,8 @@ export async function runAskBranch(
                     "")
                   : "";
               const skipPermissionWait =
-                filePref.skipPermissionWait ||
+                !pluginGuard.pluginControl &&
+                (filePref.skipPermissionWait ||
                 (permRequest.operation === "run_command" &&
                   shouldSkipPermissionWaitForRunCommand(
                     runCmd,
@@ -668,8 +676,8 @@ export async function runAskBranch(
                     appPath,
                     isReadOnlyWorkMode(liveWorkMode),
                   )) ||
-                shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
-                askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest);
+                  shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
+                  askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest));
               // System-scope marker — attended-only (mirror build-branch).
               if (permRequest.operation === "run_command") {
                 (
@@ -1018,6 +1026,7 @@ export async function runAskBranch(
         streamTurnId,
         tierLimit: modelContextResolved.tierLimit,
         usableTokens,
+        compactionLimit,
         maxContinuationAttempts: STREAM_CONTINUATION_MAX,
         taskLedger: taskLedgerBlock,
         permissionInterceptor: askPermissionInterceptor,
@@ -1039,6 +1048,7 @@ export async function runAskBranch(
             dynamicSystemTail: opts.dynamicSystemTail,
             repetition: askAgenticRepetition,
             abortSignalOverride: opts.abortSignal,
+            compactionLimit: opts.compactionLimit,
           }),
         runStreamRound: (
           params: Parameters<typeof runStreamRoundWithEmptyOutputRetry>[2],

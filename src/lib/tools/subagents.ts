@@ -45,7 +45,7 @@ ToolRegistry.register({
     'operation:"list" — sub-agents still running in this session (name, task id, elapsed, and whether one has gone quiet). ' +
     'operation:"output" — its live narration. Default mode:"new" returns what appeared since your last check; mode:"tail" returns the most recent output regardless, which is what you want to see what it is doing right now. Works on a finished sub-agent too. ' +
     'operation:"cancel" — hard-stop one that is stuck or no longer needed; this stops its token spend. ' +
-    "Results are delivered to you automatically when a sub-agent finishes, so use this to CHECK ON or STOP one — never to poll for a result in a loop. A quiet sub-agent is usually still thinking.",
+    "Results are delivered to you automatically when a sub-agent finishes, so use this to CHECK ON or STOP one. A quiet sub-agent is usually still thinking.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,

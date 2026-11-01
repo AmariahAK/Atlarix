@@ -7,12 +7,15 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
-import { chatErrorByIdAtom } from "@/atoms/chatAtoms";
+import { chatErrorByIdAtom, zenithOfferChatIdsAtom } from "@/atoms/chatAtoms";
 import {
   COMPASS_REACHABILITY_ERROR,
   autoConsentRequiredUserMessage,
   coreExhaustedUserMessage,
-  freeUsageLimitUserMessage,
+  coreRefusalMessage,
+  freeAutoBusyMessage,
+  freeAutoLimitMessage,
+  parseCreditRefusal,
 } from "@/shared/billing_copy";
 import { makeFakeIpc, renderWithProviders } from "./helpers";
 
@@ -97,6 +100,7 @@ describe("chat error banner placement (v11.1)", () => {
       prompt: "",
       chatId: CHAT_ID,
       continueAfterQuestions: true,
+      userRetry: true,
     });
     expect(store.get(chatErrorByIdAtom).get(CHAT_ID)).toBeUndefined();
   });
@@ -132,18 +136,71 @@ describe("chat error banner placement (v11.1)", () => {
     expect(screen.getByText(/\$9\.24/)).toBeTruthy();
   });
 
-  it("free Auto's limit says come back tomorrow, and nothing else", () => {
+  it("free Auto's limit says when it resets, and offers no Retry", () => {
     const { store } = renderWithProviders(
       <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
     );
     act(() => {
-      store.set(chatErrorByIdAtom, new Map([[CHAT_ID, freeUsageLimitUserMessage(3600)]]));
+      store.set(chatErrorByIdAtom, new Map([[CHAT_ID, freeAutoLimitMessage(Date.now() + 3600_000)]]));
     });
 
-    expect(screen.getByTestId("free-limit").textContent).toMatch(/^Today's usage is over\. Come back tomorrow \(it resets at /);
+    expect(screen.getByTestId("free-limit").textContent).toMatch(/^Today's free Atlarix Auto is used up\. Resets in (5\dm|1h)\./);
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-    expect(screen.queryByText("Add credit")).toBeNull();
-    expect(screen.queryByText(/Upgrade to Pro/)).toBeNull();
+  });
+
+  it("a $0 account that never added credit gets Add credit, Pro and Auto, and no Retry", () => {
+    const { store } = renderWithProviders(<SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />);
+    const text = coreRefusalMessage(parseCreditRefusal({ error: "insufficient_credit", plan: "free", ever_funded: false }));
+    act(() => {
+      store.set(chatErrorByIdAtom, new Map([[CHAT_ID, text]]));
+    });
+    expect(screen.getByTestId("core-never-funded").textContent).toMatch(/^Atlarix Core models run on credit\./);
+    expect(screen.getByTestId("add-credit")).toBeTruthy();
+    expect(screen.getByTestId("upgrade-to-pro")).toBeTruthy();
+    expect(screen.getByTestId("use-atlarix-auto")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("Pro with the allowance spent is offered credit or a key, never Pro, and no Retry", () => {
+    const { store } = renderWithProviders(<SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />);
+    act(() => {
+      store.set(chatErrorByIdAtom, new Map([[CHAT_ID, coreRefusalMessage(parseCreditRefusal({ plan: "pro" }))]]));
+    });
+    expect(screen.getByTestId("pro-allowance")).toBeTruthy();
+    expect(screen.queryByTestId("upgrade-to-pro")).toBeNull();
+    expect(screen.getByText("Use your own key")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("free Auto busy keeps Retry and offers the ways out", () => {
+    const { store } = renderWithProviders(<SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />);
+    act(() => {
+      store.set(chatErrorByIdAtom, new Map([[CHAT_ID, freeAutoBusyMessage()]]));
+    });
+    expect(screen.getByTestId("free-busy")).toBeTruthy();
+    expect(screen.getByTestId("add-credit")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("the free limit offers Pro, credit and a key", () => {
+    const { store } = renderWithProviders(<SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />);
+    act(() => {
+      store.set(chatErrorByIdAtom, new Map([[CHAT_ID, freeAutoLimitMessage(Date.now() + 200 * 60_000)]]));
+    });
+    expect(screen.getByTestId("free-limit").textContent).toMatch(/Resets in 3h (19|20)m/);
+    expect(screen.getByTestId("upgrade-to-pro")).toBeTruthy();
+    expect(screen.getByText("Use your own key")).toBeTruthy();
+  });
+
+  it("after a turn that answered, the Zenith offer shows with its button, and goes when dismissed", () => {
+    const { store } = renderWithProviders(<SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />);
+    act(() => {
+      store.set(zenithOfferChatIdsAtom, new Set([CHAT_ID]));
+    });
+    expect(screen.getByTestId("zenith-offer").textContent).toMatch(/Atlarix Zenith uses frontier models at a higher cost/);
+    expect(screen.getByTestId("use-atlarix-zenith")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /dismiss|close/i }));
+    expect(screen.queryByTestId("zenith-offer")).toBeNull();
   });
 
   it("KEEPS Retry when Core was merely unreachable — that one is transient", () => {

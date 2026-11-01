@@ -25,8 +25,14 @@ import {
 } from "../../scripts/store-submit.mjs";
 
 describe("pendingSubmissionAction", () => {
-  it.each(["PendingCommit", "Canceled"])("reuses a draft (%s), so what was set on it by hand survives", (status) => {
-    expect(pendingSubmissionAction(status)).toBe("reuse");
+  it("reuses a draft (PendingCommit), so what was set on it by hand survives", () => {
+    expect(pendingSubmissionAction("PendingCommit")).toBe("reuse");
+  });
+
+  // 2026-10-25: the API reports a cancelled certification as "Canceled", yet a
+  // PUT on it answers 409 InvalidState "PreProcessing". Only Partner Center can refill it.
+  it("leaves a cancelled submission (Canceled) to Partner Center", () => {
+    expect(pendingSubmissionAction("Canceled")).toBe("manual");
   });
 
   it.each([
@@ -136,6 +142,23 @@ describe("clearPending", () => {
     ]);
     expect(await clearPending(s.call, "APP", noWait)).toBe("s1");
     expect(s.log.some((l) => l.startsWith("DELETE"))).toBe(false);
+  });
+
+  it("stops on a cancelled submission: no delete, no reuse, and says to upload in Partner Center", async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((m: unknown) => void lines.push(String(m)));
+    try {
+      const s = store([
+        () => ({ pendingApplicationSubmission: { id: "s1" } }),
+        () => ({ status: "Canceled" }),
+      ]);
+      expect(await clearPending(s.call, "APP", noWait)).toBe(false);
+      expect(s.log.filter((l) => !l.startsWith("GET"))).toEqual([]);
+      expect(lines.join("\n")).toMatch(/::error::.*Partner Center/);
+      expect(lines.join("\n")).toContain("/submissions/s1");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("goes ahead at once when nothing is pending", async () => {

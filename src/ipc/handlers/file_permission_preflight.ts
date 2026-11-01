@@ -122,6 +122,7 @@ export function enrichFilePermissionRequest(
       isDeleteOrRename: resolved.isDeleteOrRename,
       canAlwaysAllowFile: resolved.canAlwaysAllowFile,
       canAlwaysAllowDirectory: resolved.canAlwaysAllowDirectory,
+      canAlwaysAllowFolder: resolved.canAlwaysAllowFolder,
       canAlwaysAllowExtension: resolved.canAlwaysAllowExtension,
       fileParentDir: resolved.parentDir,
       fileExtension: resolved.extension,

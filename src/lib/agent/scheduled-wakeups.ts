@@ -17,7 +17,13 @@
 
 /** Clamp window for a self-wake delay. */
 const MIN_DELAY_MS = 60_000; // 60s
-const MAX_DELAY_MS = 14_400_000; // 4h — long builds/test-suites/deploys can exceed 1h
+/**
+ * Node's setTimeout ceiling (2^31-1 ms ≈ 24.8 days). Beyond this a timer fires
+ * immediately (the value overflows), so a longer self-wake must be an automation
+ * instead — the schedule_wakeup tool text says so. There is deliberately NO
+ * arbitrary business cap below this (owner rule: loop termination = no caps).
+ */
+const MAX_TIMER_MS = 2_147_483_647;
 /** Cap outstanding timers + queued nudges per chat (anti busy-loop). */
 const MAX_PENDING_PER_CHAT = 8;
 
@@ -62,10 +68,10 @@ export function setScheduledWakeupNotifier(fn: Notifier): void {
   notifier = fn;
 }
 
-/** Clamp a requested delay into the allowed window. */
+/** Clamp a requested delay into the allowed window (min only; no arbitrary max). */
 export function clampWakeupDelayMs(ms: number): number {
   if (!Number.isFinite(ms)) return MIN_DELAY_MS;
-  return Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, Math.round(ms)));
+  return Math.min(MAX_TIMER_MS, Math.max(MIN_DELAY_MS, Math.round(ms)));
 }
 
 /**
@@ -158,7 +164,7 @@ export function setJobWakeup(
 
 /**
  * Adjust a job's existing timer by a delta (positive = later, negative =
- * sooner), clamped to the 60s–4h window off the CURRENT remaining time.
+ * sooner), clamped to the 60s floor off the CURRENT remaining time.
  * Returns the new remaining ms, or null if the job has no timer.
  */
 export function adjustJobWakeup(

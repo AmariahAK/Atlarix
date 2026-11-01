@@ -15,17 +15,20 @@ import { integrationsRoute } from "./routes/integrations";
 import { integrationsProvidersRoute } from "./routes/integrations/index";
 import { integrationsMcpRoute } from "./routes/integrations/mcp";
 import { integrationsSkillsRoute } from "./routes/integrations/skills";
+import { integrationsPluginsRoute } from "./routes/integrations/plugins";
 import { integrationsCoAuthorRoute } from "./routes/integrations/co-author";
 import { integrationsPermissionsRoute } from "./routes/integrations/permissions";
 import { toolsRoute } from "./routes/tools";
 import { signInRoute } from "./routes/sign-in";
 import { accountSettingsRoute } from "./routes/account";
+import { usageRoute } from "./routes/usage";
 
 const routeTree = rootRoute.addChildren([
   homeRoute,
   toolsRoute,
   signInRoute,
   accountSettingsRoute,
+  usageRoute,
   // Preferences. One section per child route — see pages/settings.tsx.
   settingsRoute.addChildren([
     generalSettingsRoute,
@@ -46,6 +49,7 @@ const routeTree = rootRoute.addChildren([
     providerSettingsRoute,
     integrationsMcpRoute,
     integrationsSkillsRoute,
+    integrationsPluginsRoute,
     integrationsCoAuthorRoute,
     integrationsPermissionsRoute,
   ]),

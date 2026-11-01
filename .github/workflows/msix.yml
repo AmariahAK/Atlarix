@@ -36,7 +36,8 @@
 # REPLACED, even mid-certification (owner, 2026-10-18: the newest release wins);
 # only one Microsoft is mid-commit or mid-publish is waited for (up to 10 min), and
 # if it is still there this release skips the Store with a warning. Manual runs
-# (workflow_dispatch) skip this; `store_status` instead prints what the Store has.
+# (workflow_dispatch) skip this; `store_status` instead prints what the Store has,
+# and `store_resubmit_run` re-runs a release's Store step (see that input).
 # The submission step is `continue-on-error: true` so a Store API failure can never
 # block anything. Requires three GitHub secrets: AZURE_AD_TENANT_ID,
 # AZURE_AD_CLIENT_ID, AZURE_AD_CLIENT_SECRET.
@@ -84,6 +85,17 @@ on:
         required: false
         default: false
         type: boolean
+      # Re-run a release's Store step without re-running the release (a job
+      # re-run would also re-run publish-release and announce-release). Dispatch
+      # on a branch made from the release tag, with the id of that tag's
+      # release.yml run: its `landlock-helper` artifact (1-day retention) gives
+      # the build WSL confinement, the strict sandbox check stays on, and the
+      # package is submitted like a release's.
+      store_resubmit_run:
+        description: "Release run id: build this ref with that run's Landlock helper and submit it to the Store"
+        required: false
+        default: ""
+        type: string
   # Called by release.yml on a `v*` tag, so every release produces a submittable
   # package without anyone remembering to run this by hand. `upload_wrapper`
   # defaults to TRUE there: a release build is exactly when the Store wrapper is
@@ -120,6 +132,8 @@ env:
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
   EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
   SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+  # As release.yml: only an explicit release build embeds the DSN (0t).
+  ATLARIX_RELEASE: "1"
   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
   ATLARIX_CORE_PROXY_URL: ${{ vars.ATLARIX_CORE_PROXY_URL || secrets.ATLARIX_CORE_PROXY_URL }}
   ATLARIX_CORE_MODEL_1: ${{ vars.ATLARIX_CORE_MODEL_1 || secrets.ATLARIX_CORE_MODEL_1 }}
@@ -127,6 +141,7 @@ env:
   ATLARIX_CORE_MODEL_3: ${{ vars.ATLARIX_CORE_MODEL_3 || secrets.ATLARIX_CORE_MODEL_3 }}
   ATLARIX_CORE_MODEL_4: ${{ vars.ATLARIX_CORE_MODEL_4 || secrets.ATLARIX_CORE_MODEL_4 }}
   ATLARIX_CORE_MODEL_5: ${{ vars.ATLARIX_CORE_MODEL_5 || secrets.ATLARIX_CORE_MODEL_5 }}
+  ATLARIX_CORE_MODEL_6: ${{ vars.ATLARIX_CORE_MODEL_6 || secrets.ATLARIX_CORE_MODEL_6 }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
   NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
@@ -304,6 +319,16 @@ jobs:
           path: native/atlarix-sandbox-linux/target/release/
         continue-on-error: true
 
+      # Not continue-on-error: a Store build without the helper must not ship.
+      - name: Download Landlock helper from the release run
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.store_resubmit_run != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: landlock-helper
+          path: native/atlarix-sandbox-linux/target/release/
+          run-id: ${{ inputs.store_resubmit_run }}
+          github-token: ${{ github.token }}
+
       - name: Build for Windows (Vite)
         shell: pwsh
         env:
@@ -384,7 +409,8 @@ jobs:
           # artifact present, and keeps the strict check — which matters, because
           # shipping a Store build without WSL confinement is exactly what the
           # assertion exists to prevent.
-          ALLOW_UNSANDBOXED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          # A Store re-submit has the helper, so it keeps the strict check too.
+          ALLOW_UNSANDBOXED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.store_resubmit_run == '' && '1' || '' }}
         run: |
           node scripts/win-ci-packager-worker.mjs
           if (-not $?) { exit $LASTEXITCODE }
@@ -395,16 +421,17 @@ jobs:
         run: |
           # NOT `$args` — that is a PowerShell automatic variable.
           $nodeArgs = @("scripts/make-msix.mjs", "--arch", "${{ inputs.arch }}")
-          if ("${{ inputs.upload_wrapper }}" -eq "true") { $nodeArgs += "--upload" }
+          if ("${{ inputs.upload_wrapper }}" -eq "true" -or "${{ inputs.store_resubmit_run }}" -ne "") { $nodeArgs += "--upload" }
           node @nodeArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Submit to the Microsoft Store on release tags. Skipped on manual runs
-      # (workflow_dispatch) — a test build must never reach the Store.
+      # (workflow_dispatch) — a test build must never reach the Store — unless
+      # the run is a `store_resubmit_run`.
       # Non-fatal: a submission failure must not block the release.
       - name: Submit to Microsoft Store
         id: store_submit
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.store_resubmit_run != '' }}
         continue-on-error: true
         shell: pwsh
         env:
@@ -435,7 +462,7 @@ jobs:
         # proceeds and this becomes the only copy of an already-built package.
         # Submission is reliable in practice, so in the normal case this uploads
         # nothing at all.
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.store_submit.outcome == 'failure' }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.store_resubmit_run == '') || steps.store_submit.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: atlarix-msix-${{ inputs.arch }}
@@ -453,7 +480,7 @@ jobs:
           retention-days: 2
 
       - name: Next steps (manual builds only)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.store_resubmit_run == '' }}
         shell: pwsh
         run: |
           Write-Host "MSIX built and uploaded as an artifact (UNSIGNED)."

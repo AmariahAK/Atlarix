@@ -51,7 +51,10 @@ describe("model-identity-prompt", () => {
       name: "core-2",
     });
     expect(id.providerBrand).toBe("deepseek");
-    expect(id.labelWithProvider).toMatch(/\(deepseek\)/);
+    // A Core model is named alone (QA C1): the vendor lives in providerBrand,
+    // not appended to the label.
+    expect(id.labelWithProvider).toBe(id.modelDisplayName);
+    expect(id.labelWithProvider).not.toMatch(/\(deepseek\)/);
     expect(id.modelDisplayName).toMatch(/DeepSeek|Pro/i);
     expect(id.modelDisplayName).not.toMatch(/Compass/i);
 

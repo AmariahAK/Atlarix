@@ -163,6 +163,8 @@ export async function getAutomation(
 export async function createAutomation(
   workspaceId: number,
   input: AutomationInput,
+  /** `sessionId`: the chat whose agent created it (null from the UI). */
+  opts: { sessionId?: string | null } = {},
 ): Promise<{ id: string }> {
   const app = await db.query.apps.findFirst({
     where: eq(apps.id, workspaceId),
@@ -191,6 +193,7 @@ export async function createAutomation(
     runMode: input.runMode,
     notifyAgent: input.notifyAgent,
     model: input.model ? JSON.stringify(input.model) : null,
+    sessionId: opts.sessionId ?? null,
     createdAt: now,
     updatedAt: now,
   });

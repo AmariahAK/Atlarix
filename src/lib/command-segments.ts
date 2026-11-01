@@ -46,12 +46,17 @@ const SEGMENT_SPLIT_RE = /&&|\|\||[|&;\n]/;
  * (`env`, `command`, `builtin`, `exec`, `nohup`, `time`, `nice`). NOT `sudo`,
  * which changes what the command may do and is classified as itself.
  *
+ * An assignment may also end the word it sits on — `f=x; grep` (a variable
+ * set, then the next command) and a bare `f=x` — not just the
+ * whitespace-separated `X=1 grep` form, so a leading assignment never keys a
+ * command category (0o e).
+ *
  * ONE definition for both segmenters. Before it, the permission gate stripped
  * none of `NAME=value`, `env`, `command`, `exec`, `nohup`, so the first word of
  * `X=1 rm a.txt` was "x=1": not a risky command, not an installer, so it ran
  * without asking. `X=1 curl …` and `FOO=bar ssh host` went through the same way.
  */
-const ASSIGNMENT = String.raw`[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s;&|'"]*)\s+`;
+const ASSIGNMENT = String.raw`[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s;&|'"]*)(?:\s+|[;&|]\s*|$)`;
 // `timeout`, `stdbuf` and `xargs`, and options of the others, were missing:
 // `timeout 5 git reset -q --hard` auto-ran in Build, and `timeout 5 git commit`
 // ran as a read in Explore (coordinator's review, 2026-10-20).
@@ -80,6 +85,27 @@ export function stripLeadingWrappers(segment: string): string {
     s = `${m[1] ?? m[2] ?? m[3] ?? ""} ${s.slice(m[0].length)}`.replace(LEADING_PREFIX_RE, "").trim();
   }
   return s;
+}
+
+/** A shell comment line: its first non-whitespace character is `#`. */
+export function isCommentLine(line: string): boolean {
+  return line.trim().startsWith("#");
+}
+
+/**
+ * A command with its leading comment and blank lines removed — the comment is
+ * not the command. `# note\nnpm test` returns `npm test`, so an "always allow"
+ * keys on what actually runs instead of a dead `#` rule (0o d).
+ */
+export function stripLeadingCommentLines(command: string): string {
+  const lines = command.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i]!.trim();
+    if (line !== "" && !line.startsWith("#")) break;
+    i++;
+  }
+  return lines.slice(i).join("\n");
 }
 
 /**
@@ -149,5 +175,7 @@ export function quoteAwareSegments(command: string): string[] | null {
 
   return segments
     .map((s) => stripLeadingWrappers(s))
-    .filter(Boolean);
+    // A comment line is not a command: drop it so a `# note` before the real
+    // command never keys the gate on `#` (0o d).
+    .filter((s) => s && !isCommentLine(s));
 }

@@ -19,12 +19,15 @@
  * prompts …) is a dialog on one stack (dialogs.ts, screens.ts): while one is
  * open it owns the keyboard, and esc closes it.
  */
+import { augmentsChanged, openMods, openPlugins } from "./plugins";
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { setTerminalHyperlinks } from "./links";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
 import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
+import { commandRowLabel, stripRows } from "./dock-logic";
+import type { StripRow } from "./dock-logic";
 
 /**
  * Escape sequences the renderer does not draw itself (the tab title, the
@@ -42,8 +45,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession, LiveTask, SessionState, WorkMode } from "../agent/session";
 import { Approval, approvalChoices, approvalKey } from "./Approval";
 import { decodePasteBytes, type PasteEvent } from "@opentui/core";
-import { AUTO_CONSENT_MARKER } from "@/shared/billing_copy";
-import { COMMANDS, matchCommands, parseCommandLine } from "./commands";
+import { AUTO_CONSENT_MARKER, FREE_LIMIT_MARKER, formatResetsIn } from "@/shared/billing_copy";
+import { freeAutoResetsAt } from "@/lib/billing/free-auto-gate";
+import { COMMANDS, matchCommands, parseCommandLine, type SlashCommand } from "./commands";
+import type { ContextWorkingWindowSetting } from "@/lib/context/mid-loop-threshold";
 import { DialogHost, InputDialog, ListDialog, type Line, type ListItem } from "./dialogs";
 import { DialogOverlay, DialogPanel } from "./Dialog";
 import { Toast, type ToastState, type ToastVariant } from "./Toast";
@@ -72,7 +77,7 @@ import {
   openResume,
   openRewind,
   openStatus,
-  openStats,
+  openUsage,
   type PendingEdit,
   runCompact,
   runExport,
@@ -80,6 +85,7 @@ import {
   type ScreenContext,
 } from "./screens";
 import { Composer, type ComposerApi } from "./Composer";
+import type { Placeholder } from "../composer/model";
 import {
   groupOptions,
   rememberChoice,
@@ -96,9 +102,10 @@ import {
   topLevel,
   type EffortChoices,
 } from "@/lib/routing/model-reasoning-profile";
+import { ratingAnswerFor, ratingSnoozesOn } from "./rating-keys";
 import { filterEntries, listWorkspaceEntries, mentionAt, mentionInsert } from "../agent/file-index";
 import { parseShellInput } from "../agent/shell-mode";
-import { abbreviatePath, activityLabel, formatTokens, oneLine } from "./format";
+import { abbreviatePath, activityLabel, contextLabel, formatTokens, oneLine } from "./format";
 import { copyText } from "./clipboard";
 import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
@@ -135,7 +142,7 @@ const MODE_HINT: Record<WorkMode, string> = {
   ask: "read, search and run; no edits",
   plan: "write a plan to agree on first",
   debug: "find the cause, then fix it",
-  review: "review changes and point out problems",
+  review: "review what you name and what it touches",
 };
 
 export interface AppProps {
@@ -221,7 +228,27 @@ export function lastRelic(cells: SessionState["cells"]): string | null {
 }
 
 /** A failed turn: what happened, and the way out (limits.ts). */
-function ErrorBlock({ notice }: { notice: ErrorNotice }) {
+/**
+ * Free Auto's "Resets in …", ticking. The agent runs in this process, so the
+ * held limit (free-auto-gate.ts) is the live reset time; every resend before
+ * it is answered from there without a request.
+ */
+function useFreeLimitCountdown(notice: ErrorNotice): string | undefined {
+  const live = notice.title === FREE_LIMIT_MARKER;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [live]);
+  if (!live) return notice.detail;
+  const at = freeAutoResetsAt(now);
+  if (at == null) return notice.detail?.startsWith("Resets in") ? "Free Atlarix Auto is back. Send again." : notice.detail;
+  return `Resets in ${formatResetsIn(at, now)}.`;
+}
+
+function ErrorBlock({ notice: given }: { notice: ErrorNotice }) {
+  const notice = { ...given, detail: useFreeLimitCountdown(given) };
   const fg = notice.tone === "warn" ? color.warn : color.error;
   return (
     <box flexDirection="column" flexShrink={0} border={["left"]} borderColor={fg} paddingLeft={1} marginTop={1}>
@@ -253,15 +280,7 @@ function age(ms: number): string {
   return sec >= 60 ? `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, "0")}s` : `${sec}s`;
 }
 
-/** A row under the prompt box: one per sub-agent; every background command shares one. */
-export type StripRow = { kind: "agent"; task: LiveTask } | { kind: "commands"; tasks: LiveTask[] };
-
-export function stripRows(tasks: LiveTask[]): StripRow[] {
-  const rows: StripRow[] = tasks.filter((t) => t.kind === "agent").map((task) => ({ kind: "agent", task }));
-  const commands = tasks.filter((t) => t.kind === "command");
-  if (commands.length) rows.push({ kind: "commands", tasks: commands });
-  return rows;
-}
+// StripRow, stripRows, and commandRowLabel live in dock-logic.ts (pure, testable).
 
 /** Agent rows shown before the rest fold into "… N more". */
 const AGENT_ROWS = 6;
@@ -294,14 +313,15 @@ function AgentRows({ rows, width, selected, main }: { rows: StripRow[]; width: n
       {shown.map((r, i) => {
         const picked = selected === start + i;
         if (r.kind === "commands") {
-          const n = r.tasks.length;
           const longest = Math.max(...r.tasks.map((t) => t.elapsedMs));
+          const label = commandRowLabel(r.tasks);
+          const mark = r.stalled ? "◈" : glyph.tool.running;
           return line(
             "commands",
             picked,
-            glyph.tool.running,
-            color.code,
-            `${n} command${n === 1 ? "" : "s"}`,
+            mark,
+            r.stalled ? color.muted : color.code,
+            label,
             r.tasks.map((t) => t.label.split("\n")[0]).join(", "),
             age(longest),
           );
@@ -323,13 +343,6 @@ function AgentRows({ rows, width, selected, main }: { rows: StripRow[]; width: n
 
 /** Commands that change the conversation: typed mid-turn, they wait for it to end. */
 const AFTER_TURN = new Set(["/compact", "/new", "/resume", "/undo", "/import", "/fork"]);
-
-/** "context 23% · 47k/205k", or null before the first step reports. */
-export function contextLabel(s: Pick<SessionState, "contextPercent" | "contextUsed" | "contextLimit">): string | null {
-  if (s.contextPercent == null) return null;
-  const of = s.contextUsed != null && s.contextLimit ? ` · ${formatTokens(s.contextUsed)}/${formatTokens(s.contextLimit)}` : "";
-  return `context ${s.contextPercent}%${of}`;
-}
 
 /** "2 agents · 1 command" running in the background, or null. */
 export function runningLabel(r: { agents: number; commands: number }): string | null {
@@ -573,11 +586,12 @@ export function App({
   }, [renderer, copy]);
   const { width, height } = useTerminalDimensions();
   // Sent prompts, oldest first, for ↑/↓ (like every shell and the other CLIs).
-  const history = useRef<string[]>([]);
+  // Each carries its chips, so recall restores the pastes behind the labels (0ab).
+  const history = useRef<Array<{ text: string; placeholders: Placeholder[] }>>([]);
   const historyIndex = useRef<number | null>(null);
-  const remember = (text: string) => {
+  const remember = (text: string, placeholders: Placeholder[] = []) => {
     const t = text.trim();
-    if (t && history.current.at(-1) !== t) history.current.push(t);
+    if (t && history.current.at(-1)?.text !== t) history.current.push({ text: t, placeholders });
     historyIndex.current = null;
   };
 
@@ -802,6 +816,8 @@ export function App({
   });
   /** The next line typed goes to /feedback, not the model (after a rating, or a bare /feedback). */
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  /** The turn count at which typing snoozed the rating prompt; it may ask again after the next turn. */
+  const [ratingSnoozedTurn, setRatingSnoozedTurn] = useState(-1);
   useEffect(() => {
     if (!services?.feedback) return; // without it (test fakes) nothing is asked
     void services.feedback.askedAt().then(setRatedAt, () => setRatedAt(undefined));
@@ -818,6 +834,7 @@ export function App({
     !host.open &&
     !draft &&
     !feedbackOpen &&
+    ratingSnoozedTurn !== turnsDone &&
     shouldAskRating({
       turns: turnsDone,
       ratedAt,
@@ -933,6 +950,37 @@ export function App({
   // The background update: a toast while it installs, then a notice that
   // stays above the prompt box ("Update installed · restart to use v14.53.0").
   const [updateNotice, setUpdateNotice] = useState<string | null>(null);
+  // Mods' status line and toasts (lib/plugins/mod-host.ts): the CLI runs the
+  // same main-side code in-process, so it listens to the events directly.
+  const [modStatus, setModStatus] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let off = () => {};
+    void import("@/lib/plugins/mod-host").then(({ modUiEvents }) => {
+      const on = (e: import("@/lib/plugins/mod-host").ModUiEvent) => {
+        if (e.kind === "status") {
+          setModStatus((st) => {
+            const next = { ...st };
+            if (e.text) next[e.plugin] = e.text;
+            else delete next[e.plugin];
+            return next;
+          });
+        } else if (e.kind === "toast") flash(`${e.plugin}: ${e.text}`, 5000);
+        else if (e.kind === "open") flash(`${e.plugin}: ${e.title} · /mods to see it`, 6000);
+        else if (e.kind === "off") {
+          setModStatus((st) => {
+            const next = { ...st };
+            delete next[e.plugin];
+            return next;
+          });
+          flash(`${e.plugin}'s mod is off: ${e.reason}`, 8000, "warn");
+        }
+      };
+      modUiEvents.on("ui", on);
+      off = () => modUiEvents.off("ui", on);
+    });
+    return () => off();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     autoUpdate?.((e) => {
       if (e.kind === "installing") flash(`Updating to v${e.version}…`, 30_000);
@@ -944,10 +992,53 @@ export function App({
     });
   }, []);
 
+  // Installed plugins' commands: listed in the palette, sent as a message
+  // (chat:stream expands them). Re-read each time the palette opens.
+  const [pluginCommands, setPluginCommands] = useState<SlashCommand[]>([]);
+  const paletteOpening = draft === "/";
+  useEffect(() => {
+    if (!paletteOpening && pluginCommands.length) return;
+    svc()
+      .plugins.commands(session.workspaceDir)
+      .then((list) =>
+        setPluginCommands(
+          list.map((c) => ({
+            name: `/${c.name}`,
+            description: `${c.description}${c.argumentHint ? ` ${c.argumentHint}` : ""} · ${c.plugin}`,
+            group: "plugin" as const,
+          })),
+        ),
+      )
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paletteOpening]);
+  useEffect(() => {
+    const reload = () =>
+      void svc()
+        .plugins.commands(session.workspaceDir)
+        .then((list) =>
+          setPluginCommands(
+            list.map((c) => ({
+              name: `/${c.name}`,
+              description: `${c.description}${c.argumentHint ? ` ${c.argumentHint}` : ""} · ${c.plugin}`,
+              group: "plugin" as const,
+            })),
+          ),
+        )
+        .catch(() => {});
+    augmentsChanged.on("change", reload);
+    return () => {
+      augmentsChanged.off("change", reload);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const isPluginCommand = (name: string) =>
+    pluginCommands.some((c) => c.name === name) && !COMMANDS.some((c) => c.name === name);
+
   const approval = state.approvals[0] ?? null;
   const palette = useMemo(
-    () => (!approval && draft.startsWith("/") && !draft.includes("\n") ? matchCommands(draft) : []),
-    [draft, approval],
+    () => (!approval && draft.startsWith("/") && !draft.includes("\n") ? matchCommands(draft, pluginCommands) : []),
+    [draft, approval, pluginCommands],
   );
 
   /**
@@ -979,7 +1070,7 @@ export function App({
             detail: alias ? o.providerName : undefined,
             keywords: `${o.providerName} ${o.name}`,
             gutter: isCurrent ? { text: "●", tone: "accent" } : fav ? { text: "★", tone: "heading" } : undefined,
-            right: o.free ? { text: "Free", tone: "accent" } : o.context ? { text: o.context, tone: "muted" } : undefined,
+            right: o.free ? { text: "Free", tone: "accent" } : o.credit ? { text: "Credit", tone: "muted" } : o.context ? { text: o.context, tone: "muted" } : undefined,
           });
         }
       }
@@ -1231,7 +1322,9 @@ export function App({
       live = false;
     };
   }, [state.planReady?.planId, state.planRevision]);
-  const planShown = pinnedPlan != null && !planHidden;
+  // Hide as soon as a turn starts: a stopped build's card must not stay pinned
+  // over the next turn while it is already thinking (QA 2026-10-31).
+  const planShown = pinnedPlan != null && !planHidden && !state.busy;
   const buildPinned = () => {
     if (!pinnedPlan) return;
     setPinnedPlan(null);
@@ -1369,6 +1462,12 @@ export function App({
         return openAutomations(ctx);
       case "/mcp":
         return openMcp(ctx);
+      case "/silks":
+      case "/augments":
+      case "/plugins":
+        return openPlugins(ctx);
+      case "/mods":
+        return openMods(ctx);
       case "/computer":
         return void openComputer(rest);
       case "/permissions":
@@ -1391,8 +1490,9 @@ export function App({
         return openBilling(ctx);
       case "/status":
         return openStatus(ctx);
+      case "/usage":
       case "/stats":
-        return openStats(ctx);
+        return openUsage(ctx);
       case "/login":
         return guard(openLogin(ctx));
       case "/logout":
@@ -1430,6 +1530,77 @@ export function App({
       case "/effort":
         void openEffort(rest);
         return;
+      case "/context":
+        return void (async () => {
+          const { readSettings, writeSettings } = await import("@/main/settings");
+          const { getContextWindow } = await import("@/ipc/utils/token_utils");
+          const { contextWorkingWindowTokens } = await import(
+            "@/lib/context/mid-loop-threshold"
+          );
+          const settings = readSettings();
+          const current: ContextWorkingWindowSetting =
+            settings.contextWorkingWindow ?? "256k";
+          const threshold =
+            settings.aiConfiguration?.contextSummarization
+              ?.compactionThreshold ?? 0.75;
+          const raw = await getContextWindow(
+            session.turnModel() as never,
+            session.chatId,
+          ).catch(() => null as number | null);
+          const working =
+            raw != null ? contextWorkingWindowTokens(raw, current) : null;
+          const point =
+            working != null ? Math.floor(threshold * working) : null;
+
+          const intro: Line[] = [];
+          if (session.state.contextPercent != null) {
+            intro.push({
+              text: `Context: ${session.state.contextPercent}% used`,
+            });
+          }
+          if (point != null) {
+            intro.push({
+              text: `Compacts at ${Math.round(threshold * 100)}%`,
+            });
+          }
+
+          host.push(
+            new ListDialog({
+              title: "Context window",
+              intro,
+              items: [
+                {
+                  id: "256k",
+                  label: "256k",
+                  right: { text: "default", tone: "muted" as const },
+                },
+                {
+                  id: "512k",
+                  label: "512k",
+                  detail: "Keeps more of the conversation; every step costs more.",
+                },
+                {
+                  id: "full",
+                  label: "Full window",
+                  detail: "Keeps more of the conversation; every step costs more.",
+                },
+              ],
+              initialId: current,
+              footer: "↑↓ move · enter choose · esc close",
+              onChoose: (item) => {
+                writeSettings({
+                  contextWorkingWindow: item.id as ContextWorkingWindowSetting,
+                });
+                host.closeAll();
+                flash(
+                  `Context window: ${item.id === "full" ? "full" : item.id}.`,
+                  3000,
+                );
+                void session.refreshContext();
+              },
+            }),
+          );
+        })();
       case "/quit":
       case "/exit":
         onQuit();
@@ -1556,6 +1727,18 @@ export function App({
       if ((key.name === "tab" && !key.shift) || key.name === "return") {
         const typed = parseCommandLine(composer.current?.text() ?? "");
         const chosen = palette[Math.min(paletteIndex, palette.length - 1)]!.name;
+        if (isPluginCommand(chosen)) {
+          // An augment's command is a message. Typed in full, Enter sends it as
+          // one (the composer submits; A1: Enter only ever refilled "/count ",
+          // which still matched, so a command with no text could never run).
+          // Otherwise tab or enter fills it in for its text.
+          const typedNow = (composer.current?.text() ?? "").trim();
+          if (key.name === "return" && typedNow === chosen) return;
+          composer.current?.setText(`${chosen} `);
+          setPaletteIndex(0);
+          key.preventDefault();
+          return;
+        }
         runCommand(chosen, typed?.name === chosen ? typed.rest : "");
         setPaletteIndex(0);
         key.preventDefault();
@@ -1607,7 +1790,7 @@ export function App({
     // ↑/↓ recall sent prompts when the box is empty or already showing one.
     if ((key.name === "up" || key.name === "down") && !key.meta && !key.option && !key.shift && !key.ctrl) {
       const current = composer.current?.text() ?? "";
-      const browsing = historyIndex.current != null && current === history.current[historyIndex.current];
+      const browsing = historyIndex.current != null && current === history.current[historyIndex.current]?.text;
       if ((current === "" && key.name === "up") || browsing) {
         const h = history.current;
         let i = historyIndex.current ?? h.length;
@@ -1619,7 +1802,7 @@ export function App({
           composer.current?.clear();
         } else {
           historyIndex.current = i;
-          composer.current?.setText(h[i]!);
+          composer.current?.setDraft(h[i]!.text, h[i]!.placeholders);
         }
         return;
       }
@@ -1647,9 +1830,14 @@ export function App({
       key.preventDefault();
       return setFeedbackOpen(false);
     }
-    if (askRating && !key.ctrl && !key.meta && ["0", "1", "2", "3"].includes(key.name ?? "")) {
-      key.preventDefault();
-      return answerRating(key.name as "0" | "1" | "2" | "3");
+    if (askRating) {
+      const answer = ratingAnswerFor(key, { asking: true, composerText: composer.current?.text() ?? "" });
+      if (answer) {
+        key.preventDefault();
+        return answerRating(answer);
+      }
+      // Typing: the prompt steps aside until the next turn ends (QA 2026-10-30).
+      if (ratingSnoozesOn(key)) setRatingSnoozedTurn(turnsDone);
     }
     if (planShown && !host.open && (key.name === "pageup" || key.name === "pagedown")) {
       key.preventDefault();
@@ -1699,7 +1887,7 @@ export function App({
       const s = composer.current?.submission();
       if (!s?.display) return;
       composer.current?.clear();
-      remember(s.display);
+      remember(s.display, s.placeholders);
       if (state.busy) session.queueNext(s.prompt);
       else void session.submit(s.prompt, { display: s.display, images: s.images });
       return;
@@ -1725,7 +1913,7 @@ export function App({
     }
   });
 
-  const onSubmit = (s: { prompt: string; display: string; images: Array<{ path: string; mime: string; label: string }> }) => {
+  const onSubmit = (s: { prompt: string; display: string; images: Array<{ path: string; mime: string; label: string }>; placeholders: Placeholder[] }) => {
     if (feedbackOpen && s.display.trim() && !s.display.trim().startsWith("/")) {
       if (s.display.trim().length > FEEDBACK_MAX) return flash(FEEDBACK_TOO_LONG, 6000, "error");
       setFeedbackOpen(false);
@@ -1734,14 +1922,14 @@ export function App({
     }
     const command = parseCommandLine(s.display);
     if (command) {
-      remember(s.display);
+      remember(s.display, s.placeholders);
       return runCommand(command.name, command.rest);
     }
     // "/something" that is no command: say so, never send it to the model as a
     // message (it answered "/commands" with a page of guesses). "/" alone, or
     // "/commands", opens the list.
     const slash = /^\/(\S*)\s*$/.exec(s.display.trim());
-    if (slash && !s.display.trim().includes("/", 1)) {
+    if (slash && !s.display.trim().includes("/", 1) && !isPluginCommand(`/${slash[1]}`)) {
       composer.current?.clear();
       if (!slash[1] || slash[1] === "commands") {
         composer.current?.setText("/");
@@ -1753,7 +1941,7 @@ export function App({
     const editing = editRef.current;
     if (editing) {
       composer.current?.clear();
-      remember(s.display);
+      remember(s.display, s.placeholders);
       setEdit(null);
       void session.resendEdited(editing.messageId, s.prompt, editing.restoreTurnIds).then(
         ({ restoredFiles, kept }) => {
@@ -1770,12 +1958,12 @@ export function App({
     const shell = parseShellInput(s.display);
     if (shell) {
       composer.current?.clear();
-      remember(s.display);
+      remember(s.display, s.placeholders);
       void session.runShell(shell);
       return;
     }
     composer.current?.clear();
-    remember(s.display);
+    remember(s.display, s.placeholders);
     void session.submit(s.prompt, { display: s.display, images: s.images });
   };
 
@@ -1895,6 +2083,11 @@ export function App({
       {working ? (
         <box flexDirection="column" flexShrink={0}>
           <WorkingLine activity={activity!} since={state.turnStartedAt} tokens={state.tokensThisTurn} cells={state.cells} />
+        </box>
+      ) : null}
+      {Object.keys(modStatus).length ? (
+        <box flexDirection="row" justifyContent="flex-end" flexShrink={0}>
+          <text fg={color.textDim}>{Object.values(modStatus).join(" · ")}</text>
         </box>
       ) : null}
       {updateNotice ? (

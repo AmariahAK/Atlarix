@@ -1,4 +1,6 @@
 import type { ModelMessage } from "ai";
+import log from "electron-log";
+const logger = log.scope("tier_context_budget");
 import type { LargeLanguageModel, UserSettings } from "../schemas";
 import {
   summarizeMessagesWithCompactionPrompt,
@@ -317,6 +319,19 @@ export interface MidLoopCompactionParams {
   tierLimit: number;
   /** Window MINUS the reply reserve; falls back to `tierLimit`. */
   usableTokens?: number;
+  /**
+   * The turn's compaction point (threshold × working window, capped by usable) —
+   * the mid-turn check's trigger, matching the pre-dispatch gate. Absent → the
+   * usable budget, so a caller that hasn't computed the point still works.
+   */
+  compactionLimit?: number;
+  /**
+   * Bound tool descriptions + schemas for this turn — the half of the prefix the
+   * estimate used to omit (0j: the trigger re-decided "under the point" on a
+   * round the guard had already ended, because tool schemas were not counted).
+   * Added on top of the message + system-prompt estimate.
+   */
+  toolSurfaceTokens?: number;
   /** Trigger compaction when `(systemPromptEstimate + history)` exceeds `usableTokens`. */
   /** Last N protected user+assistant exchanges (default 3 — matches `enforceTierContextBudget`). */
   protectExchanges?: number;
@@ -332,6 +347,19 @@ export interface MidLoopCompactionParams {
   sessionStats?: { toolCallCount?: number; delegationCount?: number };
   /** v10: when set, summarization tokens count toward this chat's turn usage. */
   chatId?: number;
+  /**
+   * The model THIS turn runs on. The summary must be written by it: without it the
+   * summarizer fell back to the chat's STORED model (Auto by default), which bills
+   * a different model and fails outright for a BYOK user who is not signed in
+   * ("Atlarix Auto isn't offered right now").
+   */
+  model?: { provider: string; name: string };
+  /**
+   * Do not summarise at or below this count. Set by a caller whose previous attempt
+   * this round failed or freed too little, so a broken or useless summariser is not
+   * called again on every step - only after the context has grown meaningfully.
+   */
+  attemptAbove?: number;
 }
 
 export interface MidLoopCompactionResult {
@@ -361,18 +389,24 @@ export interface MidLoopCompactionResult {
 export async function compactAgenticMessagesIfNeeded(
   params: MidLoopCompactionParams,
 ): Promise<MidLoopCompactionResult> {
-  // Compact only near the usable limit (opencode's rule). `usable` is the window
-  // minus the room the reply needs, so there is no separate ratio to tune.
+  // Compact at the turn's compaction point when given (the working-window rule),
+  // else near the usable limit (opencode's rule) — the window minus the room the
+  // reply needs, so there is no separate ratio to tune.
   const protect = params.protectExchanges ?? 3;
-  const usable = params.usableTokens ?? params.tierLimit;
+  const usable = params.compactionLimit ?? params.usableTokens ?? params.tierLimit;
 
   const tokensOf = (m: ModelMessage) =>
     estimateTokens(modelMessageText(m.content));
   const total = (msgs: ModelMessage[]) =>
-    msgs.reduce((acc, m) => acc + tokensOf(m), 0) + params.systemPromptEstimate;
+    msgs.reduce((acc, m) => acc + tokensOf(m), 0) +
+    params.systemPromptEstimate +
+    (params.toolSurfaceTokens ?? 0);
 
-  const beforeTokens = total(params.messages);
-  if (beforeTokens <= usable) {
+  const beforeTokens = total(params.nativeMessages ?? params.messages);
+  if (
+    beforeTokens <= usable ||
+    (params.attemptAbove != null && beforeTokens <= params.attemptAbove)
+  ) {
     return {
       messages: params.messages,
       compacted: false,
@@ -391,6 +425,7 @@ export async function compactAgenticMessagesIfNeeded(
     })),
   );
   if (entries.length === 0) {
+    logger.log(`[compaction] declined over the point: no conversation entries (estimate ${beforeTokens}, point ${usable})`);
     return {
       messages: params.messages,
       compacted: false,
@@ -412,8 +447,23 @@ export async function compactAgenticMessagesIfNeeded(
       break;
     }
   }
-  const firstProtectedOriginalIndex =
+  let firstProtectedOriginalIndex =
     e + 1 < entries.length ? entries[e + 1].i : params.messages.length;
+  // Never start the kept tail on a TOOL RESULT. The walk above runs on the
+  // flattened view, where a tool result is a "user" entry, so the cut can land
+  // between an assistant's tool_calls and its results; the native tail then opens
+  // with a role "tool" message whose call was summarised away, and DeepSeek /
+  // OpenAI reject the whole request ("Messages with role 'tool' must be a
+  // response to a preceding message with 'tool_calls'"). Step back to the
+  // assistant message that made the calls, so call and results stay together.
+  const pairing = params.nativeMessages ?? params.messages;
+  while (
+    firstProtectedOriginalIndex > 0 &&
+    firstProtectedOriginalIndex < pairing.length &&
+    pairing[firstProtectedOriginalIndex]?.role === "tool"
+  ) {
+    firstProtectedOriginalIndex--;
+  }
 
   const head = params.messages.slice(0, firstProtectedOriginalIndex);
   const tail = params.messages.slice(firstProtectedOriginalIndex);
@@ -423,6 +473,7 @@ export async function compactAgenticMessagesIfNeeded(
 
   // Without anything to summarize, just return as-is.
   if (headConversation.length === 0) {
+    logger.log(`[compaction] declined over the point: nothing before the protected tail to summarise (estimate ${beforeTokens}, point ${usable})`);
     return {
       messages: params.messages,
       compacted: false,
@@ -440,8 +491,10 @@ export async function compactAgenticMessagesIfNeeded(
     })),
     sessionStats: params.sessionStats,
     chatId: params.chatId,
+    ...(params.model ? { model: params.model } : {}),
   });
   if (!summary) {
+    logger.log(`[compaction] declined over the point: the summariser returned nothing (estimate ${beforeTokens}, point ${usable})`);
     return {
       messages: params.messages,
       compacted: false,

@@ -38,6 +38,7 @@ import { handler } from "./ipc";
 import { readCliState, turnModelFor } from "./models";
 import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
 import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
+import type { SessionLineage, SessionOrigin } from "@/shared/session-lineage";
 
 /** The desktop's five work modes (WorkModeSchema); "ask" is shown as Explore. */
 export type WorkMode = "build" | "ask" | "plan" | "debug" | "review";
@@ -49,6 +50,54 @@ export interface PendingApproval {
     operation?: string;
     preview?: unknown;
   };
+  /** The tool cell that asked, captured when the request arrived (0o c). */
+  askingCellId?: string;
+}
+
+/**
+ * Distil a PendingApproval into the summary a peer reviewer needs (0aa).
+ * Never includes full file content or secrets — just the one-line description.
+ */
+function approvalSummary(a: PendingApproval): import("@/lib/peers/peers").PendingApprovalSummary {
+  const p = firstPreview(a);
+  const summary =
+    p.command
+      ? p.command
+      : p.path
+        ? `${p.type ?? "edit"} ${p.path}`
+        : p.deniedPath
+          ? `sandbox write denied: ${p.deniedPath}`
+          : (p as { description?: string }).description ?? a.request.operation ?? "unknown";
+  return {
+    operationId: a.operationId,
+    operation: a.request.operation,
+    summary,
+    ...(p.workingDirectory ? { cwd: p.workingDirectory } : {}),
+    ...(p.isDangerous ? { isDangerous: true } : {}),
+    ...(p.systemScope ? { systemScope: true } : {}),
+  };
+}
+
+/**
+ * Whether a peer session may approve this request (0aa security gate).
+ *
+ * A peer can approve routine in-workspace edits and commands. It CANNOT
+ * substitute for the owner on high-risk requests — those stay on screen
+ * until the owner answers them:
+ *
+ *  - systemScope / isDangerous (outside-workspace writes, dangerous commands)
+ *  - sandbox_escalation (granting a new writable path)
+ *
+ * Dynamic signals only — no static command regex (owner verdict, 2026-11-01).
+ */
+function isPeerApprovable(a: PendingApproval): boolean {
+  const p = firstPreview(a);
+  // Dynamic signals only — no static command regex (owner verdict, 2026-11-01).
+  // Any request the gate already flagged as dangerous or system-scope.
+  if (p.isDangerous || p.systemScope) return false;
+  // Sandbox escalation: granting a new writable path is always owner-only.
+  if (a.request.operation === "sandbox_escalation") return false;
+  return true;
 }
 
 export interface QueuedMessage {
@@ -141,6 +190,12 @@ export interface SessionSummary {
   title: string | null;
   updatedAt: Date | string;
   workMode: string | null;
+  /** Where it came from (src/shared/session-lineage.ts); lists put it under its parent. */
+  parentSessionId?: string | null;
+  origin?: SessionOrigin | null;
+  depth?: number;
+  runs?: number;
+  parentTitle?: string;
 }
 
 /** The desktop's answer for a question left unanswered (InlineUserQuestions). */
@@ -339,6 +394,29 @@ function lastAnchorCell(cells: readonly Cell[]): string {
     return c.id;
   }
   return "";
+}
+
+/** The last tool cell — the "under the asking row" fallback for an approval receipt. */
+function lastToolCell(cells: readonly Cell[]): string {
+  for (let i = cells.length - 1; i >= 0; i--) {
+    if (cells[i]!.kind === "tool") return cells[i]!.id;
+  }
+  return "";
+}
+
+/**
+ * Where an answered approval's receipt goes: under the row that asked. The
+ * asking cell is captured at request time (`askingCellId`), while it was still
+ * running; `askingToolCell` finds one still running now; the last tool cell is
+ * the fallback "under the asking row" — never the end of the transcript (0o c).
+ */
+export function approvalReceiptAnchor(
+  cells: readonly Cell[],
+  asked: { command?: string; path?: string },
+  askingCellId: string | undefined,
+): string {
+  const running = askingToolCell(cells, asked);
+  return askingCellId ?? running ?? lastToolCell(cells);
 }
 
 /**
@@ -621,11 +699,15 @@ export class AgentSession extends EventEmitter {
    * next turn continues it, its mode back. The desktop's own sequence
    * (allocate-transport → get → hydrate-transport).
    */
-  async resume(sessionId: string): Promise<void> {
+  async resume(sessionId: string): Promise<{ parent?: { id: string; title: string } }> {
     if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it), then resume.");
     clearAccountMcpServers();
     const { chatId } = (await (await handler("sessions:allocate-transport"))({}, sessionId)) as { chatId: number };
-    const got = (await (await handler("sessions:get"))({}, sessionId)) as { session: SessionSummary; messages: SavedMessage[] };
+    const got = (await (await handler("sessions:get"))({}, sessionId)) as {
+      session: SessionSummary;
+      parent?: { id: string; title: string } | null;
+      messages: SavedMessage[];
+    };
     const rows = got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
     await (await handler("sessions:hydrate-transport"))({}, { chatId, sessionId, rows });
     await this.newSession({ opening: sessionId });
@@ -655,6 +737,7 @@ export class AgentSession extends EventEmitter {
         this.update({ contextUsed: last, contextLimit: this.contextWindow, contextPercent: Math.min(100, Math.round((last / this.contextWindow) * 100)) });
       }
     }
+    return got.parent ? { parent: got.parent } : {};
   }
 
   /** The session's saved messages as this session's own: what resume and a follow show. */
@@ -769,7 +852,10 @@ export class AgentSession extends EventEmitter {
 
   /** `atlarix -c`: the newest session in this folder, if there is one. */
   async resumeLatest(): Promise<boolean> {
-    const [latest] = await this.listSessions();
+    // The list comes as trees; the newest chat worked in, not an automation's run.
+    const [latest] = (await this.listSessions())
+      .filter((s) => s.origin?.via !== "automation")
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     if (!latest) return false;
     await this.resume(latest.id);
     return true;
@@ -1386,14 +1472,19 @@ export class AgentSession extends EventEmitter {
     this.removeAllListeners();
   }
 
-  private async ensureSession(): Promise<void> {
+  private async ensureSession(lineage?: SessionLineage): Promise<void> {
     if (this.sessionId) return;
     // An editor thread claims its session: opened before any message, it must
     // not be handed to (or pruned by) the next session started in this folder.
+    // Started by another session's message: it is that one's child.
+    const opts = {
+      ...(this.surface === "editor" ? { claim: true, ...(this.reservedId ? { id: this.reservedId } : {}) } : {}),
+      ...(lineage ? { lineage } : {}),
+    };
     const started = (await (await handler("sessions:start"))(
       {},
       this.appId,
-      this.surface === "editor" ? { claim: true, ...(this.reservedId ? { id: this.reservedId } : {}) } : undefined,
+      Object.keys(opts).length ? opts : undefined,
     )) as {
       sessionId: string;
       chatId: number;
@@ -1423,8 +1514,12 @@ export class AgentSession extends EventEmitter {
       chatId: 0,
       name: `New ${this.surface === "editor" ? "editor" : "CLI"} session (${path.basename(this.workspaceDir)})`,
       workspace: this.workspaceDir,
-      materialize: async () => {
-        await this.ensureSession();
+      materialize: async (from) => {
+        await this.ensureSession(
+          from.sessionId && from.sessionId !== "unknown"
+            ? { parentSessionId: from.sessionId, origin: { via: "peer", by: { sessionId: from.sessionId, name: from.name, surface: from.surface } } }
+            : undefined,
+        );
         return { sessionId: this.sessionId, chatId: this.chatId };
       },
     });
@@ -1550,6 +1645,25 @@ export class AgentSession extends EventEmitter {
       opts = { ...opts, display };
       this.lastTurn = { text, opts };
     }
+    // A text-only own-key model cannot see images: refuse at once and keep the
+    // message in the box, instead of sending the image and surfacing the
+    // provider's raw "messages.content.type is invalid" error (QA 2026-10-31).
+    // Auto is unaffected: detectVisionCapability returns true for atlarix/auto
+    // (the proxy climbs to a vision model).
+    if ((opts.images?.length ?? 0) > 0) {
+      const { detectVisionCapability } = await import(
+        "@/lib/routing/model-capability-profile"
+      );
+      const m = this.turnModel();
+      if (m && !detectVisionCapability(m.provider, m.name)) {
+        this.update({
+          busy: false,
+          phase: null,
+          lastError: `${m.name} can't see images: switch model, or send without it`,
+        });
+        return;
+      }
+    }
     const attachments = (opts.images ?? []).map((img) => ({
       name: path.basename(img.path),
       type: img.mime,
@@ -1620,12 +1734,37 @@ export class AgentSession extends EventEmitter {
     }
   }
 
-  private async refreshContextWindow(): Promise<void> {
+  async refreshContextWindow(): Promise<void> {
     try {
       const { getContextWindow } = await import("@/ipc/utils/token_utils");
-      this.contextWindow = await getContextWindow(this.turnModel() as never, this.chatId);
+      const { readSettings } = await import("@/main/settings");
+      const { contextWorkingWindowTokens } = await import(
+        "@/lib/context/mid-loop-threshold"
+      );
+      const raw = await getContextWindow(this.turnModel() as never, this.chatId);
+      // The context bar reports against the WORKING window (when compaction
+      // fires), not the raw window — same rule as the desktop app.
+      this.contextWindow = contextWorkingWindowTokens(
+        raw,
+        readSettings().contextWorkingWindow,
+      );
     } catch {
       this.contextWindow = null;
+    }
+  }
+
+  /** Re-read the context window after the working-window setting changed, and
+   * re-measure the bar against it now (not just on the next turn). */
+  async refreshContext(): Promise<void> {
+    await this.refreshContextWindow();
+    if (this.contextWindow && this.state.contextUsed != null) {
+      this.update({
+        contextLimit: this.contextWindow,
+        contextPercent: Math.min(
+          100,
+          Math.round((this.state.contextUsed / this.contextWindow) * 100),
+        ),
+      });
     }
   }
 
@@ -1962,16 +2101,32 @@ export class AgentSession extends EventEmitter {
 
   async answerApproval(
     operationId: string,
-    approvalMode: "once" | "deny" | "always_allow" | "always_allow_file" | "always_allow_directory",
+    approvalMode: "once" | "deny" | "always_allow" | "always_allow_file" | "always_allow_folder" | "always_allow_directory",
   ): Promise<void> {
     const answered = this.state.approvals.find((a) => a.operationId === operationId);
     const line = answered ? approvalConfirmation(answered, approvalMode) : null;
-    // Under the line that asked: the tool call the turn is waiting on is the last one now.
+    // Under the line that asked, never at the transcript end. `askingCellId` is
+    // captured when the request arrived (addApproval), while its tool cell was
+    // still running; at answer time a "running" search would miss a cell that
+    // already finished (a batch answered before anything runs) and the receipt
+    // would stack at the bottom (0o c).
     if (line) {
+      const asked = firstPreview(answered!);
+      const anchor = approvalReceiptAnchor(this.state.cells, asked, answered?.askingCellId);
+      const running = askingToolCell(this.state.cells, asked);
+      const branch =
+        answered?.askingCellId === anchor
+          ? "askingCellId"
+          : running === anchor
+            ? "askingToolCell"
+            : "lastToolCell";
+      void import("electron-log").then((m) =>
+        m.default.info(`[approval-receipt] op=${operationId} anchor=${anchor} via=${branch}`),
+      );
       this.wakeNotes.push({
         id: operationId,
         cellId: `approved:${operationId}`,
-        afterCellId: askingToolCell(this.state.cells, firstPreview(answered!)) ?? lastAnchorCell(this.state.cells),
+        afterCellId: anchor,
         afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
         text: line,
       });
@@ -2015,6 +2170,26 @@ export class AgentSession extends EventEmitter {
       case "session:peer-settings":
         this.applyPeerSettings(p);
         return;
+      // A peer session approved or denied a pending permission request (0aa).
+      case "session:peer-approval": {
+        const operationId = String(p.operationId ?? "");
+        const approvalMode = (p.approvalMode as "once" | "deny") === "deny" ? "deny" : "once";
+        // Security: refuse peer approvals for high-risk requests — those need the owner.
+        if (approvalMode !== "deny") {
+          const pending = this.state.approvals.find((a) => a.operationId === operationId);
+          if (pending && !isPeerApprovable(pending)) {
+            // Leave the card on screen; log so the transcript shows the refusal.
+            void import("electron-log").then((m) =>
+              m.default.warn(
+                `[peer-approval] refused high-risk peer approval for op=${operationId} from=${String(p.from ?? "unknown")} — needs owner`,
+              ),
+            );
+            return;
+          }
+        }
+        void this.answerApproval(operationId, approvalMode);
+        return;
+      }
       case "chat:response:chunk": {
         if (this.state.retrying) this.update({ retrying: null });
         if (p.type === "permission-request") {
@@ -2237,17 +2412,33 @@ export class AgentSession extends EventEmitter {
 
   private dropApproval(operationId: string): void {
     if (!operationId || !this.state.approvals.some((a) => a.operationId === operationId)) return;
-    this.update({ approvals: this.state.approvals.filter((a) => a.operationId !== operationId) });
+    const next = this.state.approvals.filter((a) => a.operationId !== operationId);
+    this.update({ approvals: next });
+    void import("@/lib/peers/peers").then((m) => {
+      const summaries = next.map((a) => approvalSummary(a));
+      m.noteSessionApproval(this.sessionId ?? "", next.length > 0, next.length > 0 ? summaries : undefined);
+    });
   }
 
   private addApproval(p: Record<string, unknown>): void {
     const op = String(p.operationId ?? "");
     if (!op || this.state.approvals.some((a) => a.operationId === op)) return;
-    this.update({
-      approvals: [
-        ...this.state.approvals,
-        { operationId: op, request: (p.request ?? {}) as PendingApproval["request"] },
-      ],
+    const request = (p.request ?? {}) as PendingApproval["request"];
+    // Capture the asking tool cell NOW, while it is running, so the receipt can
+    // anchor under it at answer time even after the cell finished (0o c).
+    const askingCellId =
+      askingToolCell(
+        this.state.cells,
+        firstPreview({ operationId: op, request } as PendingApproval),
+      ) ?? undefined;
+    const next: PendingApproval[] = [
+      ...this.state.approvals,
+      { operationId: op, request, askingCellId },
+    ];
+    this.update({ approvals: next });
+    void import("@/lib/peers/peers").then((m) => {
+      const summaries = next.map((a) => approvalSummary(a));
+      m.noteSessionApproval(this.sessionId ?? "", true, summaries);
     });
   }
 
@@ -2425,6 +2616,12 @@ export class AgentSession extends EventEmitter {
     if (wasInterrupted && lastReply) this.interrupted.add(String(lastReply.id));
     else if (wasInterrupted && turnUser) this.addTurnNotice(turnUser, "info", "Interrupted. Tell Atlarix what to do instead.");
     this.lastTurnOwner = lastReply ? String(lastReply.id) : turnUser;
+    // Auto's top rung kept failing: offer Zenith once, under this turn.
+    if (this.lastEnd.zenithOffer === true && this.lastTurnOwner) {
+      this.lastEnd = { ...this.lastEnd, zenithOffer: false };
+      const { ZENITH_OFFER_LINE } = await import("@/shared/billing_copy");
+      this.addTurnNotice(this.lastTurnOwner, "info", `◇ ${ZENITH_OFFER_LINE.replace("Pick it in the model list", "/model Atlarix Zenith")}`);
+    }
     if (lastReply && this.state.turnStartedAt) {
       const secs = Math.max(1, Math.round((Date.now() - this.state.turnStartedAt) / 1000));
       const took = secs >= 60 ? `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, "0")}s` : `${secs}s`;
@@ -2464,7 +2661,11 @@ export class AgentSession extends EventEmitter {
         if (row) this.update({ planReady: { planId: row.id, title: found.title } });
       }
     }
-    if (wasInterrupted || this.state.lastError) await this.offerResumeBuild();
+    // A build that stopped on the USER'S stop (Esc) is offered again. A provider
+    // error must NOT pin it: it is not a stopped build, and pinning it after the
+    // error popped the card over the next turn and stayed while it ran
+    // (QA 2026-10-31).
+    if (wasInterrupted) await this.offerResumeBuild();
     if (wasInterrupted) {
       // A stopped turn opens nothing. What you typed into it that the agent never
       // got (no step came: a stop during a retry) goes back to your input box,

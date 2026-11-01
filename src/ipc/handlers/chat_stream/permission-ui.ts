@@ -5,6 +5,7 @@
  * run-agent-turn cycle-avoidance intact.)
  */
 
+import { guardPluginControl } from "@/lib/plugins/control-guard";
 import log from "electron-log";
 import type { WorkMode } from "@/lib/schemas";
 import { WorkModeSchema } from "@/lib/schemas";
@@ -101,12 +102,17 @@ export function enrichPermissionRequestForUi(
   readOnlySource: boolean,
 ) {
   if (permRequest.operation === "run_command") {
-    return enrichRunCommandPermissionRequest(
-      permRequest,
-      appId,
+    // Guarded AFTER enrichment, which recomputes `systemScope` from the command
+    // alone and would clear the plugin-control marking (control-guard.ts).
+    return guardPluginControl(
+      enrichRunCommandPermissionRequest(
+        permRequest,
+        appId,
+        workspaceRoot,
+        readOnlySource,
+      ),
       workspaceRoot,
-      readOnlySource,
-    );
+    ).permRequest;
   }
   return enrichFilePermissionRequest(
     permRequest as import("@/lib/tools/permissions/schema").PermissionRequest,
@@ -292,8 +298,10 @@ export function requiresHumanReviewDespiteAutoApprove(permRequest: {
  */
 export function shouldSkipPermissionWait(
   permRequest: { operation: string; preview: unknown },
-  o: { reviewOverridden: boolean; autoApproved: boolean },
+  o: { reviewOverridden: boolean; autoApproved: boolean; pluginControl?: boolean },
 ): boolean {
+  // Outranks everything, "Allow all this turn" included (control-guard.ts).
+  if (o.pluginControl) return false;
   if (o.reviewOverridden) return true;
   return !requiresHumanReviewDespiteAutoApprove(permRequest) && o.autoApproved;
 }

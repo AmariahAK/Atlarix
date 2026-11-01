@@ -74,7 +74,7 @@ const WORK_MODES: {
   {
     value: "review",
     icon: ShieldCheck,
-    desc: "Read-only quality + security review — findings and suggested fixes, no edits.",
+    desc: "Read-only review of what you name and everything it touches. No edits.",
   },
 ];
 

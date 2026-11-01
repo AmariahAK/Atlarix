@@ -16,10 +16,10 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("scheduled-wakeups (R1)", () => {
-  it("clamps the delay to [60s, 14400s] (up to 4h)", () => {
+  it("clamps the delay to at least 60s (no arbitrary upper cap)", () => {
     expect(clampWakeupDelayMs(1_000)).toBe(60_000); // below floor
-    expect(clampWakeupDelayMs(99_000_000)).toBe(14_400_000); // above the 4h ceiling
-    expect(clampWakeupDelayMs(9_000_000)).toBe(9_000_000); // 2.5h now in range (was clamped to 1h)
+    expect(clampWakeupDelayMs(99_000_000)).toBe(99_000_000); // no 4h ceiling
+    expect(clampWakeupDelayMs(9_000_000)).toBe(9_000_000); // 2.5h
     expect(clampWakeupDelayMs(120_000)).toBe(120_000); // in range
     expect(clampWakeupDelayMs(Number.NaN)).toBe(60_000); // junk → floor
   });

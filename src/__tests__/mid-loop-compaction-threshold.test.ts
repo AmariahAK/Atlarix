@@ -1,11 +1,18 @@
 import { describe, it, expect } from "vitest";
 import type { ModelMessage } from "ai";
 import {
+  CONTEXT_WORKING_WINDOW_DEFAULT,
+  CONTEXT_WORKING_WINDOW_512K,
   MAX_RESERVE_FRACTION,
   assertBudgetsFitWithin,
   compactionBudgets,
+  compactionPoint,
+  compactionShouldTrigger,
+  roundShouldEndForCompaction,
   compactionWouldTrigger,
+  contextWorkingWindowTokens,
   usableContextBudget,
+  estimateToolSetTokens,
 } from "@/lib/context/mid-loop-threshold";
 
 /**
@@ -154,5 +161,223 @@ describe("compactionWouldTrigger", () => {
     });
     expect(r.willTrigger).toBe(false);
     expect(r.usable).toBe(10_000);
+  });
+
+  it("counts the bound tool surface toward the fill (0j)", () => {
+    const under = compactionWouldTrigger({
+      messages: msgsOfRoughly(850),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+    });
+    const over = compactionWouldTrigger({
+      messages: msgsOfRoughly(850),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+      toolSurfaceTokens: 100,
+    });
+    expect(under.willTrigger).toBe(false);
+    expect(over.willTrigger).toBe(true);
+  });
+
+  it("prices native tool-call args in full via nativeMessages (0j)", () => {
+    // The flattened view caps tool traffic; the native view must count it fully —
+    // edit_file args carry whole files, which is the gap that let a round-ended
+    // turn re-decide "under the point".
+    const bigArgs =
+      "add a function that returns the sum of two numbers and logs the result. ".repeat(
+        20,
+      );
+    const native: ModelMessage[] = [
+      { role: "user", content: "do it" } as ModelMessage,
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "1",
+            toolName: "edit_file",
+            input: { content: bigArgs },
+          },
+        ],
+      } as ModelMessage,
+    ];
+    const flattened: ModelMessage[] = [
+      { role: "user", content: "do it" },
+      { role: "assistant", content: "[tool_call: edit_file(...)]" },
+    ];
+    const capped = compactionWouldTrigger({
+      messages: flattened,
+      systemPromptEstimate: 0,
+      tierLimit: 100_000,
+      usableTokens: 100_000,
+    });
+    const full = compactionWouldTrigger({
+      messages: flattened,
+      nativeMessages: native,
+      systemPromptEstimate: 0,
+      tierLimit: 100_000,
+      usableTokens: 100_000,
+    });
+    expect(full.beforeTokens).toBeGreaterThan(capped.beforeTokens + 100);
+  });
+
+  it("estimateToolSetTokens measures the dispatched toolset", () => {
+    const tokens = estimateToolSetTokens({
+      read_file: {
+        description: "Read a file by path.",
+        inputSchema: { type: "object", properties: { path: { type: "string" } } },
+      },
+    });
+    expect(tokens).toBeGreaterThan(0);
+    expect(estimateToolSetTokens(undefined)).toBe(0);
+    expect(estimateToolSetTokens({})).toBe(0);
+  });
+});
+
+describe("context working window — one rule for every model", () => {
+  it("defaults to 256k, capping a 1M window", () => {
+    expect(CONTEXT_WORKING_WINDOW_DEFAULT).toBe(256_000);
+    expect(CONTEXT_WORKING_WINDOW_512K).toBe(512_000);
+    expect(contextWorkingWindowTokens(1_048_576, undefined)).toBe(256_000);
+    expect(contextWorkingWindowTokens(1_048_576, "256k")).toBe(256_000);
+  });
+
+  it("512k and full widen the window, but never past the real window", () => {
+    expect(contextWorkingWindowTokens(1_048_576, "512k")).toBe(512_000);
+    expect(contextWorkingWindowTokens(1_048_576, "full")).toBe(1_048_576);
+    // A model smaller than the chosen size still governs itself.
+    expect(contextWorkingWindowTokens(128_000, "512k")).toBe(128_000);
+    expect(contextWorkingWindowTokens(128_000, "full")).toBe(128_000);
+  });
+
+  it("compacts at ~192k by default on a 1M model, ~384k at 512k, near the window at full", () => {
+    const usable = usableContextBudget({
+      contextWindow: 1_048_576,
+      maxOutputTokens: 32_000,
+    });
+    const point = (setting: "256k" | "512k" | "full") =>
+      compactionPoint({
+        usableTokens: usable,
+        workingWindowTokens: contextWorkingWindowTokens(1_048_576, setting),
+        threshold: 0.75,
+      });
+    expect(point("256k")).toBe(Math.floor(0.75 * 256_000));
+    expect(point("512k")).toBe(Math.floor(0.75 * 512_000));
+    expect(point("full")).toBe(Math.floor(0.75 * 1_048_576));
+    // And the trigger fires just past each point.
+    expect(
+      compactionShouldTrigger({
+        dispatchEstimate: Math.floor(0.75 * 256_000) + 1,
+        usableTokens: usable,
+        workingWindowTokens: 256_000,
+        threshold: 0.75,
+      }),
+    ).toBe(true);
+    expect(
+      compactionShouldTrigger({
+        dispatchEstimate: Math.floor(0.75 * 256_000) - 1,
+        usableTokens: usable,
+        workingWindowTokens: 256_000,
+        threshold: 0.75,
+      }),
+    ).toBe(false);
+  });
+
+  it("never compacts past the usable budget (the reply must fit)", () => {
+    // A tiny 16k window: usable ≈ 9,600. threshold × working window would be
+    // 0.75 × 16,000 = 12,000, but the usable budget binds first.
+    const usable = usableContextBudget({
+      contextWindow: 16_000,
+      maxOutputTokens: 32_000,
+    });
+    const point = compactionPoint({
+      usableTokens: usable,
+      workingWindowTokens: 16_000,
+      threshold: 0.75,
+    });
+    expect(point).toBe(usable);
+    expect(compactionShouldTrigger({ dispatchEstimate: usable + 1, usableTokens: usable, workingWindowTokens: 16_000, threshold: 0.75 })).toBe(true);
+    expect(compactionShouldTrigger({ dispatchEstimate: usable - 1, usableTokens: usable, workingWindowTokens: 16_000, threshold: 0.75 })).toBe(false);
+  });
+
+  it("a 128k model is unchanged by the default (256k) setting", () => {
+    // 128k window, 32k reserve → usable = 96k. threshold × working window =
+    // 0.75 × 128k = 96k. Both bind at 96k, so the default setting changes nothing.
+    const usable = usableContextBudget({
+      contextWindow: 128_000,
+      maxOutputTokens: 32_000,
+    });
+    const working = contextWorkingWindowTokens(128_000, undefined);
+    expect(working).toBe(128_000);
+    expect(
+      compactionPoint({ usableTokens: usable, workingWindowTokens: working, threshold: 0.75 }),
+    ).toBe(usable);
+  });
+});
+
+describe("mid-turn check follows the working window (compactionLimit)", () => {
+  it("fires at the compaction point, not the full usable budget", () => {
+    // A 1M-window model's usable budget is ~1,016,576 (window − 32k reserve),
+    // but the default working window (256k) makes the compaction point 192k.
+    const usable = usableContextBudget({
+      contextWindow: 1_048_576,
+      maxOutputTokens: 32_000,
+    });
+    const point = compactionPoint({
+      usableTokens: usable,
+      workingWindowTokens: 256_000,
+      threshold: 0.75,
+    });
+    expect(point).toBe(192_000);
+
+    // The mid-turn check is handed that point as `compactionLimit`. Small numbers
+    // stand in for the token count: over the point → compacts.
+    const over = compactionWouldTrigger({
+      messages: msgsOfRoughly(200),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+      compactionLimit: 192,
+    });
+    expect(over.willTrigger).toBe(true);
+
+    // Under it → nothing happens.
+    const under = compactionWouldTrigger({
+      messages: msgsOfRoughly(100),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+      compactionLimit: 192,
+    });
+    expect(under.willTrigger).toBe(false);
+
+    // Without the limit, the same history only fires near the usable budget —
+    // the bug this fixes (a long turn growing past 192k to ~970k before compacting).
+    const oldRule = compactionWouldTrigger({
+      messages: msgsOfRoughly(200),
+      systemPromptEstimate: 0,
+      tierLimit: WINDOW,
+      usableTokens: 900,
+    });
+    expect(oldRule.willTrigger).toBe(false);
+  });
+});
+
+describe("a round ends at the compaction point (owner, 2026-10-31)", () => {
+  // The SDK keeps every tool step inside ONE round, so the between-rounds check
+  // never ran and a session sat at 238k of a 256k working window.
+  const point = 192_000; // 0.75 × 256k
+  it("ends the round once the provider's input count passes the point", () => {
+    expect(roundShouldEndForCompaction(238_000, point)).toBe(true);
+  });
+  it("does nothing under the point, or with no point", () => {
+    expect(roundShouldEndForCompaction(150_000, point)).toBe(false);
+    expect(roundShouldEndForCompaction(238_000, undefined)).toBe(false);
+    expect(roundShouldEndForCompaction(238_000, 0)).toBe(false);
+  });
+  it("a step that reported nothing yet never ends the round", () => {
+    expect(roundShouldEndForCompaction(0, point)).toBe(false);
   });
 });

@@ -121,6 +121,11 @@ const assets = [
     src: path.join(root, "node_modules/tiktoken/lite/tiktoken_bg.wasm"),
     dest: "tiktoken_bg.wasm",
   },
+  // The QuickJS engine mods run in (mod-host.ts; assets-node.ts → quickjsWasm).
+  {
+    src: path.join(root, "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm"),
+    dest: "quickjs.wasm",
+  },
   // The models.dev catalog snapshot. Headless resolved it relative to `cwd`,
   // which in a benchmark container is the TASK directory — so it was never found
   // and the catalog depended entirely on reaching models.dev over the network.

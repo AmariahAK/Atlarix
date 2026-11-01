@@ -63,6 +63,73 @@ export function usableContextBudget(params: {
 }
 
 /**
+ * The context WORKING WINDOW: how much of the model's real context window a
+ * session may grow to before Atlarix compacts it.
+ *
+ * `usableContextBudget` alone never fires on a 1M-token model until ~970k, so
+ * sessions sat at 350-485k and every step re-sent the whole conversation
+ * (2026-10-31 spend incident: the first call of each turn cached ~10.5k of
+ * ~440k). The working window is the owner's knob — one rule for every model,
+ * whatever its window: the session compacts at `compactionThreshold` × the
+ * working window (default 256,000 → ~192k at the 0.75 default), never more
+ * than `usableContextBudget` (the reply must fit). A window smaller than the
+ * chosen size still governs itself, so a 128k model is unchanged.
+ */
+export const CONTEXT_WORKING_WINDOW_DEFAULT = 256_000;
+export const CONTEXT_WORKING_WINDOW_512K = 512_000;
+
+/** The setting's three values: "256k" (default) | "512k" | "full" (the whole window). */
+export type ContextWorkingWindowSetting = "256k" | "512k" | "full";
+
+/**
+ * The working window in tokens for a model whose real context window is
+ * `contextWindow`. `undefined`/unknown settings resolve to the 256k default.
+ */
+export function contextWorkingWindowTokens(
+  contextWindow: number,
+  setting: ContextWorkingWindowSetting | undefined,
+): number {
+  const window = Math.max(0, contextWindow);
+  if (setting === "full") return window;
+  const cap =
+    setting === "512k"
+      ? CONTEXT_WORKING_WINDOW_512K
+      : CONTEXT_WORKING_WINDOW_DEFAULT;
+  return Math.min(window, cap);
+}
+
+/**
+ * The compaction point: `compactionThreshold` × the working window, but never
+ * more than the usable budget (the window MINUS the room the reply needs — the
+ * reply must fit). This is what a request must exceed before compaction runs.
+ */
+export function compactionPoint(opts: {
+  usableTokens: number;
+  workingWindowTokens: number;
+  threshold: number;
+}): number {
+  const at = Math.floor(opts.threshold * opts.workingWindowTokens);
+  return Math.min(opts.usableTokens, Math.max(1, at));
+}
+
+/** Whether the request must be compacted before dispatch, given its size. */
+export function compactionShouldTrigger(opts: {
+  dispatchEstimate: number;
+  usableTokens: number;
+  workingWindowTokens: number;
+  threshold: number;
+}): boolean {
+  return (
+    opts.dispatchEstimate >
+    compactionPoint({
+      usableTokens: opts.usableTokens,
+      workingWindowTokens: opts.workingWindowTokens,
+      threshold: opts.threshold,
+    })
+  );
+}
+
+/**
  * Every limit compaction's steps compare against, derived from the budget they
  * are protecting space within.
  *
@@ -120,7 +187,14 @@ export function assertBudgetsFitWithin(
     .map(([k, v]) => `${k}=${v} exceeds usable=${usable}`);
 }
 
-/** Text of a ModelMessage for estimation — tool results included, media ignored. */
+/**
+ * Text of a ModelMessage for estimation — every part that actually rides in the
+ * request, so the estimate matches what the provider counts. Media is ignored
+ * (no text weight), but tool-call ARGUMENTS and reasoning blocks count: they
+ * are the two kinds of part the old version skipped, which is why the mid-turn
+ * estimate read ~100k under the provider's real input count (0j) and compaction
+ * silently no-opped on a round the guard had already ended.
+ */
 export function modelMessageText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -132,12 +206,23 @@ export function modelMessageText(content: unknown): string {
           text?: string;
           output?: unknown;
           result?: unknown;
+          args?: unknown;
+          input?: unknown;
         };
         if (p.type === "text" && typeof p.text === "string") return p.text;
         if (p.type === "tool-result") {
           const v = p.output ?? p.result;
           return typeof v === "string" ? v : v == null ? "" : JSON.stringify(v);
         }
+        // A tool call's arguments are re-sent to the model on the next step;
+        // edit_file's args carry whole files. Skipping them under-counted the
+        // request by a large margin.
+        if (p.type === "tool-call") {
+          const v = p.args ?? p.input;
+          return v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
+        }
+        // Reasoning (thinking) blocks ride in the request too.
+        if (p.type === "reasoning" && typeof p.text === "string") return p.text;
         return "";
       })
       .filter(Boolean)
@@ -147,12 +232,55 @@ export function modelMessageText(content: unknown): string {
 }
 
 /**
+ * The token cost of a bound toolset's descriptions + parameter schemas — the
+ * tool half of the dispatched prefix. Measured from the ACTUAL `ToolSet` object
+ * handed to the SDK (what dispatches), not re-derived from the registry, so it
+ * cannot drift from what the provider counts.
+ *
+ * `modelMessageText` already counts the per-message side (tool-call args, tool
+ * results, reasoning). This adds the OTHER half the old estimate omitted: the
+ * tool SCHEMAS, ~6,700–9,300 tokens that ride in every request and were the gap
+ * that let a round-ended session re-decide "below the point" and skip compaction
+ * (0j, 2026-10-31).
+ */
+export function estimateToolSetTokens(tools: unknown): number {
+  if (!tools || typeof tools !== "object") return 0;
+  let total = 0;
+  for (const t of Object.values(tools as Record<string, unknown>)) {
+    if (!t || typeof t !== "object") continue;
+    const tool = t as {
+      description?: unknown;
+      inputSchema?: unknown;
+      parameters?: unknown;
+    };
+    if (typeof tool.description === "string") {
+      total += estimateTokens(tool.description);
+    }
+    const schema = tool.inputSchema ?? tool.parameters;
+    if (schema != null) {
+      total += estimateTokens(safeJson(schema));
+    }
+  }
+  return total;
+}
+
+function safeJson(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Whether compaction would fire for this history.
  *
- * Compares against `usable` — the window MINUS the room the reply needs — rather
- * than a fraction of the raw window. `usable` already accounts for the model's
- * real output limit, so there is no second ratio to tune here and no way for the
- * two to drift apart.
+ * Compares against the compaction POINT when `compactionLimit` is given (the
+ * mid-turn caller passes the turn's `compactionPoint`), else against `usable` —
+ * the window MINUS the room the reply needs. `usable` already accounts for the
+ * model's real output limit, so there is no second ratio to tune here and no way
+ * for the two to drift apart.
  *
  * `usableTokens` is optional only so a caller that has not resolved the catalog
  * can still ask; it falls back to the per-dispatch tier limit, which is the
@@ -160,18 +288,52 @@ export function modelMessageText(content: unknown): string {
  */
 export function compactionWouldTrigger(params: {
   messages: ModelMessage[];
+  /** The native view of `messages` (1:1). When given, the count reads THIS so
+   * tool-call args, reasoning and tool results are priced in FULL (the
+   * flattened `messages` caps tool results at 2,000 chars for the summarizer).
+   * Absent → `messages` is counted as-is. */
+  nativeMessages?: ModelMessage[];
   systemPromptEstimate: number;
   tierLimit: number;
   usableTokens?: number;
+  /** The turn's compaction point (threshold × working window, capped by usable) —
+   * the mid-turn check's trigger, so one long turn compacts at the same point the
+   * pre-dispatch gate does. Absent → the usable budget (the old mid-turn rule). */
+  compactionLimit?: number;
+  /** Bound tool descriptions + schemas, the part of the prefix the estimate used
+   * to omit. When the `messages` already include the system header (the
+   * prepareStep path), pass `systemPromptEstimate: 0` and the header is counted
+   * as a message; `toolSurfaceTokens` is always added on top. */
+  toolSurfaceTokens?: number;
 }): { willTrigger: boolean; beforeTokens: number; usable: number } {
-  const usable = params.usableTokens ?? params.tierLimit;
+  const usable = params.compactionLimit ?? params.usableTokens ?? params.tierLimit;
+  const counted = params.nativeMessages ?? params.messages;
   const beforeTokens =
-    params.messages.reduce(
+    counted.reduce(
       (acc, m) => acc + estimateTokens(modelMessageText(m.content)),
       0,
-    ) + params.systemPromptEstimate;
+    ) +
+    params.systemPromptEstimate +
+    (params.toolSurfaceTokens ?? 0);
   return { willTrigger: beforeTokens > usable, beforeTokens, usable };
 }
 
 /** @deprecated Name kept for existing callers; `compactionWouldTrigger` is the same check. */
 export const midLoopCompactionWouldTrigger = compactionWouldTrigger;
+
+/**
+ * Should the round END here so the turn loop can compact?
+ *
+ * The SDK runs every tool step inside ONE round, so a long agentic turn never
+ * reached the between-rounds compaction and sat at 238k of a 256k working
+ * window, re-sending all of it on every step (owner, 2026-10-31). `inputTokens`
+ * is the provider's own count on the last finished step — the real occupancy,
+ * not an estimate.
+ */
+export function roundShouldEndForCompaction(
+  inputTokens: number,
+  compactionLimit: number | undefined,
+): boolean {
+  if (typeof compactionLimit !== "number" || compactionLimit <= 0) return false;
+  return inputTokens > compactionLimit;
+}

@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
   if (!apiKey) return json({ error: "billing_not_configured" }, 500);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const serviceKey = Deno.env.get("NEXT_PUBLIC_SUPABASE_SECRET_KEY")!;
   const admin = createClient(supabaseUrl, serviceKey);
 
   // Keyed on the VERIFIED user id, so it cannot reach another account's subscription.

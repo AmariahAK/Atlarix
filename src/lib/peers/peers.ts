@@ -45,6 +45,24 @@ const DUPLICATE_WINDOW_MS = 10_000;
 /** "editor": a session an IDE hosts over ACP (`atlarix acp`, src/cli/acp). */
 export type Surface = "cli" | "app" | "chrome" | "editor";
 
+/**
+ * Enough detail about a pending permission request for a peer reviewer to decide (0aa).
+ * Mirrors the fields the TUI card shows; never carries secrets or full file content.
+ */
+export interface PendingApprovalSummary {
+  operationId: string;
+  /** The operation type ("run_command", "edit_file", "sandbox_escalation", …). */
+  operation?: string;
+  /** One-line human summary: the command, the file path, or the description. */
+  summary: string;
+  /** Working directory for commands. */
+  cwd?: string;
+  /** True when the gate flagged this as dangerous (isDangerous or systemScope). */
+  isDangerous?: boolean;
+  /** True when the operation touches something outside the project. */
+  systemScope?: boolean;
+}
+
 export interface LocalSession {
   sessionId: string;
   chatId: number;
@@ -53,9 +71,10 @@ export interface LocalSession {
   /**
    * A CLI session that has no session row yet (one is made on its first
    * message): reachable anyway, under a placeholder id. Delivering to it makes
-   * the real session first, and the message goes there.
+   * the real session first, and the message goes there. `from` started it: the
+   * new session is that one's child.
    */
-  materialize?: () => Promise<{ sessionId: string; chatId: number }>;
+  materialize?: (from: PeerFrame["from"]) => Promise<{ sessionId: string; chatId: number }>;
   /** Earlier names and ids it answered to (a placeholder's, a title before an auto-title). */
   aliases?: string[];
   /** Published as this surface instead of the process's own (a browser this process speaks for). */
@@ -64,6 +83,13 @@ export interface LocalSession {
   model?: string;
   /** How its latest turn here ended, for another session's `result_of`. */
   lastTurn?: TurnRecord;
+  /** True when the session has at least one permission request waiting for an answer (0aa). */
+  hasApproval?: boolean;
+  /**
+   * The pending permission requests, with enough detail for a reviewer to decide (0aa).
+   * Kept in sync by noteSessionApproval; cleared when hasApproval goes false.
+   */
+  pendingApprovals?: PendingApprovalSummary[];
   /**
    * Hand the message on instead of queueing it in a chat here: a session this
    * process registers on behalf of something else (a browser behind the
@@ -94,6 +120,8 @@ export interface PeerSessionRow {
   /** Its mode (the stored one; Build when none was chosen) and model, when known (item 9). */
   mode?: string;
   model?: string;
+  /** True when the session has at least one permission request waiting for an answer (0aa). */
+  hasApproval?: boolean;
 }
 
 interface PeerFrame {
@@ -108,8 +136,17 @@ interface PeerFrame {
   id: string;
   /** Optional when `set` is given: a change alone. */
   text: string;
-  /** Set the session's mode and/or model from its next turn (item 9), and/or answer its plan (item 11). */
-  set?: { mode?: string; model?: string; plan?: string; planText?: string };
+  /** Set the session's mode and/or model from its next turn (item 9), and/or answer its plan (item 11) or a pending approval (0aa). */
+  set?: { mode?: string; model?: string; plan?: string; planText?: string; approval?: { operationId: string; mode: "once" | "deny" } };
+  /** Send the sender ONE notice when the turn that reads this message ends (`notify_when_done`). */
+  notify?: boolean;
+  /**
+   * A one-way notice the receiver must NOT start a turn for — a "turn ended"
+   * notice (notify_when_done). It is queued and read at the session's next real
+   * turn instead of waking one: waking to answer "Acknowledged" re-sends the
+   * whole context for nothing (2026-10-31 spend incident).
+   */
+  informational?: boolean;
   from: {
     sessionId: string;
     name: string;
@@ -129,12 +166,12 @@ export interface PeerHost {
   inbound(): "accept" | "refuse";
   /**
    * Set a session's mode and/or model from its next turn (item 9), and/or
-   * answer its plan (item 11). `notice` is the line it shows; `startTurn`, the
+   * answer its plan (item 11) or a pending approval (0aa). `notice` is the line it shows; `startTurn`, the
    * turn an approval starts (the plan's own Build).
    */
   applySettings?(
     target: { chatId: number; sessionId: string; name?: string },
-    set: { mode?: string; model?: string; plan?: string; planText?: string },
+    set: { mode?: string; model?: string; plan?: string; planText?: string; approval?: { operationId: string; mode: "once" | "deny" } },
     from: PeerFrame["from"],
   ): Promise<{ ok: boolean; error?: string; notice?: string; startTurn?: string }>;
   /**
@@ -146,6 +183,8 @@ export interface PeerHost {
   steer?(chatId: number, id: string, text: string): void;
   /** Stop the running turn, as the stop button here would. */
   stop?(chatId: number): void;
+  /** Is the message `enqueue`d under `id` still waiting for a turn to read it? */
+  pending?(chatId: number, id: string): boolean;
 }
 
 /** The row every process publishes for itself, so a handoff can find "the app" even with no session open. */
@@ -238,6 +277,12 @@ function ensureTable(db: Sqlite): void {
   } catch {
     /* already there */
   }
+  try {
+    // 0aa: whether the session has a permission request waiting for an answer.
+    db.exec(`ALTER TABLE ${LIVE_SESSIONS_TABLE} ADD COLUMN has_approval INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    /* already there */
+  }
 }
 
 /**
@@ -298,8 +343,8 @@ function publish(): void {
     ).run(process.pid, host);
     const insert = d.prepare(
       `INSERT INTO ${LIVE_SESSIONS_TABLE}
-       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model, last_turn)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model, last_turn, has_approval)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     // This process itself: how a handoff reaches "the app" with nothing open.
     insert.run(
@@ -316,6 +361,7 @@ function publish(): void {
       "[]",
       "",
       "",
+      0,
     );
     for (const s of local.values()) {
       insert.run(
@@ -332,6 +378,7 @@ function publish(): void {
         JSON.stringify(s.aliases ?? []),
         s.model ?? (s.deliver ? "" : (defaultModelLabel() ?? "")),
         s.lastTurn ? JSON.stringify(s.lastTurn) : "",
+        s.hasApproval ? 1 : 0,
       );
     }
   } catch (e) {
@@ -442,6 +489,8 @@ export function sessionsHeldElsewhere(): Set<string> {
 }
 
 export function forgetLiveSession(sessionId: string): void {
+  // Closed here before its turn ran: nobody is told anything.
+  dropTurnWatches((w) => w.sessionId === sessionId);
   if (local.delete(sessionId)) publish();
 }
 
@@ -488,7 +537,7 @@ function accept(socket: net.Socket): void {
 /** Exported for tests. */
 export async function receive(
   f: PeerFrame,
-): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean }> {
+): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean; notify?: boolean }> {
   if (!f || !["peer-message", "open-session", "steer", "stop"].includes(f.type))
     return { ok: false, error: "unknown frame" };
   if (!token || f.token !== token)
@@ -509,7 +558,20 @@ export async function receive(
       error: "that session does not accept messages from other sessions",
     };
   const text = typeof f.text === "string" ? f.text.trim() : "";
-  const set = f.set && (f.set.mode || f.set.model || f.set.plan) ? f.set : null;
+  // Validate approval before treating it as a set (an empty operationId is not a valid approval).
+  if (f.set?.approval && !f.set.approval.operationId)
+    return { ok: false, error: "approval needs an operationId" };
+  // Security: refuse peer approvals for high-risk requests — those need the owner (0aa).
+  if (f.set?.approval && f.set.approval.mode !== "deny") {
+    const pending = target.pendingApprovals?.find((a) => a.operationId === f.set!.approval!.operationId);
+    if (pending && isHighRiskApproval(pending)) {
+      return {
+        ok: false,
+        error: `Permission request ${f.set.approval.operationId} is high-risk (${pending.operation ?? "unknown"}: ${pending.summary}) — it needs the owner to approve, not a peer session.`,
+      };
+    }
+  }
+  const set = f.set && (f.set.mode || f.set.model || f.set.plan || f.set.approval) ? f.set : null;
   if (!text && !set) return { ok: false, error: "empty message" };
   if (text.length > PEER_TEXT_CAP)
     return { ok: false, error: `message over ${PEER_TEXT_CAP} characters` };
@@ -554,7 +616,7 @@ export async function receive(
     // A CLI with no session row yet: make the session, and deliver there.
     try {
       const placeholder = target;
-      const real = await placeholder.materialize!();
+      const real = await placeholder.materialize!(f.from);
       local.delete(placeholder.sessionId);
       const made: LocalSession = local.get(real.sessionId) ?? {
         ...placeholder,
@@ -598,20 +660,29 @@ export async function receive(
   recentTexts.set(dupKey, now);
   // An approval's build turn: the plan's own Build instruction, as the user's
   // Build sends it, never wrapped as a peer's words (item 11).
-  if (applied.startTurn) hostImpl.enqueue(target.chatId, `${f.id || randomUUID()}-build`, applied.startTurn);
-  if (text) {
-    hostImpl.enqueue(
-      target.chatId,
-      f.id || randomUUID(),
-      wrapPeerMessage(f.from, text),
-    );
+  const id = f.id || randomUUID();
+  const queued: string[] = [];
+  if (applied.startTurn) {
+    hostImpl.enqueue(target.chatId, `${id}-build`, applied.startTurn);
+    queued.push(`${id}-build`);
   }
+  if (text) {
+    hostImpl.enqueue(target.chatId, id, wrapPeerMessage(f.from, text));
+    queued.push(id);
+  }
+  // Watched only once it went in: a refused or empty frame never notifies.
+  const notify = f.notify === true && queued.length > 0 && f.from?.sessionId !== "unknown";
+  if (notify) turnWatches.push({ chatId: target.chatId, sessionId: target.sessionId, ids: queued, from: f.from });
+  // An informational message (a "turn ended" notice) is queued for the
+  // session's next real turn, not a new one: waking to answer "Acknowledged"
+  // re-sends the whole context for nothing (2026-10-31 spend incident).
   const idle = (text || applied.startTurn) && !hostImpl.isBusy(target.chatId);
-  if (idle) hostImpl.wake(target.chatId);
+  if (idle && !f.informational) hostImpl.wake(target.chatId);
   return {
     ok: true,
     ...(applied.notice ? { applied: applied.notice } : {}),
     ...(idle && idleMessagesWait() ? { waits: true } : {}),
+    ...(notify ? { notify: true } : {}),
   };
 }
 
@@ -656,6 +727,7 @@ interface Row {
   aliases?: string;
   model?: string;
   last_turn?: string;
+  has_approval?: number;
   session_id: string;
   pid: number;
   host: string;
@@ -734,6 +806,7 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       pid: r.pid,
       ...(r.surface !== "chrome" ? { mode: modes.get(r.session_id) ?? "build" } : {}),
       ...(r.model ? { model: r.model } : {}),
+      ...(r.has_approval ? { hasApproval: true } : {}),
     });
   }
   return out;
@@ -895,11 +968,22 @@ export function sendPeerMessage(
   from: PeerFrame["from"],
   text: string,
   set?: PeerFrame["set"],
-): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean }> {
+  opts: { notify?: boolean; informational?: boolean } = {},
+): Promise<{ ok: boolean; error?: string; applied?: string; waits?: boolean; notify?: boolean }> {
   // Delivering to a CLI's placeholder first creates its session (seconds).
   return sendFrame(
     row.socket,
-    { type: "peer-message", token: row.token, to: row.session_id, id: randomUUID(), text, ...(set ? { set } : {}), from },
+    {
+      type: "peer-message",
+      token: row.token,
+      to: row.session_id,
+      id: randomUUID(),
+      text,
+      ...(set ? { set } : {}),
+      ...(opts.notify ? { notify: true } : {}),
+      ...(opts.informational ? { informational: true } : {}),
+      from,
+    },
     "that session did not answer",
   );
 }
@@ -920,6 +1004,76 @@ export function noteTurnEnded(
     };
   }
   publish();
+  // A sender asked to hear when the turn reading its message ends. One still
+  // queued (the turn ended before taking it) waits for the turn that does.
+  const due = dropTurnWatches(
+    (w) => w.chatId === chatId && !w.ids.some((id) => hostImpl?.pending?.(chatId, id)),
+  );
+  for (const w of due) void tellTurnEnded(w);
+}
+
+// ─── notify_when_done ────────────────────────────────────────────────────────
+
+/** A sender waiting for one notice when the turn that reads its message ends. */
+interface TurnWatch {
+  chatId: number;
+  sessionId: string;
+  /** The queued ids its frame put in (the message, an approval's build turn). */
+  ids: string[];
+  from: PeerFrame["from"];
+}
+const turnWatches: TurnWatch[] = [];
+
+function dropTurnWatches(match: (w: TurnWatch) => boolean): TurnWatch[] {
+  const dropped: TurnWatch[] = [];
+  for (let i = turnWatches.length - 1; i >= 0; i--) {
+    if (match(turnWatches[i])) dropped.unshift(...turnWatches.splice(i, 1));
+  }
+  return dropped;
+}
+
+/** The person's silks or edicts stopped it (turn-end.ts "rule" gate). */
+const RULE_KINDS: ReadonlySet<string> = new Set(["silk_off", "silk_scope", "silk_broken", "edict_stop"]);
+
+/** How a turn ended, as `result_of` and the notice say it. */
+export function endedText(outcome: string, errorKind?: string): string {
+  if (outcome === "error") return `failed${errorKind ? ` (${errorKind.replace(/_/g, " ")})` : ""}`;
+  if (outcome === "gate" && errorKind && RULE_KINDS.has(errorKind)) return "stopped by a rule";
+  if (outcome === "gate") return "paused: the free share is used up, Auto is busy, or credit is needed";
+  if (outcome === "stopped" || outcome === "aborted") return "stopped";
+  if (outcome === "ask_user") return "waiting for the user's answer";
+  return "done";
+}
+
+/** The files a saved turn changed, comma-separated; "" for none or unknown. */
+export async function filesChangedText(workspace: string, snapshotTurnId: string | null): Promise<string> {
+  if (!snapshotTurnId || !workspace) return "";
+  const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
+  const changed = await listSnapshotFiles(workspace, snapshotTurnId).catch(() => null);
+  return changed?.filesChanged.length ? changed.filesChanged.join(", ") : "";
+}
+
+/** The one notice: how the turn ended and what it changed, from the session that ran it to the one that asked. */
+async function tellTurnEnded(w: TurnWatch): Promise<void> {
+  const s = local.get(w.sessionId);
+  const turn = s?.lastTurn;
+  if (!s || !turn) return;
+  const reply = latestReply(s.sessionId, turn.startedAt);
+  const files = await filesChangedText(s.workspace, reply?.snapshotTurnId ?? null);
+  const text =
+    `${s.name}'s turn ended: ${endedText(turn.outcome, turn.errorKind)}, ${new Date(turn.endedAt).toLocaleString()}.` +
+    `\nFiles changed: ${files || "none"}.`;
+  const to = resolvePeer(w.from.sessionId, s.sessionId);
+  // The sender closed meanwhile: nothing to tell.
+  if ("error" in to) return;
+  await sendPeerMessage(
+    to.row,
+    { sessionId: s.sessionId, name: s.name, surface: s.surface ?? surface, workspace: s.workspace },
+    text,
+    undefined,
+    // A notice, not a request: never start a turn in the sender just to read it.
+    { informational: true },
+  ).catch(() => {});
 }
 
 /** The turn record a live row carries, if its process noted one. */
@@ -959,6 +1113,23 @@ export function latestReply(
   }
 }
 
+/**
+ * Update whether a session has a pending approval, so list_sessions can show it (0aa).
+ * Pass `approvals` to store the full list for peer review; omit to clear.
+ */
+export function noteSessionApproval(
+  sessionId: string,
+  hasApproval: boolean,
+  approvals?: PendingApprovalSummary[],
+): void {
+  const s = local.get(sessionId);
+  if (!s) return;
+  if (s.hasApproval === hasApproval && !approvals) return;
+  s.hasApproval = hasApproval;
+  s.pendingApprovals = hasApproval ? (approvals ?? s.pendingApprovals) : undefined;
+  publish();
+}
+
 /** The model a session of this process runs on, as people see it, for list_sessions (item 9). */
 export function noteSessionModel(sessionId: string, label: string | undefined): void {
   const s = local.get(sessionId);
@@ -969,6 +1140,21 @@ export function noteSessionModel(sessionId: string, label: string | undefined): 
   if (s.model === label) return;
   s.model = label;
   publish();
+}
+
+/**
+ * Whether a pending approval is high-risk and must not be answered by a peer session (0aa).
+ * Mirrors the check in session.ts's isPeerApprovable; kept here so the gate fires in
+ * receive() regardless of which applySettings implementation the host uses.
+ *
+ * Dynamic signals only — no static command regex (owner verdict, 2026-11-01).
+ * The gate that raised the request already sets isDangerous / systemScope when
+ * it detected a risky pattern; we trust those flags rather than re-parsing text.
+ */
+function isHighRiskApproval(a: PendingApprovalSummary): boolean {
+  if (a.isDangerous || a.systemScope) return true;
+  if (a.operation === "sandbox_escalation") return true;
+  return false;
 }
 
 /** One frame to another process's inbox, and its answer. */
@@ -1004,6 +1190,7 @@ export function __resetPeersForTests(): void {
   local.clear();
   recentBySender.clear();
   recentTexts.clear();
+  turnWatches.length = 0;
   hostImpl = null;
   dbFn = null;
   token = "";

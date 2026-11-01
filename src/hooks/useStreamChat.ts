@@ -701,6 +701,7 @@ export function useStreamChat({
       prefillTaskLedger,
       workModeOverride,
       escalate,
+      userRetry,
     }: {
       prompt: string;
       chatId: number;
@@ -722,6 +723,8 @@ export function useStreamChat({
       workModeOverride?: import("@/lib/schemas").WorkMode;
       /** "Try with a stronger model": paid Atlarix Auto answers one level up. */
       escalate?: boolean;
+      /** The user's Retry: the first Core request says so (`X-Atlarix-Retry`). */
+      userRetry?: boolean;
       /** Persisted workspace session id for this stream turn. */
       workspaceSessionId?: string | null;
     }) => {
@@ -1738,6 +1741,7 @@ export function useStreamChat({
           workModeOverride: sentWorkMode,
           effortOverride,
           escalate,
+          userRetry,
           onUpdate: (updatedMessages: Message[]) => {
             // v11.1: no freeze-baseline clamp — the turn ends at ask_user, so
             // there is no speculative streaming to suppress while pending.

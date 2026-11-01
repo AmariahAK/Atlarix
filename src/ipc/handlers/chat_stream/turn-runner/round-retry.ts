@@ -28,6 +28,7 @@ import {
   isNativeComputerToolRejection,
   jitteredDelay,
   retryAfterMs,
+  PROVIDER_BUSY_DELAYS_MS,
   NetworkStreamDisconnectedError,
 } from "@/ipc/handlers/chat_stream/network-retry";
 import { sentryAddBreadcrumbSafe } from "@/ipc/handlers/chat_stream/sentry-safe";
@@ -319,6 +320,24 @@ export async function runStreamRoundWithEmptyOutputRetry(
 
       // The provider refused the request itself (bad key, no access): the same
       // request is refused again, and onError already said why.
+      // The provider is busy (rate limit, overload): it clears. Wait longer than
+      // a network blip, then run the round again from scratch.
+      const busy = bundle?.getRecordedBusy?.();
+      if (busy != null && isEmptyOutputStreamError(err) && networkAttempt < PROVIDER_BUSY_DELAYS_MS.length) {
+        const delay = jitteredDelay(networkAttempt, PROVIDER_BUSY_DELAYS_MS[networkAttempt]);
+        networkAttempt++;
+        noteTurn(params.chatId, "retries");
+        logger.warn(
+          `[stream] Provider busy (${refusalMessage(busy).slice(0, 160)}), retrying after ${delay}ms (attempt ${networkAttempt}/${PROVIDER_BUSY_DELAYS_MS.length})`,
+        );
+        safeSend(event.sender, "chat:stream:reset-partial", { chatId: params.chatId });
+        fullResponse = initialFullResponse;
+        partialResponses.delete(params.chatId);
+        await new Promise((r) => setTimeout(r, delay));
+        if (params.abortController.signal.aborted) throw new Error("aborted");
+        continue;
+      }
+
       const refusal = bundle?.getRecordedRefusal?.();
       if (refusal != null && isEmptyOutputStreamError(err)) {
         throw new ProviderRefusedRequestError(refusal);
@@ -400,6 +419,14 @@ export async function runStreamRoundWithEmptyOutputRetry(
         continue;
       }
       if (isEmptyOutputStreamError(err)) {
+        // The model returned nothing after every retry. This surfaces to the
+        // user as "Something went wrong — please try again.", so the cause must
+        // be in the log: a peer message waking a turn whose model produced no
+        // output showed the generic failure with no log line (QA 2026-10-31).
+        logger.warn(
+          "[stream] No usable model output after retries — cause:",
+          err instanceof Error ? err.message : err,
+        );
         throw new EmptyModelOutputAfterRetryError();
       }
 
