@@ -23,11 +23,12 @@
  *   · mid-turn loop        → compactAgenticMessagesIfNeeded (same file)
  *   · model-initiated      → compress_context           (tools/workspace.ts)
  * plus overflow recovery, which is the same call with the gates forced.
- * One budget (`usable` — the window minus the room the reply needs), one marker
- * (COMPACTION_SUMMARY_PREFIX), one durable write (persistCompactionSummaryToSession,
- * owned here). Every step below sizes itself as a FRACTION of that budget rather
- * than against a fixed token count: five absolute constants used to live here, and
- * on a small window each one silently switched its own step off. See
+ * Two budgets, one marker (COMPACTION_SUMMARY_PREFIX), one durable write
+ * (persistCompactionSummaryToSession, owned here). The protection floors and the
+ * summariser's tail selection size themselves as a FRACTION of the WORKING WINDOW
+ * (the session's compaction target), while `usable` (the window minus the room the
+ * reply needs) stays the reply-fit backstop. Five absolute constants used to live
+ * here, and on a small window each one silently switched its own step off. See
  * `compactionBudgets` in `mid-loop-threshold.ts`.
  */
 
@@ -42,7 +43,11 @@ import {
 import log from "electron-log";
 import { exactTokenCount, exactTokenCountText } from "./token-counter";
 import { recordAuxUsage } from "../usage/turn-usage-aggregator";
-import { compactionBudgets, usableContextBudget } from "./mid-loop-threshold";
+import {
+  compactionBudgets,
+  contextWorkingWindowTokens,
+  usableContextBudget,
+} from "./mid-loop-threshold";
 import {
   COMPACTION_MARKER_KIND,
   COMPACTION_SUMMARY_PREFIX,
@@ -769,6 +774,16 @@ export async function runSteppedCompaction(
     workspaceSessionId?: string | null;
     /** The model the conversation runs on, for the summary (else found from `chatId`). */
     model?: { provider: string; name: string };
+    /**
+     * The context WORKING WINDOW — the session's compaction target (default 256k,
+     * `contextWorkingWindowTokens`). Sizes the protection floors
+     * (`compactionBudgets`) and the summariser's tail selection, so a 1M-window
+     * session compacts when it fills its working window rather than only when it
+     * nears the model's hard limit. `tierLimit` stays the reply-fit backstop
+     * (`usable`). Absent → `tierLimit` (the old behaviour, so small-window
+     * callers that pass only a budget are unchanged).
+     */
+    workingWindowTokens?: number;
   },
 ): Promise<RunSteppedCompactionResult> {
   if (messages.length === 0) {
@@ -786,14 +801,20 @@ export async function runSteppedCompaction(
   const force = opts?.force === true || summarizeAsked;
   const currentTokens = countMessagesTokens(messages);
   const alreadyUsed = opts?.alreadyUsedTokens ?? 0;
-  // `usable` is what the caller passes: the window MINUS the reply reserve. Every
-  // step below sizes itself against it, so none of them can protect more room
-  // than exists. See `compactionBudgets`.
+  // `usable` is the reply-fit backstop: the window MINUS the room the reply needs
+  // (what `tierLimit` is). The protection floors and tail selection size
+  // themselves against the WORKING WINDOW, not `usable` — see `compactionBudgets`.
   const usable = Math.max(1, tierLimit);
-  const budgets = compactionBudgets(usable);
+  const workingWindow = Math.max(1, opts?.workingWindowTokens ?? usable);
+  const budgets = compactionBudgets(workingWindow);
   const usageRatio = (currentTokens + alreadyUsed) / usable;
 
-  if (force && currentTokens < budgets.forceMinHistory) {
+  // A forced (model-initiated) compaction of a small history is an honest no-op —
+  // UNLESS the session is already over the working window, in which case the
+  // meter reads "full" and the tool must relieve it rather than agree there is
+  // nothing to do (0ac: compress_context was a dud when actually full).
+  const overWorkingWindow = currentTokens + alreadyUsed > workingWindow;
+  if (force && currentTokens < budgets.forceMinHistory && !overWorkingWindow) {
     return {
       modelContext: messages,
       strategy: "none",
@@ -879,10 +900,12 @@ export async function runSteppedCompaction(
   // for space, so give it real space instead of a token-identical no-op.
   const forcedSummarize =
     summarizeAsked ||
-    (force && tokensFreed < Math.max(2_000, Math.floor(currentTokens * 0.1)));
+    (force &&
+      (tokensFreed < Math.max(2_000, Math.floor(currentTokens * 0.1)) ||
+        tokensAfterStrip + alreadyUsed > workingWindow));
   if (tokensAfterStrip + alreadyUsed > usable || forcedSummarize) {
     const { head: headMessages, tail_start_id: tailStartId } =
-      selectMessagesForCompaction(modelContext, usable);
+      selectMessagesForCompaction(modelContext, workingWindow);
 
     // v11.1 guard: don't re-summarize a head that is just the previous
     // summary (nothing new to fold in) — avoids degenerate double passes.
@@ -1102,6 +1125,38 @@ export async function getUsableBudget(
   return resolveUsableBudget(
     model as Parameters<typeof resolveModelContextLimit>[0],
     resolved.tierLimit,
+  );
+}
+
+/**
+ * The context WORKING WINDOW for the turn's model — the session's compaction
+ * target (default 256k, `contextWorkingWindowTokens`), the number the context
+ * meter and the compaction gates report against. `compress_context` passes this
+ * to `runSteppedCompaction` so its protection floors are sized to what the
+ * session actually grows to, not the model's full usable window (0ac).
+ */
+export async function getContextWorkingWindow(
+  providerId?: string,
+  /** The turn's own model (its chat's); the app's selection only when absent (15.11.1). */
+  turnModel?: { provider: string; name: string },
+): Promise<number> {
+  const settings = readSettings();
+  const selected = turnModel ?? settings.selectedModel;
+  const pid = providerId ?? selected?.provider ?? "auto";
+  const model =
+    selected && (!providerId || selected.provider === providerId)
+      ? selected
+      : { provider: pid, name: selected?.name ?? "" };
+  const { resolveModelContextLimit } = await import(
+    "./resolve-model-context-limit"
+  );
+  const resolved = await resolveModelContextLimit(
+    model as Parameters<typeof resolveModelContextLimit>[0],
+    settings,
+  );
+  return contextWorkingWindowTokens(
+    resolved.tierLimit,
+    settings.contextWorkingWindow,
   );
 }
 

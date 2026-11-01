@@ -50,6 +50,9 @@ vi.mock("@/lib/context/compaction", async (importOriginal) => {
     await importOriginal<typeof import("@/lib/context/compaction")>();
   return {
     ...actual,
+    // The working window the tool now resolves and forwards (0ac). Pinned to a
+    // sentinel so the forwarding assertion checks a known value, not the real one.
+    getContextWorkingWindow: vi.fn(async () => 256_000),
     // Pretend the stepped path's LLM summarize succeeded. The compactor's own
     // durable write is covered in compaction-durable-write.test.ts.
     runSteppedCompaction: vi.fn(
@@ -121,6 +124,9 @@ describe("executeCompressContext — what the tool still owns", () => {
       );
       // And it must still ask for a real summary, not just the cheap steps.
       expect(compactorSpy.lastOpts.value?.force).toBe(true);
+      // 0ac: the working window must reach the compactor, else its floors are
+      // sized from the usable budget and compress_context no-ops when full.
+      expect(compactorSpy.lastOpts.value?.workingWindowTokens).toBe(256_000);
       // The live transport is replaced with the compacted list.
       expect(setMessages).toHaveBeenCalledTimes(1);
       const nextList = setMessages.mock.calls[0]![0] as Array<{

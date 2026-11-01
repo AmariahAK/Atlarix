@@ -29,6 +29,7 @@ import { removeAtlarixTags, removeNonEssentialTags } from "@/ipc/handlers/chat_s
 import {
   runSteppedCompaction,
   getUsableBudget,
+  getContextWorkingWindow,
   countMessagesTokens,
 } from "../context/compaction";
 import { AttachmentStore, type AttachmentData } from "../attachment-store";
@@ -296,7 +297,17 @@ export async function executeCompressContext(
   // The chat's own model (its turn's), not the app's current pick (15.11.1).
   const { turnModelForChat } = await import("@/lib/summarization_model");
   const { readSettings } = await import("@/main/settings");
-  const tierLimit = await getUsableBudget(ctx.providerId, await turnModelForChat(ctx.chatId, readSettings()));
+  const turnModel = await turnModelForChat(ctx.chatId, readSettings());
+  const tierLimit = await getUsableBudget(ctx.providerId, turnModel);
+  // The WORKING WINDOW (the session's compaction target — the number the meter
+  // reports against) drives the compactor's floors, while `tierLimit` stays the
+  // reply-fit backstop. Without this, a 1M-window session refuses to compact
+  // below half its USABLE budget and compress_context no-ops while the meter
+  // reads over 100% (0ac).
+  const workingWindowTokens = await getContextWorkingWindow(
+    ctx.providerId,
+    turnModel,
+  );
   // W6 (v14.8.11): the model asked for space — force past the 60% usage
   // gate, and measure usage in the METER's scope (history + system prompt
   // + input) so the tool never reports "nothing to do" while the meter
@@ -309,6 +320,7 @@ export async function executeCompressContext(
     {
       force: true,
       alreadyUsedTokens: (ctx.systemPromptTokens ?? 0) + (ctx.inputTokens ?? 0),
+      workingWindowTokens,
       // v11.1 durable compaction, now owned by the compactor: it writes the
       // `[COMPACTION MARKER]` row to the bound session itself, so a reload keeps
       // the compact model history (dispatch slices from the last marker).
@@ -330,8 +342,8 @@ export async function executeCompressContext(
       ? (stepped.summaryText ??
         `Context compressed: history ${tokensBefore} → ${tokensAfter} tokens (${stepped.strategy}).`)
       : `Already compact: history is ${tokensBefore} tokens (~${Math.round(
-          (tokensBefore / Math.max(tierLimit, 1)) * 100,
-        )}% of the ${tierLimit}-token usable budget) — nothing worth compacting. No action needed.`,
+          (tokensBefore / Math.max(workingWindowTokens, 1)) * 100,
+        )}% of the ${workingWindowTokens}-token working window) — nothing worth compacting. No action needed.`,
     status: applied ? "completed" : "noop",
     summaryPersisted,
     strategy: stepped.strategy,
