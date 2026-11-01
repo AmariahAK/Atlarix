@@ -26,6 +26,8 @@ import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
 import { setTerminalHyperlinks } from "./links";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
 import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
+import { commandRowLabel, stripRows } from "./dock-logic";
+import type { StripRow } from "./dock-logic";
 
 /**
  * Escape sequences the renderer does not draw itself (the tab title, the
@@ -277,15 +279,7 @@ function age(ms: number): string {
   return sec >= 60 ? `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, "0")}s` : `${sec}s`;
 }
 
-/** A row under the prompt box: one per sub-agent; every background command shares one. */
-export type StripRow = { kind: "agent"; task: LiveTask } | { kind: "commands"; tasks: LiveTask[] };
-
-export function stripRows(tasks: LiveTask[]): StripRow[] {
-  const rows: StripRow[] = tasks.filter((t) => t.kind === "agent").map((task) => ({ kind: "agent", task }));
-  const commands = tasks.filter((t) => t.kind === "command");
-  if (commands.length) rows.push({ kind: "commands", tasks: commands });
-  return rows;
-}
+// StripRow, stripRows, and commandRowLabel live in dock-logic.ts (pure, testable).
 
 /** Agent rows shown before the rest fold into "… N more". */
 const AGENT_ROWS = 6;
@@ -318,14 +312,15 @@ function AgentRows({ rows, width, selected, main }: { rows: StripRow[]; width: n
       {shown.map((r, i) => {
         const picked = selected === start + i;
         if (r.kind === "commands") {
-          const n = r.tasks.length;
           const longest = Math.max(...r.tasks.map((t) => t.elapsedMs));
+          const label = commandRowLabel(r.tasks);
+          const mark = r.stalled ? "◈" : glyph.tool.running;
           return line(
             "commands",
             picked,
-            glyph.tool.running,
-            color.code,
-            `${n} command${n === 1 ? "" : "s"}`,
+            mark,
+            r.stalled ? color.muted : color.code,
+            label,
             r.tasks.map((t) => t.label.split("\n")[0]).join(", "),
             age(longest),
           );
