@@ -85,6 +85,7 @@ import {
   type ScreenContext,
 } from "./screens";
 import { Composer, type ComposerApi } from "./Composer";
+import type { Placeholder } from "../composer/model";
 import {
   groupOptions,
   rememberChoice,
@@ -585,11 +586,12 @@ export function App({
   }, [renderer, copy]);
   const { width, height } = useTerminalDimensions();
   // Sent prompts, oldest first, for ↑/↓ (like every shell and the other CLIs).
-  const history = useRef<string[]>([]);
+  // Each carries its chips, so recall restores the pastes behind the labels (0ab).
+  const history = useRef<Array<{ text: string; placeholders: Placeholder[] }>>([]);
   const historyIndex = useRef<number | null>(null);
-  const remember = (text: string) => {
+  const remember = (text: string, placeholders: Placeholder[] = []) => {
     const t = text.trim();
-    if (t && history.current.at(-1) !== t) history.current.push(t);
+    if (t && history.current.at(-1)?.text !== t) history.current.push({ text: t, placeholders });
     historyIndex.current = null;
   };
 
@@ -1788,7 +1790,7 @@ export function App({
     // ↑/↓ recall sent prompts when the box is empty or already showing one.
     if ((key.name === "up" || key.name === "down") && !key.meta && !key.option && !key.shift && !key.ctrl) {
       const current = composer.current?.text() ?? "";
-      const browsing = historyIndex.current != null && current === history.current[historyIndex.current];
+      const browsing = historyIndex.current != null && current === history.current[historyIndex.current]?.text;
       if ((current === "" && key.name === "up") || browsing) {
         const h = history.current;
         let i = historyIndex.current ?? h.length;
@@ -1800,7 +1802,7 @@ export function App({
           composer.current?.clear();
         } else {
           historyIndex.current = i;
-          composer.current?.setText(h[i]!);
+          composer.current?.setDraft(h[i]!.text, h[i]!.placeholders);
         }
         return;
       }
@@ -1885,7 +1887,7 @@ export function App({
       const s = composer.current?.submission();
       if (!s?.display) return;
       composer.current?.clear();
-      remember(s.display);
+      remember(s.display, s.placeholders);
       if (state.busy) session.queueNext(s.prompt);
       else void session.submit(s.prompt, { display: s.display, images: s.images });
       return;
@@ -1911,7 +1913,7 @@ export function App({
     }
   });
 
-  const onSubmit = (s: { prompt: string; display: string; images: Array<{ path: string; mime: string; label: string }> }) => {
+  const onSubmit = (s: { prompt: string; display: string; images: Array<{ path: string; mime: string; label: string }>; placeholders: Placeholder[] }) => {
     if (feedbackOpen && s.display.trim() && !s.display.trim().startsWith("/")) {
       if (s.display.trim().length > FEEDBACK_MAX) return flash(FEEDBACK_TOO_LONG, 6000, "error");
       setFeedbackOpen(false);
@@ -1920,7 +1922,7 @@ export function App({
     }
     const command = parseCommandLine(s.display);
     if (command) {
-      remember(s.display);
+      remember(s.display, s.placeholders);
       return runCommand(command.name, command.rest);
     }
     // "/something" that is no command: say so, never send it to the model as a
@@ -1939,7 +1941,7 @@ export function App({
     const editing = editRef.current;
     if (editing) {
       composer.current?.clear();
-      remember(s.display);
+      remember(s.display, s.placeholders);
       setEdit(null);
       void session.resendEdited(editing.messageId, s.prompt, editing.restoreTurnIds).then(
         ({ restoredFiles, kept }) => {
@@ -1956,12 +1958,12 @@ export function App({
     const shell = parseShellInput(s.display);
     if (shell) {
       composer.current?.clear();
-      remember(s.display);
+      remember(s.display, s.placeholders);
       void session.runShell(shell);
       return;
     }
     composer.current?.clear();
-    remember(s.display);
+    remember(s.display, s.placeholders);
     void session.submit(s.prompt, { display: s.display, images: s.images });
   };
 

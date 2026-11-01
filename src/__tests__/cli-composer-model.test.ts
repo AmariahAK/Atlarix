@@ -7,6 +7,7 @@ import {
   freshCounters,
   labelFor,
   pastedPath,
+  placeholdersInText,
   shouldCollapsePaste,
   type FsProbe,
 } from "@/cli/composer/model";
@@ -92,5 +93,31 @@ describe("submitting", () => {
     const img = { kind: "image" as const, n: 1, path: "/p/a.png", mime: "image/png" };
     const s = buildSubmission("never mind", [{ label: labelFor(img), attachment: img }]);
     expect(s.images).toEqual([]);
+  });
+});
+
+describe("restoring a draft (0ab: a label must never outlive its chip)", () => {
+  const paste = { kind: "paste" as const, n: 1, text: "line1\nline2\nline3" };
+  const label = labelFor(paste);
+
+  it("a submission carries the chips its display still has, for history recall", () => {
+    const s = buildSubmission(`fix ${label} please`, [{ label, attachment: paste }]);
+    expect(s.placeholders).toEqual([{ label, attachment: paste }]);
+    // A chip the user deleted before sending is not carried back into a draft.
+    const gone = buildSubmission("never mind", [{ label, attachment: paste }]);
+    expect(gone.placeholders).toEqual([]);
+  });
+
+  it("placeholdersInText keeps only the chips a setText's text still shows", () => {
+    const img = { kind: "image" as const, n: 1, path: "/p/a.png", mime: "image/png" };
+    const imgLabel = labelFor(img);
+    const all = [
+      { label, attachment: paste },
+      { label: imgLabel, attachment: img },
+    ];
+    // History recall / an unsent restore re-sets text that still shows the paste
+    // chip: that chip's record must survive, the one whose label is gone must not.
+    expect(placeholdersInText(all, `unsent text\n${label}`)).toEqual([{ label, attachment: paste }]);
+    expect(placeholdersInText(all, "no chips here")).toEqual([]);
   });
 });
