@@ -58,5 +58,13 @@
   },
   "loadedSession": {
     "olderNotShown": "Older messages are saved but not shown."
+  },
+  "errorBox": {
+    "addCredit": "Add credit",
+    "topUpCredit": "Top up credit",
+    "chooseAnotherModel": "Choose another model",
+    "switchProvider": "Switch provider",
+    "useAtlarixAutoFree": "Use Atlarix Auto (free)",
+    "useAtlarixZenith": "Use Atlarix Zenith"
   }
 }

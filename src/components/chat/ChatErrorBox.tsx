@@ -30,7 +30,11 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "@/hooks/useSettings";
 import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
 import { UpgradeButtons } from "@/components/billing/UpgradeActions";
-import { CORE_TIER_AUTO, CORE_TIER_ZENITH, autoConsentAccepted } from "@/ipc/shared/compass_constants";
+import {
+  CORE_TIER_AUTO,
+  CORE_TIER_ZENITH,
+  autoConsentAccepted,
+} from "@/ipc/shared/compass_constants";
 
 /** Open Settings → AI so the user can switch provider / model or add an API key. */
 function openAiSettings() {
@@ -64,11 +68,18 @@ function openAiSettings() {
  * once per chat; main decides that (zenith-offer.ts).
  */
 export function ChatErrorBox(props: Parameters<typeof ChatErrorBoxBody>[0]) {
-  if (!props.error.includes(ZENITH_OFFER_LINE)) return <ChatErrorBoxBody {...props} />;
+  if (!props.error.includes(ZENITH_OFFER_LINE))
+    return <ChatErrorBoxBody {...props} />;
   return (
     <>
-      <ChatErrorBoxBody {...props} error={props.error.replace(` ${ZENITH_OFFER_LINE}`, "")} />
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm" data-testid="zenith-offer">
+      <ChatErrorBoxBody
+        {...props}
+        error={props.error.replace(` ${ZENITH_OFFER_LINE}`, "")}
+      />
+      <div
+        className="mt-2 flex flex-wrap items-center gap-2 text-sm"
+        data-testid="zenith-offer"
+      >
         <span className="text-muted-foreground">{ZENITH_OFFER_LINE}</span>
         <UseZenithButton onDone={props.onDismiss} />
       </div>
@@ -91,6 +102,7 @@ function ChatErrorBoxBody({
   error: string;
 }) {
   const text = error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "");
+  const { t } = useTranslation("chat");
 
   // A $0 account that never added credit picked a Core model: Core is paid,
   // Atlarix Auto is the free way to keep going (owner, 2026-10-27).
@@ -112,7 +124,7 @@ function ChatErrorBoxBody({
       <ChatInfoContainer onDismiss={onDismiss}>
         <span data-testid="pro-allowance">{text}</span>
         <div className="mt-2 space-y-2 space-x-2">
-          <TopUpButton>Add credit</TopUpButton>
+          <TopUpButton>{t("errorBox.addCredit")}</TopUpButton>
           <SwitchProviderButton>{USE_OWN_KEY_LABEL}</SwitchProviderButton>
         </div>
       </ChatInfoContainer>
@@ -126,8 +138,10 @@ function ChatErrorBoxBody({
       <ChatInfoContainer onDismiss={onDismiss}>
         <span>{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
         <div className="mt-2 space-y-2 space-x-2">
-          <TopUpButton>Top up credit</TopUpButton>
-          <SwitchProviderButton>Choose another model</SwitchProviderButton>
+          <TopUpButton>{t("errorBox.topUpCredit")}</TopUpButton>
+          <SwitchProviderButton>
+            {t("errorBox.chooseAnotherModel")}
+          </SwitchProviderButton>
         </div>
       </ChatInfoContainer>
     );
@@ -170,7 +184,9 @@ function ChatErrorBoxBody({
       <ChatInfoContainer onDismiss={onDismiss}>
         <span>{text}</span>
         <div className="mt-2 space-y-2 space-x-2">
-          <SwitchProviderButton>Choose another model</SwitchProviderButton>
+          <SwitchProviderButton>
+            {t("errorBox.chooseAnotherModel")}
+          </SwitchProviderButton>
         </div>
       </ChatInfoContainer>
     );
@@ -189,7 +205,9 @@ function ChatErrorBoxBody({
       <ChatInfoContainer onDismiss={onDismiss}>
         <span>{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
         <div className="mt-2 space-y-2 space-x-2">
-          <SwitchProviderButton>Switch provider</SwitchProviderButton>
+          <SwitchProviderButton>
+            {t("errorBox.switchProvider")}
+          </SwitchProviderButton>
         </div>
       </ChatInfoContainer>
     );
@@ -204,7 +222,9 @@ function ChatErrorBoxBody({
       <ChatErrorContainer onDismiss={onDismiss}>
         {error}
         <div className="mt-2 space-y-2 space-x-2">
-          <SwitchProviderButton>Choose another model</SwitchProviderButton>
+          <SwitchProviderButton>
+            {t("errorBox.chooseAnotherModel")}
+          </SwitchProviderButton>
         </div>
       </ChatErrorContainer>
     );
@@ -392,21 +412,29 @@ function LiveCountdown({ text }: { text: string }) {
   const now = Date.now();
   const left = (Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60_000;
   const resetsAt = firstShown.get(text)! + left;
-  const live = resetsAt > now ? `Resets in ${formatResetsIn(resetsAt, now)}` : "Free Atlarix Auto is back";
+  const live =
+    resetsAt > now
+      ? `Resets in ${formatResetsIn(resetsAt, now)}`
+      : "Free Atlarix Auto is back";
   return <>{text.replace(m[0].trimEnd(), live)}</>;
 }
 
 /** Switches the chat in front to Atlarix Auto, the free way to keep going. */
 function UseAutoButton({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation("chat");
   const selectModel = useSelectModel();
   return (
     <button
       type="button"
       data-testid="use-atlarix-auto"
       className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
-      onClick={() => void selectModel({ provider: "compass", name: CORE_TIER_AUTO }).then(onDone)}
+      onClick={() =>
+        void selectModel({ provider: "compass", name: CORE_TIER_AUTO }).then(
+          onDone,
+        )
+      }
     >
-      Use Atlarix Auto (free)
+      {t("errorBox.useAtlarixAutoFree")}
     </button>
   );
 }
@@ -428,15 +456,20 @@ export function ZenithOfferNotice({ onDismiss }: { onDismiss: () => void }) {
 
 /** Switches the chat in front to Atlarix Zenith. */
 function UseZenithButton({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation("chat");
   const selectModel = useSelectModel();
   return (
     <button
       type="button"
       data-testid="use-atlarix-zenith"
       className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
-      onClick={() => void selectModel({ provider: "compass", name: CORE_TIER_ZENITH }).then(onDone)}
+      onClick={() =>
+        void selectModel({ provider: "compass", name: CORE_TIER_ZENITH }).then(
+          onDone,
+        )
+      }
     >
-      Use Atlarix Zenith
+      {t("errorBox.useAtlarixZenith")}
     </button>
   );
 }

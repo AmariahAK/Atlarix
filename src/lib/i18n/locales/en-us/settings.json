@@ -144,5 +144,19 @@
     "seriesCore": "Core",
     "seriesOther": "Search, reviewer, cloud",
     "seriesUnsplit": "Not split"
+  },
+  "plugins": {
+    "silks": "Silks",
+    "skills": "Skills",
+    "agents": "Agents",
+    "commands": "Commands",
+    "noSilksYet": "No silks yet.",
+    "notNow": "Not now",
+    "allowThese": "Allow these",
+    "putsBack": "Puts back the files that changed on disk"
+  },
+  "workspace": {
+    "directoryRecursive": "Directory/**",
+    "folderOnly": "Folder (only)"
   }
 }

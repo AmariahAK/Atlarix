@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
+import { useTranslation } from "react-i18next";
 import { Puzzle } from "lucide-react";
 import { selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,7 @@ const message = (e: unknown) =>
   );
 
 function PreviewBody({ p }: { p: PluginPreviewView }) {
+  const { t } = useTranslation("settings");
   return (
     <div className="space-y-2 text-sm">
       <div className="text-muted-foreground font-mono text-xs break-all">
@@ -47,12 +49,24 @@ function PreviewBody({ p }: { p: PluginPreviewView }) {
         {p.sha ? ` @ ${p.sha.slice(0, 7)}` : ""}
       </div>
       {p.description ? <div>{p.description}</div> : null}
-      {p.skills.length ? <div>Skills: {p.skills.join(", ")}</div> : null}
-      {p.agents.length ? <div>Agents: {p.agents.join(", ")}</div> : null}
-      {p.commands.length ? <div>Commands: {p.commands.join(", ")}</div> : null}
+      {p.skills.length ? (
+        <div>
+          {t("plugins.skills")}: {p.skills.join(", ")}
+        </div>
+      ) : null}
+      {p.agents.length ? (
+        <div>
+          {t("plugins.agents")}: {p.agents.join(", ")}
+        </div>
+      ) : null}
+      {p.commands.length ? (
+        <div>
+          {t("plugins.commands")}: {p.commands.join(", ")}
+        </div>
+      ) : null}
       {p.update?.installedChanged ? (
         <div className="text-amber-600 dark:text-amber-400">
-          Puts back the files that changed on disk
+          {t("plugins.putsBack")}
         </div>
       ) : null}
       {p.update ? (
@@ -100,6 +114,7 @@ function Runnables({ lines }: { lines: string[] }) {
 }
 
 export function PluginsSettingsPage() {
+  const { t } = useTranslation("settings");
   const ipc = IpcClient.getInstance();
   const workspace = useAtomValue(selectedWorkspaceInfoAtom);
   const workspacePath = workspace?.path ?? null;
@@ -181,7 +196,7 @@ export function PluginsSettingsPage() {
       <div className="flex items-start gap-3">
         <Puzzle className="w-5 h-5 mt-0.5 text-muted-foreground shrink-0" />
         <div className="min-w-0">
-          <h2 className="text-lg font-semibold">Silks</h2>
+          <h2 className="text-lg font-semibold">{t("plugins.silks")}</h2>
           <p className="text-sm text-muted-foreground">
             Skills, agents, commands, edicts and MCP servers you add, on every
             folder or one.
@@ -211,7 +226,9 @@ export function PluginsSettingsPage() {
       ) : null}
 
       {plugins.length === 0 ? (
-        <div className="text-sm text-muted-foreground">No silks yet.</div>
+        <div className="text-sm text-muted-foreground">
+          {t("plugins.noSilksYet")}
+        </div>
       ) : (
         <div className="space-y-3">
           {plugins.map((p) => (
@@ -253,13 +270,19 @@ export function PluginsSettingsPage() {
 
               <div className="text-sm space-y-0.5">
                 {p.skills.length ? (
-                  <div>Skills: {p.skills.join(", ")}</div>
+                  <div>
+                    {t("plugins.skills")}: {p.skills.join(", ")}
+                  </div>
                 ) : null}
                 {p.agents.length ? (
-                  <div>Agents: {p.agents.join(", ")}</div>
+                  <div>
+                    {t("plugins.agents")}: {p.agents.join(", ")}
+                  </div>
                 ) : null}
                 {p.commands.length ? (
-                  <div>Commands: {p.commands.join(", ")}</div>
+                  <div>
+                    {t("plugins.commands")}: {p.commands.join(", ")}
+                  </div>
                 ) : null}
               </div>
               {p.runnables.length ? <Runnables lines={p.runnables} /> : null}
@@ -357,7 +380,7 @@ export function PluginsSettingsPage() {
                   autoFocus
                   onClick={() => cancelPreview(step.preview)}
                 >
-                  Not now
+                  {t("plugins.notNow")}
                 </Button>
                 <Button
                   onClick={() =>
@@ -393,7 +416,7 @@ export function PluginsSettingsPage() {
                   autoFocus
                   onClick={() => cancelPreview(step.preview)}
                 >
-                  Not now
+                  {t("plugins.notNow")}
                 </Button>
                 <Button onClick={() => void commit(step.preview, true)}>
                   {step.preview.update ? "Update" : "Install"} and allow these
@@ -417,7 +440,7 @@ export function PluginsSettingsPage() {
                   autoFocus
                   onClick={() => setStep(null)}
                 >
-                  Not now
+                  {t("plugins.notNow")}
                 </Button>
                 <Button
                   onClick={() =>
@@ -427,7 +450,7 @@ export function PluginsSettingsPage() {
                     })
                   }
                 >
-                  Allow these
+                  {t("plugins.allowThese")}
                 </Button>
               </DialogFooter>
             </>
@@ -443,7 +466,7 @@ export function PluginsSettingsPage() {
                   autoFocus
                   onClick={() => setStep(null)}
                 >
-                  Not now
+                  {t("plugins.notNow")}
                 </Button>
                 <Button
                   variant="destructive"
