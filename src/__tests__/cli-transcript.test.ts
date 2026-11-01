@@ -54,6 +54,32 @@ describe("toolTarget", () => {
     expect(toolTarget("run_command", { command: "npm test" })).toBe("npm test");
     expect(toolTarget("unknown_tool", { x: 1 })).toBe("");
   });
+
+  it("says who a message went to and what it said or steered (0ae)", () => {
+    expect(toolTarget("send_message", { to: "GLM coordinator", message: "0ab is merged" })).toBe('→ GLM coordinator · "0ab is merged"');
+    expect(toolTarget("send_message", { to: "s1", message: "line one\nline two" })).toBe('→ s1 · "line one"');
+    expect(toolTarget("send_message", { to: "s1", mode: "build" })).toBe("→ s1 · mode build");
+    expect(toolTarget("send_message", { to: "s1", plan: "approve" })).toBe("→ s1 · plan approve");
+    expect(toolTarget("send_message", { to: "s1", model: "Opus 4.5" })).toBe("→ s1 · Opus 4.5");
+    expect(toolTarget("send_message", {})).toBe("");
+  });
+
+  it("counts the live sessions in a Sessions row (0ae)", () => {
+    const raw = JSON.stringify({
+      success: true,
+      text: "Other sessions:\n- QA (id 8369, CLI, busy) — ws\n- s1 (id 73109, CLI, busy) — ws\n- trailer (id 21298, CLI, busy) — ws\n\nModels you can set: A, B",
+    });
+    expect(toolTarget("list_sessions", {}, raw)).toBe("3 live");
+    expect(toolTarget("list_sessions", { plan_of: "QA" }, raw)).toBe("plan of QA · 3 live");
+    expect(toolTarget("list_sessions", { result_of: "s1" }, raw)).toBe("latest turn of s1 · 3 live");
+    // A plan pasted below the list is not another session.
+    const withPlan = JSON.stringify({
+      success: true,
+      text: "Other sessions:\n- QA (id 8369, CLI, busy) — ws\n\nPlan of QA (awaiting approval): fix\n- step one\n- step two",
+    });
+    expect(toolTarget("list_sessions", {}, withPlan)).toBe("1 live");
+    expect(toolTarget("list_sessions", {})).toBe("");
+  });
 });
 
 describe("previewLines", () => {

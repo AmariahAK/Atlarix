@@ -107,7 +107,9 @@ export function activityToolLine(p: {
   return {
     id: String(p.id ?? `${name}-${Math.random()}`),
     verb: VERBS[name] ?? name.replace(/_/g, " "),
-    target: toolTarget(name, p.toolArgs) || (typeof p.detail === "string" ? p.detail.split("\n")[0]!.slice(0, 80) : ""),
+    target:
+      toolTarget(name, p.toolArgs, typeof p.resultText === "string" ? p.resultText : undefined) ||
+      (typeof p.detail === "string" ? p.detail.split("\n")[0]!.slice(0, 80) : ""),
     status: st,
     result: raw,
     output: r.text || undefined,
@@ -208,8 +210,11 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
-/** The one thing worth naming about a call, from its arguments. */
-export function toolTarget(toolName: string, args: unknown): string {
+/**
+ * The one thing worth naming about a call, from its arguments — and, for a
+ * few tools whose answer IS the point (list_sessions), its result text.
+ */
+export function toolTarget(toolName: string, args: unknown, resultText?: string): string {
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   switch (toolName) {
     case "read_file":
@@ -278,6 +283,40 @@ export function toolTarget(toolName: string, args: unknown): string {
       if (a.operation === "output") return "read a sub-agent's progress";
       if (a.operation === "list") return "list running sub-agents";
       return str(a.operation);
+    case "send_message": {
+      // "→ QA · \"the build is green\"", or what it steered: mode/model/plan
+      // (owner, 2026-11-01: the row said only "Message").
+      const msg = str(a.message).trim();
+      const steer = [
+        a.mode ? `mode ${str(a.mode)}` : "",
+        str(a.model),
+        a.plan ? `plan ${str(a.plan)}` : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const said = msg ? `"${msg.split("\n")[0]!.slice(0, 60)}"` : steer;
+      return [str(a.to) ? `→ ${str(a.to)}` : "", said].filter(Boolean).join(" · ");
+    }
+    case "list_sessions": {
+      // "· 6 live": the count is in the result, not the args (owner,
+      // 2026-11-01: the row said only "Sessions"). The session lines stop at
+      // the first blank line — a plan or reply appended below the list is not
+      // another session.
+      const asked = a.plan_of ? `plan of ${str(a.plan_of)}` : a.result_of ? `latest turn of ${str(a.result_of)}` : "";
+      let text = "";
+      if (typeof resultText === "string") {
+        try {
+          const v = JSON.parse(resultText) as { text?: unknown; result?: unknown };
+          text = typeof v.text === "string" ? v.text : typeof v.result === "string" ? v.result : "";
+        } catch {
+          text = unfence(resultText);
+        }
+      }
+      const list = text.split("\n\n")[0] ?? "";
+      const live = (list.match(/^- /gm) ?? []).length;
+      const count = live ? `${live} live` : text.includes("No other Atlarix sessions") ? "none live" : "";
+      return [asked, count].filter(Boolean).join(" · ");
+    }
     default:
       return "";
   }
@@ -560,7 +599,7 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
     return {
       id: part.id,
       verb: VERBS[part.toolName] ?? part.toolName.replace(/_/g, " "),
-      target: toolTarget(part.toolName, part.args),
+      target: toolTarget(part.toolName, part.args, part.resultText),
       // The call returned at once; the agent itself is still working.
       status: background ? "running" : env.state === "error" || env.state === "failed" ? "error" : part.status,
       result: part.resultText,
@@ -573,7 +612,7 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
     diff,
     id: part.id,
     verb: VERBS[part.toolName] ?? part.toolName.replace(/_/g, " "),
-    target: toolTarget(part.toolName, part.args),
+    target: toolTarget(part.toolName, part.args, part.resultText),
     // A no-op (compress_context with nothing to compact) says success:false but
     // did what it should: done, not ✕ (A4; the app's cards settle it the same way).
     status: part.status === "error" && noopSummary(part.toolName, part.resultText) ? "success" : part.status,
