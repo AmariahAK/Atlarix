@@ -218,7 +218,8 @@ export async function forceCompactEphemeralChat(
   const chat = getStreamTransport(chatId);
   // Size decides, not count: one long explore turn is two messages and 100k
   // tokens (QA: a resumed session said "still short"). The compactor's own
-  // token floor turns a genuinely small one down.
+  // token floor turns a genuinely small one down — and says so, so it is
+  // reported as "short" rather than "nothing-freed".
   // Said apart: no in-memory history at all is NOT "the conversation is short",
   // and reporting it that way told the owner a 300k session was too small
   // (2026-10-31).
@@ -241,7 +242,9 @@ export async function forceCompactEphemeralChat(
   if (!stepped.compactionApplied) {
     return stepped.summaryFailed
       ? { ok: false, reason: "failed" }
-      : { ok: false, reason: "nothing-freed", tokens: currentTokens };
+      : stepped.declinedAsShort
+        ? { ok: false, reason: "short" }
+        : { ok: false, reason: "nothing-freed", tokens: currentTokens };
   }
   // A manual /compact between turns lands on the next turn's count.
   noteTurn(chatId, "compactions");

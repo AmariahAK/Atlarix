@@ -15,7 +15,8 @@ export type ForcedCompaction =
   | {
       ok: false;
       /**
-       * "short": too little conversation to summarise. "failed": the model
+       * "short": too little conversation to summarise (too few messages, or
+       * under the compactor's own token floor). "failed": the model
        * returned no summary. "nothing-freed": the compactor ran and freed
        * nothing. "no-history": the turn\'s in-memory history was not there to
        * compact. The last two used to be reported as "short", which told the

@@ -247,6 +247,21 @@ describe("a small window is still a workable window", () => {
     });
   });
 
+  it("a forced compaction of a genuinely small history declines as short, not as freed-nothing", async () => {
+    // 972cbe85 split /compact's refusals apart and lost this one: the compactor's
+    // own floor turning a tiny history down came back to the caller as
+    // "nothing-freed", so /compact told a two-message chat it couldn't free
+    // anything instead of "still short".
+    const msgs = [
+      { id: 1, role: "user", content: "hi" },
+      { id: 2, role: "assistant", content: "hello" },
+    ];
+    const out = await runSteppedCompaction(msgs, USABLE, "test", { force: true });
+    expect(out.compactionApplied).toBe(false);
+    expect(out.declinedAsShort).toBe(true);
+    expect(llm.generateText).not.toHaveBeenCalled();
+  });
+
   it("a LARGE window still behaves — this is not a small-window special case", () => {
     const usableBig = usableContextBudget({
       contextWindow: 1_048_576,

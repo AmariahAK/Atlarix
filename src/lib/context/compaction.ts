@@ -686,6 +686,13 @@ export interface RunSteppedCompactionResult {
   summaryPersisted: boolean;
   /** A summary was asked of the model and none came back (an error, or an empty answer). */
   summaryFailed?: boolean;
+  /**
+   * True when the forced floor turned the history down as too small to be worth
+   * a provider call. A caller saying why must report THIS as "still short", not
+   * as "nothing could be freed" — conflating the two told a two-message chat it
+   * had nothing to free (972cbe85's regression, 2026-10-31).
+   */
+  declinedAsShort?: boolean;
 }
 
 /**
@@ -822,6 +829,7 @@ export async function runSteppedCompaction(
       usageRatio,
       compactionApplied: false,
       summaryPersisted: false,
+      declinedAsShort: true,
     };
   }
 
