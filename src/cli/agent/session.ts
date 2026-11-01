@@ -54,6 +54,73 @@ export interface PendingApproval {
   askingCellId?: string;
 }
 
+/**
+ * Distil a PendingApproval into the summary a peer reviewer needs (0aa).
+ * Never includes full file content or secrets — just the one-line description.
+ */
+function approvalSummary(a: PendingApproval): import("@/lib/peers/peers").PendingApprovalSummary {
+  const p = firstPreview(a);
+  const summary =
+    p.command
+      ? p.command
+      : p.path
+        ? `${p.type ?? "edit"} ${p.path}`
+        : p.deniedPath
+          ? `sandbox write denied: ${p.deniedPath}`
+          : (p as { description?: string }).description ?? a.request.operation ?? "unknown";
+  return {
+    operationId: a.operationId,
+    operation: a.request.operation,
+    summary,
+    ...(p.workingDirectory ? { cwd: p.workingDirectory } : {}),
+    ...(p.isDangerous ? { isDangerous: true } : {}),
+    ...(p.systemScope ? { systemScope: true } : {}),
+  };
+}
+
+/**
+ * Whether a peer session may approve this request (0aa security gate).
+ *
+ * A peer can approve routine in-workspace edits and commands. It CANNOT
+ * substitute for the owner on high-risk requests — those stay on screen
+ * until the owner answers them:
+ *
+ *  - systemScope / isDangerous (outside-workspace writes, dangerous commands)
+ *  - sandbox_escalation (granting a new writable path)
+ *  - remote shells: ssh, scp, sftp, rsync over ssh
+ *  - cloud/billing CLIs: aws, gcloud, az, railway, vercel, supabase, fly, heroku, netlify
+ *  - destructive git: push --force / --delete, reset --hard, rebase -i, filter-branch
+ *  - mass deletes: rm -r, rm -rf, find … -delete, git clean -fd
+ *  - credential / keychain access: ssh-keygen, gpg, security (macOS), pass, op
+ *  - network package installs that run postinstall scripts as root: sudo npm/pip/brew
+ */
+function isPeerApprovable(a: PendingApproval): boolean {
+  const p = firstPreview(a);
+  // Any request the gate already flagged as dangerous or system-scope.
+  if (p.isDangerous || p.systemScope) return false;
+  // Sandbox escalation: granting a new writable path is always owner-only.
+  if (a.request.operation === "sandbox_escalation") return false;
+  // Command-based checks.
+  if (p.command) {
+    const cmd = p.command.trim().toLowerCase();
+    // Remote shells and file transfer.
+    if (/\b(ssh|scp|sftp|rsync)\b/.test(cmd)) return false;
+    // Cloud / billing CLIs.
+    if (/\b(aws|gcloud|az|railway|vercel|supabase|fly|heroku|netlify)\b/.test(cmd)) return false;
+    // Destructive git operations.
+    if (/\bgit\b.*\b(push\s+.*--(force|delete)|reset\s+--hard|rebase\s+-i|filter-branch|filter-repo)\b/.test(cmd)) return false;
+    // Mass deletes.
+    if (/\brm\s+(-[a-z]*r[a-z]*f?|-[a-z]*f[a-z]*r?)\b/.test(cmd)) return false;
+    if (/\bfind\b.*\b-delete\b/.test(cmd)) return false;
+    if (/\bgit\s+clean\b.*\b-[a-z]*f/.test(cmd)) return false;
+    // Credential / keychain tools.
+    if (/\b(ssh-keygen|gpg|security\s+(find|add|delete|import)|pass\b|op\s+(signin|item|vault))\b/.test(cmd)) return false;
+    // Sudo installs that run postinstall scripts.
+    if (/\bsudo\s+(npm|pip|pip3|brew)\b/.test(cmd)) return false;
+  }
+  return true;
+}
+
 export interface QueuedMessage {
   id: string;
   text: string;
@@ -2124,6 +2191,26 @@ export class AgentSession extends EventEmitter {
       case "session:peer-settings":
         this.applyPeerSettings(p);
         return;
+      // A peer session approved or denied a pending permission request (0aa).
+      case "session:peer-approval": {
+        const operationId = String(p.operationId ?? "");
+        const approvalMode = (p.approvalMode as "once" | "deny") === "deny" ? "deny" : "once";
+        // Security: refuse peer approvals for high-risk requests — those need the owner.
+        if (approvalMode !== "deny") {
+          const pending = this.state.approvals.find((a) => a.operationId === operationId);
+          if (pending && !isPeerApprovable(pending)) {
+            // Leave the card on screen; log so the transcript shows the refusal.
+            void import("electron-log").then((m) =>
+              m.default.warn(
+                `[peer-approval] refused high-risk peer approval for op=${operationId} from=${String(p.from ?? "unknown")} — needs owner`,
+              ),
+            );
+            return;
+          }
+        }
+        void this.answerApproval(operationId, approvalMode);
+        return;
+      }
       case "chat:response:chunk": {
         if (this.state.retrying) this.update({ retrying: null });
         if (p.type === "permission-request") {
@@ -2346,7 +2433,12 @@ export class AgentSession extends EventEmitter {
 
   private dropApproval(operationId: string): void {
     if (!operationId || !this.state.approvals.some((a) => a.operationId === operationId)) return;
-    this.update({ approvals: this.state.approvals.filter((a) => a.operationId !== operationId) });
+    const next = this.state.approvals.filter((a) => a.operationId !== operationId);
+    this.update({ approvals: next });
+    void import("@/lib/peers/peers").then((m) => {
+      const summaries = next.map((a) => approvalSummary(a));
+      m.noteSessionApproval(this.sessionId ?? "", next.length > 0, next.length > 0 ? summaries : undefined);
+    });
   }
 
   private addApproval(p: Record<string, unknown>): void {
@@ -2360,11 +2452,14 @@ export class AgentSession extends EventEmitter {
         this.state.cells,
         firstPreview({ operationId: op, request } as PendingApproval),
       ) ?? undefined;
-    this.update({
-      approvals: [
-        ...this.state.approvals,
-        { operationId: op, request, askingCellId },
-      ],
+    const next: PendingApproval[] = [
+      ...this.state.approvals,
+      { operationId: op, request, askingCellId },
+    ];
+    this.update({ approvals: next });
+    void import("@/lib/peers/peers").then((m) => {
+      const summaries = next.map((a) => approvalSummary(a));
+      m.noteSessionApproval(this.sessionId ?? "", true, summaries);
     });
   }
 

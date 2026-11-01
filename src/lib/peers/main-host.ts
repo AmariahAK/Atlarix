@@ -109,10 +109,40 @@ let unhookLive: (() => void) | null = null;
  */
 async function applyPeerSettings(
   target: { chatId: number; sessionId: string; name?: string },
-  set: { mode?: string; model?: string; plan?: string; planText?: string },
+  set: { mode?: string; model?: string; plan?: string; planText?: string; approval?: { operationId: string; mode: "once" | "deny" } },
   from: { name: string },
 ): Promise<{ ok: boolean; error?: string; notice?: string; startTurn?: string }> {
   const s = await import("./session-settings");
+  // A peer-reviewed permission approval (0aa): answer it first, before any mode/model change.
+  if (set.approval) {
+    const { operationId, mode: approvalMode } = set.approval;
+    if (!operationId) return { ok: false, error: "approval needs an operationId" };
+    if (approvalMode !== "once" && approvalMode !== "deny")
+      return { ok: false, error: `approval mode must be "once" or "deny"` };
+    // Security: refuse peer approvals for high-risk requests — those need the owner.
+    // Check the pending approval details stored in the live session row.
+    if (approvalMode !== "deny") {
+      const { localSession } = await import("./peers");
+      const sess = localSession(target.sessionId);
+      const pending = sess?.pendingApprovals?.find((a) => a.operationId === operationId);
+      if (pending && (pending.isDangerous || pending.systemScope || pending.operation === "sandbox_escalation")) {
+        return {
+          ok: false,
+          error: `Permission request ${operationId} is high-risk (${pending.operation ?? "unknown"}: ${pending.summary}) — it needs the owner to approve, not a peer session.`,
+        };
+      }
+    }
+    // Deliver via the same IPC path the CLI's own answerApproval uses.
+    broadcastToAllWindows("session:peer-approval", {
+      chatId: target.chatId,
+      sessionId: target.sessionId,
+      operationId,
+      approvalMode,
+      from: from.name,
+    });
+    const verb = approvalMode === "once" ? "approved" : "denied";
+    return { ok: true, notice: `Permission ${verb} by ${from.name}.` };
+  }
   // Its plan awaiting approval (item 11): checked first, so nothing else
   // changes when the plan part is refused.
   let plan: { action: import("./session-settings").PeerPlanAction; id: string } | undefined;

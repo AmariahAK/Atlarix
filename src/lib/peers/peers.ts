@@ -45,6 +45,24 @@ const DUPLICATE_WINDOW_MS = 10_000;
 /** "editor": a session an IDE hosts over ACP (`atlarix acp`, src/cli/acp). */
 export type Surface = "cli" | "app" | "chrome" | "editor";
 
+/**
+ * Enough detail about a pending permission request for a peer reviewer to decide (0aa).
+ * Mirrors the fields the TUI card shows; never carries secrets or full file content.
+ */
+export interface PendingApprovalSummary {
+  operationId: string;
+  /** The operation type ("run_command", "edit_file", "sandbox_escalation", …). */
+  operation?: string;
+  /** One-line human summary: the command, the file path, or the description. */
+  summary: string;
+  /** Working directory for commands. */
+  cwd?: string;
+  /** True when the gate flagged this as dangerous (isDangerous or systemScope). */
+  isDangerous?: boolean;
+  /** True when the operation touches something outside the project. */
+  systemScope?: boolean;
+}
+
 export interface LocalSession {
   sessionId: string;
   chatId: number;
@@ -65,6 +83,13 @@ export interface LocalSession {
   model?: string;
   /** How its latest turn here ended, for another session's `result_of`. */
   lastTurn?: TurnRecord;
+  /** True when the session has at least one permission request waiting for an answer (0aa). */
+  hasApproval?: boolean;
+  /**
+   * The pending permission requests, with enough detail for a reviewer to decide (0aa).
+   * Kept in sync by noteSessionApproval; cleared when hasApproval goes false.
+   */
+  pendingApprovals?: PendingApprovalSummary[];
   /**
    * Hand the message on instead of queueing it in a chat here: a session this
    * process registers on behalf of something else (a browser behind the
@@ -95,6 +120,8 @@ export interface PeerSessionRow {
   /** Its mode (the stored one; Build when none was chosen) and model, when known (item 9). */
   mode?: string;
   model?: string;
+  /** True when the session has at least one permission request waiting for an answer (0aa). */
+  hasApproval?: boolean;
 }
 
 interface PeerFrame {
@@ -109,8 +136,8 @@ interface PeerFrame {
   id: string;
   /** Optional when `set` is given: a change alone. */
   text: string;
-  /** Set the session's mode and/or model from its next turn (item 9), and/or answer its plan (item 11). */
-  set?: { mode?: string; model?: string; plan?: string; planText?: string };
+  /** Set the session's mode and/or model from its next turn (item 9), and/or answer its plan (item 11) or a pending approval (0aa). */
+  set?: { mode?: string; model?: string; plan?: string; planText?: string; approval?: { operationId: string; mode: "once" | "deny" } };
   /** Send the sender ONE notice when the turn that reads this message ends (`notify_when_done`). */
   notify?: boolean;
   /**
@@ -139,12 +166,12 @@ export interface PeerHost {
   inbound(): "accept" | "refuse";
   /**
    * Set a session's mode and/or model from its next turn (item 9), and/or
-   * answer its plan (item 11). `notice` is the line it shows; `startTurn`, the
+   * answer its plan (item 11) or a pending approval (0aa). `notice` is the line it shows; `startTurn`, the
    * turn an approval starts (the plan's own Build).
    */
   applySettings?(
     target: { chatId: number; sessionId: string; name?: string },
-    set: { mode?: string; model?: string; plan?: string; planText?: string },
+    set: { mode?: string; model?: string; plan?: string; planText?: string; approval?: { operationId: string; mode: "once" | "deny" } },
     from: PeerFrame["from"],
   ): Promise<{ ok: boolean; error?: string; notice?: string; startTurn?: string }>;
   /**
@@ -250,6 +277,12 @@ function ensureTable(db: Sqlite): void {
   } catch {
     /* already there */
   }
+  try {
+    // 0aa: whether the session has a permission request waiting for an answer.
+    db.exec(`ALTER TABLE ${LIVE_SESSIONS_TABLE} ADD COLUMN has_approval INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    /* already there */
+  }
 }
 
 /**
@@ -310,8 +343,8 @@ function publish(): void {
     ).run(process.pid, host);
     const insert = d.prepare(
       `INSERT INTO ${LIVE_SESSIONS_TABLE}
-       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model, last_turn)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model, last_turn, has_approval)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     // This process itself: how a handoff reaches "the app" with nothing open.
     insert.run(
@@ -328,6 +361,7 @@ function publish(): void {
       "[]",
       "",
       "",
+      0,
     );
     for (const s of local.values()) {
       insert.run(
@@ -344,6 +378,7 @@ function publish(): void {
         JSON.stringify(s.aliases ?? []),
         s.model ?? (s.deliver ? "" : (defaultModelLabel() ?? "")),
         s.lastTurn ? JSON.stringify(s.lastTurn) : "",
+        s.hasApproval ? 1 : 0,
       );
     }
   } catch (e) {
@@ -523,7 +558,20 @@ export async function receive(
       error: "that session does not accept messages from other sessions",
     };
   const text = typeof f.text === "string" ? f.text.trim() : "";
-  const set = f.set && (f.set.mode || f.set.model || f.set.plan) ? f.set : null;
+  // Validate approval before treating it as a set (an empty operationId is not a valid approval).
+  if (f.set?.approval && !f.set.approval.operationId)
+    return { ok: false, error: "approval needs an operationId" };
+  // Security: refuse peer approvals for high-risk requests — those need the owner (0aa).
+  if (f.set?.approval && f.set.approval.mode !== "deny") {
+    const pending = target.pendingApprovals?.find((a) => a.operationId === f.set!.approval!.operationId);
+    if (pending && isHighRiskApproval(pending)) {
+      return {
+        ok: false,
+        error: `Permission request ${f.set.approval.operationId} is high-risk (${pending.operation ?? "unknown"}: ${pending.summary}) — it needs the owner to approve, not a peer session.`,
+      };
+    }
+  }
+  const set = f.set && (f.set.mode || f.set.model || f.set.plan || f.set.approval) ? f.set : null;
   if (!text && !set) return { ok: false, error: "empty message" };
   if (text.length > PEER_TEXT_CAP)
     return { ok: false, error: `message over ${PEER_TEXT_CAP} characters` };
@@ -679,6 +727,7 @@ interface Row {
   aliases?: string;
   model?: string;
   last_turn?: string;
+  has_approval?: number;
   session_id: string;
   pid: number;
   host: string;
@@ -757,6 +806,7 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       pid: r.pid,
       ...(r.surface !== "chrome" ? { mode: modes.get(r.session_id) ?? "build" } : {}),
       ...(r.model ? { model: r.model } : {}),
+      ...(r.has_approval ? { hasApproval: true } : {}),
     });
   }
   return out;
@@ -1063,6 +1113,23 @@ export function latestReply(
   }
 }
 
+/**
+ * Update whether a session has a pending approval, so list_sessions can show it (0aa).
+ * Pass `approvals` to store the full list for peer review; omit to clear.
+ */
+export function noteSessionApproval(
+  sessionId: string,
+  hasApproval: boolean,
+  approvals?: PendingApprovalSummary[],
+): void {
+  const s = local.get(sessionId);
+  if (!s) return;
+  if (s.hasApproval === hasApproval && !approvals) return;
+  s.hasApproval = hasApproval;
+  s.pendingApprovals = hasApproval ? (approvals ?? s.pendingApprovals) : undefined;
+  publish();
+}
+
 /** The model a session of this process runs on, as people see it, for list_sessions (item 9). */
 export function noteSessionModel(sessionId: string, label: string | undefined): void {
   const s = local.get(sessionId);
@@ -1073,6 +1140,29 @@ export function noteSessionModel(sessionId: string, label: string | undefined): 
   if (s.model === label) return;
   s.model = label;
   publish();
+}
+
+/**
+ * Whether a pending approval is high-risk and must not be answered by a peer session (0aa).
+ * Mirrors the check in session.ts's isPeerApprovable; kept here so the gate fires in
+ * receive() regardless of which applySettings implementation the host uses.
+ *
+ * High-risk = systemScope, isDangerous, sandbox_escalation, remote shells,
+ * cloud/billing CLIs, destructive git, mass deletes, credential tools, sudo installs.
+ */
+function isHighRiskApproval(a: PendingApprovalSummary): boolean {
+  if (a.isDangerous || a.systemScope) return true;
+  if (a.operation === "sandbox_escalation") return true;
+  const cmd = a.summary.trim().toLowerCase();
+  if (/\b(ssh|scp|sftp|rsync)\b/.test(cmd)) return true;
+  if (/\b(aws|gcloud|az|railway|vercel|supabase|fly|heroku|netlify)\b/.test(cmd)) return true;
+  if (/\bgit\b.*\b(push\s+.*--(force|delete)|reset\s+--hard|rebase\s+-i|filter-branch|filter-repo)\b/.test(cmd)) return true;
+  if (/\brm\s+(-[a-z]*r[a-z]*f?|-[a-z]*f[a-z]*r?)\b/.test(cmd)) return true;
+  if (/\bfind\b.*\b-delete\b/.test(cmd)) return true;
+  if (/\bgit\s+clean\b.*\b-[a-z]*f/.test(cmd)) return true;
+  if (/\b(ssh-keygen|gpg|security\s+(find|add|delete|import)|pass\b|op\s+(signin|item|vault))\b/.test(cmd)) return true;
+  if (/\bsudo\s+(npm|pip|pip3|brew)\b/.test(cmd)) return true;
+  return false;
 }
 
 /** One frame to another process's inbox, and its answer. */
