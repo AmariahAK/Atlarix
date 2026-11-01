@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
+import { useTranslation } from "react-i18next";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,7 @@ function PermissionTable({
 }
 
 export function WorkspaceFilePermissions() {
+  const { t } = useTranslation("settings");
   const appId = useAtomValue(selectedAppIdAtom);
   const [rows, setRows] = useState<FilePermissionRow[]>([]);
   const [scopeType, setScopeType] = useState<
@@ -185,8 +187,10 @@ export function WorkspaceFilePermissions() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="file">File</SelectItem>
-            <SelectItem value="directory">Directory/**</SelectItem>
-            <SelectItem value="folder">Folder (only)</SelectItem>
+            <SelectItem value="directory">
+              {t("workspace.directoryRecursive")}
+            </SelectItem>
+            <SelectItem value="folder">{t("workspace.folderOnly")}</SelectItem>
             <SelectItem value="extension">Extension</SelectItem>
           </SelectContent>
         </Select>
