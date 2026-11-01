@@ -5,6 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { rendererMainOnlyShimsPlugin } from "./vite/renderer-main-only-shims-plugin";
+import { sentryDsnForBuild } from "./src/lib/sentry-gate";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -19,7 +20,6 @@ const RENDERER_KEYS = [
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
   "POSTHOG_API_KEY",
-  "SENTRY_DSN",
 ] as const;
 
 const shims = (name: string) => path.resolve(__dirname, `./src/shims/${name}`);
@@ -100,10 +100,14 @@ export default defineConfig({
       ignored: ["**/userData/**"],
     },
   },
-  define: Object.fromEntries(
-    RENDERER_KEYS.map((k) => [
-      `import.meta.env.${k}`,
-      JSON.stringify(process.env[k] ?? ""),
-    ]),
-  ),
+  define: {
+    ...Object.fromEntries(
+      RENDERER_KEYS.map((k) => [
+        `import.meta.env.${k}`,
+        JSON.stringify(process.env[k] ?? ""),
+      ]),
+    ),
+    // As in main: the prod DSN ships only in an explicit release build (0t).
+    "import.meta.env.SENTRY_DSN": JSON.stringify(sentryDsnForBuild()),
+  },
 });

@@ -17,4 +17,10 @@ import { cliPlugin } from "../scripts/bun-cli-plugin";
  */
 process.env.ATLARIX_USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-bun-profile-"));
 
+// The scenario/test harness must never write to the production Sentry project
+// (0t: ATLARIX-47, the esc-interrupt scenario, sent its timeout to prod). This
+// makes sentryInitAllowed() false for every run under `bun test tests-bun`,
+// however it reaches the init paths.
+process.env.ATLARIX_SENTRY_DISABLED = "1";
+
 plugin(cliPlugin(undefined, { runtime: true }));

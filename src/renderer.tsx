@@ -32,6 +32,7 @@ import { useAuth } from "./lib/auth/useAuth";
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
 import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
+import { sentryInitAllowed } from "./lib/sentry-gate";
 import { purgeLegacyVoiceModelCache } from "./lib/voice/purge-legacy-model-cache";
 
 // The on-device speech engine is gone; its ~285 MB of cached weights are not,
@@ -265,7 +266,7 @@ async function bootstrap() {
     ipc.getPostHogConfig(),
   ]);
   sentryIsPackaged = sentryConfig.isPackaged;
-  if (sentryConfig.dsn) {
+  if (sentryConfig.dsn && sentryInitAllowed()) {
     Sentry.init({
       dsn: sentryConfig.dsn,
       release: sentryConfig.version,

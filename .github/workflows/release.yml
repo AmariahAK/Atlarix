@@ -54,6 +54,9 @@ env:
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
   EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
   SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+  # Only release builds may embed the Sentry DSN: sentryDsnForBuild requires
+  # ATLARIX_RELEASE=1, so a dev/QA `npm run package` or `build:cli` embeds none (0t).
+  ATLARIX_RELEASE: "1"
   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
   # Atlarix Core routes through atlarix-proxy — the client embeds only the PUBLIC
   # proxy URL (never a provider key; those live on the proxy). This must be in the

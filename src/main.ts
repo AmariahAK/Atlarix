@@ -69,6 +69,7 @@ import {
 } from "./main/lib/analytics";
 import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
+import { sentryInitAllowed } from "./lib/sentry-gate";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
 import { DISCORD_INVITE_URL } from "./lib/community/discord";
 import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
@@ -196,7 +197,7 @@ dotenv.config();
 resolveSystemPath();
 
 // Sentry: init in main process before app.whenReady(); DSN from env or fallback for packaged app
-if (SENTRY_DSN) {
+if (SENTRY_DSN && sentryInitAllowed()) {
   Sentry.init({
     dsn: SENTRY_DSN,
     release: app.getVersion(),

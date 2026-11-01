@@ -119,6 +119,15 @@ for (const key of [
 }
 
 /**
+ * Crash reporting stays off for every test (0t): a QA harness once sent its
+ * timeout to the production Sentry project. `sentryInitAllowed()` reads this, so
+ * even a module that imports the real init path (rather than the mocked one
+ * below) inits nothing. `@sentry/electron/main` is mocked as well, so this is the
+ * belt to that mock's braces.
+ */
+process.env.ATLARIX_SENTRY_DISABLED = "1";
+
+/**
  * Vitest runs in Node, not Electron. Many main-process modules import `electron`
  * or `@sentry/electron/main`; stub them so importing those graphs does not throw.
  */

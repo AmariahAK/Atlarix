@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import path from "path";
 import { createRequire } from "module";
+import { sentryDsnForBuild } from "./src/lib/sentry-gate";
 
 const require = createRequire(import.meta.url);
 try {
@@ -27,7 +28,6 @@ const MAIN_KEYS = [
   // NEVER add NEXT_PUBLIC_SUPABASE_SECRET_KEY here: despite the NEXT_PUBLIC_ prefix
   // it is the RLS-bypassing SECRET key and must never ship in the client bundle.
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
-  "SENTRY_DSN",
   "POSTHOG_API_KEY",
   // COMPASS_OPENROUTER_API_KEY intentionally REMOVED — the managed key must never
   // ship in the client (SB-02/06). Core routes through atlarix-proxy instead; the
@@ -128,12 +128,17 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  define: Object.fromEntries(
-    MAIN_KEYS.map((k) => [
-      `process.env.${k}`,
-      JSON.stringify(process.env[k] ?? ""),
-    ]),
-  ),
+  define: {
+    ...Object.fromEntries(
+      MAIN_KEYS.map((k) => [
+        `process.env.${k}`,
+        JSON.stringify(process.env[k] ?? ""),
+      ]),
+    ),
+    // The prod DSN ships only in an explicit release build (ATLARIX_RELEASE=1);
+    // dev/QA packages embed none, so they can never write to prod Sentry (0t).
+    "process.env.SENTRY_DSN": JSON.stringify(sentryDsnForBuild()),
+  },
   build: {
     // "hidden": maps written beside the bundle for the release to upload to Sentry,
     // with no reference in the shipped code. packageAfterPrune (forge.config.ts)
