@@ -1,9 +1,10 @@
 # Atlarix TODO
 
-**Current version:** 15.11.0 (2026-10-24): computer use (vision, every surface), sessions that steer and read each
-other, clickable links, a harness that carries less (no mobile tools, no onboarding), the extension's "Allow on every
-site", and a paid-only cloud agent. 15.10.1 never shipped on its own; it is folded in. Narrative in
-[`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.12.1 (2026-11-02): silks (plugins), edicts (hooks), mods, security hardening,
+lineage and reliability fixes, review mode, credit/picker improvements, co-author trailer, rating-digit
+and reasoning-leak fixes. Released successfully after clearing GitHub artifact storage quota and
+re-running the workflow with the repo public. 33 assets across GitHub Releases, npm, Homebrew, CWS,
+VS Code Marketplace and Open VSX. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -17,7 +18,7 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-28
+**Last updated:** 2026-11-02
 
 ---
 
@@ -553,6 +554,33 @@ subscribers write back. Not mapped on purpose: builds now carry hidden source ma
 so a recurrence resolves straight from Sentry. If it recurs, resolve its frames and fix there;
 to map the old one, build tag v15.1.0 with `build.sourcemap: "hidden"` and resolve
 `index-DiRzEsx2.js` 751:43960 and 792:92224.
+
+### 9. ACP stream controller closed after client disconnect (Sentry, 2026-11-02)
+
+`TypeError: Invalid state: Controller is already closed` in `node:events` → `endReadableNT`. Seen on
+Windows, Bun 1.4.2, 15.11.1, surface `vscode` (Antigravity IDE). The ACP client disconnects mid-stream
+(user closes tab, network drop, IDE restart), and the CLI's SSE streaming tries to write to the
+now-closed ReadableStream controller. Bun's stream implementation throws instead of gracefully handling
+the closed state. Fix: wrap `controller.enqueue()` / `controller.close()` in try-catch, or check
+`controller.desiredSize !== null` before writing, in `src/cli/acp/session.ts` or `src/cli/acp/stream.ts`.
+Low impact — client disconnect edge case, not data loss.
+
+### 10. ~~Paste duplicates text when copying from own message~~ — CLOSED 2026-11-02: not a bug
+
+Investigated. The "[Pasted text #N +L lines]" chip is the CLI composer's intended collapse of a 3+ line
+paste, not a doubled paste: both handlers call `preventDefault()` when they capture the paste (CLI
+`src/cli/tui/Composer.tsx`; app `src/hooks/useAttachments.ts`), so the raw text is never also inserted
+inline, and the app's attachment merge dedupes by content key. No reproduction. Regression test added:
+`src/__tests__/renderer/attachments-paste-preventdefault.test.tsx`.
+
+### 11. Cross-session approval: `list_sessions` doesn't expose the operationId (2026-11-02)
+
+`send_message(approval: operationId)` can approve another session's pending permission request, but
+`list_sessions` only reports "approval waiting" without the `operationId` or a description of what's
+pending. A supervising session cannot approve commands for a peer because it can't discover the
+operation to approve. Fix: `list_sessions` (or `result_of`) should include the pending approval's
+`operationId`, category (command / file edit / etc.) and a one-line description when the session is
+in "approval waiting" state, so `send_message(approval: id)` can act on it.
 
 ---
 
