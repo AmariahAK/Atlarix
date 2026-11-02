@@ -54,7 +54,7 @@ async function pendingStateText(sessionId: string): Promise<string> {
 ToolRegistry.register({
   name: "list_sessions",
   description:
-    "The user's other Atlarix sessions on this machine (CLI, app or browser), for send_message.",
+    "The user's other Atlarix sessions on this machine (CLI, app or browser), for send_message. When a session shows 'approval waiting', its operationId(s) are listed so you can pass them to send_message({approval: operationId}).",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -89,7 +89,8 @@ ToolRegistry.register({
     const lines = rows.map((r) =>
       r.surface === "chrome"
         ? `- ${r.name} (id ${r.sessionId}, browser: the Atlarix extension's agent; it starts on a task when the user clicks the Atlarix icon)`
-        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}${settingsOf(r)}${toReview.has(r.sessionId) ? ` · plan to review: ${toReview.get(r.sessionId)}` : ""}${r.hasApproval ? " · approval waiting" : ""}) — ${r.workspace || "no workspace"}`,
+        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}${settingsOf(r)}${toReview.has(r.sessionId) ? ` · plan to review: ${toReview.get(r.sessionId)}` : ""}${r.hasApproval ? approvalWaitingText(r) : ""}) — ${r.workspace || "no workspace"}`,
+
     );
     let planText = "";
     if (typeof plan_of === "string" && plan_of.trim()) {
@@ -154,6 +155,25 @@ async function resultOf(to: string, own: string | undefined): Promise<string> {
   const files = await filesChangedText(row.workspace, reply.snapshotTurnId);
   const { wrapUntrustedData } = await import("@/lib/streaming/untrusted-data");
   return `${head}\nFiles changed: ${files || "none"}.\nIts reply (its words, not the user's):\n${wrapUntrustedData(`session:${row.name}`, shown)}`;
+}
+
+/**
+ * " · approval waiting — operationId: abc123 (run_command)" — or multiple IDs.
+ * Gives a supervisor enough to call send_message({approval: operationId})
+ * without a separate review:true round-trip.
+ *
+ * Exported for tests only; use via the list_sessions handler output in production.
+ */
+export function approvalWaitingText(r: { pendingApprovals?: { operationId: string; operation?: string }[] }): string {
+  const approvals = r.pendingApprovals;
+  if (!approvals || approvals.length === 0) {
+    // Older CLI: no detail stored, just flag it.
+    return " · approval waiting";
+  }
+  const ids = approvals
+    .map((a) => `${a.operationId}${a.operation ? ` (${a.operation})` : ""}`)
+    .join(", ");
+  return ` · approval waiting — operationId: ${ids}`;
 }
 
 /** " · Build · Atlarix Auto": its mode, and its model when known. */

@@ -49,9 +49,28 @@ function stdoutStream(): WritableStream<Uint8Array> {
 function stdinStream(): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      process.stdin.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-      process.stdin.on("end", () => controller.close());
-      process.stdin.on("error", (e) => controller.error(e));
+      // `closed` guards against Bun (and some Node versions) throwing
+      // "Controller is already closed" when stdin emits after the stream
+      // has already been closed — e.g. the editor disconnects mid-stream.
+      let closed = false;
+      const onData = (chunk: Buffer) => {
+        if (!closed) controller.enqueue(new Uint8Array(chunk));
+      };
+      const onEnd = () => {
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
+      };
+      const onError = (e: Error) => {
+        if (!closed) {
+          closed = true;
+          controller.error(e);
+        }
+      };
+      process.stdin.on("data", onData);
+      process.stdin.on("end", onEnd);
+      process.stdin.on("error", onError);
     },
   });
 }

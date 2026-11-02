@@ -1,10 +1,6 @@
 # Atlarix TODO
 
-**Current version:** 15.12.1 (2026-11-02): silks (plugins), edicts (hooks), mods, security hardening,
-lineage and reliability fixes, review mode, credit/picker improvements, co-author trailer, rating-digit
-and reasoning-leak fixes. Released successfully after clearing GitHub artifact storage quota and
-re-running the workflow with the repo public. 33 assets across GitHub Releases, npm, Homebrew, CWS,
-VS Code Marketplace and Open VSX. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.12.2 (2026-11-02): blinking <!> approval indicator, queued-message send on Esc/Ctrl+S, instant new-session visibility (ATLARIX-48), ACP stdin crash guard (Bug 9), list_sessions operationId (Bug 11).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -166,13 +162,15 @@ endpoint for ~7 h. The owner's notes are in the calendar ("Atlarix alerts fixes"
     the picker shows Core as paid, picking it gives the new wording plus the `/billing` / Auto way out, and a paid
     account (Pro or credit) sees no "Credit" tag and no change in the refusal it can still get.
 - **Sentry: two issues from 2026-10-24/26 (owner, 2026-10-27).**
-  - **ATLARIX-46, CLI browser sign-in crash** (`TypeError: null is not an object (evaluating 'server.address().port')`,
-    `src/cli/auth/browser-sign-in.ts:118`, 15.11.1, Linux, bun; new user d345dde0 at sign-up). Not the user's doing:
-    after sign-in `finish()` calls `server.close()`, and the browser's follow-up request on the still-open keep-alive
-    connection (typically `/favicon.ico`) reaches the handler, where `server.address()` is now null, thrown uncaught.
-    Sign-in had already succeeded (the user ran turns a minute later). Fix: take the port once in the `listen`
-    callback and use it in the handler; after `finish`, answer any request with 503/close (or
-    `server.closeAllConnections()`); a test that sends a request after sign-in finishes.
+  - ~~**ATLARIX-46, CLI browser sign-in crash**~~ **FIXED 2026-11-02** (`dae37447`). `let port` hoisted to outer
+    Promise scope in `src/cli/auth/browser-sign-in.ts`; post-close requests answered 503; test added.
+  - **ATLARIX-47, new sessions not visible in other open windows until the SQLite poll tick** — **FIXED 2026-11-02**
+    (`e0cb0f2b`). `insertWorkspaceSession` in `src/ipc/handlers/workspace_session_handlers.ts` now calls
+    `broadcastToAllWindows("sessions:changed", {})` immediately on insert, so all open app windows see the new
+    session without waiting for the next poll interval.
+  - **ATLARIX-48, brand-new CLI/app sessions not visible in `list_sessions` until first message** — **FIXED 2026-11-02**
+    (`3f2ff11`). The blank-session filter in `src/lib/peers/peers.ts` was narrowed to `surface === "editor"` only.
+    CLI and app sessions now appear in `list_sessions` the moment they register, even with zero messages.
   - **ATLARIX-45 "Source folder does not exist"** (`src/ipc/handlers/import_handlers.ts:65`): opening a moved or deleted
     workspace (usually from Recent). The user IS told (`showError` in `src/lib/open-workspace-session.ts:474`), but as
     raw text "[import-app] Error: Source folder does not exist". Ignored forever in Sentry 2026-10-27 at the owner's

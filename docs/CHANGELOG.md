@@ -3,6 +3,12 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.12.2] (2026-11-02) — Blinking approval indicator, queued-message send on Esc, and instant new-session visibility
+
+**CLI.** The `<!>` tab-title indicator now blinks (alternates with spaces every 300 ms) so a session waiting for your approval is unmistakable from another terminal tab. Pressing Esc or Ctrl+S while a turn streams now pops and sends the first queued message immediately after the interrupt, instead of leaving it queued. Ctrl+S also triggers on a queued message, not only on deferred commands.
+
+**Sessions.** A brand-new CLI or app session is now visible in `list_sessions` the moment it registers, even before it sends its first message (ATLARIX-48). The blank-session filter that hid it was narrowed to the editor surface only, where it was designed to suppress the auto-created empty session VS Code opens on workspace load.
+
 ## [15.12.1] (2026-11-02) — CI test fix
 
 **Tests.** Aligned the bun CLI/ACP test suite with 15.12's shipped behaviour: the plugins mock, usage tracking mocks, context border text ("context 23%"), and the memory-bounded test's RSS ceiling for CI variance.
