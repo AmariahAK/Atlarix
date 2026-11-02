@@ -3,6 +3,10 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.12.1] (2026-11-02) — CI test fix
+
+**Tests.** Aligned the bun CLI/ACP test suite with 15.12's shipped behaviour: the plugins mock, usage tracking mocks, context border text ("context 23%"), and the memory-bounded test's RSS ceiling for CI variance.
+
 ## [15.12.0] (2026-11-02) — Silks and Edicts, a workspace that pays, and a context that compacts before it hurts
 
 **Silks, Edicts, and mods.** Plugins are now **Silks** and hooks are now **Edicts**, everywhere you see them; mods keep their name. A Silk is a folder you install that can add skills, agents, MCP servers and slash commands to Atlarix, and it runs in its own isolated sandbox with a status line, toasts and a `/silks` view on every surface. An Edict runs around a tool — before or after it, or to block it — and a Silk's or Edict's refusal reads as a rule gate, not an error.
