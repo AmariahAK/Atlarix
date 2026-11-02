@@ -12,6 +12,7 @@ import {
   forgetLiveSession,
   listPeerSessions,
   noteLiveSession,
+  noteSessionApproval,
   resolvePeer,
   sendPeerMessage,
   startPeerInbox,
@@ -219,7 +220,7 @@ describe("list_sessions and blank chats (QA H1)", () => {
     sqlite.prepare("INSERT INTO session_messages VALUES ('m1', 'sess-receiver-0002')").run();
     sqlite.prepare("INSERT INTO session_messages VALUES ('m2', 'sess-sender-0001')").run();
     // The editor opens a chat before you use it: same window, same folder.
-    noteLiveSession({ sessionId: "sess-blank-0009", chatId: -19, name: "New editor session (b)", workspace: "/w/b" });
+    noteLiveSession({ sessionId: "sess-blank-0009", chatId: -19, name: "New editor session (b)", workspace: "/w/b", surface: "editor" });
     // And a blank one alone in another folder: it is the only way to reach that window.
     noteLiveSession({ sessionId: "sess-alone-0010", chatId: -20, name: "New editor session (c)", workspace: "/w/c" });
     const names = listPeerSessions("sess-sender-0001").map((r) => r.name);
@@ -228,6 +229,49 @@ describe("list_sessions and blank chats (QA H1)", () => {
     forgetLiveSession("sess-blank-0009");
     forgetLiveSession("sess-alone-0010");
     sqlite.exec("DROP TABLE session_messages");
+  });
+
+  it("keeps a blank CLI session visible beside a real CLI session (ATLARIX-48)", () => {
+    sqlite.exec("CREATE TABLE IF NOT EXISTS session_messages (id TEXT, session_id TEXT)");
+    sqlite.exec("DELETE FROM session_messages");
+    sqlite.prepare("INSERT INTO session_messages VALUES ('m1', 'sess-receiver-0002')").run();
+    sqlite.prepare("INSERT INTO session_messages VALUES ('m2', 'sess-sender-0001')").run();
+    // A brand-new CLI session with no messages yet — must be visible immediately.
+    noteLiveSession({ sessionId: "sess-new-cli-0011", chatId: -21, name: "New CLI session", workspace: "/w/b", surface: "cli" });
+    const names = listPeerSessions("sess-sender-0001").map((r) => r.name);
+    expect(names).toContain("New CLI session");
+    forgetLiveSession("sess-new-cli-0011");
+    sqlite.exec("DROP TABLE session_messages");
+  });
+});
+
+describe("listPeerSessions pendingApprovals propagation (Bug 11)", () => {
+  it("includes pendingApprovals in the row when noteSessionApproval is called with details", () => {
+    // sess-receiver-0002 is already registered in beforeAll.
+    noteSessionApproval("sess-receiver-0002", true, [
+      { operationId: "op-build-1", operation: "run_command", summary: "npm test" },
+    ]);
+    const rows = listPeerSessions("sess-sender-0001");
+    const row = rows.find((r) => r.sessionId === "sess-receiver-0002");
+    expect(row).toBeDefined();
+    expect(row!.hasApproval).toBe(true);
+    expect(row!.pendingApprovals).toHaveLength(1);
+    expect(row!.pendingApprovals![0].operationId).toBe("op-build-1");
+    expect(row!.pendingApprovals![0].operation).toBe("run_command");
+    // Clean up.
+    noteSessionApproval("sess-receiver-0002", false);
+  });
+
+  it("clears pendingApprovals when hasApproval is set to false", () => {
+    noteSessionApproval("sess-receiver-0002", true, [
+      { operationId: "op-build-2", operation: "edit_file", summary: "edit README.md" },
+    ]);
+    noteSessionApproval("sess-receiver-0002", false);
+    const rows = listPeerSessions("sess-sender-0001");
+    const row = rows.find((r) => r.sessionId === "sess-receiver-0002");
+    expect(row).toBeDefined();
+    expect(row!.hasApproval).toBeUndefined();
+    expect(row!.pendingApprovals).toBeUndefined();
   });
 });
 

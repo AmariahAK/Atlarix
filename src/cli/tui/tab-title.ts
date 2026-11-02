@@ -8,6 +8,8 @@
  */
 export const TAB_FRAMES = ["◇", "◈", "◆", "◈"] as const;
 export const TAB_FRAME_MS = 300;
+/** Blink frames for the waiting state: <!> alternates with spaces so it flashes. */
+const WAIT_FRAMES = ["<!>", "   "] as const;
 
 export type TabState = { busy: boolean; waiting: boolean; title?: string | null };
 
@@ -19,7 +21,7 @@ function clean(s: string): string {
 
 export function tabTitle(state: TabState, frame: number): string {
   const name = state.title ? clean(state.title) : "atlarix";
-  if (state.waiting) return `<!> needs you · ${name}`;
+  if (state.waiting) return `${WAIT_FRAMES[frame % WAIT_FRAMES.length]} needs you · ${name}`;
   if (state.busy) return `${TAB_FRAMES[frame % TAB_FRAMES.length]} ${name}`;
   return `◆ ${name}`;
 }

@@ -122,6 +122,12 @@ export interface PeerSessionRow {
   model?: string;
   /** True when the session has at least one permission request waiting for an answer (0aa). */
   hasApproval?: boolean;
+  /**
+   * The pending permission requests, with enough detail for a reviewer to call
+   * send_message({approval: operationId}). Only present when hasApproval is true
+   * and the session is in this process (older remote CLIs won't have it).
+   */
+  pendingApprovals?: PendingApprovalSummary[];
 }
 
 interface PeerFrame {
@@ -784,14 +790,16 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
     // real one in the same place: offering both made the agent, or you, pick
     // between two "editor sessions" (QA H1). Alone, it stays: it may be the
     // only way to reach that window.
+    // Only suppress blank sessions on the editor surface — CLI and app sessions
+    // are real new sessions that must be visible immediately (ATLARIX-48).
     if (
       blank.has(r.session_id) &&
+      r.surface === "editor" &&
       rows.some(
         (o) =>
           o.session_id !== r.session_id &&
           !blank.has(o.session_id) &&
           !o.session_id.startsWith(PROCESS_ROW_PREFIX) &&
-          o.surface === r.surface &&
           o.workspace === r.workspace,
       )
     )
@@ -806,7 +814,7 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       pid: r.pid,
       ...(r.surface !== "chrome" ? { mode: modes.get(r.session_id) ?? "build" } : {}),
       ...(r.model ? { model: r.model } : {}),
-      ...(r.has_approval ? { hasApproval: true } : {}),
+      ...(r.has_approval ? { hasApproval: true, ...(local.get(r.session_id)?.pendingApprovals ? { pendingApprovals: local.get(r.session_id)!.pendingApprovals } : {}) } : {}),
     });
   }
   return out;

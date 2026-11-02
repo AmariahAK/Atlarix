@@ -941,7 +941,7 @@ export function App({
       }
     };
     write(0);
-    if (!state.busy || waiting) return;
+    if (!state.busy && !waiting) return;
     let frame = 0;
     const t = setInterval(() => write(++frame), TAB_FRAME_MS);
     return () => clearInterval(t);
@@ -1855,15 +1855,28 @@ export function App({
       key.preventDefault();
       return setPlanHidden(true);
     }
-    if (key.ctrl && key.name === "s" && deferredRef.current.length && state.busy) {
+    if (key.ctrl && key.name === "s" && (deferredRef.current.length || state.pending.some((p) => p.kind === "queued")) && state.busy) {
       key.preventDefault();
-      // Stop the turn; the waiting command runs as it ends.
+      // Stop the turn; the waiting command / queued message runs as it ends.
       return void session.interrupt();
     }
     if (key.name === "escape") {
       key.preventDefault();
       if (session.stopShell) return session.stopShell();
-      if (state.busy || state.following) return void session.interrupt();
+      if (state.busy || state.following) {
+        void session.interrupt();
+        // If there are queued messages, pop and send the first one after the
+        // interrupt settles (~80 ms is enough for the turn-end event to fire).
+        if (state.pending.some((p) => p.kind === "queued")) {
+          const text = session.popLastQueued();
+          if (text)
+            setTimeout(
+              () => void session.submit(text, { display: text, images: [] }),
+              80,
+            );
+        }
+        return;
+      }
       // esc esc on an empty box: go back to an earlier message (Claude Code, Codex).
       if (!composer.current?.text()) {
         const now = Date.now();
