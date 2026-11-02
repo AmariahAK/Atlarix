@@ -924,6 +924,9 @@ async function insertWorkspaceSession(
     })
     .returning();
   createdHere.add(id);
+  // Notify all open windows immediately so the session list updates without
+  // waiting for the SQLite-signature poll in watchStoredSessions (ATLARIX-47).
+  broadcastToAllWindows("sessions:changed", {});
   return mapSession(row);
 }
 
