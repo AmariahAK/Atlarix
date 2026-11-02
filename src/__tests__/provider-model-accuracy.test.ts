@@ -76,7 +76,7 @@ const CATALOG = {
     api: "https://bedrock-runtime.amazonaws.com",
     env: ["AWS_BEARER_TOKEN_BEDROCK"],
     models: {
-      "anthropic.claude-sonnet-4": {
+      "us.anthropic.claude-sonnet-4": {
         name: "Claude Sonnet 4",
         tool_call: true,
         limit: { context: 200000, output: 64000 },
@@ -215,7 +215,7 @@ describe("provider id mapping", () => {
     // the mapping existed this returned [] and the provider looked empty.
     const models = await getModelsFromModelsDev("bedrock");
     expect(models.length).toBeGreaterThan(0);
-    expect(models[0].apiName).toBe("anthropic.claude-sonnet-4");
+    expect(models[0].apiName).toBe("us.anthropic.claude-sonnet-4");
   });
 
   it("resolves nvidia_nim to the nvidia catalog with real limits and cost", async () => {

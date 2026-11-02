@@ -148,10 +148,11 @@ const catalogRows = vi.fn();
 vi.mock("@/lib/models_dev", () => ({
   getModelsDevCatalogRows: (...a: unknown[]) => catalogRows(...a),
 }));
-vi.mock("@/ipc/shared/compass_constants", () => ({
-  CORE_TIER_1: "core-1",
+vi.mock("@/ipc/shared/compass_constants", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/ipc/shared/compass_constants")>()),
   isCoreAutoTier: (n: string) => n === "core-auto",
-  getCoreModelIdForCoreTier: (t: string) => (t === "core-1" ? "glm-x" : undefined),
+  getCoreModelIdForCoreTier: (t: string) =>
+    t === "core-auto" || t === "core-1" ? "glm-x" : undefined,
 }));
 
 import { resolveTitleModel } from "@/lib/session-title/generate-title";
@@ -192,14 +193,14 @@ describe("resolveTitleModel", () => {
     expect(m.provider).toBe("anthropic");
   });
 
-  it("Auto stays on Auto; a paid Core tier uses the cheapest paid tier, never free Auto", async () => {
+  it("Auto stays on Auto; a paid Core tier also titles through Auto (helpers route by purpose, 2026-10-30), never a paid slot", async () => {
     expect(await resolveTitleModel(settingsWith("compass", "core-auto"))).toEqual({
       provider: "compass",
       name: "core-auto",
     });
     expect(await resolveTitleModel(settingsWith("compass", "core-4"))).toEqual({
       provider: "compass",
-      name: "core-1",
+      name: "core-auto",
     });
   });
 

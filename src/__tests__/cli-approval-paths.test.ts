@@ -67,7 +67,7 @@ describe("the line an answered approval leaves (shared with the editors)", () =>
       "✓ You approved Atlarix to edit `src/app.ts` from now on",
     );
     expect(approvalConfirmation(card({ path: "src/app.ts", fileParentDir: "src" }, "edit_file"), "always_allow_directory")).toBe(
-      "✓ You approved Atlarix to edit files in `src/` from now on",
+      "✓ You approved Atlarix to edit files in `src/` and everything under it from now on",
     );
     expect(approvalConfirmation(card({ deniedPath: "/etc/hosts" }, "write_file"), "once")).toBe(
       "✓ You approved Atlarix to write to `/etc/hosts` this time",
@@ -94,11 +94,13 @@ describe("the folder in the confirmation line, on Windows (release CI)", () => {
   it("a project folder reads with \"/\", as the rule is stored; a drive path keeps its own", () => {
     expect(
       onWindows(() => approvalConfirmation(card({ path: "src/app.ts", fileParentDir: "src" }, "edit_file"), "always_allow_directory")),
-    ).toBe("✓ You approved Atlarix to edit files in `src/` from now on");
+    ).toBe("✓ You approved Atlarix to edit files in `src/` and everything under it from now on");
     expect(
       onWindows(() =>
         approvalConfirmation(card({ path: "C:/Users/Public/a.txt", fileParentDir: "C:/Users/Public" }, "edit_file"), "always_allow_directory"),
       ),
-    ).toBe("✓ You approved Atlarix to edit files in `C:\\Users\\Public\\` from now on");
+    ).toBe(
+      "✓ You approved Atlarix to edit files in `C:\\Users\\Public\\` and everything under it from now on",
+    );
   });
 });
