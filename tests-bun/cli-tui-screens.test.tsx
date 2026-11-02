@@ -128,6 +128,22 @@ class FakeSession extends EventEmitter {
 }
 
 function fakeServices(calls: Call[]): CliServices {
+  const rec = (name: string) => async (...a: unknown[]) => void calls.push([name, ...a]);
+  const plugins = {
+    list: async () => [],
+    commands: async () => [],
+    problems: async () => [],
+    prepare: rec("plugins.prepare") as never,
+    prepareUpdate: rec("plugins.prepareUpdate") as never,
+    commit: rec("plugins.commit") as never,
+    discard: rec("plugins.discard") as never,
+    remove: rec("plugins.remove") as never,
+    setEnabled: rec("plugins.setEnabled") as never,
+    setFolders: rec("plugins.setFolders") as never,
+    setModel: rec("plugins.setModel") as never,
+    review: async () => [],
+    approve: rec("plugins.approve") as never,
+  };
   const automations: AutomationSummary[] = [
     {
       id: "a1",
@@ -142,8 +158,8 @@ function fakeServices(calls: Call[]): CliServices {
       lastRunAt: null,
     },
   ];
-  const rec = (name: string) => async (...a: unknown[]) => void calls.push([name, ...a]);
   return {
+    plugins,
     automations: {
       list: async () => automations,
       runs: async () => [],
@@ -276,6 +292,39 @@ function fakeServices(calls: Call[]): CliServices {
       remove: rec("relics.remove"),
       setVisibility: rec("relics.setVisibility"),
     },
+    usageCredits: async () => ({ state: "available" as const, balance: 1250, limit: 5000 }),
+    usage: async () => ({
+      range: 30,
+      days: [],
+      filters: { models: [], surfaces: [], sources: [], applied: { model: null, surface: null, source: null } },
+      overview: {
+        since: "2026-09-01",
+        recordedSince: "2026-10-15",
+        lifetimeTokens: 472_400_000,
+        peakDay: { day: "2026-10-14", tokens: 68_700_000 },
+        longestChat: { title: "Fix login", minutes: 84 },
+        currentStreak: 3,
+        longestStreak: 5,
+        totalChats: 96,
+        totalTurns: 1234,
+        weeks: Array.from({ length: 53 }, (_, w) =>
+          Array.from({ length: 7 }, (_, d) => ({ day: `w${w}d${d}`, turns: w === 52 ? d : 0, level: (w === 52 ? Math.min(4, d) : 0) as 0 | 1 | 2 | 3 | 4, inRange: true })),
+        ),
+        monthLabels: Array.from({ length: 53 }, (_, w) => (w === 40 ? "Oct" : null)),
+        models: [{ provider: "compass", modelId: "openai/gpt-5.4-mini", turns: 10, share: 93 }],
+        modes: [{ mode: "build", share: 100 }],
+        deepShare: 0,
+        surfaces: [{ surface: "cli" as const, turns: 10 }],
+        editors: [],
+        skills: [{ name: "release", runs: 7 }],
+        mcp: [{ name: "deepwiki", runs: 4 }],
+        linesWritten: 0,
+        asOf: "2026-10-15",
+      },
+      tokens: { total: 472_400_000, input: 300_000_000, output: 172_400_000, byDay: [], byModel: [], bySurface: [], bySource: [] },
+      tools: { skills: [], mcp: [], auto: { turns: 0, share: 0 } },
+    }),
+    saveUsageCard: async () => "/tmp/usage-card.svg",
   };
 }
 
@@ -870,11 +919,15 @@ describe("command screens", () => {
     const { setup } = await mount();
     await command(setup, "/stats");
     const frame = await frameContaining(setup, "Lifetime tokens");
-    expect(frame).toContain("Your activity");
+    expect(frame).toContain("Activity");
     expect(frame).toContain("472.4M");
     expect(frame).toContain("1h 24m");
     expect(frame).toContain("Su ");
-    expect(frame).toContain("Less · ░ ▒ ▓ █ More");
+    // Scroll down to see the legend and sections
+    setup.mockInput.pressArrow("down");
+    await settle(setup);
+    const scrolledFrame = await frameContaining(setup, "Less");
+    expect(scrolledFrame).toContain("Less · ░ ▒ ▓ █ More");
     expect(await frameContaining(setup, "Favourite models")).toBeTruthy();
   });
 
@@ -1071,7 +1124,7 @@ describe("command screens", () => {
   it("usage analytics: asked once on a first run, the answer saved; /analytics changes it later", async () => {
     const { setup, serviceCalls } = await mount((s) => (s.analytics as unknown as { __unset: () => void }).__unset());
     let frame = await frameContaining(setup, "Help improve Atlarix");
-    expect(frame).toContain("Never your code, prompts, file names, or file contents");
+    expect(frame).toContain("Never your code, prompts or files");
     expect(frame).toContain("one answer covers both");
     setup.mockInput.pressEnter(); // "Yes, that's fine"
     expect(await until(() => serviceCalls.some((c) => c[0] === "analytics.setConsent"))).toBe(true);

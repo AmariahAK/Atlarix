@@ -20,7 +20,11 @@ mock.module("@/main/lib/analytics", () => ({
   trackActiveDay: () => void calls.push(["active_day", undefined]),
   trackAnalyticsTurnedOn: () => void calls.push(["analytics_on", undefined]),
   captureSafe: (event: string, p?: unknown) => void calls.push([event, p]),
-  trackTurnCompleted: (r: unknown) => void calls.push(["turn", r]),
+  // Must return a TurnEnd object (the code reads ended.outcome).
+  trackTurnCompleted: (r: unknown) => {
+    calls.push(["turn", r]);
+    return { outcome: "ok" };
+  },
 }));
 
 let ws: string;
