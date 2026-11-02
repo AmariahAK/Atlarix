@@ -40,7 +40,7 @@ afterEach(() => {
   if (root) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe("the Mac Team ID scan", () => {
+describe.skipIf(process.platform !== "darwin")("the Mac Team ID scan", () => {
   it("finds every Mach-O (thin and fat), skips other files, never follows symlinks", () => {
     expect(isMachO(MACHO64)).toBe(true);
     expect(isMachO(Buffer.from("PK\u0003\u0004"))).toBe(false);
