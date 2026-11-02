@@ -71,12 +71,15 @@ describe("a session starts another and is told when it is done", () => {
     expect(row?.parentSessionId).toBe(lead.sessionId);
     expect(JSON.parse(row?.origin ?? "null")).toMatchObject({ via: "peer", surface: "cli", by: { sessionId: lead.sessionId, name: "Lead" } });
 
-    // The worker runs its turn; the lead hears once, and that wakes it.
-    await until(() => JSON.stringify(lead.state.cells).includes("Noted the notice."));
-    const cells = JSON.stringify(lead.state.cells);
-    expect(cells).toContain("turn ended: done");
-    // One notice: one message cell (its summary and output both carry the line).
-    expect(lead.state.cells.filter((c) => JSON.stringify(c).includes("turn ended:"))).toHaveLength(1);
+    // The worker runs its turn and ends.
+    await until(() => !worker.state.busy);
+    // The worker's turn completed (it responded).
+    expect(worker.state.cells.some((c) => c.kind === "markdown")).toBe(true);
+
+    // 15.12: the 'turn ended' notice is queued for the lead's next real turn
+    // (it does NOT wake the lead — no full-context turn just to acknowledge).
+    // The notification mechanism is tested in src/__tests__/peer-messaging.test.ts
+    // and src/__tests__/peer-notify-when-done.test.ts (vitest).
 
     // Listed under the lead (a chat lists once it has a message).
     const listed = await lead.listSessions();

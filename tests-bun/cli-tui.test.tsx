@@ -618,7 +618,9 @@ describe("parity details", () => {
     await settle(setup);
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Running npm test…");
-    expect(frame).toContain("context 23% · 47k/205k");
+    // 15.12: the border shows only the percentage, not the raw token counts (owner, 2026-10-31).
+    expect(frame).toContain("context 23%");
+    expect(frame).not.toContain("47k/205k");
     expect(frame).not.toContain("4.7M");
   });
 });
