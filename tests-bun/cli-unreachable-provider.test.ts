@@ -105,12 +105,15 @@ describe("an unreachable provider", () => {
     // and fails; the third must still carry it (QA: it was lost with the second).
     const llm = startFakeLlm([{ text: "Short it is." }]);
     const bodies: string[] = [];
+    let firstRequestReceived: (() => void) | null = null;
+    const firstRequestPromise = new Promise<void>((r) => (firstRequestReceived = r));
     const srv = Bun.serve({
       port: 0,
       async fetch(req) {
         const body = await req.text();
         if (!new URL(req.url).pathname.endsWith("/chat/completions")) return fetch(new URL(new URL(req.url).pathname, llm.url.replace(/\/v1$/, "")), { method: req.method, headers: req.headers });
         bodies.push(body);
+        if (bodies.length === 1) firstRequestReceived?.();
         if (bodies.length <= 2) return new Response("overloaded", { status: 503 });
         return fetch(`${llm.url}/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body });
       },
@@ -129,8 +132,10 @@ describe("an unreachable provider", () => {
       setTimeout(() => s.on("change", check), 50);
     });
     await s.submit("Write a poem.");
-    // In the wait after the first 503: the second request takes it.
-    while (bodies.length < 1) await new Promise((r) => setTimeout(r, 50));
+    // Wait for the first 503 to be received, then submit during the retry wait.
+    await firstRequestPromise;
+    // Give a small buffer for the retry wait to start (CI can be slow).
+    await new Promise((r) => setTimeout(r, 200));
     await s.submit("And make it short.");
     await done;
     srv.stop(true);
