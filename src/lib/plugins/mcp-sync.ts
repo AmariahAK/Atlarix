@@ -48,8 +48,12 @@ interface DesiredRow {
   url: string | null;
 }
 
+import path from "node:path";
+
 function withRoot(text: string, root: string): string {
-  return text.replace(/\$\{(CLAUDE|ATLARIX)_PLUGIN_ROOT\}/g, root);
+  const replaced = text.replace(/\$\{(CLAUDE|ATLARIX)_PLUGIN_ROOT\}/g, root);
+  // Normalize path separators for the platform (plugin manifests use forward slashes)
+  return replaced.includes(root) ? path.normalize(replaced) : replaced;
 }
 
 export function desiredPluginMcpRows(workspacePath: string): DesiredRow[] {
