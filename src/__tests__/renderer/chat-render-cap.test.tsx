@@ -55,6 +55,12 @@ vi.mock("@/lib/analytics/posthog-client", () => ({
   ensurePostHogInitialized: () => null,
   syncPostHogConsent: vi.fn(),
 }));
+// The replay module is loaded dynamically by posthog-client; mock it to prevent
+// teardown errors when the async import resolves after the test environment ends.
+vi.mock("@/lib/analytics/replay", () => ({
+  initReplay: vi.fn(),
+  stopReplay: vi.fn(),
+}));
 vi.mock("@/lib/open-workspace-session", () => ({
   startNewWorkspaceConversation: vi.fn(),
 }));
