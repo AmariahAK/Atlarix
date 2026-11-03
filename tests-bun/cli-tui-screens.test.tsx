@@ -31,6 +31,7 @@ class FakeSession extends EventEmitter {
   state: SessionState = {
     cells: [],
     busy: false,
+    userTurn: true,
     phase: null,
     turnStartedAt: null,
     approvals: [],
