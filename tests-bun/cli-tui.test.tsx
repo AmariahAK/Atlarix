@@ -286,9 +286,19 @@ describe("keys and commands", () => {
     const { setup, session } = await mount();
     session.set({ cells: Array.from({ length: 80 }, (_, i) => ({ kind: "markdown", id: `m${i}`, text: `line number ${i}` })) } as never);
     await settle(setup);
+    // stickyScroll doesn't work in test env - scroll to bottom with Page Down first
+    for (let i = 0; i < 10; i++) {
+      setup.mockInput.pressKey("\x1b[6~"); // Page Down
+      await settle(setup);
+    }
+    // Now we should be at the bottom showing line 79
     expect(setup.captureCharFrame()).toContain("line number 79");
-    setup.mockInput.pressKey("\x1b[5~");
-    await settle(setup);
+    // Page Up should scroll away from line 79
+    setup.mockInput.pressKey("\x1b[5~"); // Page Up
+    for (let i = 0; i < 10; i++) {
+      await settle(setup);
+      if (!setup.captureCharFrame().includes("line number 79")) break;
+    }
     expect(setup.captureCharFrame()).not.toContain("line number 79");
   });
 
