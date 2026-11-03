@@ -3,6 +3,18 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.12.3] (2026-11-03) — Case-insensitive project instructions, proactive image gate, and peer message previews
+
+**Project instructions.** `atlarix.md` and `.atlarix/atlarix.md` are now found regardless of casing — `ATLARIX.md`, `Atlarix.MD` and any other variation all work. The old migration code that renamed files is gone.
+
+**Image handling.** Models that can't see images (text-only models) now reject a request with images immediately, before sending it, with a clear message naming the model and suggesting one that can. Before, the request was sent and failed at the provider.
+
+**Peer messages.** Queued peer messages in the composer now show a readable preview ("From [name]: [first line]...") instead of the raw XML envelope.
+
+**CLI.** The rating prompt now fetches fresh timing data on each check, consistent with how the app does it, so a rating asked in one session isn't asked again in another. The `/context` command shows the effective budget (`tierLimit`) instead of the raw context length, matching what the context meter uses.
+
+**Chrome extension.** `axe.min.js` is now `axe.js` to comply with the Chrome Web Store's policy against obfuscated code.
+
 ## [15.12.2] (2026-11-02) — Blinking approval indicator, queued-message send on Esc, and instant new-session visibility
 
 **CLI.** The `<!>` tab-title indicator now blinks (alternates with spaces every 300 ms) so a session waiting for your approval is unmistakable from another terminal tab. Pressing Esc or Ctrl+S while a turn streams now pops and sends the first queued message immediately after the interrupt, instead of leaving it queued. Ctrl+S also triggers on a queued message, not only on deferred commands.
