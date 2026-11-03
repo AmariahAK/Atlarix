@@ -188,6 +188,8 @@ export function deterministicTitle(firstUserText: string): string | null {
     rest = next;
   }
   rest = rest.replace(EMOJI_RE, "").trim();
+  // A quoted or listed line ("> fix", "- fix", "· fix", "› fix") names what it says.
+  rest = rest.replace(/^\s*[›>·•*—–-]+\s*/, "");
   if (!rest || BARE_GREETING_RE.test(rest)) return "Greeting";
 
   const words = rest.split(" ").slice(0, 8).join(" ");

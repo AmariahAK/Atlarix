@@ -140,6 +140,13 @@ describe("deterministicTitle (the instant placeholder)", () => {
     expect(deterministicTitle('<atlarix-text-attachment id="1" />')).toBeNull();
     expect(deterministicTitle("   ")).toBeNull();
   });
+
+  it("strips leading glyphs from a quoted or listed line (owner, 2026-10-31)", () => {
+    expect(deterministicTitle("› fix the login redirect")).toBe("Fix the login redirect");
+    expect(deterministicTitle("- fix the login redirect")).toBe("Fix the login redirect");
+    expect(deterministicTitle("· fix the login redirect")).toBe("Fix the login redirect");
+    expect(deterministicTitle("> fix the login redirect")).toBe("Fix the login redirect");
+  });
 });
 
 // ── the model chain ────────────────────────────────────────────────────────
@@ -150,6 +157,8 @@ vi.mock("@/lib/models_dev", () => ({
 }));
 vi.mock("@/ipc/shared/compass_constants", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/ipc/shared/compass_constants")>()),
+  CORE_TIER_1: "core-1",
+  CORE_TIER_AUTO: "core-auto",
   isCoreAutoTier: (n: string) => n === "core-auto",
   getCoreModelIdForCoreTier: (t: string) =>
     t === "core-auto" || t === "core-1" ? "glm-x" : undefined,

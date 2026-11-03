@@ -210,6 +210,15 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+/** A send_message call's recipient and text, for the row that names who it is to. */
+function sendMessageText(args: unknown): { to: string; text: string } | null {
+  const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+  const to = str(a.to);
+  const text = str(a.message);
+  if (!to && !text) return null;
+  return { to, text };
+}
+
 /**
  * The one thing worth naming about a call, from its arguments — and, for a
  * few tools whose answer IS the point (list_sessions), its result text.
@@ -404,6 +413,10 @@ export function toolResultText(toolName: string, raw: string | undefined): { tex
     typeof o.result === "string" ? o.result : undefined,
     o.output,
     o.content,
+    // list_sessions / send_message return their text as `text`, not `result`.
+    (toolName === "list_sessions" || toolName === "send_message") && typeof o.text === "string"
+      ? o.text
+      : undefined,
     // The message says what happened ("No file at path …"); the error is its code.
     o.message,
     o.error,
@@ -563,6 +576,26 @@ export function userChips(text: string): { text: string; chips: string[] } {
   return { text: stripped.trim(), chips };
 }
 
+/** A sent message is drawn cut to this many lines before ctrl+o. */
+export const MAX_USER_LINES = 6;
+
+/**
+ * What the user band shows. Collapsed, the TYPED text only — a paste stays its
+ * one-line placeholder (its chips), and a long message is cut to a few lines.
+ * ctrl+o (expanded) shows the paste's real text when there was one, else the
+ * whole message. Without this a 40-line paste filled the screen (owner, 2026-10-31).
+ */
+export function userBandText(
+  cell: { text: string; full?: string },
+  expanded: boolean,
+): { text: string; more: number } {
+  const whole = cell.full ?? cell.text;
+  if (expanded) return { text: whole, more: 0 };
+  const lines = cell.text.split("\n");
+  if (lines.length <= MAX_USER_LINES) return { text: cell.text, more: 0 };
+  return { text: lines.slice(0, MAX_USER_LINES).join("\n"), more: lines.length - MAX_USER_LINES };
+}
+
 const QA_LINE = /^\*\*\*Q:\*\*\* ([\s\S]*?) → \*\*\*A:\*\*\* ([\s\S]*)$/;
 
 /** The question/answer pairs in a user message that is nothing but answers, or null. */
@@ -593,6 +626,10 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
   const diff =
     part.toolName === "edit_file" && part.status === "success" ? editDiff(part.args, writePrevious(part.callId)) : undefined;
   const env = part.toolName === "task" ? taskEnvelope(r.text) : null;
+  // A send_message's own text, for the row that names who it is to and shows
+  // what was said, not the "Sent to …" envelope (owner, 2026-10-31: a bare "Message").
+  const sent = part.toolName === "send_message" ? sendMessageText(part.args) : null;
+  const sentShown = sent?.text && part.status !== "error";
   if (env) {
     const background = env.state === "running" || env.state === "pending";
     const first = firstSentence(env.inner);
@@ -621,10 +658,12 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
     // A plan the agent wrote: the plan itself, to read and correct where it was
     // written, not only in the card above (owner: "why can't I see the plan?").
     output:
-      part.toolName === "plan" && str((part.args as Record<string, unknown>)?.operation) === "write" && str((part.args as Record<string, unknown>)?.content).trim()
-        ? str((part.args as Record<string, unknown>)?.content).trim()
-        : shownOutput(part.toolName, r.text),
-    summary: part.status === "running" ? undefined : diff ? editSummary(diff) : summarize(part.toolName, r),
+      sentShown
+        ? sent.text
+        : part.toolName === "plan" && str((part.args as Record<string, unknown>)?.operation) === "write" && str((part.args as Record<string, unknown>)?.content).trim()
+          ? str((part.args as Record<string, unknown>)?.content).trim()
+          : shownOutput(part.toolName, r.text),
+    summary: part.status === "running" ? undefined : diff ? editSummary(diff) : sentShown ? sent.text.split("\n")[0] : summarize(part.toolName, r),
   };
 }
 
@@ -837,21 +876,65 @@ export function placeSteers(
     if (!a) continue;
     const answer = messages.find((x) => String(x.id) === a.assistantId);
     const firstIdx = cells.findIndex((c) => c.id.startsWith(`${a.assistantId}:`));
-    const cell: Cell = { kind: "user", id: `${String(m.id)}:u`, text: m.content.trim() };
+    // The message as it normally draws: a steer is a user band, a peer message a
+    // "Message from X" tool line (lib/peers: never the user's own band).
+    const rendered = messageCells(m, false);
     if (!answer || firstIdx < 0) {
       // The answer it came during shows nothing (stopped or failed before any
       // output): in its own place, before anything sent after it. Appended,
       // it sank below later turns (QA).
       const mine = order.get(String(m.id)) ?? Infinity;
       const at = cells.findIndex((c) => (order.get(c.id.split(":")[0]!) ?? -1) > mine);
-      if (at < 0) cells.push(cell);
-      else cells.splice(at, 0, cell);
+      if (at < 0) cells.push(...rendered);
+      else cells.splice(at, 0, ...rendered);
       continue;
     }
     const before = toCells([{ ...answer, content: answer.content.slice(0, a.offset) }], { streaming: true }).length;
-    cells.splice(firstIdx + before, 0, cell);
+    cells.splice(firstIdx + before, 0, ...rendered);
   }
   return cells;
+}
+
+/**
+ * Turn delivered steers and peer messages into anchors (pure, for tests).
+ *
+ * A user message that is a steer (`steerTexts`) or a peer message is anchored
+ * against the answer `taken` recorded when it was delivered, and only then is
+ * it marked seen. A steer whose row lands after the growing answer (a long
+ * single turn) is left un-seen so a later pass anchors it instead of sinking
+ * to the bottom of the transcript (owner, 2026-10-31). `taken` and `seen` are
+ * mutated; the remaining `steerTexts` and the anchors are returned.
+ */
+export function collectAnchors(opts: {
+  messages: readonly ChatMessageLike[];
+  steerTexts: readonly string[];
+  taken: Map<string, { assistantId: string; offset: number }>;
+  seen: Set<string>;
+}): { anchors: Map<string, SteerAnchor>; steerTexts: string[] } {
+  const anchors = new Map<string, SteerAnchor>();
+  const nextTexts = opts.steerTexts.slice();
+  for (const m of opts.messages) {
+    if (m.role !== "user") continue;
+    const id = String(m.id);
+    if (opts.seen.has(id)) continue;
+    const text = m.content.trim();
+    const k = nextTexts.indexOf(text);
+    const isPeer = splitPeerMessages(m.content)?.some((s) => s.kind === "peer") ?? false;
+    if (k < 0 && !isPeer) {
+      // A real user message: nothing to anchor.
+      opts.seen.add(id);
+      continue;
+    }
+    const taken = opts.taken.get(text);
+    if (!taken) continue; // not delivered yet; a later pass records it
+    opts.seen.add(id);
+    if (k >= 0) nextTexts.splice(k, 1);
+    opts.taken.delete(text);
+    const answer = opts.messages.find((x) => String(x.id) === taken.assistantId);
+    const offset = answer ? Math.min(taken.offset, answer.content.length) : taken.offset;
+    anchors.set(id, { messageId: id, assistantId: taken.assistantId, offset });
+  }
+  return { anchors, steerTexts: nextTexts };
 }
 
 /**

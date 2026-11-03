@@ -128,6 +128,8 @@ export interface PeerSessionRow {
    * and the session is in this process (older remote CLIs won't have it).
    */
   pendingApprovals?: PendingApprovalSummary[];
+  /** No messages yet (a session opened, or a CLI before its first message). */
+  new?: boolean;
 }
 
 interface PeerFrame {
@@ -679,15 +681,20 @@ export async function receive(
   // Watched only once it went in: a refused or empty frame never notifies.
   const notify = f.notify === true && queued.length > 0 && f.from?.sessionId !== "unknown";
   if (notify) turnWatches.push({ chatId: target.chatId, sessionId: target.sessionId, ids: queued, from: f.from });
-  // An informational message (a "turn ended" notice) is queued for the
-  // session's next real turn, not a new one: waking to answer "Acknowledged"
-  // re-sends the whole context for nothing (2026-10-31 spend incident).
+  // A message wakes an idle session only when the sender asked for a reply
+  // (notify_when_done) or an approval starts a build. Otherwise it is queued for
+  // the session's next real turn: waking to answer "Acknowledged" re-sends the
+  // whole context for nothing (2026-10-31 spend incident).
   const idle = (text || applied.startTurn) && !hostImpl.isBusy(target.chatId);
-  if (idle && !f.informational) hostImpl.wake(target.chatId);
+  const startTurn = !!applied.startTurn;
+  const wake = idle && (f.notify === true || startTurn);
+  if (wake) hostImpl.wake(target.chatId);
   return {
     ok: true,
     ...(applied.notice ? { applied: applied.notice } : {}),
-    ...(idle && idleMessagesWait() ? { waits: true } : {}),
+    // "waits": queued for the session's next real turn (not woken now), or an
+    // editor that holds messages until its own prompt starts the turn.
+    ...(idle && (idleMessagesWait() || !wake) ? { waits: true } : {}),
     ...(notify ? { notify: true } : {}),
   };
 }
@@ -815,6 +822,10 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       ...(r.surface !== "chrome" ? { mode: modes.get(r.session_id) ?? "build" } : {}),
       ...(r.model ? { model: r.model } : {}),
       ...(r.has_approval ? { hasApproval: true, ...(local.get(r.session_id)?.pendingApprovals ? { pendingApprovals: local.get(r.session_id)!.pendingApprovals } : {}) } : {}),
+      // A session with no messages yet (an editor's New chat, a CLI before its
+      // first message) is LISTED, and marked new so the sender knows it has no
+      // history to read back (owner, 2026-10-31: fresh sessions must be visible).
+      ...(blank.has(r.session_id) ? { new: true } : {}),
     });
   }
   return out;

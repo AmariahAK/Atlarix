@@ -135,6 +135,75 @@ describe("placeSteers", () => {
     );
     expect(cells.map((c) => (c.kind === "user" ? c.text : c.kind))).toEqual(["First", "Second", "Third", "Fourth", "Fifth"]);
   });
+
+  it("draws a peer message anchored inline as 'Message from X', never a user band", async () => {
+    const { placeSteers } = await import("@/cli/agent/transcript");
+    const { wrapPeerMessage } = await import("@/lib/peers/peer-message");
+    const answer = '<atlarix-tool-call tool="run_command" status="running">\n{"command":"sleep 1"}\n</atlarix-tool-call>\n';
+    const longer = `${answer}<atlarix-tool-result tool="run_command" status="complete">\n{"success":true,"output":"","exitCode":0}\n</atlarix-tool-result>\n\nDone.`;
+    const peer = wrapPeerMessage({ sessionId: "a", name: "alpha", surface: "cli", workspace: "/w" }, "look at this");
+    const messages = [
+      { id: 1, role: "user", content: "start" },
+      { id: 6, role: "user", content: peer },
+      { id: 2, role: "assistant", content: longer },
+    ];
+    const cells = placeSteers(messages, new Map([["6", { messageId: "6", assistantId: "2", offset: answer.length }]]));
+    const msgs = cells.filter((c) => c.kind === "tool" && c.tool.verb === "Message");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ kind: "tool", tool: { verb: "Message", target: expect.stringContaining("alpha") } });
+    // The peer's words never show as the user's own band.
+    expect(cells.some((c) => c.kind === "user" && c.text.includes("look at this"))).toBe(false);
+  });
+});
+
+describe("collectAnchors (owner, 2026-10-31)", () => {
+  it("anchors a steer whose row lands after the growing answer, at the offset it was taken", async () => {
+    const { collectAnchors } = await import("@/cli/agent/transcript");
+    // A long single turn: the answer (id 2) grew, and the steer (id 3) landed
+    // after it in the list. The old code marked it seen before deciding and let
+    // it sink to the bottom.
+    const messages = [
+      { id: 1, role: "user", content: "start" },
+      { id: 2, role: "assistant", content: "working on it" },
+      { id: 3, role: "user", content: "STEER-ALPHA" },
+    ];
+    const seen = new Set<string>();
+    const taken = new Map([["STEER-ALPHA", { assistantId: "2", offset: 9 }]]);
+    const r = collectAnchors({ messages, steerTexts: ["STEER-ALPHA"], taken, seen });
+    expect(r.anchors.get("3")).toEqual({ messageId: "3", assistantId: "2", offset: 9 });
+    expect(seen.has("3")).toBe(true);
+    expect(r.steerTexts).toEqual([]);
+  });
+
+  it("leaves a not-yet-delivered steer un-seen, so a later pass anchors it", async () => {
+    const { collectAnchors } = await import("@/cli/agent/transcript");
+    const messages = [
+      { id: 1, role: "user", content: "start" },
+      { id: 2, role: "assistant", content: "working on it" },
+      { id: 3, role: "user", content: "STEER-BETA" },
+    ];
+    const seen = new Set<string>();
+    const taken = new Map<string, { assistantId: string; offset: number }>();
+    const r = collectAnchors({ messages, steerTexts: ["STEER-BETA"], taken, seen });
+    expect(r.anchors.size).toBe(0);
+    expect(seen.has("3")).toBe(false);
+    expect(r.steerTexts).toEqual(["STEER-BETA"]);
+  });
+
+  it("anchors a peer message by its wrapped text", async () => {
+    const { collectAnchors } = await import("@/cli/agent/transcript");
+    const { wrapPeerMessage } = await import("@/lib/peers/peer-message");
+    const text = wrapPeerMessage({ sessionId: "s", name: "other", surface: "cli", workspace: "/w" }, "do the thing");
+    const messages = [
+      { id: 1, role: "user", content: "start" },
+      { id: 2, role: "assistant", content: "working on it" },
+      { id: 3, role: "user", content: text },
+    ];
+    const seen = new Set<string>();
+    const taken = new Map([[text.trim(), { assistantId: "2", offset: 9 }]]);
+    const r = collectAnchors({ messages, steerTexts: [], taken, seen });
+    expect(r.anchors.get("3")).toEqual({ messageId: "3", assistantId: "2", offset: 9 });
+  });
 });
 
 describe("a turn that ended on questions", () => {
@@ -259,6 +328,24 @@ describe("a sent paste", () => {
     // A message with no paste keeps no copy.
     const [plain] = toCells([{ id: 10, role: "user", content: "just text", modelContent: null }]);
     expect((plain as { full?: string }).full).toBeUndefined();
+  });
+});
+
+describe("a sent message's band (owner, 2026-10-31)", () => {
+  it("keeps a paste to its one-line placeholder, and a long message to a few lines", async () => {
+    const { userBandText, MAX_USER_LINES } = await import("@/cli/agent/transcript");
+    // A 40-line paste: collapsed is the typed line with its placeholder, not the paste.
+    const body = Array.from({ length: 40 }, (_, i) => `pasted line ${i + 1}`).join("\n");
+    const paste = { text: "fix this [Pasted text #1 +40 lines]", full: `fix this ${body}` };
+    expect(userBandText(paste, false)).toEqual({ text: "fix this [Pasted text #1 +40 lines]", more: 0 });
+    // ctrl+o shows the paste itself.
+    expect(userBandText(paste, true).text).toContain("pasted line 40");
+    // A long typed message collapses to a few lines; ctrl+o shows all of it.
+    const long = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n");
+    const cut = userBandText({ text: long }, false);
+    expect(cut.text.split("\n")).toHaveLength(MAX_USER_LINES);
+    expect(cut.more).toBe(40 - MAX_USER_LINES);
+    expect(userBandText({ text: long }, true)).toEqual({ text: long, more: 0 });
   });
 });
 
@@ -500,5 +587,29 @@ describe("a no-op tool result", () => {
     expect(
       toolLine({ type: "tool", id: "b", callId: "c", toolName: "read_file", status: "error", args: {}, resultText: noop } as never).status,
     ).toBe("error");
+  });
+});
+
+describe("send_message and list_sessions rows (owner, 2026-10-31)", () => {
+  it("names who a message goes to, and shows its text — never a bare 'Message'", async () => {
+    const { toolLine } = await import("@/cli/agent/transcript");
+    const t = toolLine({
+      type: "tool",
+      id: "m",
+      callId: "c",
+      toolName: "send_message",
+      status: "success",
+      args: { to: "ai-0c", message: "the tests are green\nplease merge" },
+      resultText: JSON.stringify({ success: true, text: "Sent to ai-0c (CLI, idle: …)" }),
+    } as never);
+    expect(t.target).toBe("to ai-0c");
+    expect(t.summary).toBe("the tests are green");
+    expect(t.output).toBe("the tests are green\nplease merge");
+  });
+
+  it("says what list_sessions asked for", () => {
+    expect(toolTarget("list_sessions", { plan_of: "release-plan" })).toBe("plan of release-plan");
+    expect(toolTarget("list_sessions", { result_of: "qa-2" })).toBe("result of qa-2");
+    expect(toolTarget("list_sessions", {})).toBe("");
   });
 });

@@ -21,6 +21,7 @@ import {
   markInterrupted,
   interruptedRowIds,
   placeSteers,
+  collectAnchors,
   activityToolLine,
   locateBlocks,
   withDelegations,
@@ -110,6 +111,8 @@ export interface QueuedMessage {
 export interface SessionState {
   cells: Cell[];
   busy: boolean;
+  /** The running (or last) turn was started by the user's own message, not a peer or a wake. */
+  userTurn: boolean;
   /**
    * Computer use is on for this session's model. The switch is shared with the
    * app and the editors (user-settings.json), so it can be turned on elsewhere:
@@ -454,6 +457,8 @@ export interface TurnOptions {
   retry?: boolean;
   /** Machine-started: background work reported in. Main refuses one it should not run. */
   systemWake?: boolean;
+  /** A message another session queued: a peer turn, not the user's own. */
+  peerTurn?: boolean;
 }
 
 /** A session's message as saved (`sessions:get`). */
@@ -543,6 +548,7 @@ export class AgentSession extends EventEmitter {
     this.state = {
       cells: [],
       busy: false,
+      userTurn: true,
       computerUse: false,
       phase: null,
       retrying: null,
@@ -651,6 +657,7 @@ export class AgentSession extends EventEmitter {
       following: null,
       lastError: null,
       busy: false,
+      userTurn: true,
       phase: null,
       retrying: null,
       contextPercent: null,
@@ -1418,6 +1425,10 @@ export class AgentSession extends EventEmitter {
   private async steer(text: string): Promise<void> {
     const id = `s${++interjectionSeq}`;
     this.steerTexts.push(text.trim());
+    // Optimistic: draw "↳ steer" the moment Enter is pressed, then reconcile
+    // with main's answer (a loaded Mac can take seconds; owner, 2026-10-31).
+    this.steers = [...this.steers, { id, text: text.trim(), kind: "steer" }];
+    this.syncPending();
     const res = (await (await handler("chat:interject"))({}, {
       chatId: this.chatId,
       id,
@@ -1615,12 +1626,28 @@ export class AgentSession extends EventEmitter {
     this.recapLine = null;
     if (!opts.systemWake) this.userStopped = false;
     this.turnWasWake = !!opts.systemWake;
+    // The last turn's error stays under that turn, not gone with the banner
+    // (QA: "Couldn't reach…" vanished on the next send).
+    if (this.state.lastError && this.lastTurnOwner) this.addTurnNotice(this.lastTurnOwner, "error", this.state.lastError);
+    this.lastTurnOwner = null;
+    // The user's band and "Thinking…" show at once: ensureSession (which makes
+    // the session row on a first message) must not delay them (owner, 2026-10-31).
+    this.update({
+      busy: true,
+      userTurn: !opts.systemWake && !opts.peerTurn,
+      phase: "Thinking…",
+      retrying: null,
+      turnStartedAt: Date.now(),
+      tokensThisTurn: null,
+      lastError: null,
+    });
     try {
       await this.ensureSession();
     } catch (e) {
       // A new editor chat is stored at its first message, so a sign-in that
       // lapsed before it stops the turn HERE, short of the stream that reports
       // turns. Reported the same way: an auth error, not silence (QA A10).
+      this.update({ busy: false, phase: null, turnStartedAt: null });
       if ((e as { code?: string }).code === "auth_required" || /ATLARIX_AUTH_REQUIRED|sign in/i.test((e as Error).message ?? "")) {
         const { trackTurnCompleted } = await import("@/main/lib/analytics");
         trackTurnCompleted({
@@ -1677,18 +1704,6 @@ export class AgentSession extends EventEmitter {
     if (!this.mainStopped) {
       void import("@/ipc/handlers/chat_stream/stream-state").then((m) => (this.mainStopped = m.isChatUserStopped));
     }
-    // The last turn's error stays under that turn, not gone with the banner
-    // (QA: "Couldn't reach…" vanished on the next send).
-    if (this.state.lastError && this.lastTurnOwner) this.addTurnNotice(this.lastTurnOwner, "error", this.state.lastError);
-    this.lastTurnOwner = null;
-    this.update({
-      busy: true,
-      phase: "Thinking…",
-      retrying: null,
-      turnStartedAt: Date.now(),
-      tokensThisTurn: null,
-      lastError: null,
-    });
     this.steerTexts = [];
     this.steerTakenAt.clear();
     this.staleBelow = this.highestStreamId + 1;
@@ -2080,23 +2095,14 @@ export class AgentSession extends EventEmitter {
 
   /** A steer's message appearing in the list: remember where in the answer it arrived. */
   private anchorSteers(): void {
-    let lastAssistant = -1;
-    this.messages.forEach((m, i) => {
-      if (m.role === "assistant") lastAssistant = i;
+    const { anchors, steerTexts } = collectAnchors({
+      messages: this.messages,
+      steerTexts: this.steerTexts,
+      taken: this.steerTakenAt,
+      seen: this.seenUserIds,
     });
-    this.messages.forEach((m, i) => {
-      const id = String(m.id);
-      if (m.role !== "user" || this.seenUserIds.has(id)) return;
-      this.seenUserIds.add(id);
-      const k = this.steerTexts.indexOf(m.content.trim());
-      if (k < 0 || lastAssistant < i) return;
-      this.steerTexts.splice(k, 1);
-      const answer = this.messages[lastAssistant]!;
-      const taken = this.steerTakenAt.get(m.content.trim());
-      this.steerTakenAt.delete(m.content.trim());
-      const at = taken && taken.assistantId === String(answer.id) ? taken.offset : answer.content.length;
-      this.anchors.set(id, { messageId: id, assistantId: String(answer.id), offset: Math.min(at, answer.content.length) });
-    });
+    this.steerTexts = steerTexts;
+    for (const [id, a] of anchors) this.anchors.set(id, a);
   }
 
   async answerApproval(
@@ -2525,6 +2531,25 @@ export class AgentSession extends EventEmitter {
     }
   }
 
+  /**
+   * Retry naming the session while it has no real title. The title model call
+   * can fail silently (a timeout, a provider refusing), and the first-message
+   * path only tries once, so a session stayed "Untitled" for good and every row
+   * in list_sessions looked alike (owner, 2026-10-31).
+   */
+  private async retryTitleIfUnnamed(): Promise<void> {
+    if (!this.sessionId) return;
+    await this.refreshTitle();
+    const { isPlaceholderTitle } = await import("@/lib/session-title/title-text");
+    if (this.state.title && !isPlaceholderTitle(this.state.title)) return;
+    try {
+      await (await handler("sessions:generate-title"))({}, this.sessionId);
+    } catch {
+      /* retried after the next turn */
+    }
+    await this.refreshTitle();
+  }
+
   /** The last `chat:response:end` payload (what the reply is saved with). */
   private lastEnd: Record<string, unknown> = {};
   /** The stream whose end was handled (main repeats it). */
@@ -2594,6 +2619,8 @@ export class AgentSession extends EventEmitter {
     void this.refreshTitle();
     // The model's title can land after a short first turn ends: look once more.
     setTimeout(() => void this.refreshTitle(), 8_000).unref?.();
+    // And a failed title call is retried after the turn, while it is unnamed.
+    void this.retryTitleIfUnnamed();
     const touched = this.planTouched;
     this.planTouched = null;
     // Anything still listed as a steer either reached a step or is taken by the
@@ -2773,7 +2800,7 @@ export class AgentSession extends EventEmitter {
     )) as { text?: string | null } | null;
     const text = flushed?.text?.trim();
     this.syncPending();
-    if (text && !this.state.busy) await this.startTurn(text);
+    if (text && !this.state.busy) await this.startTurn(text, { peerTurn: true });
   }
 
   private update(patch: Partial<SessionState>): void {
