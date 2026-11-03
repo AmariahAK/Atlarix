@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current version:** 15.12.2 (2026-11-02): blinking <!> approval indicator, queued-message send on Esc/Ctrl+S, instant new-session visibility (ATLARIX-48), ACP stdin crash guard (Bug 9), list_sessions operationId (Bug 11).
+**Current version:** 15.12.3 (2026-11-03): case-insensitive project instructions, proactive image gate, peer message previews, rating cross-session fix, /context tierLimit, axe.js CWS compliance.
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -14,7 +14,7 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-11-02
+**Last updated:** 2026-11-03
 
 ---
 
