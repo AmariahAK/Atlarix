@@ -102,3 +102,15 @@ export function splitPeerMessages(content: string): PeerSegment[] | null {
   if (rest) out.push({ kind: "text", text: rest });
   return out.some((s) => s.kind === "peer") ? out : null;
 }
+
+/**
+ * Format a queued message for display in the composer's pending list.
+ * If it's a peer message, show "From [name]: [first ~80 chars]..." instead of raw XML.
+ */
+export function formatPeerMessagePreview(text: string, maxLen = 80): string {
+  const parsed = parsePeerMessage(text);
+  if (!parsed) return text;
+  const preview = parsed.text.slice(0, maxLen).replace(/\n/g, " ");
+  const ellipsis = parsed.text.length > maxLen ? "..." : "";
+  return `From ${parsed.from}: ${preview}${ellipsis}`;
+}

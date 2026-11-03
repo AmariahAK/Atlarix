@@ -18,7 +18,7 @@ import {
   startPeerInbox,
   type PeerHost,
 } from "@/lib/peers/peers";
-import { splitPeerMessages, wrapPeerMessage } from "@/lib/peers/peer-message";
+import { splitPeerMessages, wrapPeerMessage, formatPeerMessagePreview } from "@/lib/peers/peer-message";
 import { removeAtlarixTags } from "@/ipc/handlers/chat_stream/message-postprocess";
 
 const sqlite = new DatabaseSync(":memory:");
@@ -182,6 +182,19 @@ describe("the wrapped message", () => {
     ).toHaveLength(2);
     expect(removeAtlarixTags(joined)).toContain("<atlarix-peer-message");
     expect(splitPeerMessages("just the user")).toBeNull();
+  });
+
+  it("formatPeerMessagePreview returns a short summary for peer messages", () => {
+    const wrapped = wrapPeerMessage(from, "Here is a long message that should be truncated for display in the queued messages list");
+    const preview = formatPeerMessagePreview(wrapped);
+    expect(preview).toMatch(/^From video brief:/);
+    expect(preview).toContain("Here is a long message");
+    expect(preview.length).toBeLessThan(wrapped.length);
+  });
+
+  it("formatPeerMessagePreview returns the original text for non-peer messages", () => {
+    const plain = "Just a regular user message";
+    expect(formatPeerMessagePreview(plain)).toBe(plain);
   });
 });
 

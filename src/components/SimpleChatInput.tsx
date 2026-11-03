@@ -26,7 +26,7 @@ import {
   pendingInterjectionsByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
-import { SURFACE_NAMES } from "@/lib/peers/peer-message";
+import { SURFACE_NAMES, formatPeerMessagePreview } from "@/lib/peers/peer-message";
 import { ChatInputControls } from "@/components/ChatInputControls";
 import { Button } from "@/components/ui/button";
 import {
@@ -494,7 +494,7 @@ export function SimpleChatInput({
                 key={m.id}
                 className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground"
               >
-                <span className="truncate flex-1">{m.text}</span>
+                <span className="truncate flex-1">{formatPeerMessagePreview(m.text)}</span>
                 <button
                   type="button"
                   className="shrink-0 hover:text-foreground"
