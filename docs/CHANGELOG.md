@@ -3,17 +3,23 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.12.3] (2026-11-03) — Case-insensitive project instructions, proactive image gate, and peer message previews
+## [15.12.3] (2026-11-03) — Case-insensitive project instructions, proactive image gate, MCP sign-in guidance, and selector infrastructure
 
 **Project instructions.** `atlarix.md` and `.atlarix/atlarix.md` are now found regardless of casing — `ATLARIX.md`, `Atlarix.MD` and any other variation all work. The old migration code that renamed files is gone.
+
+**CLI layout.** Tool cards during streaming now render at the top of the scroll area (following the messages) instead of being pushed to the bottom of the viewport when there's little content.
 
 **Image handling.** Models that can't see images (text-only models) now reject a request with images immediately, before sending it, with a clear message naming the model and suggesting one that can. Before, the request was sent and failed at the provider.
 
 **Peer messages.** Queued peer messages in the composer now show a readable preview ("From [name]: [first line]...") instead of the raw XML envelope.
 
+**MCP sign-in.** When an MCP server needs a pre-registered OAuth app (like Slack's MCP server), the error message now explains what to do and points to the setup guide, consistently across the app, CLI, editors and VS Code panel. Sub-agent tool calls now carry their own IDs in trajectory files, so the cloud runner can pair them and show them as the helper's work.
+
 **CLI.** The rating prompt now fetches fresh timing data on each check, consistent with how the app does it, so a rating asked in one session isn't asked again in another. The `/context` command shows the effective budget (`tierLimit`) instead of the raw context length, matching what the context meter uses.
 
 **Chrome extension.** `axe.min.js` is now `axe.js` to comply with the Chrome Web Store's policy against obfuscated code.
+
+**Infrastructure.** The `auto_steps` table records metadata (never content) for each paid Auto/Zenith step — which lane, level, provider, tokens, latency and outcome — for the model selector to learn from. The `mcp_oauth_clients` table stores sealed OAuth clients for MCP connectors, and `cloud_setup_prs` tracks setup PRs the cloud agent opens so they can be capped.
 
 ## [15.12.2] (2026-11-02) — Blinking approval indicator, queued-message send on Esc, and instant new-session visibility
 
