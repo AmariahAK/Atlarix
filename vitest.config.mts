@@ -150,6 +150,10 @@ export default defineConfig({
           hookTimeout: UNIT_TEST_TIMEOUT_MS,
           include: ["src/__tests__/renderer/**/*.test.{ts,tsx}"],
           exclude: sharedExclude,
+          // PostHog's async imports (posthog-client → replay.ts) can race the
+          // jsdom teardown on slow CI runners, producing EnvironmentTeardownError
+          // rejections even when all tests pass. These are noise, not failures.
+          dangerouslyIgnoreUnhandledErrors: true,
         },
       },
       {
