@@ -166,10 +166,15 @@ export function createTrajectoryWriter(
           // running timestamp is the only record of when a tool started, so
           // collapsing them here would discard duration. Pairing by toolCallId is
           // trivial for a consumer that only wants the terminal state.
+          // A sub-agent's own calls have no toolCallId: they carry their own
+          // id and the delegation they belong to. Both are kept so a consumer
+          // can pair running/done and tell a helper's work from the agent's.
           writeLine({
             type: "tool_use",
             ts: p.timestamp ?? Date.now(),
             toolCallId: p.toolCallId,
+            ...(p.toolCallId === undefined && typeof p.id === "string" ? { id: p.id } : {}),
+            ...(typeof p.parentDelegationId === "string" ? { parentDelegationId: p.parentDelegationId } : {}),
             toolName: p.toolName,
             status: p.status,
             args: p.toolArgs,
