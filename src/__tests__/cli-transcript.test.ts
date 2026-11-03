@@ -602,14 +602,16 @@ describe("send_message and list_sessions rows (owner, 2026-10-31)", () => {
       args: { to: "ai-0c", message: "the tests are green\nplease merge" },
       resultText: JSON.stringify({ success: true, text: "Sent to ai-0c (CLI, idle: …)" }),
     } as never);
-    expect(t.target).toBe("to ai-0c");
+    // Updated 2026-11-01: target now uses arrow format with quoted message.
+    expect(t.target).toBe('→ ai-0c · "the tests are green"');
     expect(t.summary).toBe("the tests are green");
     expect(t.output).toBe("the tests are green\nplease merge");
   });
 
   it("says what list_sessions asked for", () => {
     expect(toolTarget("list_sessions", { plan_of: "release-plan" })).toBe("plan of release-plan");
-    expect(toolTarget("list_sessions", { result_of: "qa-2" })).toBe("result of qa-2");
+    // Updated 2026-11-01: result_of now says "latest turn of" for clarity.
+    expect(toolTarget("list_sessions", { result_of: "qa-2" })).toBe("latest turn of qa-2");
     expect(toolTarget("list_sessions", {})).toBe("");
   });
 });

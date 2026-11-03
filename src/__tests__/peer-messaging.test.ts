@@ -250,12 +250,14 @@ describe("list_sessions and blank chats", () => {
     sqlite.exec("DELETE FROM session_messages");
     sqlite.prepare("INSERT INTO session_messages VALUES ('m1', 'sess-receiver-0002')").run();
     sqlite.prepare("INSERT INTO session_messages VALUES ('m2', 'sess-sender-0001')").run();
-    // The editor opens a chat before you use it: same window, same folder.
-    noteLiveSession({ sessionId: "sess-blank-0009", chatId: -19, name: "New editor session (b)", workspace: "/w/b", surface: "editor" });
+    // A blank editor session ALONE in its workspace is visible (it may be the
+    // only way to reach that window). One beside a real session in the same
+    // workspace is suppressed (ATLARIX-48: only CLI/app blank sessions stay).
+    noteLiveSession({ sessionId: "sess-blank-0009", chatId: -19, name: "New editor session (b)", workspace: "/w/d", surface: "editor" });
     // And a blank one alone in another folder: it is the only way to reach that window.
     noteLiveSession({ sessionId: "sess-alone-0010", chatId: -20, name: "New editor session (c)", workspace: "/w/c" });
     const byName = new Map(listPeerSessions("sess-sender-0001").map((r) => [r.name, r]));
-    // Fresh sessions MUST be visible even with nothing sent (owner, 2026-10-31).
+    // Fresh sessions MUST be visible when alone in their workspace (owner, 2026-10-31).
     expect(byName.has("New editor session (b)")).toBe(true);
     expect(byName.has("New editor session (c)")).toBe(true);
     // …and each is marked new; a session with history is not.
