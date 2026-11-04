@@ -2287,20 +2287,6 @@ export class AgentSession extends EventEmitter {
         this.update(patch);
         return;
       }
-      case "chat:context-report": {
-        // The backend reports the real post-compaction dispatch size here —
-        // use it to keep the CLI context bar in sync with the desktop app bar.
-        const dispatched = typeof p.dispatchedTokens === "number" ? p.dispatchedTokens : null;
-        const window = typeof p.contextWindow === "number" ? p.contextWindow : this.contextWindow;
-        if (dispatched != null && window) {
-          this.update({
-            contextUsed: dispatched,
-            contextLimit: window,
-            contextPercent: Math.min(100, Math.round((dispatched / window) * 100)),
-          });
-        }
-        return;
-      }
       case "chat:activity":
         if (this.onSubagentActivity(p)) this.update({ cells: this.cellsFor(this.state.busy) });
         else if (p.id === "revert-needs-git" && p.chatId === this.chatId && typeof p.label === "string") {
