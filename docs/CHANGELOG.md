@@ -3,6 +3,10 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.12.5] (2026-11-04) — the context meter and the model's reminder agree on one number
+
+**Context meter.** The "context is at X% capacity" reminder the model sees and the percentage in your context bar now share one denominator — the model's full context window. They had diverged: the reminder counted against the 256k working window and read "198%" while the bar counted against the 1M window and read "48%" for the same dispatch. Both now report the full window, and the reminder still triggers compaction at the working window, unchanged.
+
 ## [15.12.4] (2026-11-04) — A context meter that reads real, local-first memory recall, and a dock that clears finished sub-agents
 
 **Context meter.** The CLI's context bar now shows the provider's real billed input-token count — the whole prompt it dispatched — instead of a local estimate, so the percentage matches what you're charged. The local estimate is kept only to trigger compaction, where it belongs.

@@ -368,9 +368,16 @@ export async function runContextAssembly(
   }
 
   const CONTEXT_PROACTIVE_THRESHOLD = 0.55;
+  // The TRIGGER stays keyed to the working window (when to compact: ~55% of
+  // 256k), but the number we report is "% of the model's full window" so the
+  // reminder agrees with the UI's context bar. Both used to divide the same
+  // dispatch by different denominators — 256k here ("198% capacity") vs the
+  // full 1M window in the UI ("48%") — for the same underlying size.
   const fillAfterProactive = dispatchEstimate / workingWindowTokens;
   if (fillAfterProactive >= CONTEXT_PROACTIVE_THRESHOLD) {
-    const livePct = Math.round(fillAfterProactive * 100);
+    const livePct = Math.round(
+      (dispatchEstimate / Math.max(1, contextWindowTokens)) * 100,
+    );
     logCompactionLine(dispatchEstimate, "reminder");
     proactiveContextReminderForStream = `Context is at ${livePct}% capacity. Consider calling compress_context before your next heavy tool use.`;
   }
@@ -389,9 +396,12 @@ export async function runContextAssembly(
     sections: [],
     trimReport: [],
     dispatchedTokens: dispatchEstimate,
-    // The context meter reports against the WORKING window, so "% used" means
-    // "how close to compaction", not "how close to the model's hard limit".
-    contextWindow: workingWindowTokens,
+    // The context meter reports against the model's FULL window, so "% used"
+    // means "how full is the model's context" — matching the compaction
+    // reminder's number (which triggers on the working window but reports
+    // against the full window). Reporting the working window here made the UI
+    // show e.g. "100%" while the reminder said "198%" for the same dispatch.
+    contextWindow: contextWindowTokens,
   } satisfies ChatContextReport);
   return {
     systemPrompt,
