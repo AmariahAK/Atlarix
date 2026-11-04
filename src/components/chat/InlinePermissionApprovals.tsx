@@ -377,7 +377,7 @@ function CommandPermissionCard({
               </span>
             ) : null}
           </div>
-          <div className="mt-1 font-mono text-[11px] text-muted-foreground break-all bg-background/60 rounded px-2 py-1.5">
+          <div className="mt-1 font-mono text-[11px] text-muted-foreground break-all bg-background/60 rounded px-2 py-1.5 max-h-40 overflow-y-auto">
             $ {operation.command}
           </div>
           {isDangerous && operation.dangerExplanation ? (
