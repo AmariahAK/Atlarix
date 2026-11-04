@@ -3,6 +3,16 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.12.4] (2026-11-04) — A context meter that reads real, local-first memory recall, and a dock that clears finished sub-agents
+
+**Context meter.** The CLI's context bar now shows the provider's real billed input-token count — the whole prompt it dispatched — instead of a local estimate, so the percentage matches what you're charged. The local estimate is kept only to trigger compaction, where it belongs.
+
+**Permission cards.** Long command text in a permission approval card now scrolls instead of overflowing the card.
+
+**Memory recall.** Recalling project-memory notes is now local-first: a deterministic keyword score over each note's name and description, boosted by a per-note weight the learner adjusts as notes are used or go stale. The small-model recall runs only as a fallback, so a slow provider no longer delays a message while notes are recalled.
+
+**CLI dock.** A background sub-agent that failed (rather than was cancelled) no longer stays pinned to the bottom strip after it ends — its record is marked finished on every path, so the dock clears it.
+
 ## [15.12.3] (2026-11-03) — Case-insensitive project instructions, proactive image gate, MCP sign-in guidance, and selector infrastructure
 
 **Project instructions.** `atlarix.md` and `.atlarix/atlarix.md` are now found regardless of casing — `ATLARIX.md`, `Atlarix.MD` and any other variation all work. The old migration code that renamed files is gone.
