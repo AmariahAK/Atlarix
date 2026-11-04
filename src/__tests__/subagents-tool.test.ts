@@ -249,6 +249,30 @@ describe("auto-promotion", () => {
   });
 });
 
+describe("a failed sub-agent does not stick in the dock", () => {
+  it("marks a FOREGROUND sub-agent that throws as no longer running", async () => {
+    const ToolRegistry = await tools();
+    const { runSubagent } = await import("@/lib/agents/run-subagent");
+    const { listRunningSubagentTasks } = await import("@/lib/tools/spawn-task");
+    const chatId = 9206;
+
+    // The sub-agent's run throws (a provider error), not an abort — so no
+    // cancelAll path has already marked it terminal.
+    vi.mocked(runSubagent).mockImplementationOnce(async () => {
+      throw new Error("provider exploded");
+    });
+
+    const task = ToolRegistry.get("task");
+    await expect(
+      task!.handler({ description: "doomed scout", prompt: "Crash now", chatId }),
+    ).rejects.toThrow("provider exploded");
+
+    // The dock reads listRunningSubagentTasks; a record left "running" here is
+    // the stuck row the bug reports (completed/failed tasks must drop off).
+    expect(listRunningSubagentTasks(chatId)).toHaveLength(0);
+  });
+});
+
 describe("task no longer manages sub-agents", () => {
   it("redirects list/cancel to the subagents tool rather than dead-ending", async () => {
     const ToolRegistry = await tools();

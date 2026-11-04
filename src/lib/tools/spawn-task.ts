@@ -583,6 +583,22 @@ ToolRegistry.register({
           rec.error = outcome.error ?? "Sub-agent run failed";
         }
         rec.finishedAt = Date.now();
+      } catch (err) {
+        // A thrown run (a provider error, not an abort) never reached the
+        // terminal-state block above. Without this, a FOREGROUND task's record
+        // stayed "running" forever — the background path has its own .catch that
+        // marks it, but the foreground path only awaited the promise, so the
+        // caller settled the delegation while `listRunningSubagentTasks` kept
+        // returning the dead task and pinned it to the CLI dock. Mark it once
+        // here, for every path, then re-throw so the caller still sees the
+        // failure and settles its card.
+        const rec = taskStore.get(taskId);
+        if (rec && !rec.cancelled && !rec.finishedAt) {
+          rec.state = "error";
+          rec.error = err instanceof Error ? err.message : String(err);
+          rec.finishedAt = Date.now();
+        }
+        throw err;
       } finally {
         // A set with nothing to review (or a failed run) is dropped now; one
         // awaiting review is owned by the `proposals` tool from here.
