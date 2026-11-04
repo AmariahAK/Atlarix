@@ -346,6 +346,7 @@ export async function buildMemoryTurnContext(
         candidates,
         chatId: args.chatId,
         turnModel: args.turnModel,
+        memoryDir: dir,
       }).catch(() => [] as string[]);
       const byFile = new Map(fresh.map((n) => [n.file, n]));
       for (const file of chosen) {

@@ -1,18 +1,23 @@
 /**
  * Memory recall — which project notes bear on the user's next message.
  *
- * The index alone (shown once per session) leaves the agent to decide which note
- * to open, and it mostly doesn't. So on each user message a small side call reads
- * the notes' DESCRIPTIONS — never their bodies — and names up to five; the turn
- * then carries those notes as background (`session-context.ts`).
+ * Local-first: a deterministic BM25 score over each note's file name and
+ * description, boosted by per-note learned weights, answers every message that
+ * shares a word with a note — so the hot path makes NO model call. The small
+ * selector model is now only the fallback for a message the local scorer cannot
+ * match at all (no shared words: a purely semantic match), and any failure of
+ * that model simply recalls nothing.
  *
- * The call uses the session-title model (`resolveTitleModel`): Core/Auto routes it
- * as `purpose:"memory"`, BYOK uses the provider's small sibling, and a BYOK prompt
- * never falls back to Core. It is billed like any other request. It is never
- * allowed to hold a turn up: one attempt, a short timeout, and any failure is
- * simply "nothing recalled".
+ * Weights live in `<memoryDir>/weights.json`, one small object keyed by note
+ * file name. A recalled note gains a little weight (capped); a note left alone
+ * decays back toward 1.0 over a halflife, so a once-hot note stops out-ranking
+ * a fresh one. Decay is applied lazily on every read and persisted only when a
+ * recall bumps something, so the store is not rewritten for a message that
+ * recalls nothing.
  */
 
+import fs from "node:fs/promises";
+import path from "node:path";
 import log from "electron-log";
 import type { LargeLanguageModel } from "@/lib/schemas";
 
@@ -23,14 +28,107 @@ export const RECALL_MAX_NOTES = 5;
 /**
  * How long the selector model may take. The reply is a short JSON list, so a
  * healthy model answers in well under this; anything slower is usually the
- * overload that the local fallback below exists for. Kept short so a failing
- * recall does not hold the turn for the old 8 s on every message.
+ * overload the local scorer exists to route around. Kept short so a failing
+ * recall does not hold the turn.
  */
 const RECALL_TIMEOUT_MS = 2_500;
 /** Runaway insurance only — the reply is a short JSON list. */
 const RECALL_MAX_OUTPUT_TOKENS = 512;
 /** The message as the selector sees it; the head carries the intent. */
 const RECALL_MESSAGE_CHARS = 4_000;
+
+// ── Learned weights ─────────────────────────────────────────────────────────
+
+/** The file inside the memory directory that stores learned note weights. */
+export const WEIGHTS_FILE = "weights.json";
+/** A recalled note may rise to at most this multiple of a neutral one. */
+const WEIGHT_CAP = 4;
+/** Gained per recall. */
+const WEIGHT_BUMP = 0.5;
+/** Days to halve a weight's distance back to neutral (1.0). */
+const WEIGHT_DECAY_HALFLIFE_DAYS = 14;
+
+export type MemoryWeight = { w: number; lastUsedAt: number };
+/** Note file name → its learned weight. */
+export type MemoryWeights = Record<string, MemoryWeight>;
+
+/** A weight eased back toward 1.0 after `daysSinceUse` idle days. */
+export function decayWeight(w: number, daysSinceUse: number): number {
+  if (!(daysSinceUse > 0)) return w;
+  return 1 + (w - 1) * Math.pow(0.5, daysSinceUse / WEIGHT_DECAY_HALFLIFE_DAYS);
+}
+
+/** Decay every entry; drop ones that have returned to neutral. */
+export function applyDecay(weights: MemoryWeights, now: number): MemoryWeights {
+  const out: MemoryWeights = {};
+  for (const [file, v] of Object.entries(weights)) {
+    const days = v.lastUsedAt > 0 ? (now - v.lastUsedAt) / 86_400_000 : Infinity;
+    const w = decayWeight(v.w, days);
+    if (Math.abs(w - 1) < 0.01) continue;
+    out[file] = { w, lastUsedAt: v.lastUsedAt };
+  }
+  return out;
+}
+
+/** Add `WEIGHT_BUMP` to each named note (capped), stamping the use time. */
+export function bumpWeights(
+  weights: MemoryWeights,
+  files: string[],
+  now: number,
+): MemoryWeights {
+  const out: MemoryWeights = { ...weights };
+  for (const file of files) {
+    const prev = out[file];
+    out[file] = {
+      w: Math.min(WEIGHT_CAP, (prev?.w ?? 1) + WEIGHT_BUMP),
+      lastUsedAt: now,
+    };
+  }
+  return out;
+}
+
+/** Read the weights file; {} when missing or unreadable (never throws). */
+export async function readWeights(dir: string): Promise<MemoryWeights> {
+  try {
+    const raw = await fs.readFile(path.join(dir, WEIGHTS_FILE), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: MemoryWeights = {};
+    for (const [file, v] of Object.entries(parsed as Record<string, unknown>)) {
+      const entry = v as { w?: unknown; lastUsedAt?: unknown } | null;
+      if (!entry || typeof entry !== "object" || typeof entry.w !== "number") continue;
+      out[file] = {
+        w: entry.w,
+        lastUsedAt: typeof entry.lastUsedAt === "number" ? entry.lastUsedAt : 0,
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+async function writeWeights(dir: string, weights: MemoryWeights): Promise<void> {
+  try {
+    await fs.writeFile(path.join(dir, WEIGHTS_FILE), JSON.stringify(weights), "utf8");
+  } catch (err) {
+    logger.warn(
+      "recall: could not write weights —",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/** Persist decayed weights — called only when a recall bumped something. */
+async function persistWeights(
+  dir: string,
+  weights: MemoryWeights,
+  now: number,
+): Promise<void> {
+  await writeWeights(dir, applyDecay(weights, now));
+}
+
+// ── Local scoring ───────────────────────────────────────────────────────────
 
 export type RecallCandidate = {
   /** Note file name inside the memory directory. */
@@ -49,7 +147,7 @@ export function ageLabel(days: number): string {
   return `${days} days ago`;
 }
 
-/** Words that never identify a note in the local fallback scorer. */
+/** Words that never identify a note in the local scorer. */
 const STOP_WORDS = new Set([
   "the", "and", "for", "with", "that", "this", "from", "your", "what", "when",
   "where", "which", "will", "have", "has", "was", "are", "not", "but", "all",
@@ -67,27 +165,61 @@ function tokenize(s: string): string[] {
     .filter((t) => t.length > 1 && !STOP_WORDS.has(t));
 }
 
+// BM25 over the candidate set: IDF from how many notes carry each term. A
+// note's "document" is its file name (twice, so a name hit outweighs a
+// description hit) plus its description.
+const BM25_K1 = 1.2;
+const BM25_B = 0.75;
+
+function docTokens(c: RecallCandidate): string[] {
+  const name = tokenize(c.file.replace(/\.md$/i, ""));
+  const desc = tokenize(c.description ?? "");
+  return [...name, ...name, ...desc];
+}
+
+function idf(term: string, docs: string[][]): number {
+  const containing = docs.reduce((n, d) => n + (d.includes(term) ? 1 : 0), 0);
+  return Math.log(1 + (docs.length - containing + 0.5) / (containing + 0.5));
+}
+
+function bm25(
+  query: Set<string>,
+  doc: string[],
+  docs: string[][],
+  avgLen: number,
+): number {
+  let score = 0;
+  for (const term of query) {
+    let tf = 0;
+    for (const t of doc) if (t === term) tf++;
+    if (tf === 0) continue;
+    score +=
+      idf(term, docs) *
+      ((tf * (BM25_K1 + 1)) /
+        (tf + BM25_K1 * (1 - BM25_B + BM25_B * (doc.length / avgLen))));
+  }
+  return score;
+}
+
 /**
- * Deterministic, free recall: score each candidate's file name and description
- * against the message's tokens and return the best few. Used when the selector
- * model is unreachable (overloaded / rate-limited / timed out) so a message
- * still carries the notes that obviously bear on it, instead of none at all.
+ * Deterministic, free, local recall: BM25 over each candidate's file name and
+ * description (boosted by learned weights when given) against the message's
+ * tokens, returning the best few. This is the PRIMARY path — only a message
+ * with no word overlap at all falls through to the model.
  */
 export function localRecallMatch(
   message: string,
   candidates: RecallCandidate[],
+  weights?: MemoryWeights | null,
 ): string[] {
-  const msg = new Set(tokenize(message));
-  if (msg.size === 0) return [];
+  const query = tokenize(message);
+  if (query.length === 0 || candidates.length === 0) return [];
+  const qset = new Set(query);
+  const docs = candidates.map(docTokens);
+  const avgLen = docs.reduce((n, d) => n + d.length, 0) / Math.max(1, docs.length);
   const scored = candidates
-    .map((c) => {
-      const name = tokenize(c.file.replace(/\.md$/i, ""));
-      const desc = tokenize(c.description ?? "");
-      let score = 0;
-      for (const t of msg) {
-        if (name.includes(t)) score += 2; // a name hit outweighs a description hit
-        if (desc.includes(t)) score += 1;
-      }
+    .map((c, i) => {
+      const score = bm25(qset, docs[i]!, docs, avgLen) * (weights?.[c.file]?.w ?? 1);
       return { file: c.file, score };
     })
     .filter((x) => x.score > 0)
@@ -141,8 +273,11 @@ export function parseRecallReply(
 }
 
 /**
- * Ask the small model which candidates to recall. Never throws; [] on any
- * failure, timeout, or when the call would send a BYOK prompt to Core.
+ * Which candidates to recall. Local first: a BM25 match (word overlap) is
+ * answered with no model call and bumps the recalled notes' weights. Only when
+ * the local scorer has nothing — a purely semantic match — is the small model
+ * asked, one attempt, short timeout; its failure recalls nothing (the local
+ * pass already ran). Never throws.
  */
 export async function selectRelevantMemories(args: {
   message: string;
@@ -150,9 +285,26 @@ export async function selectRelevantMemories(args: {
   chatId?: number | null;
   /** The turn's own model (CLI/editor/user-agent sessions), else the app's. */
   turnModel?: LargeLanguageModel;
+  /** The project-memory dir, where weights.json lives; omit to skip learning. */
+  memoryDir?: string | null;
 }): Promise<string[]> {
-  const { message, candidates } = args;
+  const { message, candidates, memoryDir } = args;
   if (!message.trim() || candidates.length === 0) return [];
+
+  const now = Date.now();
+  let weights: MemoryWeights = {};
+  if (memoryDir) {
+    weights = applyDecay(await readWeights(memoryDir).catch(() => ({})), now);
+  }
+
+  const local = localRecallMatch(message, candidates, weights);
+  if (local.length > 0) {
+    if (memoryDir) await persistWeights(memoryDir, bumpWeights(weights, local, now), now);
+    return local;
+  }
+
+  // No word overlap — ask the small model for a semantic match. One attempt,
+  // short timeout; any failure recalls nothing.
   try {
     const { generateText } = await import("ai");
     const { readSettings } = await import("@/main/settings");
@@ -183,20 +335,16 @@ export async function selectRelevantMemories(args: {
       abortSignal: AbortSignal.timeout(RECALL_TIMEOUT_MS),
     });
     recordAuxUsage(args.chatId, result.usage, "memory");
-    return parseRecallReply(result.text, candidates);
+    const chosen = parseRecallReply(result.text, candidates);
+    if (memoryDir && chosen.length > 0) {
+      await persistWeights(memoryDir, bumpWeights(weights, chosen, now), now);
+    }
+    return chosen;
   } catch (err) {
     logger.warn(
       "recall: selector failed —",
       err instanceof Error ? err.message : err,
     );
-    // Fall back to a local keyword match so a message still carries the notes
-    // that obviously bear on it, and the failure is never silent.
-    const local = localRecallMatch(message, candidates);
-    if (local.length > 0) {
-      logger.info(`recall: local fallback matched ${local.join(", ")}`);
-    } else {
-      logger.info("recall: skipped (selector failed and no local match)");
-    }
-    return local;
+    return [];
   }
 }

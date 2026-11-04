@@ -2,6 +2,9 @@
  * The recall side call: which model, which purpose, what it is allowed to cost a
  * turn, and how its reply is read.
  */
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const generateText = vi.fn();
@@ -28,10 +31,16 @@ vi.mock("@/lib/usage/turn-usage-aggregator", () => ({
 
 import {
   RECALL_MAX_NOTES,
+  WEIGHTS_FILE,
+  applyDecay,
   buildRecallPrompt,
+  bumpWeights,
+  decayWeight,
   localRecallMatch,
   parseRecallReply,
+  readWeights,
   selectRelevantMemories,
+  type MemoryWeights,
   type RecallCandidate,
 } from "@/lib/memory/recall";
 
@@ -143,14 +152,15 @@ describe("selectRelevantMemories", () => {
     expect(generateText).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to a local keyword match when the selector fails", async () => {
-    generateText.mockRejectedValue(new Error("The service may be temporarily overloaded"));
+  it("answers a word-overlap message locally, never calling the model", async () => {
+    generateText.mockRejectedValue(new Error("must not be called"));
     const notes: RecallCandidate[] = [
       { file: "deploy-runbook.md", description: "how to deploy to Railway", ageDays: 1, type: "project" },
       { file: "git-commit-identity.md", description: "author name and email for commits", ageDays: 5, type: "project" },
     ];
     expect(await selectRelevantMemories({ message: "how do I deploy to Railway?", candidates: notes }))
       .toEqual(["deploy-runbook.md"]);
+    expect(generateText).not.toHaveBeenCalled();
   });
 
   it("never sends a BYOK prompt to Core", async () => {
@@ -165,5 +175,63 @@ describe("selectRelevantMemories", () => {
     expect(await selectRelevantMemories({ message: "q", candidates: [] })).toEqual([]);
     expect(await selectRelevantMemories({ message: "  ", candidates })).toEqual([]);
     expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("uses the model only when the local scorer has no word overlap", async () => {
+    const notes: RecallCandidate[] = [
+      { file: "alpha.md", description: "bravo charlie", ageDays: 1, type: "project" },
+    ];
+    // "zulu yankee" shares no token with the note, so the model is asked.
+    generateText.mockResolvedValue({ text: '{"files":["alpha.md"]}', usage: { totalTokens: 5 } });
+    expect(await selectRelevantMemories({ message: "zulu yankee", candidates: notes })).toEqual(["alpha.md"]);
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("local-first recall and learned weights", () => {
+  it("bumps recalled notes in weights.json and reads them back", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "recall-weights-"));
+    try {
+      const notes: RecallCandidate[] = [
+        { file: "deploy-runbook.md", description: "how to deploy to Railway", ageDays: 1, type: "project" },
+        { file: "git-commit-identity.md", description: "author name and email for commits", ageDays: 5, type: "project" },
+      ];
+      await selectRelevantMemories({ message: "how do I deploy to Railway?", candidates: notes, memoryDir: dir });
+      expect(generateText).not.toHaveBeenCalled();
+      const raw = JSON.parse(await fs.readFile(path.join(dir, WEIGHTS_FILE), "utf8")) as MemoryWeights;
+      expect(raw["deploy-runbook.md"]?.w).toBeGreaterThan(1);
+      expect(raw["git-commit-identity.md"]).toBeUndefined();
+      expect(await readWeights(dir)).toHaveProperty("deploy-runbook.md");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("decays a weight back toward neutral and drops it at 1", () => {
+    expect(decayWeight(2, 0)).toBe(2);
+    // One halflife halves the distance to neutral: 1 + (2-1)*0.5 = 1.5.
+    expect(decayWeight(2, 14)).toBeCloseTo(1.5, 5);
+    const now = 1_700_000_000_000;
+    const day = 86_400_000;
+    const weights: MemoryWeights = { "a.md": { w: 1.02, lastUsedAt: now - 14 * 4 * day } };
+    expect(applyDecay(weights, now)).toEqual({});
+  });
+
+  it("caps a weight so a hot note cannot crowd out everything", () => {
+    let w: MemoryWeights = {};
+    const now = 1_700_000_000_000;
+    for (let i = 0; i < 20; i++) w = bumpWeights(w, ["a.md"], now);
+    expect(w["a.md"]!.w).toBeLessThanOrEqual(4);
+  });
+
+  it("a learned weight flips a tie in the local ranking", () => {
+    const notes: RecallCandidate[] = [
+      { file: "a.md", description: "deploy", ageDays: 1 },
+      { file: "b.md", description: "deploy", ageDays: 1 },
+    ];
+    // No weights: equal scores break to the first name alphabetically.
+    expect(localRecallMatch("deploy", notes)[0]).toBe("a.md");
+    // A learned preference for b flips the ranking.
+    expect(localRecallMatch("deploy", notes, { "b.md": { w: 2, lastUsedAt: 1 } })[0]).toBe("b.md");
   });
 });
