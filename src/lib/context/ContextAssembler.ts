@@ -44,9 +44,19 @@ export type ContextAssemblerInput = {
   sections: ContextSection[];
 };
 
+/**
+ * Sections that change from turn to turn (the plan as it is ticked off, work
+ * that finished since the last turn). They go with the per-turn tail, never into
+ * the cached header: one changed byte there re-writes the whole cached prefix.
+ */
+export const VOLATILE_SECTIONS: ReadonlySet<ContextSectionName> = new Set(["activePlan", "taskProgress"]);
+
 export type ContextAssemblerOutput = {
   activeSkillAddition: string;
+  /** The stable sections: part of the cached header. */
   finalSystemPromptAddition: string;
+  /** The volatile sections (VOLATILE_SECTIONS): sent with the per-turn tail. */
+  volatileAddition: string;
   assembledPromptSections: Array<
     ContextSection & { tokens: number; included: boolean; truncated: boolean }
   >;
@@ -111,6 +121,7 @@ export function assembleContextSections(
     return {
       ...cached,
       activeSkillAddition: cached.activeSkillAddition ?? "",
+      volatileAddition: cached.volatileAddition ?? "",
       cache: { key: cacheKey, hit: true },
     };
   }
@@ -121,6 +132,8 @@ export function assembleContextSections(
     [];
   const tokenUsageBySection: Record<string, number> = {};
   const includedBlocks: string[] = [];
+  const volatileBlocks: string[] = [];
+  const blocksFor = (name: ContextSectionName) => (VOLATILE_SECTIONS.has(name) ? volatileBlocks : includedBlocks);
 
   for (const section of activeSkillSections) {
     // Score the SAME text that is actually emitted (trimmed, as joined above),
@@ -151,7 +164,7 @@ export function assembleContextSections(
     }
 
     if (sectionTokens <= remaining) {
-      includedBlocks.push(section.content);
+      blocksFor(section.name).push(section.content);
       remaining -= sectionTokens;
       assembledPromptSections.push({
         ...section,
@@ -169,7 +182,7 @@ export function assembleContextSections(
     );
     const truncatedTokens = estimateTokens(truncated);
     if (truncatedTokens > 0) {
-      includedBlocks.push(truncated);
+      blocksFor(section.name).push(truncated);
       assembledPromptSections.push({
         ...section,
         tokens: truncatedTokens,
@@ -194,6 +207,7 @@ export function assembleContextSections(
   const output: ContextAssemblerOutput = {
     activeSkillAddition,
     finalSystemPromptAddition: includedBlocks.join("\n\n"),
+    volatileAddition: volatileBlocks.join("\n\n"),
     assembledPromptSections,
     tokenUsageBySection,
     trimReport,

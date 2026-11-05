@@ -29,6 +29,11 @@ export interface PromptBundleDeps {
   effectiveWorkMode: WorkMode;
   userPrompt: string;
   baseSystemPrompt: string;
+  /**
+   * The per-turn tail already inside `baseSystemPrompt` (splitDynamicTail takes
+   * it back out at send time). What changes turn to turn is added to it here.
+   */
+  baseDynamicTail?: string;
   isSummarizeIntent: boolean;
   otherAppsCodebaseInfo: string | undefined;
   /**
@@ -42,6 +47,8 @@ export interface PromptBundleDeps {
 
 export interface PromptBundle {
   systemPrompt: string;
+  /** The per-turn tail, with the volatile sections and attachment notes added: kept out of the cached header. */
+  dynamicTail: string | undefined;
   contextAssemblerBlob: string;
   assembledContext: ReturnType<typeof assembleContextSections>;
   hasInjectedArchitectureContext: boolean;
@@ -60,6 +67,7 @@ export async function buildPromptBundle(
     effectiveWorkMode,
     userPrompt,
     baseSystemPrompt,
+    baseDynamicTail,
     isSummarizeIntent,
     otherAppsCodebaseInfo,
     extraTrimNotes,
@@ -125,8 +133,10 @@ export async function buildPromptBundle(
     req.attachments.some(
       (attachment) => attachment.attachmentType === "upload-to-codebase",
     );
+  // Attachment notes hold for this turn only: they ride the per-turn tail.
+  let attachmentNote = "";
   if (hasUploadedAttachments) {
-    systemPrompt += `
+    attachmentNote = `
 
 When files are attached to this conversation, upload them to the codebase using this exact format:
 
@@ -141,7 +151,7 @@ ATLARIX_ATTACHMENT_0
 
   `;
   } else if (hasImageAttachments) {
-    systemPrompt += `
+    attachmentNote = `
 
 # Image Analysis Instructions
 This conversation includes one or more image attachments. When the user uploads images:
@@ -151,6 +161,21 @@ This conversation includes one or more image attachments. When the user uploads 
 4. For diagrams or wireframes, try to understand the content and structure shown.
 5. For screenshots of code or errors, try to identify the issue or explain the code.
 `;
+  }
+
+  // What changes turn to turn goes with the per-turn tail, never into the
+  // cached header (one changed byte there re-writes the whole cached prefix).
+  let dynamicTail = baseDynamicTail;
+  const volatile = isSummarizeIntent
+    ? ""
+    : [assembledContext.volatileAddition, attachmentNote].map((s) => s.trim()).filter(Boolean).join("\n\n");
+  if (volatile) {
+    const at = baseDynamicTail?.trim() ? systemPrompt.indexOf(`\n\n${baseDynamicTail}\n`) : -1;
+    dynamicTail = baseDynamicTail?.trim() ? `${baseDynamicTail}\n\n${volatile}` : volatile;
+    systemPrompt =
+      at >= 0
+        ? `${systemPrompt.slice(0, at)}\n\n${dynamicTail}\n${systemPrompt.slice(at + baseDynamicTail!.length + 3)}`
+        : `${systemPrompt}\n\n${dynamicTail}\n`;
   }
 
   // PASS5: diagram-first prefix removed — the model calls diagram
@@ -173,6 +198,7 @@ This conversation includes one or more image attachments. When the user uploads 
 
   return {
     systemPrompt,
+    dynamicTail,
     contextAssemblerBlob: blob,
     assembledContext,
     hasInjectedArchitectureContext,

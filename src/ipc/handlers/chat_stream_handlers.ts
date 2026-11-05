@@ -1888,6 +1888,7 @@ export function registerChatStreamHandlers() {
               effectiveWorkMode,
               userPrompt,
               baseSystemPrompt,
+              baseDynamicTail,
               isSummarizeIntent,
               otherAppsCodebaseInfo,
             };
@@ -2520,7 +2521,9 @@ export function registerChatStreamHandlers() {
                 modelContextResolved,
                 placeholderAssistantMessage,
                 systemPrompt,
-                dynamicTail: baseDynamicTail,
+                // The tail as the prompt bundle extended it (the plan, finished
+                // work, attachment notes): taken back out of the cached header.
+                dynamicTail: promptBundle.dynamicTail ?? baseDynamicTail,
                 taskLedgerBlock,
                 simpleStreamTextDeps,
                 streamTurnId,
