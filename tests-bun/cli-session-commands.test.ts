@@ -105,7 +105,11 @@ describe("the session's commands", () => {
       options: ["Postgres", "SQLite"],
       questions: [{ question: "Which database?", options: ["Postgres", "SQLite"] }],
     });
-    expect(s.state.question).toMatchObject({ questionId: "uq_test", items: [{ question: "Which database?", options: ["Postgres", "SQLite"] }] });
+    // Sent as strings (an older main's shape), read as options.
+    expect(s.state.question).toMatchObject({
+      questionId: "uq_test",
+      items: [{ question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] }],
+    });
 
     const continued = waitFor(s, (st) => st.cells.some((c: any) => c.kind === "markdown" && c.text === "Going with SQLite."));
     await s.answerQuestion(["SQLite"]);
