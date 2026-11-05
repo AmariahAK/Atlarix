@@ -116,6 +116,24 @@ describe("0aa: cross-session review", () => {
     expect(text).toContain("+b");
   });
 
+  it("a plan: change sends it back with what to change (it re-plans), and needs that message", async () => {
+    const { ToolRegistry } = await import("@/lib/tools");
+    const send = async (args: Record<string, unknown>) => {
+      let raw = (await ToolRegistry.execute("send_message", { workspaceSessionId: REVIEWER_ID, to: "Asker", ...args })) as unknown;
+      while (raw && typeof raw === "object" && "result" in raw && typeof (raw as { result: unknown }).result === "object") raw = (raw as { result: unknown }).result;
+      return raw as { success: boolean; error?: string };
+    };
+    const bare = await send({ plan: "change" });
+    expect(bare.success).toBe(false);
+    expect(String(bare.error)).toContain("what to change");
+    const before = appliedSettings.length;
+    const r = await send({ plan: "change", message: "Split step 3: migrate first, then switch reads." });
+    expect(r.success).toBe(true);
+    expect(appliedSettings.length).toBe(before + 1);
+    expect(appliedSettings.at(-1)!.set.plan).toBe("reject");
+    expect(queued.at(-1)!.text).toContain("Split step 3");
+  });
+
   it("reviewer text contains operationId and command when approval details are stored", () => {
     const operationId = "op-edit-file-xyz789";
     const approvals: PendingApprovalSummary[] = [

@@ -67,7 +67,7 @@ ToolRegistry.register({
         "A session's name or id: also show its latest finished turn: how it ended, its reply and the files it changed.",
       ),
       pending_of: stringParam(
-        "A session's name or id: also show its pending permission requests in full: the command, or the change and its diff.",
+        "A session's name or id: also show its pending permission requests in full (the command, or the change and its diff) and any plan awaiting approval.",
       ),
     },
     [],
@@ -212,7 +212,7 @@ ToolRegistry.register({
       mode: stringParam("Its mode from its next turn: build, explore, plan, debug or review."),
       model: stringParam("A model from list_sessions' list (its name as shown)."),
       plan: stringParam(
-        "Its plan awaiting approval: approve (it starts building), reject (message says why) or update (plan_text replaces it).",
+        "Its plan awaiting approval: approve (it starts building), change (message says what to change; it re-plans), reject (message says why) or update (plan_text replaces it).",
       ),
       plan_text: stringParam("The whole new plan, for plan: update."),
       notify_when_done: booleanParam("One notice here when its turn ends."),
@@ -234,7 +234,12 @@ ToolRegistry.register({
     const text = typeof message === "string" ? message.trim() : "";
     const setMode = typeof mode === "string" && mode.trim() ? mode.trim() : undefined;
     const setModel = typeof model === "string" && model.trim() ? model.trim() : undefined;
-    const planAction = typeof plan === "string" && plan.trim() ? plan.trim().toLowerCase() : undefined;
+    const planWord = typeof plan === "string" && plan.trim() ? plan.trim().toLowerCase() : undefined;
+    // "change" sends the plan back with what to change: a reject whose message says it, so it re-plans.
+    if (planWord === "change" && !(typeof message === "string" && message.trim())) {
+      return { success: false, error: "plan: change needs a message saying what to change." };
+    }
+    const planAction = planWord === "change" ? "reject" : planWord;
     const planBody = typeof plan_text === "string" ? plan_text.trim() : "";
     const doReview = review === true;
     const approvalId = typeof approval === "string" && approval.trim() ? approval.trim() : undefined;
