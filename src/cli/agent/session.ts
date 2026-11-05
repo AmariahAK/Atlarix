@@ -2675,7 +2675,15 @@ export class AgentSession extends EventEmitter {
     let m = this.turnModel() as { provider?: string; name?: string } | undefined;
     if (!m) m = await import("@/main/settings").then((x) => x.readSettings().selectedModel as { provider?: string; name?: string }).catch(() => undefined);
     if (!m?.name) return undefined;
-    if (m.provider !== "compass") return m.name;
+    // As the picker names it ("Claude Haiku 4.5 (Global)"), not the raw id
+    // (filming 15.12: "global.anthropic.claude-haiku-4-5-20251001-v1:0").
+    // The header's remembered label is a file read; the provider's list is a
+    // network fetch, too slow for the end of every turn.
+    if (m.provider !== "compass") {
+      const { readCliState } = await import("./models");
+      const l = readCliState().modelLabel;
+      return l && l.provider === m.provider && l.name === m.name ? l.label : m.name;
+    }
     if (m.name === "core-auto" || m.name === "auto") return "Atlarix Auto";
     // A Core slot by its model's name, as the picker shows it, not its id ("core-4").
     const { getCompassSyntheticModels } = await import("@/ipc/shared/compass_constants");

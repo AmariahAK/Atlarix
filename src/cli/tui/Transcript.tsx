@@ -602,7 +602,7 @@ export function Transcript({
     };
   }, [scrollRef]);
   return (
-    <scrollbox ref={box} flexGrow={1} stickyScroll>
+    <scrollbox ref={box} flexGrow={1} stickyScroll stickyStart="bottom">
       {/* paddingRight: the scrollbar is drawn OVER the last column, so text that
           wrapped exactly to the edge lost its last character under it — the
           "cut off" ends of lines (owner, 2026-10-04: "…the Atlarix agent" with

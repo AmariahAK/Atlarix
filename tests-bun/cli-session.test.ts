@@ -68,6 +68,22 @@ describe("AgentSession", () => {
     expect(name).not.toBe("core-4");
   });
 
+  it("names a provider's model as the picker does, not by its raw id (Bedrock)", async () => {
+    const { AgentSession } = await import("../src/cli/agent/session");
+    const { readCliState, writeCliState } = await import("../src/cli/agent/models");
+    const id = "global.anthropic.claude-haiku-4-5-20251001-v1:0";
+    const before = readCliState();
+    writeCliState({ ...before, modelLabel: { provider: "bedrock", name: id, label: "Claude Haiku 4.5 (Global)" } });
+    try {
+      const footer = (s: unknown) => (s as { footerModelName(): Promise<string | undefined> }).footerModelName();
+      expect(await footer(new AgentSession({ workspaceDir: ws, model: { provider: "bedrock", name: id } }))).toBe("Claude Haiku 4.5 (Global)");
+      // A label remembered for another model is never borrowed.
+      expect(await footer(new AgentSession({ workspaceDir: ws, model: { provider: "bedrock", name: "other-id" } }))).toBe("other-id");
+    } finally {
+      writeCliState(before);
+    }
+  });
+
   it("runs a turn: a search line, then the answer", async () => {
     const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
     const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });
