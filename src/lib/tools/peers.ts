@@ -305,7 +305,7 @@ ToolRegistry.register({
     }
     return {
       success: true,
-      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : result.waits ? "idle: it reads it at its next turn" : "idle: it starts a turn with it"}).${result.applied ? ` ${result.applied}` : ""}${noticeNote}${replyNote}`,
+      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : result.waits ? "idle: it reads it with the user's next prompt there" : "idle: it starts a turn with it"}).${result.applied ? ` ${result.applied}` : ""}${noticeNote}${replyNote}`,
     };
   },
 });

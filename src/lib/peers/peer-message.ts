@@ -32,13 +32,17 @@ function attr(value: string): string {
   );
 }
 
-/** Wrap a peer's text so the model and the UI can tell it from the user's. */
-export function wrapPeerMessage(from: PeerFrom, text: string): string {
+/**
+ * Wrap a peer's text so the model and the UI can tell it from the user's.
+ * `notice`: a one-way notice (a "turn ended" line) — marked so the model knows
+ * it asks for nothing.
+ */
+export function wrapPeerMessage(from: PeerFrom, text: string, opts: { notice?: boolean } = {}): string {
   // The body cannot close the tag early and smuggle text out as "the user's".
   const body = text.replace(/<\/?atlarix-peer-message[^>]*>/gi, "");
   return (
     `<atlarix-peer-message from="${attr(from.name)}" reply-to="${attr(from.sessionId)}" ` +
-    `surface="${from.surface}" workspace="${attr(from.workspace)}">\n${body}\n</atlarix-peer-message>`
+    `surface="${from.surface}" workspace="${attr(from.workspace)}"${opts.notice ? ' kind="notice"' : ""}>\n${body}\n</atlarix-peer-message>`
   );
 }
 

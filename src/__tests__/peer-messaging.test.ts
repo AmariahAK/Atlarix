@@ -82,7 +82,7 @@ describe("peer messaging", () => {
     expect("error" in resolvePeer("nobody", "sess-sender-0001")).toBe(true);
   });
 
-  it("queues a message for an idle session, wrapped, and does NOT wake it (no reply asked)", async () => {
+  it("wakes an idle session with a message, wrapped (owner, 2026-11-05: a message starts a turn)", async () => {
     woken.length = 0;
     const r = await sendPeerMessage(
       target("Editor"),
@@ -95,8 +95,26 @@ describe("peer messaging", () => {
     expect(last.text).toContain(
       '<atlarix-peer-message from="video brief" reply-to="sess-sender-0001"',
     );
-    // No notify → delivered for the session's next real turn, not a fresh
-    // model call just to acknowledge (2026-10-31 spend incident).
+    expect(last.text).not.toContain('kind="notice"');
+    // Nothing to wait for: the receiver starts a turn with it now.
+    expect(woken).toEqual([-7]);
+    expect(r.waits).toBeUndefined();
+  });
+
+  it("queues a turn-ended notice, marked as a notice, without waking the session", async () => {
+    woken.length = 0;
+    const r = await sendPeerMessage(
+      target("Editor"),
+      from,
+      "video brief's turn ended: done.\nFiles changed: none.",
+      undefined,
+      { informational: true },
+    );
+    expect(r.ok).toBe(true);
+    const last = queued.at(-1)!;
+    expect(last.text).toContain('kind="notice"');
+    // A notice needs no answer: waking to say "Acknowledged" re-sends the whole
+    // context for nothing (2026-10-31 spend incident).
     expect(woken).toEqual([]);
     expect(r.waits).toBe(true);
   });

@@ -150,8 +150,8 @@ interface PeerFrame {
   notify?: boolean;
   /**
    * A one-way notice the receiver must NOT start a turn for — a "turn ended"
-   * notice (notify_when_done). It is queued and read at the session's next real
-   * turn instead of waking one: waking to answer "Acknowledged" re-sends the
+   * notice (notify_when_done). It is queued, marked `kind="notice"`, and read at
+   * the session's next real turn: waking to answer "Acknowledged" re-sends the
    * whole context for nothing (2026-10-31 spend incident).
    */
   informational?: boolean;
@@ -675,25 +675,23 @@ export async function receive(
     queued.push(`${id}-build`);
   }
   if (text) {
-    hostImpl.enqueue(target.chatId, id, wrapPeerMessage(f.from, text));
+    hostImpl.enqueue(target.chatId, id, wrapPeerMessage(f.from, text, { notice: f.informational === true }));
     queued.push(id);
   }
   // Watched only once it went in: a refused or empty frame never notifies.
   const notify = f.notify === true && queued.length > 0 && f.from?.sessionId !== "unknown";
   if (notify) turnWatches.push({ chatId: target.chatId, sessionId: target.sessionId, ids: queued, from: f.from });
-  // A message wakes an idle session only when the sender asked for a reply
-  // (notify_when_done) or an approval starts a build. Otherwise it is queued for
-  // the session's next real turn: waking to answer "Acknowledged" re-sends the
-  // whole context for nothing (2026-10-31 spend incident).
+  // A message starts a turn in an idle session (owner, 2026-11-05). A notice
+  // does not: it is read at the session's next real turn, since waking to answer
+  // "Acknowledged" re-sends the whole context for nothing (2026-10-31).
   const idle = (text || applied.startTurn) && !hostImpl.isBusy(target.chatId);
-  const startTurn = !!applied.startTurn;
-  const wake = idle && (f.notify === true || startTurn);
+  const wake = idle && (!!applied.startTurn || f.informational !== true);
   if (wake) hostImpl.wake(target.chatId);
   return {
     ok: true,
     ...(applied.notice ? { applied: applied.notice } : {}),
-    // "waits": queued for the session's next real turn (not woken now), or an
-    // editor that holds messages until its own prompt starts the turn.
+    // "waits": a notice queued for the session's next real turn, or an editor
+    // that holds messages until its own prompt starts the turn.
     ...(idle && (idleMessagesWait() || !wake) ? { waits: true } : {}),
     ...(notify ? { notify: true } : {}),
   };
