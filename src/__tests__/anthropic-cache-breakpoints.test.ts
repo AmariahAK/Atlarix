@@ -367,7 +367,7 @@ describe("buildStreamMessagesWithCacheBreakpoints", () => {
     expect(original).toEqual(snapshot);
   });
 
-  it("headerTtl1h: 1h TTL on the header's anthropic marker only", () => {
+  it("headerTtl1h (the main conversation): 1h TTL on the header AND history anthropic markers", () => {
     const out = buildStreamMessagesWithCacheBreakpoints({
       systemHeader: "H",
       history,
@@ -377,7 +377,15 @@ describe("buildStreamMessagesWithCacheBreakpoints", () => {
     expect(cacheControlOf(out[0])).toEqual({ type: "ephemeral", ttl: "1h" });
     // Other provider keys on the header keep the plain marker.
     expect(openRouterCacheControlOf(out[0])).toEqual({ type: "ephemeral" });
-    // History breakpoints stay 5m (no ttl).
+    // History breakpoints are 1h too (2026-11-05, as Claude Code): a reply
+    // after 5-60 min reads the history from cache. Anthropic wants 1h before 5m.
+    expect(cacheControlOf(out[out.length - 1])).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(openRouterCacheControlOf(out[out.length - 1])).toEqual({ type: "ephemeral" });
+  });
+
+  it("without headerTtl1h (a sub-agent): every marker is the 5m default", () => {
+    const out = buildStreamMessagesWithCacheBreakpoints({ systemHeader: "H", history, placement: "message" });
+    expect(cacheControlOf(out[0])).toEqual({ type: "ephemeral" });
     expect(cacheControlOf(out[out.length - 1])).toEqual({ type: "ephemeral" });
   });
 });
@@ -397,11 +405,11 @@ describe("advanceCacheBreakpointsForStep (v13.3 per-step advancement)", () => {
     });
 
   it("step 0 is position-stable: same marker layout as the initial build", () => {
-    const out = advanceCacheBreakpointsForStep(initial(), "message");
+    const out = advanceCacheBreakpointsForStep(initial(), "message", true);
     expect(cacheControlOf(out[0])).toEqual({ type: "ephemeral", ttl: "1h" });
     expect(cacheControlOf(out[1])).toBeUndefined(); // q1 — outside the last two
-    expect(cacheControlOf(out[2])).toEqual({ type: "ephemeral" }); // a1
-    expect(cacheControlOf(out[3])).toEqual({ type: "ephemeral" }); // q2+tail
+    expect(cacheControlOf(out[2])).toEqual({ type: "ephemeral", ttl: "1h" }); // a1
+    expect(cacheControlOf(out[3])).toEqual({ type: "ephemeral", ttl: "1h" }); // q2+tail
   });
 
   it("later steps: markers move to the new last two, old positions stripped", () => {
@@ -413,15 +421,15 @@ describe("advanceCacheBreakpointsForStep (v13.3 per-step advancement)", () => {
         content: [{ type: "tool-result" }],
       } as unknown as ModelMessage,
     ];
-    const out = advanceCacheBreakpointsForStep(stepMessages, "message");
+    const out = advanceCacheBreakpointsForStep(stepMessages, "message", true);
     // Header keeps its 1h marker.
     expect(cacheControlOf(out[0])).toEqual({ type: "ephemeral", ttl: "1h" });
     // Old history breakpoints (a1, q2+tail) stripped.
     expect(cacheControlOf(out[2])).toBeUndefined();
     expect(cacheControlOf(out[3])).toBeUndefined();
-    // New last two marked (assistant + tool).
-    expect(cacheControlOf(out[4])).toEqual({ type: "ephemeral" });
-    expect(cacheControlOf(out[5])).toEqual({ type: "ephemeral" });
+    // New last two marked (assistant + tool), 1h like the header.
+    expect(cacheControlOf(out[4])).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(cacheControlOf(out[5])).toEqual({ type: "ephemeral", ttl: "1h" });
     // Exactly 3 breakpoints total (≤4 Anthropic limit).
     const marked = out.filter((m) => cacheControlOf(m) != null);
     expect(marked).toHaveLength(3);

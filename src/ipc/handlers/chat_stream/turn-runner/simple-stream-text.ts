@@ -982,6 +982,7 @@ export async function simpleStreamText(
               messages: advanceCacheBreakpointsForStep(
                 stepMessages,
                 cacheMarkerPlacement,
+                speaksAnthropic,
               ),
             }
           : changedMessages

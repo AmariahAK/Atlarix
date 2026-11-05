@@ -110,8 +110,10 @@ function markContentLevel(m: ModelMessage): ModelMessage {
   } as ModelMessage;
 }
 
-function mark(m: ModelMessage, placement: CacheMarkerPlacement): ModelMessage {
-  return placement === "content" ? markContentLevel(m) : markMessageLevel(m);
+function mark(m: ModelMessage, placement: CacheMarkerPlacement, ttl1h = false): ModelMessage {
+  return placement === "content"
+    ? markContentLevel(m)
+    : markMessageLevel(m, ttl1h ? CACHE_MARKER_HEADER_1H : CACHE_MARKER);
 }
 
 export function buildStreamMessagesWithCacheBreakpoints(opts: {
@@ -120,7 +122,13 @@ export function buildStreamMessagesWithCacheBreakpoints(opts: {
   dynamicTail?: string | null;
   history: ModelMessage[];
   placement: CacheMarkerPlacement;
-  /** Direct Anthropic: 1h TTL on the header breakpoint (v13.3). */
+  /**
+   * The main conversation on an Anthropic-format route: 1h TTL on the header
+   * (v13.3) AND the history breakpoints (2026-11-05, as Claude Code does), so a
+   * reply after 5-60 minutes away (or a peer's wake) reads the history from
+   * cache instead of writing it all again. Sub-agents leave it off: 5m.
+   * Anthropic wants 1h entries before 5m ones, so all or none.
+   */
   headerTtl1h?: boolean;
 }): ModelMessage[] {
   const { systemHeader, dynamicTail, history, placement, headerTtl1h } = opts;
@@ -164,7 +172,7 @@ export function buildStreamMessagesWithCacheBreakpoints(opts: {
     // through by reference — history must stay byte-stable across rounds).
     ...(useMarkers
       ? messages.map((m, i) =>
-          i >= messages.length - 2 ? mark(m, placement) : m,
+          i >= messages.length - 2 ? mark(m, placement, headerTtl1h) : m,
         )
       : messages),
   ];
@@ -276,6 +284,8 @@ function stripMessageCacheMarkers(m: ModelMessage): ModelMessage {
 export function advanceCacheBreakpointsForStep(
   messages: ModelMessage[],
   placement: CacheMarkerPlacement,
+  /** Same as the turn's `headerTtl1h`: the main conversation keeps 1h on every breakpoint. */
+  ttl1h = false,
 ): ModelMessage[] {
   if (placement === "none") return messages;
   const nonSystemIndexes = messages
@@ -285,6 +295,6 @@ export function advanceCacheBreakpointsForStep(
   return messages.map((m, i) => {
     if (m.role === "system") return m;
     const stripped = stripMessageCacheMarkers(m);
-    return markFrom.has(i) ? mark(stripped, placement) : stripped;
+    return markFrom.has(i) ? mark(stripped, placement, ttl1h) : stripped;
   });
 }
