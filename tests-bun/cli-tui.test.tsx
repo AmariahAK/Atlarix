@@ -48,6 +48,7 @@ class FakeSession extends EventEmitter {
   setMode(m: string) { this.calls.push(["setMode", m]); this.set({ mode: m as SessionState["mode"] }); }
   async newSession() { this.calls.push(["newSession"]); }
   async interrupt() { this.calls.push(["interrupt"]); }
+  async sendNow() { this.calls.push(["sendNow"]); return true; }
   async answerApproval(...a: unknown[]) { this.calls.push(["answerApproval", ...a]); }
   async runShell(...a: unknown[]) { this.calls.push(["runShell", ...a]); }
   stopShell: (() => void) | null = null;
@@ -215,6 +216,25 @@ describe("while a turn runs", () => {
     setup.mockInput.pressEscape();
     await settle(setup);
     expect(session.calls).toContainEqual(["interrupt"]);
+  });
+
+  it("ctrl+s sends what is queued now; Esc only stops (the queue comes back to the box)", async () => {
+    const { setup, session } = await mount();
+    session.set({ busy: true, turnStartedAt: Date.now(), pending: [{ id: "q1", text: "then run the tests", kind: "queued" }] });
+    await settle(setup);
+    expect(setup.captureCharFrame()).toContain("ctrl+s send now");
+    setup.mockInput.pressKey("s", { ctrl: true });
+    await settle(setup);
+    expect(session.calls).toContainEqual(["sendNow"]);
+    expect(session.calls).not.toContainEqual(["interrupt"]);
+    session.calls.length = 0;
+    setup.mockInput.pressEscape();
+    await Bun.sleep(150);
+    await settle(setup);
+    expect(session.calls).toEqual([["interrupt"]]);
+    session.emit("unsent", "then run the tests", []);
+    await settle(setup);
+    expect(setup.captureCharFrame()).toContain("then run the tests");
   });
 
   it("alt+↑ pulls the last queued message back into the box", async () => {

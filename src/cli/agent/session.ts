@@ -19,6 +19,7 @@ import { placeShellRuns, withShellContext, type ShellRun } from "./shell-mode";
 import {
   collapseCancelled,
   markInterrupted,
+  SENT_NOW_LINE,
   interruptedRowIds,
   placeSteers,
   collectAnchors,
@@ -594,6 +595,7 @@ export class AgentSession extends EventEmitter {
     this.shellRuns = [];
     this.wakeNotes.length = 0;
     this.queue = [];
+    this.stoppedQueue = [];
     this.anchors.clear();
     this.seenUserIds.clear();
     this.persisted.clear();
@@ -1377,6 +1379,24 @@ export class AgentSession extends EventEmitter {
     this.syncPending();
   }
 
+  /**
+   * ctrl+s: stop the running turn and send everything queued, at once, as the
+   * next turn (Claude Code's send-now; owner, 2026-11-06). False when nothing
+   * is queued or no turn runs.
+   */
+  async sendNow(): Promise<boolean> {
+    if (!this.state.busy || !this.queue.length) return false;
+    this.sendQueuedOnStop = true;
+    await this.interrupt();
+    return true;
+  }
+
+  private sendQueuedOnStop = false;
+  /** Replies stopped by send now: their line says so instead of "what to do instead". */
+  private readonly sentNow = new Set<string>();
+  /** Queued when the user stopped the turn: sent or handed back as it ends. */
+  private stoppedQueue: QueuedMessage[] = [];
+
   /** Pull the most recent queued (not yet sent) message back for editing. */
   popLastQueued(): string | null {
     const last = this.queue.pop();
@@ -1756,7 +1776,9 @@ export class AgentSession extends EventEmitter {
     this.userStopped = true;
     // Sub-agents this stop cuts off end as stopped, not failed (QA #44).
     for (const d of this.delegations.values()) if (d.status === "running") this.stoppedAgents.add(d);
-    // Anything queued for after this turn would otherwise start right away.
+    // Anything queued must not start by itself after a stop: it is set aside,
+    // and the turn's end sends it (ctrl+s, send now) or puts it back in the box.
+    this.stoppedQueue.push(...this.queue);
     this.queue = [];
     this.syncPending();
     // Its cards come down: main withdraws them (endTurn), and an editor takes
@@ -1869,7 +1891,7 @@ export class AgentSession extends EventEmitter {
     return this.placeWakeNotes(this.settleOldBackgroundAgents(
       withDelegations(
         placeShellRuns(
-          markInterrupted(placeSteers(messages, this.anchors, { streaming }), this.interrupted),
+          markInterrupted(placeSteers(messages, this.anchors, { streaming }), this.interrupted, this.sentNow),
           this.shellRuns,
         ),
         this.delegations.values(),
@@ -2576,8 +2598,11 @@ export class AgentSession extends EventEmitter {
       .reverse()
       .find((m) => m.role === "assistant" && shown.has(String(m.id)));
     const turnUser = !this.turnWasWake && lastUserIdx >= 0 ? String(this.messages[lastUserIdx]!.id) : null;
-    if (wasInterrupted && lastReply) this.interrupted.add(String(lastReply.id));
-    else if (wasInterrupted && turnUser) this.addTurnNotice(turnUser, "info", "Interrupted. Tell Atlarix what to do instead.");
+    if (wasInterrupted && lastReply) {
+      this.interrupted.add(String(lastReply.id));
+      if (this.sendQueuedOnStop) this.sentNow.add(String(lastReply.id));
+    } else if (wasInterrupted && turnUser)
+      this.addTurnNotice(turnUser, "info", this.sendQueuedOnStop ? SENT_NOW_LINE : "Interrupted. Tell Atlarix what to do instead.");
     this.lastTurnOwner = lastReply ? String(lastReply.id) : turnUser;
     // Auto's top rung kept failing: offer Zenith once, under this turn.
     if (this.lastEnd.zenithOffer === true && this.lastTurnOwner) {
@@ -2642,7 +2667,17 @@ export class AgentSession extends EventEmitter {
       const back = this.steerTexts.filter(Boolean);
       this.steerTexts = [];
       const text = back.length ? back.join("\n") : flushed?.text?.trim();
-      if (text) this.emit("unsent", text);
+      // Queued with Tab: ctrl+s sends it all now, after anything typed into
+      // the stopped turn (said first). A plain stop puts it back in your box,
+      // images included, never sent behind your back and never lost.
+      const queued = [...this.stoppedQueue.splice(0), ...this.queue.splice(0)];
+      const sendNow = this.sendQueuedOnStop;
+      this.sendQueuedOnStop = false;
+      this.syncPending();
+      const all = [text, ...queued.map((q) => q.text)].filter((t): t is string => !!t?.trim());
+      const images = queued.flatMap((q) => q.images ?? []);
+      if (sendNow && all.length) return void (await this.startTurn(all.join("\n\n"), images.length ? { images } : {}));
+      if (all.length) this.emit("unsent", all.join("\n"), images);
       return;
     }
     // A steer that never reached a step (the model stopped first) opens the next

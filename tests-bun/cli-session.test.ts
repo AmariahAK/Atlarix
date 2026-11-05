@@ -143,6 +143,48 @@ describe("AgentSession", () => {
     expect(s.state.cells.filter((c) => c.kind === "user").map((c: any) => c.text)).toEqual(["go"]);
   }, 60_000);
 
+  it("ctrl+s (send now) stops the turn and sends everything queued, at once, as the next turn", async () => {
+    llm.stop();
+    llm = startFakeLlm([
+      { text: "A long answer that is still being written while you queue, word by word.", delayMs: 400 },
+      { text: "Answered both." },
+    ]);
+    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+    await s.start();
+    await s.submit("go");
+    await waitFor(s, (st) => st.cells.some((c: any) => c.kind === "markdown"));
+    s.queueNext("one more thing");
+    s.queueNext("and another");
+    expect(await s.sendNow()).toBe(true);
+    await waitFor(s, (st) => st.cells.some((c: any) => c.kind === "markdown" && c.text === "Answered both."));
+    // You already said what comes next: no "what to do instead" hint.
+    const notes = s.state.cells.filter((c: any) => c.kind === "notice").map((c: any) => c.text);
+    expect(notes).toContain("Stopped to send your queued messages.");
+    expect(notes.join(" ")).not.toContain("what to do instead");
+    const users = s.state.cells.filter((c) => c.kind === "user").map((c: any) => c.text);
+    expect(users).toEqual(["go", "one more thing\n\nand another"]);
+    await waitFor(s, (st) => !st.busy && st.pending.length === 0);
+    expect(await s.sendNow()).toBe(false);
+  }, 60_000);
+
+  it("esc (a plain stop) puts what was queued back in the box instead of sending it", async () => {
+    llm.stop();
+    llm = startFakeLlm([{ text: "A long answer that is still being written.", waitMs: 4000 }]);
+    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+    await s.start();
+    await s.submit("go");
+    const back: Array<[string, unknown]> = [];
+    s.on("unsent", (t: string, images: unknown) => back.push([t, images]));
+    s.queueNext("keep me");
+    await s.interrupt();
+    await waitFor(s, (st) => !st.busy && st.pending.length === 0);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(back).toEqual([["keep me", []]]);
+    expect(s.state.cells.filter((c) => c.kind === "user").map((c: any) => c.text)).toEqual(["go"]);
+  }, 60_000);
+
   it("an image sent while a turn runs is not dropped: it opens the next turn with the message (Tab or Enter)", async () => {
     const img = path.join(ws, "shot.png");
     // A 1×1 PNG: real bytes, so the turn can read and attach it.

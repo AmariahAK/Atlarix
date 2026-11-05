@@ -397,9 +397,9 @@ export function borderHints(o: {
   };
   const title = o.title ? oneLine(o.title, o.max != null && o.max < 90 ? 20 : 32) : null;
   if (o.busy) {
-    const queued = o.queued ? "alt+↑ edit queued" : null;
+    const queued = o.queued ? "ctrl+s send now" : null;
     // The name stays while it works: that is when people switch tabs and come back.
-    return fit([computer, title, "esc stop", "enter steer", "tab queue", queued, tasks], ["tab queue", "enter steer", title ?? ""]);
+    return fit([computer, title, "esc stop", queued, "enter steer", "tab queue", o.queued ? "alt+↑ edit queued" : null, tasks], ["alt+↑ edit queued", "tab queue", "enter steer", title ?? ""]);
   }
   if (o.narrow) return [computer, title ?? o.place, tasks].filter(Boolean).join(" · ");
   const mcp = o.mcp ? `⊙ ${o.mcp} MCP` : null;
@@ -616,9 +616,18 @@ export function App({
     };
     session.on("automation", onAutomation);
     // A stopped turn hands back what you typed into it that the agent never got.
-    const onUnsent = (text: string) => {
+    const onUnsent = (text: string, images: Array<{ path: string; mime: string; label: string }> = []) => {
       const now = composer.current?.text().trim() ?? "";
-      composer.current?.setText(now ? `${text}\n${now}` : text);
+      const all = now ? `${text}\n${now}` : text;
+      if (!images.length) return composer.current?.setText(all);
+      // Queued images come back as their chips, so they are sent with it again.
+      composer.current?.setDraft(
+        all,
+        images.map((im, i) => ({
+          label: im.label,
+          attachment: { kind: "image" as const, n: Number(/\d+/.exec(im.label)?.[0] ?? i + 1), path: im.path, mime: im.mime },
+        })),
+      );
     };
     session.on("unsent", onUnsent);
     // Another session set the model (item 9): the header shows it from now, as
@@ -1879,24 +1888,17 @@ export function App({
     }
     if (key.ctrl && key.name === "s" && (deferredRef.current.length || state.pending.some((p) => p.kind === "queued")) && state.busy) {
       key.preventDefault();
-      // Stop the turn; the waiting command / queued message runs as it ends.
+      // Send now: stop the turn; everything queued goes as the next turn, and
+      // a waiting command runs as it ends.
+      if (state.pending.some((p) => p.kind === "queued")) return void session.sendNow();
       return void session.interrupt();
     }
     if (key.name === "escape") {
       key.preventDefault();
       if (session.stopShell) return session.stopShell();
       if (state.busy || state.following) {
+        // A plain stop: anything queued comes back into the box (ctrl+s sends it).
         void session.interrupt();
-        // If there are queued messages, pop and send the first one after the
-        // interrupt settles (~80 ms is enough for the turn-end event to fire).
-        if (state.pending.some((p) => p.kind === "queued")) {
-          const text = session.popLastQueued();
-          if (text)
-            setTimeout(
-              () => void session.submit(text, { display: text, images: [] }),
-              80,
-            );
-        }
         return;
       }
       // esc esc on an empty box: go back to an earlier message (Claude Code, Codex).
@@ -2107,7 +2109,7 @@ export function App({
             <text key={p.id}>
               <span fg={p.kind === "steer" ? color.accent : color.muted}>{peer ? "↳ message" : p.kind === "steer" ? "↳ steer " : "↳ queued"}</span>{" "}
               <span fg={color.text}>{oneLine(shown, Math.max(20, width - 30))}</span>{" "}
-              <span fg={color.faint}>{p.kind === "steer" ? "· goes in after this step" : "· sent when this turn ends"}</span>
+              <span fg={color.faint}>{p.kind === "steer" ? "· goes in after this step" : "· sent when this turn ends · ctrl+s send now"}</span>
             </text>
             );
           })}

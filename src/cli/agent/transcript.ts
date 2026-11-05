@@ -828,7 +828,15 @@ export function previewLines(text: string | undefined, n: number): { lines: stri
  * After an interrupt (Esc): calls in those messages that never finished read as
  * "interrupted", not "failed", and a note marks where the turn stopped.
  */
-export function markInterrupted(cells: Cell[], interruptedMessageIds: ReadonlySet<string>): Cell[] {
+/** The line under a reply stopped with ctrl+s: you already said what comes next. */
+export const SENT_NOW_LINE = "Stopped to send your queued messages.";
+
+export function markInterrupted(
+  cells: Cell[],
+  interruptedMessageIds: ReadonlySet<string>,
+  /** Stopped by send now (ctrl+s): no "what to do instead" hint. */
+  sentNowIds: ReadonlySet<string> = new Set(),
+): Cell[] {
   if (interruptedMessageIds.size === 0) return cells;
   const out: Cell[] = [];
   cells.forEach((c, i) => {
@@ -843,7 +851,7 @@ export function markInterrupted(cells: Cell[], interruptedMessageIds: ReadonlySe
     }
     const next = cells[i + 1];
     if (hit && (!next || next.id.split(":")[0] !== msg)) {
-      out.push({ kind: "notice", id: `${msg}:interrupted`, level: "info", text: "Interrupted. Tell Atlarix what to do instead." });
+      out.push({ kind: "notice", id: `${msg}:interrupted`, level: "info", text: sentNowIds.has(msg) ? SENT_NOW_LINE : "Interrupted. Tell Atlarix what to do instead." });
     }
   });
   return out;
