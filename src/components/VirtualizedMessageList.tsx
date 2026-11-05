@@ -3,7 +3,7 @@
  *
  * Completed messages render through react-virtuoso so a long session keeps a
  * bounded DOM and cheap reconcile. `followOutput` pins the view to the bottom
- * during streaming and lets Virtuoso absorb the growing last item — the exact
+ * while you are there and lets Virtuoso absorb the growing last item — the exact
  * dynamic-height case that broke the earlier hand-rolled virtualizer (Virtuoso
  * is built for it). Footer extras (stream status, ask_user card, background
  * jobs) render via a STABLE module-level component fed through Virtuoso
@@ -130,9 +130,11 @@ export function VirtualizedMessageList({
         data={messages}
         context={footerContext}
         initialTopMostItemIndex={Math.max(0, lastIndex)}
-        // Follow the bottom as content grows — Virtuoso suppresses this while the
-        // user is scrolled up, so reading history isn't yanked.
-        followOutput={isStreaming ? "auto" : false}
+        // Follow the bottom as content grows, while you are at the bottom; stay
+        // put while you are scrolled up to read. Not gated on streaming: a wake
+        // turn's peer row lands before the stream starts, and a missed follow
+        // there left the whole turn below the fold.
+        followOutput={(isAtBottom) => (isAtBottom ? "auto" : false)}
         atBottomStateChange={setAtBottom}
         atBottomThreshold={64}
         increaseViewportBy={{ top: 600, bottom: 900 }}
