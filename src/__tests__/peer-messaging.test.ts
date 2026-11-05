@@ -103,21 +103,18 @@ describe("peer messaging", () => {
     expect(r.waits).toBeUndefined();
   });
 
-  it("a message into a session the user stopped says so, so the stopped task is not resumed (TODO #5)", async () => {
+  it("a message into a session the user stopped does not wake it: it waits for the user (TODO #5)", async () => {
     stopped.add(-7);
+    woken.length = 0;
     try {
       const r = await sendPeerMessage(target("Editor"), from, "what's the status of the build?");
       expect(r.ok).toBe(true);
-      const last = queued.at(-1)!.text;
-      // The peer's words stay inside the envelope; the note sits after it.
-      expect(last).toMatch(/<\/atlarix-peer-message>\n\[The user stopped this session's last task/);
-      expect(last).toContain("don't resume it unless this message asks");
+      expect(queued.at(-1)!.text).toContain("what's the status of the build?");
+      expect(woken).toEqual([]);
+      expect(r.waits).toBe(true);
     } finally {
       stopped.delete(-7);
     }
-    const r2 = await sendPeerMessage(target("Editor"), from, "and the tests?");
-    expect(r2.ok).toBe(true);
-    expect(queued.at(-1)!.text).not.toContain("The user stopped");
   });
 
   it("queues a turn-ended notice, marked as a notice, without waking the session", async () => {

@@ -197,13 +197,6 @@ export interface PeerHost {
   userStopped?(chatId: number): boolean;
 }
 
-/**
- * After a peer's message into a chat the user stopped: a turn the message opens
- * would otherwise pick the stopped task back up (its pending results arrive with
- * it), so the model is told (TODO #5).
- */
-export const USER_STOPPED_NOTE =
-  "[The user stopped this session's last task: don't resume it unless this message asks.]";
 
 /** The row every process publishes for itself, so a handoff can find "the app" even with no session open. */
 export const PROCESS_ROW_PREFIX = "__process__:";
@@ -685,8 +678,7 @@ export async function receive(
     queued.push(`${id}-build`);
   }
   if (text) {
-    const stoppedNote = f.informational !== true && hostImpl.userStopped?.(target.chatId) ? `\n${USER_STOPPED_NOTE}` : "";
-    hostImpl.enqueue(target.chatId, id, wrapPeerMessage(f.from, text, { notice: f.informational === true }) + stoppedNote);
+    hostImpl.enqueue(target.chatId, id, wrapPeerMessage(f.from, text, { notice: f.informational === true }));
     queued.push(id);
   }
   // Watched only once it went in: a refused or empty frame never notifies.
@@ -694,9 +686,13 @@ export async function receive(
   if (notify) turnWatches.push({ chatId: target.chatId, sessionId: target.sessionId, ids: queued, from: f.from });
   // A message starts a turn in an idle session (owner, 2026-11-05). A notice
   // does not: it is read at the session's next real turn, since waking to answer
-  // "Acknowledged" re-sends the whole context for nothing (2026-10-31).
+  // "Acknowledged" re-sends the whole context for nothing (2026-10-31). Nor does
+  // a message into a chat the user stopped: that turn would pick the stopped
+  // task back up (its pending results arrive with it), so it waits for the
+  // user's next prompt there (TODO #5).
   const idle = (text || applied.startTurn) && !hostImpl.isBusy(target.chatId);
-  const wake = idle && (!!applied.startTurn || f.informational !== true);
+  const userStopped = !applied.startTurn && hostImpl.userStopped?.(target.chatId) === true;
+  const wake = idle && !userStopped && (!!applied.startTurn || f.informational !== true);
   if (wake) hostImpl.wake(target.chatId);
   return {
     ok: true,
