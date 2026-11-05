@@ -14,9 +14,30 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-11-03
+**Last updated:** 2026-11-06
 
 ---
+
+## 🔨 Round 2026-11-05 → 15.13.0: what is still open
+
+- **Proxy origin lock (Cloudflare) — prepared, NOT switched on.** Railway http log, 11-05 03:23–15:50 UTC: 183 of 501
+  requests used `atlarix-production.up.railway.app`: 150 `/health` from our AWS uptime Lambdas (eu-west-1) and **26
+  chats from two outside IPs on an older CLI** (bun, ai-sdk/openai-compatible 3.0.31). An old client falls back to
+  the Lambda only on 502/503/504, so `ORIGIN_LOCK_SECRET` now would cut those users off. Switch it on when 15.13's
+  auto-update has moved them and the raw-URL chat count is ~0 (re-run the same log query). Before that: Cloudflare
+  Transform rule (`x-atlarix-origin` = the secret in ~/Documents/Atlarix-security/origin-lock-secret-2026-10-30.txt),
+  the reviewer sends the header (it can keep the raw/private URL), and the cloud agent's `claim.core_proxy_url`
+  becomes `https://core.atlarix.dev` (customer runners can never hold the secret). The Lambda failover stays open
+  (CloudFront + WAF costs money: owner's call).
+- **Railway config is code now:** `.railway/railway.ts` is omit=delete (an apply deletes any variable it doesn't list).
+  After adding a variable on Railway, add its name there; always read `railway config plan`'s destroy count first.
+- **Slack says "Change who pays at …/cloud", but the live site has no payer control:** it is only on the unmerged
+  launchpad branch `team/workspace-pays-web` (6e8c991). Merge it or change the Slack line.
+- **Found while filming 15.12 (cc-video, 11-05; in the handoff):** the CLI stops repainting a turn taller than the
+  terminal (answer never shown at 110×36); the reply footer shows a Bedrock model's raw id; a blocked tool row
+  repeats a truncated "B… ·" prefix.
+- **Read dedup ("file unchanged" note): decided NO** (data: same-turn repeats ~3% of read tokens; Claude Code removed
+  its version in 2.1.317 after stale-tracking bugs). Don't re-propose without new data.
 
 ## 🚨 Attack 2026-10-28 (19:12–02:30 MYT): what held, what was closed, what is left
 
@@ -61,27 +82,6 @@ endpoint for ~7 h. The owner's notes are in the calendar ("Atlarix alerts fixes"
   for 7 h before anyone looked.
 - Bedrock/free-Auto cost for the IP: not checked here (110 free chats at most; the daily digest has the number).
 
-## 🔨 Queued 2026-10-28 (planned today, built 2026-10-29 with the two calendar events)
-
-- **Peer messaging: a one-shot "tell me when it's done" (owner, 2026-10-28).** Today a session that messages another
-  (`send_message`, `src/lib/tools/peers.ts`) learns the outcome only by polling `list_sessions` with `result_of` or by
-  asking the peer to message back. Add an opt-in on `send_message` (e.g. `notify_when_done`) that delivers ONE
-  notice to the sender when the target's turn ends (how it ended + the `result_of` line), on every surface, and
-  nothing when the target refuses or never runs. Implemented in `src/lib/peers/peers.ts` where a turn's end is
-  already recorded for `result_of`.
-- **Resume sessions started by other sessions, on every surface (owner, 2026-10-28).** A session can come from
-  another one (`/fork`, a sub-agent's run, a peer that messaged a pending session, a cloud or automation run) and
-  today nothing records that lineage: `src/db/schema.ts` has no parent/origin on a chat, so `/resume` (CLI, "from
-  this folder, the app's too"), the app's recent chats, the VS Code panel's Past chats and an ACP editor's session
-  list show flat rows. Record the lineage (parent chat, how it was started, by which session/surface), and let the
-  user open the whole tree from any surface, from the first turn on: resume the parent and see its children, resume a
-  child and see where it came from, with the same session visible from the app, the CLI, VS Code and ACP
-  (`session/load`). Design in plan mode first; the stores are shared, so one schema change serves all four.
-
-- **atlarix-proxy: `railway.json` config-as-code is deprecated, stops working 2026-12-01** (Railway CLI warning,
-  2026-10-29). Migrate with `railway config migrate` to `.railway/railway.ts` (which already exists for variables) and
-  keep the `watchPatterns` that make Railway deploy only when deployed code changes (f5f2485). Reliability bundle.
-
 ## 🔨 Handover 2026-10-25 (ai-27) — 15.11.1 released overnight; what is left
 
 - **Microsoft Store: 15.11.1 SUBMITTED, in Certification (2026-10-25 ~08:20 MYT), replacing 15.11.0 (owner's call).**
@@ -109,23 +109,6 @@ endpoint for ~7 h. The owner's notes are in the calendar ("Atlarix alerts fixes"
   serve requests when you use up your quota". Owner: check Usage / billing.
 - **Owed checks:** the Windows approval toast (named chat, click opens it; Squirrel + MSIX) needs a signed-in app in
   the VM, so one owner device-code approval as agent@. The Mac notification click is the owner's check.
-- **Auto-update on every desktop platform: a failed download leaves the banner stuck and nothing retries soon
-  (owner, 2026-10-26).** Seen on the owner's Mac (/Applications, 15.11.0): it found 15.11.1 at 21:20, the download died at
-  17% with `net::ERR_NETWORK_CHANGED` (main.log), and the banner stayed on "Downloading…" (the owner saw "stuck at
-  installing"). The owner's app has never auto-updated (the 2026-10-25 01:45 "Update downloaded" lines in main.log came
-  from the QA ~/Applications test). The fix must cover all three:
-  - **The banner (all platforms):** `src/components/UpdateBanner.tsx` shows "Downloading update X…" on
-    `update:downloading` and clears it only on `update:downloaded`. It never listens to `update:status`, so an error
-    recorded by electron-updater (`downloadUpdate().catch` and the `error` event in `src/main.ts`) or by Squirrel on
-    Windows (`squirrelUpdater.on("error")`) leaves it stuck. Subscribe `onUpdateStatus` and clear (or say it will
-    retry) on "error".
-  - **macOS and Linux (electron-updater: dmg/zip, AppImage, .deb, .rpm):** after a failed download nothing retries until
-    the 4 h `UPDATE_RECHECK_INTERVAL_MS`. Re-check after a short backoff (e.g. 2 min, doubling up to 4 h, reset on
-    `update-downloaded`). Check the deb/rpm pkexec install path fails visibly too.
-  - **Windows (Squirrel via update-electron-app):** re-checks hourly; confirm a mid-download network change recovers
-    on the next check and the banner clears. MSIX installs update through the Store (nothing to fix there).
-  - **Tests:** a failed download clears the banner and schedules a re-check (electron-updater path); a Squirrel error
-    clears the banner. Then a real network-drop test on Mac, Windows (VM) and Linux.
 - **New free users pick a paid Core model first and hit a misleading refusal: fix on EVERY surface (owner,
   2026-10-27).** Both CLI sign-ups of 2026-10-26 (Linux, 15.11.1, $0 wallet) chose a Core tier in their first minute
   (core-1, core-5), got 402 quota, then switched to Auto, OK'd consent and worked (PostHog `turn_completed`;
@@ -427,10 +410,8 @@ Bedrock's newest-model access (AWS Sales request 2026-10-18) is no longer needed
 
 ## After every release — the owner, by hand
 
-- **VS Code Marketplace: upload each `.vsix`** from the folder left on the Desktop
-  (marketplace.visualstudio.com/manage/publishers/atlarix). The Marketplace is at 15.8.1; Open VSX
-  is automatic (`VSCODE_AUTO_SUBMIT=true`). Move to `vsce publish --oidc` once Microsoft enables
-  trusted publishing.
+- **VS Code: nothing by hand.** Both marketplaces publish on the tag (OIDC to the VS Code Marketplace, `OVSX_PAT` to
+  Open VSX); check both listings show the new version.
 - **Microsoft Store: nothing has published since 14.51.0 (2026-09-23).** Microsoft DENIED `unvirtualizedResources`
   twice (reports 2026-09-28 and 2026-10-07, "10.6.3 Capabilities"): the package switched off registry
   virtualization for all of HKCU, and the notes didn't justify it. Then 82a24426 replaced every submission still in
@@ -506,12 +487,6 @@ session makes the key `${sid}:${windowId}`, needing `v2` plus a migration that m
 to a reserved `"panel"` session. Do not silently reinterpret v1 entries. The single per-window
 group is what ships today.
 
-### 3. The win32 TypeScript 7 platform binary is unexercised in CI
-
-Linux is proven: the `quality` job runs `npm run check:ts` on `ubuntu-latest`. On Windows,
-`npm ci` installs cleanly on `windows-latest`, but no Windows job runs `tsc`, so the win32
-binary has never actually been executed there.
-
 ### 5. MCP polish from the 15.7.0 app QA
 
 The rest of this item shipped on dev 2026-10-21 (focus refetch, composer switch, tool picker, npm-scope
@@ -553,16 +528,6 @@ so a recurrence resolves straight from Sentry. If it recurs, resolve its frames 
 to map the old one, build tag v15.1.0 with `build.sourcemap: "hidden"` and resolve
 `index-DiRzEsx2.js` 751:43960 and 792:92224.
 
-### 9. ACP stream controller closed after client disconnect (Sentry, 2026-11-02)
-
-`TypeError: Invalid state: Controller is already closed` in `node:events` → `endReadableNT`. Seen on
-Windows, Bun 1.4.2, 15.11.1, surface `vscode` (Antigravity IDE). The ACP client disconnects mid-stream
-(user closes tab, network drop, IDE restart), and the CLI's SSE streaming tries to write to the
-now-closed ReadableStream controller. Bun's stream implementation throws instead of gracefully handling
-the closed state. Fix: wrap `controller.enqueue()` / `controller.close()` in try-catch, or check
-`controller.desiredSize !== null` before writing, in `src/cli/acp/session.ts` or `src/cli/acp/stream.ts`.
-Low impact — client disconnect edge case, not data loss.
-
 ### 10. ~~Paste duplicates text when copying from own message~~ — CLOSED 2026-11-02: not a bug
 
 Investigated. The "[Pasted text #N +L lines]" chip is the CLI composer's intended collapse of a 3+ line
@@ -570,15 +535,6 @@ paste, not a doubled paste: both handlers call `preventDefault()` when they capt
 `src/cli/tui/Composer.tsx`; app `src/hooks/useAttachments.ts`), so the raw text is never also inserted
 inline, and the app's attachment merge dedupes by content key. No reproduction. Regression test added:
 `src/__tests__/renderer/attachments-paste-preventdefault.test.tsx`.
-
-### 11. Cross-session approval: `list_sessions` doesn't expose the operationId (2026-11-02)
-
-`send_message(approval: operationId)` can approve another session's pending permission request, but
-`list_sessions` only reports "approval waiting" without the `operationId` or a description of what's
-pending. A supervising session cannot approve commands for a peer because it can't discover the
-operation to approve. Fix: `list_sessions` (or `result_of`) should include the pending approval's
-`operationId`, category (command / file edit / etc.) and a one-line description when the session is
-in "approval waiting" state, so `send_message(approval: id)` can act on it.
 
 ---
 
@@ -630,11 +586,9 @@ in "approval waiting" state, so `send_message(approval: id)` can act on it.
 
 ## 🔜 Blocked on the owner — not active work
 
-- **GitHub Marketplace — waiting on GitHub.** The `atlarix-reviewer` listing showed "Pending for
-  publish" with every checklist item complete, three weeks after the 2026-08-27 submission.
-  GitHub Support has no Marketplace category any more, so the chase went to
-  <https://github.com/orgs/community/discussions/208022> on 2026-09-16. **Do not touch "Withdraw
-  request"** — it returns the listing to the back of the queue.
+- **GitHub Marketplace — under review again (2026-11-04).** GitHub reviewed it on 11-04 and asked for a support
+  link and working optional links; Atlarix fixed the listing (`/support`, `/status`, `/reviewer`) and re-submitted
+  the same day. Wait for marketplace@github.com. **Do not touch "Withdraw request".**
 - **Delete the "Atlarix Reviewer" LemonSqueezy product** (`1317705`, variant `2060123`). Zero
   subscriptions ever, and no code references the variant; Reviewer is part of Pro now.
 - **One account holds Pro it never paid for** — `d22ee539…`, `plan = pro` with no subscription and
