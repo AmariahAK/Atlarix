@@ -1720,6 +1720,15 @@ button.file__chip:hover {
 .tool--peer .tool__dot {
   background: var(--fg-muted);
 }
+.tool--peer .tool__preview {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool--peer[open] .tool__preview {
+  display: none;
+}
 .recap {
   display: flex;
   gap: 6px;

@@ -24,7 +24,7 @@ import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { setTerminalHyperlinks } from "./links";
-import { splitPeerMessages } from "@/lib/peers/peer-message";
+import { peerPreview, splitPeerMessages } from "@/lib/peers/peer-message";
 import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
 import { commandRowLabel, stripRows } from "./dock-logic";
 import type { StripRow } from "./dock-logic";
@@ -2104,7 +2104,8 @@ export function App({
           {state.pending.slice(0, 3).map((p) => {
             // A message from another session waits here too: say who sent it.
             const peer = splitPeerMessages(p.text)?.find((seg) => seg.kind === "peer");
-            const shown = peer && peer.kind === "peer" ? `from ${peer.from || "another session"}: ${peer.text.trim()}` : p.text;
+            // Lines joined: a short first line ("ai-4b:") hid the rest.
+            const shown = peer && peer.kind === "peer" ? `from ${peer.from || "another session"}: ${peerPreview(peer.text).text}` : p.text;
             return (
             <text key={p.id}>
               <span fg={p.kind === "steer" ? color.accent : color.muted}>{peer ? "↳ message" : p.kind === "steer" ? "↳ steer " : "↳ queued"}</span>{" "}

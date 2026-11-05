@@ -593,6 +593,43 @@ describe("parity details", () => {
     expect(setup.captureCharFrame()).toContain("second line of the error");
   });
 
+  it("a message from another session is ONE row with its text in it; ctrl+o shows all of it", async () => {
+    const { setup, session } = await mount();
+    const full = "ai-4b:\n\nPhase 2 is ready for review. The branch is team/ask-user-cc, three commits, all tests green.\nSecond line with the details.";
+    session.set({
+      cells: [
+        {
+          kind: "tool",
+          id: "9:p0",
+          tool: {
+            id: "9:p0",
+            verb: "Message",
+            target: "from ai-4b (CLI)",
+            status: "success",
+            output: full,
+            peer: { from: "ai-4b", surface: "cli", preview: "ai-4b: Phase 2 is ready for review. The branch is team/ask-user-cc, three commits, all tests green. Second line with the…", more: true },
+          },
+        },
+        {
+          kind: "tool",
+          id: "10:p0",
+          tool: { id: "10:p0", verb: "Message", target: "from QA (app)", status: "success", output: "the build is green", peer: { from: "QA", surface: "app", preview: "the build is green", more: false } },
+        },
+      ],
+    });
+    await settle(setup);
+    const collapsed = setup.captureCharFrame();
+    expect(collapsed).toContain("◇ Message from ai-4b (CLI): ai-4b: Phase 2 is ready for review.");
+    expect(collapsed).toContain("(ctrl+o to expand)");
+    expect(collapsed).not.toContain("Second line with the details");
+    // A short one is all there, with nothing to expand.
+    expect(collapsed).toContain("◇ Message from QA (app): the build is green");
+    expect(collapsed.split("\n").find((l) => l.includes("from QA"))).not.toContain("ctrl+o");
+    setup.mockInput.pressKey("o", { ctrl: true });
+    await settle(setup);
+    expect(setup.captureCharFrame()).toContain("Second line with the details.");
+  });
+
   it("ctrl+o is a detail view of its own: everything in full, the box hidden; esc goes back", async () => {
     const { setup, session } = await mount();
     session.set({

@@ -12,7 +12,7 @@ import { plainStepText } from "@/lib/tasks/plan-checklist";
 import { displayTitle } from "@/shared/mcp-catalog";
 import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
-import { peerSurfaceLabel, splitPeerMessages } from "@/lib/peers/peer-message";
+import { peerPreview, peerSurfaceLabel, sentToName, splitPeerMessages } from "@/lib/peers/peer-message";
 import {
   parseAssistantMessageParts,
   type AssistantMessagePart,
@@ -53,6 +53,11 @@ export interface ToolLine {
   agent?: { label?: string; startedAt?: number; tokens?: number; report?: string };
   /** An edit's changes, from its arguments: drawn as + / − lines under the call. */
   diff?: EditDiff;
+  /**
+   * A message from another Atlarix session: who sent it and what its one row
+   * shows inline ("Message from X (CLI): <preview…>"); `output` is the whole text.
+   */
+  peer?: { from: string; surface: string; preview: string; more: boolean };
 }
 
 export interface EditDiff {
@@ -304,7 +309,10 @@ export function toolTarget(toolName: string, args: unknown, resultText?: string)
         .filter(Boolean)
         .join(", ");
       const said = msg ? `"${msg.split("\n")[0]!.slice(0, 60)}"` : steer;
-      return [str(a.to) ? `→ ${str(a.to)}` : "", said].filter(Boolean).join(" · ");
+      // Who it went to by NAME: `to` may be a session id ("→ 9e0cd4fd-…",
+      // QA 2026-11-06); the result names the session it resolved to.
+      const to = sentToName(resultText) ?? str(a.to);
+      return [to ? `→ ${to}` : "", said].filter(Boolean).join(" · ");
     }
     case "list_sessions": {
       // "· 6 live": the count is in the result, not the args (owner,
@@ -737,24 +745,24 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
   if (peerSegments) {
     peerSegments.forEach((seg, i) => {
       if (seg.kind === "peer") {
-        // Drawn like a tool step: "Message from X (app)", its first line under
-        // it, the whole text on ctrl+o. Never the user's band, never the
-        // assistant's ◆, both of which read as someone else's words.
+        // One row, like Claude Code's: "Message from X (CLI): <its text…>",
+        // the whole text on ctrl+o. The text is IN the row: a cut first line
+        // under it read as "a blank thing" (owner, 2026-11-05). Never the
+        // user's band, never the assistant's ◆: both read as someone else's words.
         const where = peerSurfaceLabel(seg.surface);
         const text = seg.text.trim();
-        const first = text.split("\n")[0] ?? "";
+        const from = seg.from || "another session";
+        const { text: preview, more } = peerPreview(text);
         cells.push({
           kind: "tool",
           id: `${base}:p${i}`,
           tool: {
             id: `${base}:p${i}`,
-            // A contributor: another of your Atlarix sessions, as Claude Code
-            // calls them (owner), named so it never reads as you.
             verb: "Message",
-            target: `from contributor ${seg.from || "another session"} (${where})`,
+            target: `from ${from} (${where})`,
             status: "success",
-            summary: first.length > 160 ? `${first.slice(0, 159)}…` : first,
             output: text,
+            peer: { from, surface: seg.surface, preview, more },
           },
         });
       } else if (seg.text.trim()) {

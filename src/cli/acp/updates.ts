@@ -153,6 +153,8 @@ function toolContent(t: ToolLine, name: string): ToolCallContent[] {
 
 /** The tool's title in the editor: the same "verb target" the terminal shows. */
 export function toolTitle(t: ToolLine): string {
+  // A peer's message: its text in the title, which is all some editors show.
+  if (t.peer) return `${t.verb} ${t.target}: ${t.peer.preview}`;
   return t.target ? `${t.verb} ${t.target}` : t.verb;
 }
 
@@ -245,10 +247,10 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       emitted.set(k, sig);
       const content = toolContent(t, name);
       if (before === undefined) {
-        // A message from another Atlarix session (transcript.ts draws it as a
-        // "Message from X (app)" step): marked so Atlarix's extension shows it
-        // as a message card; other editors show the step as is.
-        const peer = t.verb === "Message" && /:p\d+$/.test(c.id) ? { _meta: { atlarix: { peer: { from: t.target?.replace(/^from /, "") ?? "" } } } } : {};
+        // A message from another Atlarix session (transcript.ts: "Message from
+        // X (CLI): <text…>"): marked so Atlarix's extension shows it as a
+        // message card; other editors show the step, its text in the title.
+        const peer = t.peer ? { _meta: { atlarix: { peer: { from: t.peer.from, surface: t.peer.surface } } } } : {};
         // A written plan: Atlarix's extension shows it under the step, to read.
         const planBody = name === "plan" && /^write\b/.test(t.target ?? "") ? { _meta: { atlarix: { planBody: true } } } : {};
         out.push({

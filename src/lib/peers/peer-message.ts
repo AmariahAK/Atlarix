@@ -25,6 +25,56 @@ export function peerSurfaceLabel(surface: string): string {
         : "app";
 }
 
+/** How much of a peer message its row shows before "expand" (Claude Code's pattern). */
+export const PEER_PREVIEW_CHARS = 120;
+
+/** A card (app, editor, browser) shows a message whole up to this long; past it, the preview and expand. */
+export const PEER_FOLD_CHARS = 600;
+
+/**
+ * The row for a message from another session: "Message from <name> (<surface>)".
+ * Every surface uses it, so the label reads the same in the app, CLI and editors.
+ */
+export function peerRowLabel(from: string, surface: string): string {
+  return `Message from ${from || "another session"} (${peerSurfaceLabel(surface)})`;
+}
+
+/**
+ * What a peer message's row shows inline: its text with the lines joined (a
+ * short first line like "ai-4b:" hid the rest), cut near `max` at a word with
+ * "…". `more`: there is more to see on expand (it was cut, or it has lines).
+ */
+export function peerPreview(text: string, max = PEER_PREVIEW_CHARS): { text: string; more: boolean } {
+  const trimmed = text.trim();
+  const flat = trimmed.replace(/\s+/g, " ");
+  const lines = /\n/.test(trimmed);
+  if (flat.length <= max) return { text: flat, more: lines };
+  let cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  if (space > max * 0.6) cut = cut.slice(0, space);
+  return { text: `${cut.replace(/[\s,;:.-]+$/, "")}…`, more: true };
+}
+
+/**
+ * The receiver's name in send_message's own result ("Sent to NAME (CLI, …" or
+ * "Delivered to NAME. It starts …", lib/tools/peers.ts), raw or in its JSON
+ * envelope. Null when it isn't one: the row then keeps what `to` said.
+ */
+export function sentToName(result: string | undefined | null): string | null {
+  if (!result) return null;
+  let text = result;
+  try {
+    const v = JSON.parse(result) as { text?: unknown };
+    if (v && typeof v.text === "string") text = v.text;
+  } catch {
+    /* plain text */
+  }
+  const m =
+    /^Sent to (.+?) \((?:CLI|app|browser|editor)[,)]/.exec(text) ??
+    /^Delivered to (.+?)\. It starts\b/.exec(text);
+  return m?.[1]?.trim() || null;
+}
+
 function attr(value: string): string {
   return value.replace(
     /[&"<>]/g,

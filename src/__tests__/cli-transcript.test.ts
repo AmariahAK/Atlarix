@@ -154,6 +154,32 @@ describe("placeSteers", () => {
     // The peer's words never show as the user's own band.
     expect(cells.some((c) => c.kind === "user" && c.text.includes("look at this"))).toBe(false);
   });
+
+  it("a peer message's row carries its text: a preview inline, the whole on ctrl+o; no \"contributor\"", async () => {
+    const { toCells } = await import("@/cli/agent/transcript");
+    const { wrapPeerMessage } = await import("@/lib/peers/peer-message");
+    const text = "ai-4b:\n\nPhase 2 is ready. " + "More detail follows here. ".repeat(10);
+    const cells = toCells([{ id: 9, role: "user", content: wrapPeerMessage({ sessionId: "s", name: "ai-4b", surface: "cli", workspace: "/w" }, text) }]);
+    const row = cells.find((c) => c.kind === "tool");
+    expect(row).toMatchObject({
+      kind: "tool",
+      tool: { verb: "Message", target: "from ai-4b (CLI)", output: text.trim(), peer: { from: "ai-4b", more: true } },
+    });
+    const peer = (row as { tool: { peer: { preview: string } } }).tool.peer;
+    expect(peer.preview.startsWith("ai-4b: Phase 2 is ready.")).toBe(true);
+    expect(peer.preview.endsWith("…")).toBe(true);
+    expect(JSON.stringify(cells)).not.toContain("contributor");
+  });
+
+  it("a sent message names who it went to, not a session id", async () => {
+    const { toolTarget } = await import("@/cli/agent/transcript");
+    const result = JSON.stringify({ success: true, text: "Sent to QA night (CLI, idle: it starts a turn with it)." });
+    expect(toolTarget("send_message", { to: "9e0cd4fd-1111-2222-3333-444455556666", message: "the build is green" }, result)).toBe(
+      '→ QA night · "the build is green"',
+    );
+    // Before the result arrives (still running), the name it was given.
+    expect(toolTarget("send_message", { to: "QA night", message: "hi" })).toBe('→ QA night · "hi"');
+  });
 });
 
 describe("collectAnchors (owner, 2026-10-31)", () => {

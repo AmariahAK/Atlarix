@@ -169,7 +169,14 @@ function ToolCell({
   const room = Math.max(20, width - tool.verb.length - 6);
   const fullTarget = relativeTo(workspace, tool.target);
   const target = expanded ? fullTarget : oneLine(fullTarget, room);
-  const preview = previewLines(tool.output, 40);
+  // A peer's message is read, not skimmed: ctrl+o shows all of it.
+  const preview = previewLines(tool.output, tool.peer ? 400 : 40);
+  // A message from another session: its text is IN its one row, cut to fit,
+  // with "(ctrl+o to expand)" when there is more (owner: "a blank thing").
+  const peerHint = tool.peer?.more && !expanded ? " (ctrl+o to expand)" : "";
+  const peerText = tool.peer && !expanded
+    ? oneLine(tool.peer.preview, Math.max(10, width - tool.verb.length - target.length - peerHint.length - 8))
+    : "";
   // A failed command: ONE line (its error, and the exit code), like a thought;
   // ctrl+o shows the whole output.
   const failed = tool.status === "error";
@@ -204,6 +211,8 @@ function ToolCell({
           <span fg={s.fg}>{s.icon}</span>{" "}
           <span fg={color.white}>{tool.verb}</span>{" "}
           <PathTarget verb={tool.verb} target={target} />
+          {peerText ? <span fg={color.text}>{`: ${peerText}`}</span> : null}
+          {peerHint ? <span fg={color.faint}>{peerHint}</span> : null}
           {tool.diff?.added ? (
             <span fg={color.accentSoft}>{`  +${tool.diff.added}`}</span>
           ) : null}

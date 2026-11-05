@@ -380,3 +380,27 @@ describe("links in command output", () => {
     ]);
   });
 });
+
+describe("a message from another session, in an editor", () => {
+  const peerCell = (preview: string, more: boolean, output: string): Cell => ({
+    kind: "tool",
+    id: "9:p0",
+    tool: { id: "9:p0", verb: "Message", target: "from ai-4b (CLI)", status: "success", output, peer: { from: "ai-4b", surface: "cli", preview, more } },
+  });
+
+  it("its title carries the text (editors that show only the title still see it), the whole text in content", () => {
+    const [u] = diffUpdates([peerCell("Phase 2 is ready…", true, "Phase 2 is ready.\nDetails.")], new Map());
+    expect(u).toMatchObject({
+      sessionUpdate: "tool_call",
+      toolCallId: "9:p0",
+      title: "Message from ai-4b (CLI): Phase 2 is ready…",
+      content: [{ type: "content", content: { type: "text", text: "Phase 2 is ready.\nDetails." } }],
+      _meta: { atlarix: { peer: { from: "ai-4b", surface: "cli" } } },
+    });
+  });
+
+  it("a short one: the title is the whole message", () => {
+    const [u] = diffUpdates([peerCell("the build is green", false, "the build is green")], new Map());
+    expect((u as { title: string }).title).toBe("Message from ai-4b (CLI): the build is green");
+  });
+});

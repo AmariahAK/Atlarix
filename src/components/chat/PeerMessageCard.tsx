@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, MessagesSquare } from "lucide-react";
 import {
+  PEER_FOLD_CHARS,
+  peerPreview,
   peerSurfaceLabel,
   type PeerSegment,
 } from "@/lib/peers/peer-message";
@@ -10,7 +12,9 @@ import { UserMessageMarkdownParser } from "./AtlarixMarkdownParser";
 /**
  * A message from another Atlarix session (lib/peers): a teammate's, drawn like
  * a tool step on the agent's side of the conversation — never as the user's own
- * bubble, which read as something the user had typed. Long ones fold.
+ * bubble, which read as something the user had typed. A long one folds to
+ * ONE row with its text in it ("Message from X (CLI): <preview…>"), never to a
+ * bare label (owner, 2026-11-05: "a blank thing"); a click shows all of it.
  *
  * A row can also hold the user's own words (queued messages are joined when an
  * idle chat wakes); those keep the user's bubble. No Edit on any of it: editing
@@ -40,10 +44,8 @@ export function PeerMessageCard({ segments }: { segments: PeerSegment[] }) {
   );
 }
 
-const FOLD_CHARS = 600;
-
 function PeerOne({ seg }: { seg: Extract<PeerSegment, { kind: "peer" }> }) {
-  const long = seg.text.length > FOLD_CHARS;
+  const long = seg.text.trim().length > PEER_FOLD_CHARS;
   const [open, setOpen] = useState(!long);
   const { t } = useTranslation("chat");
   const where = peerSurfaceLabel(seg.surface);
@@ -61,13 +63,18 @@ function PeerOne({ seg }: { seg: Extract<PeerSegment, { kind: "peer" }> }) {
           <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
         )}
         <MessagesSquare className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        <span>
+        <span className="shrink-0">
           {t("peerMessage.from")}{" "}
           <span className="font-medium text-foreground/90">
             {seg.from || t("peerMessage.anotherSession")}
           </span>{" "}
           {t("peerMessage.surface", { where })}
         </span>
+        {open ? null : (
+          <span className="min-w-0 truncate text-foreground/80">
+            {`: ${peerPreview(seg.text).text}`}
+          </span>
+        )}
       </button>
       {open ? (
         <div className="border-t border-border/60 px-3 py-2 text-foreground/90">

@@ -7,6 +7,7 @@
  */
 import { RESETS_IN_PATTERN, formatResetsIn } from "../../../../src/shared/billing_copy";
 import { joinAskUserPicks, readAskUserQuestions, type AskUserQuestion } from "../../../../src/lib/tools/ask_user_options";
+import { PEER_FOLD_CHARS, peerPreview, peerRowLabel } from "../../../../src/lib/peers/peer-message";
 import type { ToolCallContent, ToolCallUpdate } from "@agentclientprotocol/sdk";
 import { linkifyText, renderMarkdown } from "../../../extension/src/panel/markdown";
 import type { ContextItem } from "../../src/protocol";
@@ -514,7 +515,7 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     foldThought();
     closeCurrent();
   }
-  const peer = (t._meta as { atlarix?: { peer?: { from?: string } } } | undefined)?.atlarix?.peer;
+  const peer = (t._meta as { atlarix?: { peer?: { from?: string; surface?: string } } } | undefined)?.atlarix?.peer;
   const existing = tools.get(t.toolCallId);
   const kind = (t.kind ?? existing?.dataset.kind ?? "other") as string;
   const status = t.status ?? existing?.dataset.status ?? "in_progress";
@@ -530,10 +531,24 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     const head = el("div", "peer__head");
     const scout = el("span", "scout");
     scout.innerHTML = rixGlyph(18);
-    head.append(scout, el("strong", "", `Message from ${peer.from || "another session"}`));
+    // An older CLI sends no surface: the name alone, never a guessed "(app)".
+    const label = peer.surface ? peerRowLabel(peer.from ?? "", peer.surface) : `Message from ${peer.from || "another session"}`;
+    head.append(scout, el("strong", "", label));
+    const full = (text ?? "").trim();
     const body = el("div", "peer__text");
-    linkifyText(body, text ?? "");
     d.append(head, body);
+    if (full.length > PEER_FOLD_CHARS) {
+      // Long: its preview, never just the label (owner: "a blank thing"); the rest on click.
+      body.textContent = peerPreview(full).text;
+      const more = button("Show all", "link small peer__more", () => {
+        body.replaceChildren();
+        linkifyText(body, full);
+        more.remove();
+      });
+      d.append(more);
+    } else {
+      linkifyText(body, full);
+    }
     tools.set(t.toolCallId, d);
     log.append(d);
     return scrollDown();

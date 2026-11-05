@@ -157,6 +157,7 @@ import {
 } from "../context/compact";
 import { summariserFor } from "../context/summarise";
 import { contextBarView } from "./context-bar";
+import { peerTaskCard } from "./peer-card";
 import {
   peerSurfaceLabel,
   splitPeerMessages,
@@ -933,36 +934,6 @@ function userBubble(
  * text folded under it). Never the user's bubble, and no longer a green card
  * across the width, which still read as an exchange.
  */
-function peerTaskCard(segments: PeerSegment[]): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "msg msg--peer";
-  for (const seg of segments) {
-    if (seg.kind !== "peer") {
-      const extra = document.createElement("div");
-      extra.className = "msg__prose";
-      extra.textContent = seg.text;
-      wrap.append(extra);
-      continue;
-    }
-    const details = document.createElement("details");
-    details.className = "tool tool--peer";
-    details.open = seg.text.length <= 400;
-    const summary = document.createElement("summary");
-    const dot = document.createElement("span");
-    dot.className = "tool__dot";
-    summary.append(
-      dot,
-      document.createTextNode(`Message from ${seg.from || "another session"} (${peerSurfaceLabel(seg.surface)})`),
-    );
-    const body = document.createElement("pre");
-    body.className = "tool__body";
-    body.textContent = seg.text;
-    details.append(summary, body);
-    wrap.append(details);
-  }
-  return wrap;
-}
-
 /**
  * Tasks waiting in the inbox (peers/inbox.ts). `autoStart` is the panel
  * having just been opened — by the user's click on the icon, the consent — on

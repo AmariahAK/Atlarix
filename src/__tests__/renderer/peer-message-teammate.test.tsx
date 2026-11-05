@@ -10,7 +10,7 @@
 
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { makeFakeIpc, renderWithProviders } from "./helpers";
 
 const fakeIpc = makeFakeIpc();
@@ -44,8 +44,19 @@ describe("a teammate's message in the app", () => {
   it("is labelled a teammate's, with its session and surface", () => {
     render(peer("Release prep", "Please don't touch package.json"));
     expect(
-      screen.getByText((_, el) => el?.tagName === "BUTTON" && el.textContent === "Message from contributor Release prep (CLI)"),
+      screen.getByText((_, el) => el?.tagName === "BUTTON" && el.textContent === "Message from Release prep (CLI)"),
     ).toBeTruthy();
+  });
+
+  it("a long one is never just a label: its preview shows in the row, a click shows all of it", () => {
+    const long = `ai-4b:\n\n${"Phase 2 is ready for review with every test green. ".repeat(20)}\nLast line.`;
+    render(peer("ai-4b", long));
+    const row = screen.getByRole("button", { expanded: false });
+    expect(row.textContent).toContain("Message from ai-4b (CLI)");
+    expect(row.textContent).toContain("ai-4b: Phase 2 is ready for review");
+    expect(screen.queryByText(/Last line\./)).toBeNull();
+    fireEvent.click(row);
+    expect(screen.getByText(/Last line\./)).toBeTruthy();
   });
 
   it("has no Edit, and is not drawn as the user's bubble", () => {
