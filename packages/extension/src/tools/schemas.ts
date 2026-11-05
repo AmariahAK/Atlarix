@@ -37,12 +37,9 @@ import type { ToolSchema } from "../core/client";
 const ASK_USER_OPTION_SCHEMA = {
   type: "object",
   properties: {
-    label: {
-      type: "string",
-      description: "The choice, in a few words; what you receive when it is picked",
-    },
-    description: { type: "string", description: "Optional: what this choice means or costs" },
-    recommended: { type: "boolean", description: "Optional: true on the option you suggest" },
+    label: { type: "string" },
+    description: { type: "string", description: "What this choice means" },
+    recommended: { type: "boolean", description: "True on the option you suggest" },
   },
   required: ["label"],
   additionalProperties: false,
@@ -579,15 +576,8 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
               type: "object",
               properties: {
                 question: { type: "string" },
-                header: {
-                  type: "string",
-                  description:
-                    'Optional short label shown above the question, max 12 chars (e.g. "Account")',
-                },
-                multiSelect: {
-                  type: "boolean",
-                  description: "Optional: let the user pick more than one option",
-                },
+                header: { type: "string", description: "Short topic chip, max 12 chars" },
+                multiSelect: { type: "boolean", description: "Allow picking several options" },
                 options: {
                   type: "array",
                   items: ASK_USER_OPTION_SCHEMA,
