@@ -43,9 +43,10 @@ function otherModeHeaders(activeLabel: string): string[] {
  */
 describe("no mode's prompt names a tool it cannot call", () => {
   // Tools whose names appear in prose for reasons other than "you may call this":
-  // pointing the user at another mode, or naming a tool to forbid it.
+  // pointing the user at another mode, naming a tool to forbid it, or "the
+  // session plan" (the plan as a thing to read, in the global How to work).
   const MENTION_IS_NOT_A_CLAIM =
-    /you have no |you CANNOT|switch to|not available in this mode|are BLOCKED|\bno `?\w+`? here/i;
+    /you have no |you CANNOT|switch to|not available in this mode|are BLOCKED|\bno `?\w+`? here|the session plan/i;
 
   for (const mode of ALL_MODES) {
     it(`${mode} prompt only names callable tools`, () => {

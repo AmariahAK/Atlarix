@@ -12,19 +12,27 @@ import { getActiveModeReanchor } from "@/lib/tools/mode-prompt-bundle";
  * commands BLOCKED.
  */
 describe("Review mode skill", () => {
-  it("walks the six steps and answers with a path", async () => {
-    const skill = await loadSkill(getSkillNameForMode("review")!);
-    for (const step of [
+  it("the six steps are global (every mode); Review keeps its own part and does not repeat them", async () => {
+    const { constructSystemPromptParts } = await import("@/prompts/system_prompt");
+    const steps = [
       /Understand the target/,
       /Find every caller/,
       /Follow the data/,
       /other services and repos/,
       /shared state/,
       /Answer what the user asked/,
-    ]) {
-      expect(skill).toMatch(step);
+    ];
+    for (const mode of ["ask", "plan", "build", "debug", "review"] as const) {
+      const { stableHeader } = constructSystemPromptParts({
+        chatMode: mode === "build" || mode === "debug" ? "build" : "ask",
+        effectiveWorkMode: mode,
+        hasWorkspace: true,
+      });
+      for (const step of steps) expect(stableHeader).toMatch(step);
+      expect(stableHeader).toMatch(/read outside the workspace without approval/);
     }
-    expect(skill).toMatch(/read outside the workspace without approval/);
+    const skill = await loadSkill(getSkillNameForMode("review")!);
+    expect(skill).not.toMatch(/Find every caller/);
     expect(skill).toMatch(/\*\*Affected:\*\*/);
   });
 

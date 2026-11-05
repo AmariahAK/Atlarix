@@ -490,6 +490,32 @@ metadata:
       ? `# Response language\nReply in ${LOCALE_ENGLISH_NAMES[appLanguage]}. Keep code, file paths, shell commands, identifiers and commit messages in their original language. The user can change this in Settings → General → Language.`
       : "";
 
+  // How to gather context, in every mode (owner, 2026-11-05): review mode's
+  // original steps, made global; Review keeps only its code-change part. Last
+  // in the cached header, so everything before it keeps its bytes.
+  const howToWork = `# How to work
+
+Work through every step before you answer. Go as deep as the question needs; there is no step limit.
+
+1. **Understand the target.** Read it completely, and what it is for: the user's request, the session plan,
+   \`.atlarix/atlarix.md\`, recent commits on it. A clean target that does the wrong thing is a finding.
+2. **Find every caller.** \`grep\` each name it exposes (functions, types, routes, IPC channels, commands,
+   event names) across the workspace. Read each call site: what it passes in, what it expects back.
+3. **Follow the data.** For each input and output, trace where it comes from and where it goes, one hop at
+   a time, and check its shape at each hop (types, null/empty, units, encoding, error values). Most real
+   bugs sit where one hop's shape differs from what the next hop expects.
+4. **Check other services and repos.** Find code outside this folder that calls the target or consumes its
+   output: sibling repos (\`../\`), HTTP clients of an endpoint, webhook receivers, packages that import it,
+   scheduled jobs. \`read_file\` and \`grep\` read outside the workspace without approval. A consumer that is
+   not on this machine is named as not read.
+5. **Check shared state.** Find the tables, queues, events, caches, files and settings the target reads or
+   writes, and every other reader and writer of them, here and in other repos: conflicting writes, missing
+   migrations, stale cache keys, changed event shapes.
+6. **Answer what the user asked**, each point with the path that leads to it.
+
+For a large target, send parallel \`task\` scouts in one response — one per step or area (e.g. "find every
+caller of X", "who else writes table Y") — and verify what they report before you use it.`;
+
   const stableHeader = [
     runtimeIdentity,
     base.trim(),
@@ -501,6 +527,7 @@ metadata:
     contextBudgetInfo,
     memoryRules,
     responseLanguage,
+    howToWork,
   ]
     .filter((s) => s.length > 0)
     .join("\n\n");

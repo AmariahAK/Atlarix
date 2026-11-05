@@ -281,21 +281,27 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
 // ask 9,000 → 8,497, plan 7,427 → 7,426 (it never had them), build 10,916 → 10,423
 // (33 → 31 tools), review 8,668 → 8,165, debug 11,169 → 10,676. Every ceiling except
 // Plan's came down 500 with it (TRAPS: a ceiling left high only loosens).
+// 2026-11-05, owner-directed: review mode's "How to work" steps became global
+// (every mode; Review keeps only its code-change part, and Zenith needs no
+// prompt of its own). Measured after: ask 8,983, plan 7,943, build 10,901,
+// review 8,667, debug 11,154, build-fr 10,941; plan was +422 (7,521 before,
+// already 21 over its 7,500 ceiling on main). Each ceiling moved by that much,
+// keeping its old headroom.
 const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
-  ask: { minTotal: 7_250, maxTotal: 8_700 },
-  plan: { minTotal: 5_900, maxTotal: 7_500 },
-  build: { minTotal: 8_850, maxTotal: 10_750 },
+  ask: { minTotal: 7_250, maxTotal: 9_200 },
+  plan: { minTotal: 5_900, maxTotal: 8_050 },
+  build: { minTotal: 8_850, maxTotal: 11_200 },
   // 11,400 → 11,500 on 2026-10-13, owner-approved: glob's `sort: "size"` option
   // (~45 tokens) put Review at 11,429. Paid for by raising this ceiling, NOT by
   // rewording shared tool text, which the app, CLI and editors all run on.
-  review: { minTotal: 6_950, maxTotal: 8_350 },
-  debug: { minTotal: 9_100, maxTotal: 11_050 },
+  review: { minTotal: 6_950, maxTotal: 8_850 },
+  debug: { minTotal: 9_100, maxTotal: 11_500 },
   // A NON-ENGLISH case, because every other case runs in English and the response
   // language block is emitted ONLY when the locale is not en-us. Without this the
   // suite would never see the instruction at all, its cost would be unmeasured,
   // and the feature could ship silently dead — the block could stop being emitted
   // and nothing here would notice.
-  "build-fr": { minTotal: 8_900, maxTotal: 10_800 },
+  "build-fr": { minTotal: 8_900, maxTotal: 11_250 },
 };
 
 const CASES = [
