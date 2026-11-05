@@ -8,6 +8,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { noteIdleRoute } from "@/lib/context/idle-compaction";
 import { noteTurnStreamError } from "@/lib/analytics/turn-stats";
 import { classifyTurnError } from "@/lib/analytics/turn-end";
 import log from "electron-log";
@@ -421,6 +422,14 @@ export async function simpleStreamText(
   // may refuse a beta it doesn't know.
   const speaksAnthropic =
     isAnthropic || isCustomAnthropicFormat(modelClient.builtinProviderId);
+  // What this turn ran on, for idle compaction when it ends (1h cache routes).
+  noteIdleRoute(req.chatId, {
+    oneHourCache: speaksAnthropic,
+    providerId: modelClient.builtinProviderId,
+    ...(effectiveModel?.provider && effectiveModel?.name
+      ? { model: { provider: effectiveModel.provider, name: effectiveModel.name } }
+      : {}),
+  });
   // v13.2: explicit cache markers for Claude-family models on EVERY
   // route (OpenRouter/Compass/Bedrock/custom proxies) — they get no
   // caching without them. Automatic-caching providers resolve "none".

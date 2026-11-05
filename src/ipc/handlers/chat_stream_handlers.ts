@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { scheduleIdleCompaction, settleIdleCompaction } from "@/lib/context/idle-compaction";
 import { recordSnapshotTurnEnd } from "@/lib/snapshot/snapshot-manager";
 import { ModelMessage } from "ai";
 
@@ -1182,6 +1183,9 @@ export function registerChatStreamHandlers() {
         // same id on a user-stopped end. Without it the Revert affordance never appears
         // for the one turn you most want to revert. Cleared on terminal below.
         streamTurnIdByChatId.set(req.chatId, streamTurnId);
+        // An idle compaction of this chat never runs under a turn: cancel the
+        // timer, and let one already running finish first (idle-compaction.ts).
+        await settleIdleCompaction(req.chatId);
         // v11.1: set when the model asked the user question(s) — the turn ends
         // gracefully (persist + response:end) WITHOUT task-complete side effects
         // (no build verification, no self-review).
@@ -2620,6 +2624,22 @@ export function registerChatStreamHandlers() {
           return await runStream();
         }
       } finally {
+        if (!turnRerun && !turnError) {
+          // A long conversation idle until just before its 1h cache expires is
+          // compacted, so the next message doesn't write all of it again.
+          scheduleIdleCompaction(req.chatId, req.workspaceSessionId ?? null, {
+            isLive: isChatStreamLive,
+            historyTokens: async (id) => (await import("@/lib/tools/workspace")).ephemeralHistoryTokens(id),
+            compact: async (id, route, sessionId) => {
+              const { forceCompactEphemeralChat } = await import("@/lib/tools/workspace");
+              return forceCompactEphemeralChat(id, route.providerId, {
+                workspaceSessionId: sessionId,
+                summarize: true,
+                ...(route.model ? { model: route.model } : {}),
+              });
+            },
+          });
+        }
         if (!turnRerun) {
           const providerOf = async (id: string) => {
             const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");

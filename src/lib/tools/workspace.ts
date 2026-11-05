@@ -197,6 +197,16 @@ export type ExecuteCompressContextContext = {
  * any more — `runSteppedCompaction` does, for every trigger.
  */
 
+/** An ephemeral chat's history in tokens, counted as compaction counts it (tool output included). */
+export async function ephemeralHistoryTokens(chatId: number): Promise<number> {
+  const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+  const chat = getStreamTransport(chatId);
+  if (!chat) return 0;
+  return countMessagesTokens(
+    forCompaction(chat.messages as Array<(typeof chat.messages)[number] & { modelContent?: string | null }>),
+  );
+}
+
 /**
  * v11.1 overflow recovery: aggressively compact an ephemeral chat's message
  * list after a provider context-overflow error. Bypasses the usage-ratio
