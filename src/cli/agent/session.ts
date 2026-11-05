@@ -106,6 +106,8 @@ export interface QueuedMessage {
   text: string;
   /** "steer": goes into the running turn at its next step. "queued": opens the next turn. */
   kind: "steer" | "queued";
+  /** Pasted images, sent with the turn this opens (a steer carries text only). */
+  images?: Array<{ path: string; mime: string; label: string }>;
 }
 
 export interface SessionState {
@@ -835,7 +837,7 @@ export class AgentSession extends EventEmitter {
     // Held with Tab while it ran: it opens the next turn, here.
     const next = this.queue.shift();
     this.syncPending();
-    if (next) await this.startTurn(next.text);
+    if (next) await this.startTurn(next.text, next.images ? { images: next.images } : {});
   }
 
   /** What /undo, /compact and a mode change say while another surface runs the turn. */
@@ -1385,6 +1387,12 @@ export class AgentSession extends EventEmitter {
     text: string,
     opts: { display?: string; images?: Array<{ path: string; mime: string; label: string }> } = {},
   ): Promise<void> {
+    // A steer carries text only: a message with an image waits for the next
+    // turn rather than reaching the agent without it.
+    if ((this.state.busy || this.state.following) && opts.images?.length) {
+      this.queueNext(text, opts.images);
+      return;
+    }
     if (this.state.busy) {
       await this.steer(text);
       return;
@@ -1406,12 +1414,12 @@ export class AgentSession extends EventEmitter {
   }
 
   /** Held until the running turn ends, then sent as the next turn. Editable until then. */
-  queueNext(text: string): void {
+  queueNext(text: string, images?: QueuedMessage["images"]): void {
     if (!this.state.busy && !this.state.following) {
-      void this.startTurn(text);
+      void this.startTurn(text, images?.length ? { images } : {});
       return;
     }
-    this.queue.push({ id: `q${++interjectionSeq}`, text, kind: "queued" });
+    this.queue.push({ id: `q${++interjectionSeq}`, text, kind: "queued", ...(images?.length ? { images } : {}) });
     this.syncPending();
   }
 
@@ -1446,7 +1454,7 @@ export class AgentSession extends EventEmitter {
   private syncPending(steers?: Array<{ id: string; text: string }>): void {
     if (steers) this.steers = steers.map((s) => ({ id: s.id, text: s.text, kind: "steer" as const }));
     const remote = this.remoteSteers.map((text, i) => ({ id: `r${i}`, text, kind: "steer" as const }));
-    this.update({ pending: [...this.steers, ...remote, ...this.queue] });
+    this.update({ pending: [...this.steers, ...remote, ...this.queue.map(({ id, text, kind }) => ({ id, text, kind }))] });
   }
 
   /**
@@ -2663,7 +2671,7 @@ export class AgentSession extends EventEmitter {
       });
     }
     this.update({
-      pending: [...this.queue],
+      pending: this.queue.map(({ id, text, kind }) => ({ id, text, kind })),
       busy: false,
       phase: null,
       retrying: null,
@@ -2717,9 +2725,10 @@ export class AgentSession extends EventEmitter {
       text?: string | null;
     };
     this.steers = [];
-    const next = flushed?.text?.trim() ? flushed.text : this.queue.shift()?.text;
+    const queued = flushed?.text?.trim() ? null : this.queue.shift();
+    const next = flushed?.text?.trim() ? flushed.text : queued?.text;
     this.syncPending();
-    if (next) return void (await this.startTurn(next));
+    if (next) return void (await this.startTurn(next, queued?.images ? { images: queued.images } : {}));
     // Background work that finished during this turn's LAST step was too late to
     // go into it, and its "finished" event found the session busy, so nothing
     // would ever wake for it: the report sat undelivered and the row looked dead

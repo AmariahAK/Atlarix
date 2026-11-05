@@ -127,6 +127,39 @@ describe("AgentSession", () => {
     expect(s.state.cells.filter((c) => c.kind === "user").map((c: any) => c.text)).toEqual(["go"]);
   }, 60_000);
 
+  it("an image sent while a turn runs is not dropped: it opens the next turn with the message (Tab or Enter)", async () => {
+    const img = path.join(ws, "shot.png");
+    // A 1×1 PNG: real bytes, so the turn can read and attach it.
+    fs.writeFileSync(img, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    const images = [{ path: img, mime: "image/png", label: "[Image #1]" }];
+    const carried = (s: any) =>
+      // Either the image reached the model, or a text-only model refused it by
+      // name: both prove the image travelled with the message, not dropped.
+      String(s.state.lastError ?? "").includes("can't see images") ||
+      JSON.stringify(llm.requests.at(-1)?.messages ?? []).includes("image");
+    for (const via of ["tab", "enter"] as const) {
+      llm.stop();
+      llm = startFakeLlm([
+        { text: "Slow first answer so the second message arrives mid-turn.", delayMs: 60 },
+        { text: "Saw it." },
+      ]);
+      const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+      const s = new AgentSession({ workspaceDir: ws, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
+      await s.start();
+      await s.submit("first");
+      expect(s.state.busy).toBe(true);
+      if (via === "tab") s.queueNext("what is in [Image #1]?", images);
+      else await s.submit("what is in [Image #1]?", { images });
+      // Mid-turn a steer carries text only, so a message with an image waits
+      // for the next turn instead of losing the image.
+      expect(s.state.pending).toEqual([{ id: expect.any(String), text: "what is in [Image #1]?", kind: "queued" }]);
+      // The second turn's outcome: the model's answer, or a text-only refusal.
+      await waitFor(s, (st) => String(st.lastError ?? "").includes("can't see images") || st.cells.some((c: any) => c.kind === "markdown" && c.text === "Saw it."));
+      expect(carried(s)).toBe(true);
+      await waitFor(s, (st) => !st.busy);
+    }
+  }, 120_000);
+
   it("Enter while a turn runs steers it: the model reads it at the next step", async () => {
     llm.stop();
     llm = startFakeLlm([

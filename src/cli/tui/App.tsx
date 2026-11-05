@@ -1912,7 +1912,7 @@ export function App({
       if (!s?.display) return;
       composer.current?.clear();
       remember(s.display, s.placeholders);
-      if (state.busy) session.queueNext(s.prompt);
+      if (state.busy) void (s.images?.length ? session.queueNext(s.prompt, s.images) : session.queueNext(s.prompt));
       else void session.submit(s.prompt, { display: s.display, images: s.images });
       return;
     }
