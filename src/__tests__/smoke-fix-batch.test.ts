@@ -275,6 +275,28 @@ describe("session-keyed attachment scoping (round 3 — edited first message)", 
     expect(other.count).toBe(0);
   });
 
+  it("an image in the list carries a path view_image can open, even one restored with no file", async () => {
+    const fs = await import("node:fs");
+    const { AttachmentStore } = await import("@/lib/attachment-store");
+    const { ToolRegistry } = await import("@/lib/tools");
+    AttachmentStore.clear();
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    AttachmentStore.add(
+      { id: "pasted-img", filename: "shot.png", mimeType: "image/png", data: png.toString("base64"), size: png.length, addedAt: 1 },
+      -77,
+    );
+    AttachmentStore.add(
+      { id: "notes", filename: "notes.txt", mimeType: "text/plain", data: Buffer.from("hi").toString("base64"), size: 2, addedAt: 1 },
+      -77,
+    );
+    const listed: any = ((await ToolRegistry.execute("list_attachments", { _scopeChatId: -77 })) as any).result;
+    const img = listed.attachments.find((a: { id: string }) => a.id === "pasted-img");
+    expect(typeof img.path).toBe("string");
+    expect(fs.readFileSync(img.path).equals(png)).toBe(true);
+    // Text is read with read_attachment: no path needed.
+    expect(listed.attachments.find((a: { id: string }) => a.id === "notes").path).toBeUndefined();
+  });
+
   it("chat-id tagging alone still matches (pre-session records)", async () => {
     const { AttachmentStore } = await import("@/lib/attachment-store");
     const { ToolRegistry } = await import("@/lib/tools");

@@ -11,6 +11,8 @@
 import { noteTurn } from "@/lib/analytics/turn-stats";
 import { ToolRegistry, createParameters, stringParam } from "./registry";
 
+import fs from "node:fs";
+import os from "node:os";
 import path from "path";
 
 import { extractTextFromPdfBuffer } from "@/lib/attachment-pdf-extract";
@@ -773,6 +775,23 @@ function extractStructuredData(attachment: AttachmentData): any {
 }
 
 /**
+ * A file view_image can open for an image attachment: the one written when it
+ * was attached, or (a record restored with no file) its bytes written now.
+ */
+function imagePathOf(a: { id: string; filename: string; data: string; path?: string }): { path?: string } {
+  try {
+    if (a.path && fs.existsSync(a.path)) return { path: a.path };
+    const dir = path.join(os.tmpdir(), "atlarix-attachments");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${a.id.replace(/[^\w.-]/g, "_")}${path.extname(a.filename)}`);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, Buffer.from(a.data, "base64"));
+    return { path: file };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * v14.8.11 scoping: does this record belong to the calling chat? Untagged
  * records (legacy adds, sub-agent context) stay globally visible; when no
  * scope was injected (direct registry calls), everything is visible.
@@ -1078,7 +1097,7 @@ ToolRegistry.register({
     "List all available file attachments in the current conversation. " +
     "This tool is available in Ask, Plan, Build, Debug, and Review modes. " +
     "Call it whenever the user references an uploaded file or attachment. " +
-    "Use this to find the ID of an attachment you want to read with read_attachment.",
+    "Use this to find the ID of an attachment you want to read with read_attachment. Images carry a path for view_image.",
   requiresWorkspace: false,
   isCore: true,
   isReadOnly: true,
@@ -1104,6 +1123,7 @@ ToolRegistry.register({
         mimeType: a.mimeType,
         size: a.size,
         addedAt: new Date(a.addedAt).toISOString(),
+        ...(a.mimeType.startsWith("image/") ? imagePathOf(a) : {}),
       })),
     };
   },

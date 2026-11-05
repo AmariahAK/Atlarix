@@ -798,13 +798,16 @@ export function registerChatStreamHandlers() {
                 mimeTypes[fileExtension] || "application/octet-stream";
               const resolvedSize = Buffer.from(base64Data, "base64").length;
               AttachmentStore.add(
-                await buildAttachmentRecord({
-                  id: hash,
-                  filename: attachment.name,
-                  mimeType: resolvedMimeType,
-                  base64Data,
-                  size: resolvedSize,
-                }),
+                {
+                  ...(await buildAttachmentRecord({
+                    id: hash,
+                    filename: attachment.name,
+                    mimeType: resolvedMimeType,
+                    base64Data,
+                    size: resolvedSize,
+                  })),
+                  path: filePath,
+                },
                 req.chatId,
                 req.workspaceSessionId ?? undefined,
               );

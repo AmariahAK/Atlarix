@@ -18,6 +18,8 @@ export interface AttachmentData {
   data: string; // base64 encoded
   size: number;
   addedAt: number;
+  /** The file written when it was attached (images open from it with view_image). */
+  path?: string;
   /** Set when PDF text is pre-extracted on upload. */
   pdfExtract?: PdfExtractResult;
   /**
