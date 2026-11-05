@@ -18,7 +18,7 @@ import {
   startPeerInbox,
   type Surface,
 } from "./peers";
-import { isChatStreamLive, onStreamLiveChange } from "@/ipc/handlers/chat_stream/stream-state";
+import { isChatStreamLive, isChatUserStopped, onStreamLiveChange } from "@/ipc/handlers/chat_stream/stream-state";
 import { listPendingUserInterjections, recordUserInterjection } from "@/lib/agent/user-interjections";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import { readSettings } from "@/main/settings";
@@ -297,6 +297,7 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
             return false;
           }
         },
+        userStopped: (chatId) => isChatUserStopped(chatId),
         enqueue: (chatId, id, text) => {
           recordUserInterjection(
             chatId,

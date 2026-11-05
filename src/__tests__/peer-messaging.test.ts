@@ -26,12 +26,14 @@ const queued: Array<{ chatId: number; text: string }> = [];
 const woken: number[] = [];
 const busy = new Set<number>();
 let inbound: "accept" | "refuse" = "accept";
+const stopped = new Set<number>();
 
 const host: PeerHost = {
   isBusy: (chatId) => busy.has(chatId),
   enqueue: (chatId, _id, text) => void queued.push({ chatId, text }),
   wake: (chatId) => void woken.push(chatId),
   inbound: () => inbound,
+  userStopped: (chatId) => stopped.has(chatId),
 };
 
 const from = {
@@ -99,6 +101,23 @@ describe("peer messaging", () => {
     // Nothing to wait for: the receiver starts a turn with it now.
     expect(woken).toEqual([-7]);
     expect(r.waits).toBeUndefined();
+  });
+
+  it("a message into a session the user stopped says so, so the stopped task is not resumed (TODO #5)", async () => {
+    stopped.add(-7);
+    try {
+      const r = await sendPeerMessage(target("Editor"), from, "what's the status of the build?");
+      expect(r.ok).toBe(true);
+      const last = queued.at(-1)!.text;
+      // The peer's words stay inside the envelope; the note sits after it.
+      expect(last).toMatch(/<\/atlarix-peer-message>\n\[The user stopped this session's last task/);
+      expect(last).toContain("don't resume it unless this message asks");
+    } finally {
+      stopped.delete(-7);
+    }
+    const r2 = await sendPeerMessage(target("Editor"), from, "and the tests?");
+    expect(r2.ok).toBe(true);
+    expect(queued.at(-1)!.text).not.toContain("The user stopped");
   });
 
   it("queues a turn-ended notice, marked as a notice, without waking the session", async () => {
