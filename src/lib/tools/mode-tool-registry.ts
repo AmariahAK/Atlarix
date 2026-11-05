@@ -25,10 +25,7 @@
 
 import type { WorkMode } from "@/lib/schemas";
 import { labelForWorkMode } from "@/lib/work-mode";
-import {
-  isWorkspaceIntegrationTool,
-  WORKSPACE_INTEGRATION_TOOL_NAMES,
-} from "./ToolManifest";
+import { isWorkspaceIntegrationTool } from "./ToolManifest";
 
 export type ModeRegistryKey = WorkMode;
 
@@ -304,7 +301,6 @@ export function filterToolsForActiveMode<T extends { name: string }>(
 
 export type RenderActiveModeToolsRegistryOptions = {
   workspace?: boolean;
-  registeredNames?: readonly string[];
 };
 
 export function getModeRegistryDisplayLabel(mode: ModeRegistryKey): string {
@@ -327,14 +323,13 @@ export function renderActiveModeToolsRegistry(
     lines.push(`Allowlist (${label}): ${allowlist}`);
   }
 
+  // MCP: the servers are found with list_available_mcps, not named here. This
+  // used to read "Enabled MCP servers: list_available_mcps, mcp_call,
+  // manage_mcp_server" — tool names under a server label, and in Plan a tool
+  // the mode does not have. A "Native schemas bound now: …" line listed the
+  // bound tools a second time; the request's own tool list already does.
   if (opts?.workspace) {
-    lines.push(
-      `Enabled MCP servers: ${WORKSPACE_INTEGRATION_TOOL_NAMES.join(", ")} (list_available_mcps first, then mcp_call).`,
-    );
-  }
-
-  if (opts?.registeredNames?.length) {
-    lines.push(`Native schemas bound now: ${opts.registeredNames.join(", ")}`);
+    lines.push("MCP servers: list them with list_available_mcps, then call their tools with mcp_call.");
   }
 
   lines.push("Only the user changes the work mode, in the UI.");

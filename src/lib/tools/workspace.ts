@@ -1105,7 +1105,6 @@ ToolRegistry.register({
   name: "list_attachments",
   description:
     "List all available file attachments in the current conversation. " +
-    "This tool is available in Ask, Plan, Build, Debug, and Review modes. " +
     "Call it whenever the user references an uploaded file or attachment. " +
     "Use this to find the ID of an attachment you want to read with read_attachment. Images carry a path for view_image.",
   requiresWorkspace: false,

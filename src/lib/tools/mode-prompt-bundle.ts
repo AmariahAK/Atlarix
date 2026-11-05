@@ -72,7 +72,7 @@ export function getActiveModeHeaderBlock(mode: ModeRegistryKey): string {
 You are in Explore mode. Investigation for this chat turn: you can run the project, but you cannot change it.
 
 You CAN:
-- Read files and search the codebase with glob / grep (grep results are relevance-ranked)
+- Read files and search the codebase with glob / grep
 - Run commands with **run_command** — the workspace is writable, so installs, builds, tests and dev servers all work normally
 - RUN AND VERIFY THE APP: start a dev server, then open its localhost URL with **browser**(action:"navigate") and drive it with browser_inspect / browser(action:"click"|"fill"|…)
 - Use web_search (one per topic per turn)
@@ -144,9 +144,7 @@ You CAN:
 You CANNOT:
 - Write or edit source files — there is no \`edit_file\` here
 - Change the source with a command without asking. A mutating command goes to the user for
-  approval first, so do not reach for one as a way to apply a finding.
-
-Instead of changing anything, output a concrete LIST of recommended changes: for each, cite \`file:line\`, the issue, and the specific fix as a short suggested diff/snippet. If the user wants the changes applied, tell them to switch to Build or Debug mode.`,
+  approval first, so do not reach for one as a way to apply a finding.`,
   };
   return blocks[mode] ?? blocks.ask;
 }

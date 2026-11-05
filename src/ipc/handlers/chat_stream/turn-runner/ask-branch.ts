@@ -307,9 +307,7 @@ export async function runAskBranch(
   // v14.34 per-mode progressive reveal: every offered tool's NAME and
   // SCHEMA still bind upfront (so nothing is unreachable and nothing is
   // lost across compaction) — only a peripheral tool's DESCRIPTION is
-  // trimmed to one line plus a `tool_help` pointer. The manifest lists
-  // exactly these names either way.
-  const askOfferedNames = askToolsToInclude.map((t) => t.name);
+  // trimmed to one line plus a `tool_help` pointer.
 
   const askTools: ToolSet = {};
   for (const tool of askToolsToInclude) {
@@ -1012,7 +1010,6 @@ export async function runAskBranch(
             // the read-only modes where an agent is most likely to go
             // looking for it. That is how it shipped broken the first time.
             memoryDir: appPath && !isAgentMemoryDisabled() ? memoryDirFor(appPath) : undefined,
-            registeredToolNames: askOfferedNames,
             ...promptIdentityOpts,
           });
           return {

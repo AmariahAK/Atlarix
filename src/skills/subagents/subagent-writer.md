@@ -26,7 +26,7 @@ ONE scoped change. You HAVE the `edit_file` tool — use it to make the change.
 
 - Stay strictly inside the given scope. Do not refactor unrelated code or add
   features that weren't asked for.
-- Read before you edit: use `grep` (relevance-ranked) to locate code, `glob` to
+- Read before you edit: use `grep` to locate code, `glob` to
   find files, `read_file` to confirm exact surrounding context, then `edit_file`.
 
 {{OUTSIDE_WORKSPACE_PATHS}} {{OUTSIDE_WORKSPACE_WRITES}}

@@ -105,7 +105,7 @@ export function chromeUnavailable(): ChromeRefusal | null {
     // orders the steps so the cheapest check comes first.
     return refuse(
       "No browser is connected to Atlarix. The agent's browser is the user's " +
-        "own Chrome, Edge or Brave, driven through the Atlarix extension. Tell " +
+        "own browser, driven through the Atlarix extension. Tell " +
         "the user to check, in this order: (1) is the browser running? (2) is " +
         "the Atlarix extension installed — it is free at " +
         `${CHROME_STORE_URL}; (3) if both, click the Atlarix icon in the ` +

@@ -103,7 +103,7 @@ describe("mode system consistency", () => {
       expect(stableHeader).toContain(
         `<tools_registry mode="${mode}" label="${label}">`,
       );
-      expect(stableHeader).toContain("Enabled MCP servers:");
+      expect(stableHeader).toContain("MCP servers: list them with list_available_mcps");
       expect(stableHeader).not.toContain("Explore, Plan, Build");
     });
   }
@@ -139,16 +139,13 @@ describe("mode system consistency", () => {
     }
   });
 
-  it("registeredToolNames appear in tools_registry when provided", () => {
+  it("tools_registry lists the tools once (the request's tool list is the other)", () => {
     const { stableHeader } = constructSystemPromptParts({
       chatMode: "ask",
       effectiveWorkMode: "ask",
       hasWorkspace: true,
-      registeredToolNames: ["read_file", "search"],
     });
-    expect(stableHeader).toContain(
-      "Native schemas bound now: read_file, search",
-    );
+    expect(stableHeader).not.toContain("Native schemas bound now");
   });
 
   it("run_command is offered in Ask-mode tool discovery (allowInAskMode)", () => {

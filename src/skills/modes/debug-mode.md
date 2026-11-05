@@ -18,8 +18,7 @@ For bugs with several plausible areas, issue multiple `task` calls in one respon
 
 - **No writes before a hypothesis.**
 - Fix only what the hypothesis requires.
-- Do not create roadmap plans with the `plan` tool (use Plan mode for roadmaps).
 
 ## Mapping unfamiliar code
 
-Use `grep` (relevance-ranked, each hit annotated with its enclosing function/class) to locate the code paths involved, then `read_file` for exact ranges.
+Use `grep` to locate the code paths involved, then `read_file` for exact ranges.

@@ -287,21 +287,28 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
 // review 8,667, debug 11,154, build-fr 10,941; plan was +422 (7,521 before,
 // already 21 over its 7,500 ceiling on main). Each ceiling moved by that much,
 // keeping its old headroom.
+// 2026-11-06, prompt-truth fixes (11-05 audit): false grep claims out, memory
+// WRITING rules only where edit_file exists, one tool list in <tools_registry>,
+// Review's second severity scale/output format out, the ask_user tail no longer
+// repeats the tool. Measured before → after on the same commit: ask 8,982 →
+// 8,504, plan 7,942 → 7,497, build 10,897 → 10,868, review 8,666 → 8,149,
+// debug 11,150 → 11,084, build-fr 10,937 → 10,908. Each ceiling came down by
+// its drop (rounded to 10), keeping its old headroom.
 const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
-  ask: { minTotal: 7_250, maxTotal: 9_200 },
-  plan: { minTotal: 5_900, maxTotal: 8_050 },
-  build: { minTotal: 8_850, maxTotal: 11_200 },
+  ask: { minTotal: 7_250, maxTotal: 8_720 },
+  plan: { minTotal: 5_900, maxTotal: 7_600 },
+  build: { minTotal: 8_850, maxTotal: 11_170 },
   // 11,400 → 11,500 on 2026-10-13, owner-approved: glob's `sort: "size"` option
   // (~45 tokens) put Review at 11,429. Paid for by raising this ceiling, NOT by
   // rewording shared tool text, which the app, CLI and editors all run on.
-  review: { minTotal: 6_950, maxTotal: 8_850 },
-  debug: { minTotal: 9_100, maxTotal: 11_500 },
+  review: { minTotal: 6_950, maxTotal: 8_330 },
+  debug: { minTotal: 9_100, maxTotal: 11_430 },
   // A NON-ENGLISH case, because every other case runs in English and the response
   // language block is emitted ONLY when the locale is not en-us. Without this the
   // suite would never see the instruction at all, its cost would be unmeasured,
   // and the feature could ship silently dead — the block could stop being emitted
   // and nothing here would notice.
-  "build-fr": { minTotal: 8_900, maxTotal: 11_250 },
+  "build-fr": { minTotal: 8_900, maxTotal: 11_220 },
 };
 
 const CASES = [

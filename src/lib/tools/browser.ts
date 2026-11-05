@@ -761,7 +761,7 @@ ToolRegistry.register({
   isReadOnly: false,
   allowInAskMode: true,
   description:
-    "Act on a page in the user's own browser (Chrome/Edge/Brave via the Atlarix extension), in Atlarix's own background tab group — it never takes focus or touches the user's tabs. Use it to open and test the app you are building (its localhost dev-server URL) and pages that need the user's logins. Read the page with browser_inspect first: it returns content AND the element refs this tool takes.\n" +
+    "Act on a page in the user's own browser (via the Atlarix extension), in Atlarix's own background tab group — it never takes focus or touches the user's tabs. Use it to open and test the app you are building (its localhost dev-server URL) and pages that need the user's logins. Read the page with browser_inspect first: it returns content AND the element refs this tool takes.\n" +
     'action:"navigate" — open an absolute http(s) `url` (e.g. http://localhost:3000/login); waits for the page to load. For plain content retrieval prefer read_url/web_search.\n' +
     'action:"find" — locate an element by plain-words `query` ("submit button", "email field") and get its ref.\n' +
     'action:"click" / "hover" — act on `ref`. Hover opens :hover menus and tooltips.\n' +

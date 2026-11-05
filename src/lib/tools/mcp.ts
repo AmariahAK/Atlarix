@@ -702,7 +702,7 @@ ToolRegistry.register({
   allowInAskMode: true,
   description:
     "Add, edit or delete an MCP server for this workspace, WITH THE USER'S APPROVAL — every operation shows them a card first and nothing is written until they accept. " +
-    "Use it when the user asks you to bring across MCP configuration from another tool: read their config file yourself (it may be any shape — `.mcp.json`, `.cursor/mcp.json`, or something you have not seen), then propose each server here. " +
+    "Use it when the user asks you to bring across MCP configuration from another tool: read their config file yourself (it may be any shape — `.mcp.json` or something you have not seen), then propose each server here. " +
     "Never call this on your own initiative. Transports are `stdio` (a command we will run on their machine) or `http`; SSE is not supported. " +
     "Use list_available_mcps to see what already exists. " +
     workspaceCapClause("mcp"),

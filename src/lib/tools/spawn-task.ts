@@ -443,7 +443,7 @@ ToolRegistry.register({
       return taskEnvelope(
         "invalid",
         "error",
-        `<task_error>A new task requires both "description" and "prompt". To act on an existing task, pass task_id (resume), task_id + cancel:true (stop it), or list:true (see running tasks).</task_error>`,
+        `<task_error>A new task requires both "description" and "prompt". To resume an existing task, pass its task_id; to list, read or stop sub-agents, use the \`subagents\` tool.</task_error>`,
       );
     }
 

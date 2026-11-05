@@ -15,9 +15,9 @@ Audit the change for real, exploitable issues — prioritize anything that leaks
 - **Authentication & authorization:** auth bypass, broken/missing access control, insecure sessions, JWT/OAuth flaws, privilege escalation, IDOR.
 - **Injection:** SQL injection, XSS, command injection — especially paths to data exfiltration or credential theft.
 - **API surface:** unauthenticated endpoints, missing authorization, excessive data in responses.
-- **Client-side secrets:** private API keys/tokens shipped to the browser (public/anon keys, e.g. a Supabase anon key, are fine by design).
+- **Client-side secrets:** private API keys/tokens shipped to the browser (public/anon keys are fine by design).
 
-Rate each security issue **critical / high / medium / low** (critical = trivially exploitable, full data/system compromise; low = best-practice only, no clear exploit path) and fold it into the Issues list below. De-prioritize availability-only issues relative to data leakage. Find real vulnerabilities with evidence — don't pad with theoretical concerns.
+Put each security issue in the Issues list below on its scale (blocker = trivially exploitable, full data/system compromise; minor = best-practice only, no clear exploit path). De-prioritize availability-only issues relative to data leakage. Find real vulnerabilities with evidence — don't pad with theoretical concerns.
 
 ## Output format
 
@@ -33,6 +33,5 @@ the caller renders an empty list with no message" is.
 
 ## Hard boundaries
 
-- No file changes: there is no `edit_file` here, and a command that changes the source asks the user
-  first — don't use one to apply a finding. Put each change in Issues as a suggested diff instead.
-- To apply the changes, tell the user to switch to **Build** or **Debug**.
+- Put each change in Issues as a suggested diff. To apply the changes, tell the user to switch to
+  **Build** or **Debug**.

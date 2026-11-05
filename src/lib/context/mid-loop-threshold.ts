@@ -337,3 +337,36 @@ export function roundShouldEndForCompaction(
   if (typeof compactionLimit !== "number" || compactionLimit <= 0) return false;
   return inputTokens > compactionLimit;
 }
+
+/** The fill (of the working window) at which the model is told context is filling. */
+export const CONTEXT_REMINDER_FRACTION = 0.55;
+
+/**
+ * The model-facing fill reminder, or undefined below CONTEXT_REMINDER_FRACTION.
+ *
+ * It reports the SAME number that fires it — the share of the working window —
+ * and where compaction runs on that scale. It used to fire on the working window
+ * but report the share of the model's full window, so a 1M-window session read
+ * "Context is at 14% capacity. Consider calling compress_context…" — a low
+ * number paired with a nudge that `compress_context`'s own description says not
+ * to follow because a thread is long. The UI meter still shows the full window;
+ * the model is not reading the meter.
+ */
+export function contextFillReminder(opts: {
+  dispatchEstimate: number;
+  workingWindowTokens: number;
+  usableTokens: number;
+  compactionThreshold: number;
+}): string | undefined {
+  const working = Math.max(1, opts.workingWindowTokens);
+  const fill = opts.dispatchEstimate / working;
+  if (fill < CONTEXT_REMINDER_FRACTION) return undefined;
+  const point = compactionPoint({
+    usableTokens: opts.usableTokens,
+    workingWindowTokens: working,
+    threshold: opts.compactionThreshold,
+  });
+  const pct = Math.round(fill * 100);
+  const pointPct = Math.round((point / working) * 100);
+  return `Context is at ${pct}% of this session's ${working.toLocaleString("en-US")}-token working window; older turns are summarised automatically at ${pointPct}%.`;
+}

@@ -33,6 +33,7 @@ import {
 import {
   compactionPoint,
   compactionShouldTrigger,
+  contextFillReminder,
 } from "@/lib/context/mid-loop-threshold";
 
 const logger = log.scope("chat_stream_handlers");
@@ -367,19 +368,19 @@ export async function runContextAssembly(
     });
   }
 
-  const CONTEXT_PROACTIVE_THRESHOLD = 0.55;
-  // The TRIGGER stays keyed to the working window (when to compact: ~55% of
-  // 256k), but the number we report is "% of the model's full window" so the
-  // reminder agrees with the UI's context bar. Both used to divide the same
-  // dispatch by different denominators — 256k here ("198% capacity") vs the
-  // full 1M window in the UI ("48%") — for the same underlying size.
-  const fillAfterProactive = dispatchEstimate / workingWindowTokens;
-  if (fillAfterProactive >= CONTEXT_PROACTIVE_THRESHOLD) {
-    const livePct = Math.round(
-      (dispatchEstimate / Math.max(1, contextWindowTokens)) * 100,
-    );
+  // The model-facing fill reminder: the share of the WORKING window, the same
+  // number that fires it and that compaction runs on (see contextFillReminder).
+  // The UI meter keeps reporting against the full window; the model is told
+  // which window its number is of, so the two no longer need to agree.
+  const fillReminder = contextFillReminder({
+    dispatchEstimate,
+    workingWindowTokens,
+    usableTokens,
+    compactionThreshold,
+  });
+  if (fillReminder) {
     logCompactionLine(dispatchEstimate, "reminder");
-    proactiveContextReminderForStream = `Context is at ${livePct}% capacity. Consider calling compress_context before your next heavy tool use.`;
+    proactiveContextReminderForStream = fillReminder;
   }
   // Context meter: report the ACTUAL model-facing dispatched size
   // (post compaction/slice) + window so the UI shows what the model
@@ -397,10 +398,9 @@ export async function runContextAssembly(
     trimReport: [],
     dispatchedTokens: dispatchEstimate,
     // The context meter reports against the model's FULL window, so "% used"
-    // means "how full is the model's context" — matching the compaction
-    // reminder's number (which triggers on the working window but reports
-    // against the full window). Reporting the working window here made the UI
-    // show e.g. "100%" while the reminder said "198%" for the same dispatch.
+    // means "how full is the model's context". (The model's reminder names the
+    // working window instead, and says so in its text.) Reporting the working
+    // window here made the UI show e.g. "100%" on a 1M model at 256k.
     contextWindow: contextWindowTokens,
   } satisfies ChatContextReport);
   return {

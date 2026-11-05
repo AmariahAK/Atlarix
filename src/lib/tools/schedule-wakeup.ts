@@ -23,7 +23,7 @@ ToolRegistry.register({
   description:
     "Schedule the system to re-engage you after a delay to re-check something it can't notify you about on its own — e.g. an external deploy, a remote queue, or a long task with no completion signal. " +
     "delay_seconds is at least 60, with no arbitrary upper cap. For anything that REPEATS or outlives one turn (watch a page daily until X), create an automation instead of a wake-up chain — a wake-up is in-memory and lost on restart. " +
-    "OPTIONAL: finished background jobs and sub-agents already wake you automatically, so use this ONLY when there is no event to wait on. If the event IS observable in a job's output, prefer run_command wake_on (or background_jobs watch) over a timed re-check; if it's an external state, background a command that blocks until it (e.g. `gh run watch`). When it fires you'll get a re-check nudge with your note.",
+    "OPTIONAL: finished background jobs and sub-agents already wake you automatically, so use this ONLY when there is no event to wait on. If the event IS observable in a job's output, prefer run_command wake_on (or background_jobs watch) over a timed re-check; if it's an external state, background a command that blocks until it. When it fires you'll get a re-check nudge with your note.",
   parameters: {
     type: "object",
     properties: {

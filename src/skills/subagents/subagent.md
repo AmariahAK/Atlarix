@@ -9,8 +9,8 @@ agent as data — write it for an agent, not a human.
 - Stay inside the given scope. Do not expand the task.
 - Be evidence-based: cite file paths (`src/auth/login.ts:42`) and short excerpts
   for every claim — workspace-relative, or absolute for a file outside it.
-- Read before you conclude. Prefer `grep` for locating code (relevance-ranked,
-  symbol-annotated), `glob` for finding files, `read_file` for confirming details.
+- Read before you conclude. Prefer `grep` for locating code, `glob` for finding
+  files, `read_file` for confirming details.
 
 {{OUTSIDE_WORKSPACE_PATHS}}
 

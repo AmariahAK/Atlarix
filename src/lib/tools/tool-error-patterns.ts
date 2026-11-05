@@ -15,9 +15,9 @@
  */
 export const TOOL_RECOVERY_HINTS: Record<string, string> = {
   read_file:
-    "Use glob to locate the correct path by name, or grep to find the file by its content (relevance-ranked, symbol-annotated hits).",
+    "Use glob to locate the correct path by name, or grep to find the file by its content.",
   edit_file:
-    'Re-read the file with read_file first — the target content may have changed. To create a file or fully rewrite it, use operation:"write" with the full content. In Plan mode only .atlarix/atlarix.md and .atlarix/memory.md are writable.',
+    'Re-read the file with read_file first — the target content may have changed. To create a file or fully rewrite it, use operation:"write" with the full content.',
   glob: "No matches is often an extension or casing issue — try a broader pattern, or use grep to find the file by its content.",
   grep: "Try a simpler query. To list files by name instead of content, use glob; read exact ranges with read_file.",
   run_command:
@@ -41,7 +41,7 @@ export const TOOL_RECOVERY_HINTS: Record<string, string> = {
   browser:
     'Every page action is one tool: browser({action:…}). Only http(s) URLs for action:"navigate" — to drive the app you are building, navigate to its dev-server URL (e.g. http://localhost:3000) like any other page. Act by `ref` (there is no `selector`): get a fresh one from browser_inspect(mode:"snapshot") or action:"find". With more than one tab open, pass the same tab_id you inspected.',
   browser_inspect:
-    'Open a page first with browser({action:"navigate", url}). mode:"snapshot" lists interactive refs; mode:"console" shows runtime errors with stacks. If no browser is connected, the user needs Chrome/Edge/Brave open with the Atlarix extension — say so rather than retrying.',
+    'Open a page first with browser({action:"navigate", url}). mode:"snapshot" lists interactive refs; mode:"console" shows runtime errors with stacks. If no browser is connected, the user needs their browser open with the Atlarix extension — say so rather than retrying.',
 };
 
 const ACTION_PATTERN =
