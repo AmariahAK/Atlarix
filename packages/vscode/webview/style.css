@@ -862,6 +862,35 @@ body.needs-you .needs-badge {
   border-color: var(--primary);
   background: var(--primary-bg);
 }
+/* ask_user: a topic chip, and options that explain themselves stack as a list. */
+.card__header {
+  align-self: flex-start;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--primary);
+  background: var(--primary-bg);
+  border: 1px solid var(--primary-line);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+.card__options--list {
+  flex-direction: column;
+  align-items: stretch;
+}
+.card__options--list .option {
+  text-align: left;
+}
+.option__rec {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--primary);
+}
+.option__desc {
+  display: block;
+  font-size: 11px;
+  opacity: 0.75;
+}
 .card.peer {
   border-color: var(--border);
   background: var(--card);

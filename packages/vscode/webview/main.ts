@@ -208,7 +208,7 @@ let slowStart: ReturnType<typeof setTimeout> | undefined;
 function onUpdate(u: SessionUpdate): void {
   switch (u.sessionUpdate) {
     case "agent_message_chunk": {
-      const q = (u as { _meta?: { atlarix?: { question?: { items: Array<{ question: string; options?: string[] }> } } } })._meta?.atlarix?.question;
+      const q = (u as { _meta?: { atlarix?: { question?: { items: unknown[] } } } })._meta?.atlarix?.question;
       if (q) return T.showQuestion(q.items);
       if (u.content.type === "text") T.appendText("reply", u.content.text, replaying);
       return;

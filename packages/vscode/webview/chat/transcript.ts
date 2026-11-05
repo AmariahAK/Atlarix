@@ -6,6 +6,7 @@
  * question cards.
  */
 import { RESETS_IN_PATTERN, formatResetsIn } from "../../../../src/shared/billing_copy";
+import { joinAskUserPicks, readAskUserQuestions, type AskUserQuestion } from "../../../../src/lib/tools/ask_user_options";
 import type { ToolCallContent, ToolCallUpdate } from "@agentclientprotocol/sdk";
 import { linkifyText, renderMarkdown } from "../../../extension/src/panel/markdown";
 import type { ContextItem } from "../../src/protocol";
@@ -38,7 +39,7 @@ let renderQueued = false;
 const tools = new Map<string, HTMLElement>();
 /** This turn: whether it changed files, and the message that started it. */
 let turn: { edits: boolean; messageId: number | null } = { edits: false, messageId: null };
-let pendingQuestion: Array<{ question: string; options?: string[] }> | null = null;
+let pendingQuestion: AskUserQuestion[] | null = null;
 
 export function initTranscript(h: TranscriptHooks): void {
   hooks = h;
@@ -50,7 +51,7 @@ export function addNote(text: string): void {
   log.lastElementChild?.scrollIntoView({ block: "nearest" });
 }
 
-export function questionPending(): Array<{ question: string; options?: string[] }> | null {
+export function questionPending(): AskUserQuestion[] | null {
   return pendingQuestion;
 }
 
@@ -654,28 +655,50 @@ function textOf(messageId: number): string {
 
 // --- Questions, errors, recap ------------------------------------------------------------
 
-export function showQuestion(items: Array<{ question: string; options?: string[] }>): void {
+/**
+ * `raw` is `_meta.atlarix.question.items` in either wire shape: `choices` (full
+ * options) from this build's CLI, bare label strings from an older one.
+ */
+export function showQuestion(raw: unknown[]): void {
+  const items = readAskUserQuestions(raw);
+  if (items.length === 0) return;
   foldThought();
   closeCurrent();
   pendingQuestion = items;
   const card = el("div", "card question");
   const answers: string[] = items.map(() => "");
   items.forEach((q, i) => {
+    if (q.header) card.append(el("div", "card__header", q.header));
     card.append(el("div", "card__title", q.question));
-    const opts = el("div", "card__options");
+    const options = q.options ?? [];
+    const opts = el("div", options.some((o) => o.description) ? "card__options card__options--list" : "card__options");
     const free = el("input", "field");
-    free.placeholder = "Or type an answer";
+    free.placeholder = q.multiSelect ? "Something else (added to your picks)" : "Or type an answer";
     free.setAttribute("aria-label", `Answer: ${q.question}`);
-    for (const o of q.options ?? []) {
-      opts.append(
-        button(o, "option", () => {
-          answers[i] = o;
-          free.value = o;
-          for (const b of opts.querySelectorAll("button")) b.classList.toggle("chosen", b.textContent === o);
-        }),
-      );
+    /** multiSelect: the picked labels, in option order, plus the typed text. */
+    const picked = new Set<string>();
+    const multiAnswer = () => joinAskUserPicks(options.filter((o) => picked.has(o.label)).map((o) => o.label), free.value);
+    for (const o of options) {
+      const b = button("", "option", () => {
+        if (q.multiSelect) {
+          if (picked.has(o.label)) picked.delete(o.label);
+          else picked.add(o.label);
+          b.classList.toggle("chosen", picked.has(o.label));
+          b.setAttribute("aria-pressed", String(picked.has(o.label)));
+          answers[i] = multiAnswer();
+          return;
+        }
+        answers[i] = o.label;
+        free.value = o.label;
+        for (const x of opts.querySelectorAll("button")) x.classList.toggle("chosen", x === b);
+      });
+      b.append(el("span", "option__label", o.label));
+      if (o.recommended) b.append(el("span", "option__rec", "Recommended"));
+      if (o.description) b.append(el("span", "option__desc", o.description));
+      if (q.multiSelect) b.setAttribute("aria-pressed", "false");
+      opts.append(b);
     }
-    free.addEventListener("input", () => (answers[i] = free.value));
+    free.addEventListener("input", () => (answers[i] = q.multiSelect ? multiAnswer() : free.value));
     card.append(opts, free);
   });
   card.append(

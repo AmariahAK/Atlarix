@@ -5,6 +5,7 @@
  * the session and the services do (and the tests fake both).
  */
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
+import { joinAskUserPicks } from "@/lib/tools/ask_user_options";
 import fs from "node:fs";
 import { AUTO_CONSENT_TERMS, CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
 import { activityFootnote, activitySections, activityTiles, calendarRows } from "@/lib/stats/activity-format";
@@ -395,7 +396,8 @@ export function openQuestions(ctx: ScreenContext, q: PendingQuestion): void {
   const ask = (i: number, changing = false): void => {
     if (i >= total) return total > 1 ? review() : send();
     const item = q.items[i]!;
-    const title = total > 1 ? `Question ${i + 1}/${total}` : "Atlarix asks";
+    const base = total > 1 ? `Question ${i + 1}/${total}` : "Atlarix asks";
+    const title = item.header ? `${base} · ${item.header}` : base;
     const intro: Line[] = [{ text: item.question, tone: "text", bold: true }];
     const next = (answer: string) => {
       answers[i] = answer;
@@ -412,20 +414,59 @@ export function openQuestions(ctx: ScreenContext, q: PendingQuestion): void {
           onSubmit: (v) => (v.trim() ? next(v.trim()) : "Type an answer, or esc."),
         }),
       );
-    if (!item.options?.length) return typeOwn();
-    show(
-      new ListDialog({
-        title,
-        intro,
-        asking: true,
-        footer: "↑↓ move · enter choose · 1-9 pick · or just type your own · esc leave it",
+    const options = item.options ?? [];
+    if (!options.length) return typeOwn();
+    const picked = new Set<number>();
+    /** A row per option: its number and label, the recommended mark, its description. */
+    const rows = (): ListItem[] =>
+      options.map((o, k) => ({
+        id: String(k),
         // A model that numbered its own options ("1. JSON") showed "1. 1. JSON".
-        items: item.options.map((o, k) => ({ id: String(k), label: `${k + 1}. ${o.replace(/^\s*\d+[.)]\s+/, "")}` })),
-        typeRow: { placeholder: "Type your own answer…", onSubmit: (v) => next(v) },
-        onChoose: (choice) => next(item.options![Number(choice.id)]!),
-        actions: Object.fromEntries(item.options.slice(0, 9).map((o, k) => [String(k + 1), () => next(o)])),
-      }),
-    );
+        label: `${k + 1}. ${o.label.replace(/^\s*\d+[.)]\s+/, "")}`,
+        ...(o.recommended ? { badge: { text: "recommended", tone: "heading" as const } } : {}),
+        ...(o.description ? { detail: o.description } : {}),
+        ...(item.multiSelect
+          ? { gutter: picked.has(k) ? { text: glyph.reply, tone: "accent" as const } : { text: glyph.tool.success, tone: "muted" as const } }
+          : {}),
+      }));
+    if (!item.multiSelect) {
+      show(
+        new ListDialog({
+          title,
+          intro,
+          asking: true,
+          footer: "↑↓ move · enter choose · 1-9 pick · or just type your own · esc leave it",
+          items: rows(),
+          typeRow: { placeholder: "Type your own answer…", onSubmit: (v) => next(v) },
+          onChoose: (choice) => next(options[Number(choice.id)]!.label),
+          actions: Object.fromEntries(options.slice(0, 9).map((o, k) => [String(k + 1), () => next(o.label)])),
+        }),
+      );
+      return;
+    }
+    // Several may be picked: a pick toggles, enter sends them (with your own
+    // text, if you typed some), joined with ", ".
+    const pickedLabels = () => options.filter((_, k) => picked.has(k)).map((o) => o.label);
+    const toggle = (k: number) => {
+      if (picked.has(k)) picked.delete(k);
+      else picked.add(k);
+      dialog.setItems(rows());
+    };
+    const dialog: ListDialog = new ListDialog({
+      title,
+      intro,
+      asking: true,
+      footer: "space or 1-9 pick · enter send · or type your own · esc leave it",
+      items: rows(),
+      typeRow: { placeholder: "Type your own answer…", onSubmit: (v) => next(joinAskUserPicks(pickedLabels(), v)) },
+      // Nothing picked yet: enter takes the highlighted one.
+      onChoose: (choice) => next(picked.size ? joinAskUserPicks(pickedLabels()) : options[Number(choice.id)]!.label),
+      actions: {
+        " ": (row) => toggle(Number(row.id)),
+        ...Object.fromEntries(options.slice(0, 9).map((_, k) => [String(k + 1), () => toggle(k)])),
+      },
+    });
+    show(dialog);
   };
   ask(0);
 }

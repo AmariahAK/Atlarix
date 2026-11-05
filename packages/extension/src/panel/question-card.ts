@@ -1,7 +1,12 @@
+import {
+  ASK_USER_SKIP_ANSWER,
+  combineAskUserAnswers,
+  joinAskUserPicks,
+} from "@/lib/tools/ask_user_options";
 import type { AskUserQuestion } from "../tools/ask-user";
 
-/** What a skipped question sends, matching the desktop's `SKIP_ANSWER`. */
-export const SKIP_ANSWER = "(skipped)";
+/** What a skipped question sends, matching the desktop's. */
+export const SKIP_ANSWER = ASK_USER_SKIP_ANSWER;
 
 export interface QuestionCardHost {
   /**
@@ -84,16 +89,11 @@ export function buildQuestionCard(
   card.append(header);
 
   /**
-   * `Q: … A: …` once there is more than one question, which is exactly
-   * `combineAnswers` on the desktop. Without it the model receives several
-   * answers in a row with nothing saying which belongs to which.
+   * `Q: … A: …` once there is more than one question: the desktop's own
+   * `combineAskUserAnswers`. Without it the model receives several answers in
+   * a row with nothing saying which belongs to which.
    */
-  const combine = () =>
-    multi
-      ? questions
-          .map((q, i) => `Q: ${q.question}\nA: ${answers[i] || SKIP_ANSWER}`)
-          .join("\n\n")
-      : answers[0];
+  const combine = () => combineAskUserAnswers(questions, answers);
 
   /** The desktop's `questionText`: the question for one, a count for several. */
   const questionText = () =>
@@ -129,6 +129,13 @@ export function buildQuestionCard(
     const block = document.createElement("div");
     block.className = "ask__block";
 
+    if (q.header) {
+      const chip = document.createElement("div");
+      chip.className = "ask__chip";
+      chip.textContent = q.header;
+      block.append(chip);
+    }
+
     const heading = document.createElement("div");
     heading.className = "ask__question";
     heading.textContent = multi ? `${qi + 1}. ${q.question}` : q.question;
@@ -138,11 +145,19 @@ export function buildQuestionCard(
     list.className = "ask__options";
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", "Suggested answers");
+    if (q.multiSelect) list.setAttribute("aria-multiselectable", "true");
 
     const rows: HTMLButtonElement[] = [];
     const picks: HTMLButtonElement[] = [];
     optionRows.push(picks);
     const custom = document.createElement("input");
+    /** multiSelect: the picked labels; the answer is them plus the typed text. */
+    const picked = new Set<string>();
+    const multiAnswer = () =>
+      joinAskUserPicks(
+        (q.options ?? []).filter((o) => picked.has(o.label)).map((o) => o.label),
+        custom.value,
+      );
 
     /**
      * `commit` is FALSE for typing, and that distinction is load-bearing.
@@ -158,6 +173,18 @@ export function buildQuestionCard(
       chosen: HTMLElement | null,
       commit: boolean,
     ) => {
+      if (q.multiSelect) {
+        // A toggle, never a send: the user may pick more.
+        if (chosen) {
+          if (picked.has(value)) picked.delete(value);
+          else picked.add(value);
+          chosen.setAttribute("aria-selected", String(picked.has(value)));
+        }
+        answers[qi] = multiAnswer();
+        custom.classList.toggle("ask__custom--on", !!custom.value.trim());
+        refreshSend();
+        return;
+      }
       answers[qi] = value;
       for (const r of rows) r.setAttribute("aria-selected", String(r === chosen));
       custom.classList.toggle("ask__custom--on", chosen === null && !!value);
@@ -181,12 +208,27 @@ export function buildQuestionCard(
       const num = document.createElement("span");
       num.className = "ask__option-num";
       num.textContent = String(oi + 1);
+      const text = document.createElement("span");
+      text.className = "ask__option-text";
       const label = document.createElement("span");
       label.className = "ask__option-label";
-      label.textContent = option;
-      row.append(num, label);
+      label.textContent = option.label;
+      text.append(label);
+      if (option.recommended) {
+        const rec = document.createElement("span");
+        rec.className = "ask__option-rec";
+        rec.textContent = "Recommended";
+        text.append(rec);
+      }
+      if (option.description) {
+        const desc = document.createElement("span");
+        desc.className = "ask__option-desc";
+        desc.textContent = option.description;
+        text.append(desc);
+      }
+      row.append(num, text);
 
-      row.addEventListener("click", () => choose(option, row, true));
+      row.addEventListener("click", () => choose(option.label, row, true));
       rows.push(row);
       picks.push(row);
       list.append(row);
@@ -200,7 +242,7 @@ export function buildQuestionCard(
     custom.addEventListener("keydown", (e) => {
       // Enter sends a single question, the way it sends the composer. With
       // several open it would send the others half-answered.
-      if (e.key === "Enter" && !multi && custom.value.trim()) {
+      if (e.key === "Enter" && !multi && answers[qi].trim()) {
         e.preventDefault();
         submit();
       }
@@ -230,7 +272,8 @@ export function buildQuestionCard(
   skip.addEventListener("click", skipRest);
   actions.append(skip);
 
-  if (multi || (questions[0]?.options?.length ?? 0) === 0) {
+  const single = questions[0];
+  if (multi || (single?.options?.length ?? 0) === 0 || single?.multiSelect) {
     sendButton = document.createElement("button");
     sendButton.type = "button";
     sendButton.className = "button ask__send";

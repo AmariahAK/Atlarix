@@ -4,6 +4,7 @@ import type {
   Message,
   PlanUpdatePayload,
 } from "@/ipc/ipc_types";
+import type { AskUserOption, AskUserQuestion } from "@/lib/tools/ask_user_options";
 import { atom } from "jotai";
 import { atomFamily, selectAtom } from "jotai/utils";
 import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
@@ -193,9 +194,9 @@ export const planSnapshotByAssistantMessageIdAtom = atom<
 export type PendingUserQuestion = {
   questionId: string;
   question: string;
-  options?: string[];
+  options?: AskUserOption[];
   /** v10.1: ask_user can batch several questions; all must be answered before the stream resumes. */
-  questions?: Array<{ question: string; options?: string[] }>;
+  questions?: AskUserQuestion[];
 };
 export const pendingUserQuestionByChatIdAtom = atom<
   Record<number, PendingUserQuestion | undefined>

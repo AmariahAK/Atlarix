@@ -33,6 +33,21 @@ import {
 } from "@/lib/tools/ask_user_options";
 import type { ToolSchema } from "../core/client";
 
+/** One ask_user option, as the desktop advertises it (Claude Code's AskUserQuestion shape). */
+const ASK_USER_OPTION_SCHEMA = {
+  type: "object",
+  properties: {
+    label: {
+      type: "string",
+      description: "The choice, in a few words; what you receive when it is picked",
+    },
+    description: { type: "string", description: "Optional: what this choice means or costs" },
+    recommended: { type: "boolean", description: "Optional: true on the option you suggest" },
+  },
+  required: ["label"],
+  additionalProperties: false,
+};
+
 /** Names the dispatcher answers to. Exported so a test can prove the two agree. */
 export const TOOL_NAMES = [
   "read_page",
@@ -564,9 +579,18 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
               type: "object",
               properties: {
                 question: { type: "string" },
+                header: {
+                  type: "string",
+                  description:
+                    'Optional short label shown above the question, max 12 chars (e.g. "Account")',
+                },
+                multiSelect: {
+                  type: "boolean",
+                  description: "Optional: let the user pick more than one option",
+                },
                 options: {
                   type: "array",
-                  items: { type: "string" },
+                  items: ASK_USER_OPTION_SCHEMA,
                   description:
                     "Suggested answers. The user can always type something " +
                     "else instead, so these are shortcuts and not a menu they " +
@@ -583,7 +607,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           },
           options: {
             type: "array",
-            items: { type: "string" },
+            items: ASK_USER_OPTION_SCHEMA,
             description: "Suggested answers for the single `question` form.",
           },
         },

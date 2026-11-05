@@ -39,6 +39,17 @@ import log from "electron-log";
 import { normalizeAskUserQuestions } from "./ask_user_options";
 const logger = log.scope("workspace-tools");
 
+/** One ask_user option: Claude Code's AskUserQuestion shape. */
+const ASK_USER_OPTION_SCHEMA = {
+  type: "object",
+  properties: {
+    label: { type: "string", description: "The choice, in a few words; what you receive when it is picked" },
+    description: { type: "string", description: "Optional: what this choice means or costs" },
+    recommended: { type: "boolean", description: "Optional: true on the option you suggest" },
+  },
+  required: ["label"],
+};
+
 ToolRegistry.register({
   name: "ask_user",
   description:
@@ -53,22 +64,30 @@ ToolRegistry.register({
       ),
       options: {
         type: "array",
-        items: { type: "string" },
+        items: ASK_USER_OPTION_SCHEMA,
         description:
           "Optional: list of choices for the single question (preferred for multiple choice)",
       },
       // `choices` remains accepted as an alias for `options` but is not
       // advertised — two names for one array is a coin-flip the model
-      // should not have to make.
+      // should not have to make. Plain-string options are accepted too.
       questions: {
         type: "array",
         items: {
           type: "object",
           properties: {
             question: { type: "string", description: "The question text" },
+            header: {
+              type: "string",
+              description: "Optional short label shown above the question, max 12 chars (e.g. \"Auth method\")",
+            },
+            multiSelect: {
+              type: "boolean",
+              description: "Optional: let the user pick more than one option",
+            },
             options: {
               type: "array",
-              items: { type: "string" },
+              items: ASK_USER_OPTION_SCHEMA,
               description: "Optional choices (up to 4)",
             },
           },

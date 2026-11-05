@@ -61,7 +61,7 @@ describe("reading a recorded call back", () => {
     const out = questionsFromArgs(raw);
     expect(out).toHaveLength(2);
     expect(out[0].question).toBe("Which account?");
-    expect(out[0].options).toEqual(["work", "personal"]);
+    expect(out[0].options).toEqual([{ label: "work" }, { label: "personal" }]);
     expect(out[1].options).toBeUndefined();
   });
 
@@ -87,21 +87,21 @@ describe("reading a recorded call back", () => {
           options: [{ label: "work" }, { label: "personal" }],
         }),
       )[0].options,
-    ).toEqual(["work", "personal"]);
+    ).toEqual([{ label: "work" }, { label: "personal" }]);
 
     // `choices` as an alias for `options` — accepted, never advertised.
     expect(
       questionsFromArgs(
         JSON.stringify({ question: "Which?", choices: ["a", "b"] }),
       )[0].options,
-    ).toEqual(["a", "b"]);
+    ).toEqual([{ label: "a" }, { label: "b" }]);
 
     // Options inlined into the question as numbered lines.
     const inline = questionsFromArgs(
       JSON.stringify({ question: "Which one?\n1. work\n2. personal" }),
     );
     expect(inline[0].question).toBe("Which one?");
-    expect(inline[0].options).toEqual(["work", "personal"]);
+    expect(inline[0].options).toEqual([{ label: "work" }, { label: "personal" }]);
   });
 
   it("caps what it returns, so the panel cannot be flooded", () => {

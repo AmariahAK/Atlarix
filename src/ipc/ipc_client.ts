@@ -3,6 +3,7 @@ import {
   type UserSettings,
   AppSearchResultsSchema,
 } from "../lib/schemas";
+import type { AskUserOption, AskUserQuestion } from "@/lib/tools/ask_user_options";
 import type { PluginListItem, PluginPreviewView } from "./handlers/plugin_handlers";
 import type { ModNode, ModUiEvent } from "@/lib/plugins/mod-host";
 import {
@@ -3673,9 +3674,9 @@ export class IpcClient {
       chatId: number;
       questionId: string;
       question: string;
-      options?: string[];
+      options?: AskUserOption[];
       /** v10.1: batched questions — all answered before the stream resumes. */
-      questions?: Array<{ question: string; options?: string[] }>;
+      questions?: AskUserQuestion[];
     }) => void,
   ): () => void {
     this.userQuestionHandlers.set(chatId, handler);

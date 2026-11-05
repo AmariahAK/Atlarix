@@ -64,7 +64,7 @@ describe("InlineUserQuestions", () => {
         [CHAT_ID]: {
           questionId: "q-md",
           question: "Default when `--min-length` is not passed?",
-          options: ["`0` — no filtering", "`3`"],
+          options: [{ label: "`0` — no filtering" }, { label: "`3`" }],
         },
       });
     });
@@ -82,7 +82,7 @@ describe("InlineUserQuestions", () => {
         [CHAT_ID]: {
           questionId: "q-1",
           question: "Tabs or spaces?",
-          options: ["Tabs", "Spaces"],
+          options: [{ label: "Tabs" }, { label: "Spaces" }],
         },
       });
     });
@@ -119,8 +119,8 @@ describe("InlineUserQuestions", () => {
           questionId: "q-2",
           question: "Which DB?",
           questions: [
-            { question: "Which DB?", options: ["Postgres", "SQLite"] },
-            { question: "Auth method?", options: ["OAuth", "JWT"] },
+            { question: "Which DB?", options: [{ label: "Postgres" }, { label: "SQLite" }] },
+            { question: "Auth method?", options: [{ label: "OAuth" }, { label: "JWT" }] },
           ],
         },
       });
@@ -199,7 +199,7 @@ describe("InlineUserQuestions", () => {
                 content: appendQuestionsArtifact("Need a decision first.", {
                   questionId: "uq_reload",
                   questions: [
-                    { question: "Deploy target?", options: ["Vercel", "Fly"] },
+                    { question: "Deploy target?", options: [{ label: "Vercel" }, { label: "Fly" }] },
                   ],
                 }),
                 createdAt: new Date(),
@@ -253,5 +253,98 @@ describe("InlineUserQuestions", () => {
     });
     expect(store.get(pendingUserQuestionByChatIdAtom)[CHAT_ID]).toBeUndefined();
     expect(container.textContent).toBe("");
+  });
+
+  it("shows the header chip, each option's description and the recommended one", () => {
+    const { store, container } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
+    act(() => {
+      store.set(pendingUserQuestionByChatIdAtom, {
+        [CHAT_ID]: {
+          questionId: "q-cc",
+          question: "Which auth method?",
+          questions: [
+            {
+              question: "Which auth method?",
+              header: "Auth method",
+              options: [
+                { label: "OAuth", description: "Sign in with GitHub or Google", recommended: true },
+                { label: "JWT", description: "Tokens you issue yourself" },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    expect(screen.getByTestId("ask-header-0")).toHaveTextContent("Auth method");
+    expect(screen.getByText("Sign in with GitHub or Google")).toBeInTheDocument();
+    expect(screen.getByText("Tokens you issue yourself")).toBeInTheDocument();
+    const recommended = container.querySelectorAll("[data-testid='ask-recommended']");
+    expect(recommended).toHaveLength(1);
+    expect(recommended[0]!.closest("button")).toHaveTextContent("OAuth");
+  });
+
+  it("multiSelect: clicks toggle (no instant send); Submit sends the labels joined with \", \" plus the typed Other", async () => {
+    const { store } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
+    act(() => {
+      store.set(pendingUserQuestionByChatIdAtom, {
+        [CHAT_ID]: {
+          questionId: "q-multi",
+          question: "Which checks?",
+          questions: [
+            {
+              question: "Which checks?",
+              multiSelect: true,
+              options: [{ label: "Lint" }, { label: "Tests" }, { label: "Types" }],
+            },
+          ],
+        },
+      });
+    });
+    const submit = screen.getByTestId("inline-user-questions-submit");
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByText("Lint"));
+    fireEvent.click(screen.getByText("Types"));
+    fireEvent.click(screen.getByText("Tests"));
+    fireEvent.click(screen.getByText("Types")); // off again
+    expect(fakeIpc.submitUserQuestionAnswer).not.toHaveBeenCalled();
+    expect(screen.getByText("Lint").closest("button")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Types").closest("button")).toHaveAttribute("aria-selected", "false");
+    fireEvent.change(screen.getByPlaceholderText("Something else"), { target: { value: "a11y audit" } });
+    // Typing Other keeps the picks (Claude Code once dropped one or the other).
+    expect(screen.getByText("Lint").closest("button")).toHaveAttribute("aria-selected", "true");
+    expect(submit).not.toBeDisabled();
+    fireEvent.click(submit);
+    await waitFor(() => {
+      expect(fakeIpc.submitUserQuestionAnswer).toHaveBeenCalledWith(
+        CHAT_ID,
+        "q-multi",
+        "Lint, Tests, a11y audit",
+        "Which checks?",
+      );
+    });
+  });
+
+  it("re-seeds header, descriptions and multiSelect from the persisted marker", async () => {
+    const { store } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
+    const content = appendQuestionsArtifact("Two quick choices.", {
+      questionId: "q-reload",
+      questions: [
+        {
+          question: "Which checks?",
+          header: "CI checks",
+          multiSelect: true,
+          options: [{ label: "Lint", description: "eslint" }, { label: "Tests" }],
+        },
+      ],
+    });
+    act(() => {
+      store.set(
+        chatMessagesByIdAtom,
+        new Map([[CHAT_ID, [{ id: 1, chatId: CHAT_ID, role: "assistant", content, createdAt: new Date() }] as never]]),
+      );
+    });
+    await waitFor(() => expect(screen.getByTestId("ask-header-0")).toHaveTextContent("CI checks"));
+    expect(screen.getByText("eslint")).toBeInTheDocument();
+    expect(screen.getByTestId("inline-user-questions-submit")).toBeInTheDocument();
   });
 });

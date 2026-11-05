@@ -415,7 +415,7 @@ describe("command screens", () => {
 
   it("a question from the agent opens by itself; a number answers it", async () => {
     const { setup, session } = await mount();
-    session.set({ question: { questionId: "q1", items: [{ question: "Which database?", options: ["Postgres", "SQLite"] }] } });
+    session.set({ question: { questionId: "q1", items: [{ question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] }] } });
     expect(await frameContaining(setup, "Which database?")).toContain("2. SQLite");
     setup.mockInput.pressKey("2");
     expect(await until(() => session.calls.some((c) => c[0] === "answerQuestion"))).toBe(true);
@@ -440,7 +440,7 @@ describe("command screens", () => {
 
   it("your own answer is typed right in the question, without leaving it", async () => {
     const { setup, session } = await mount();
-    session.set({ question: { questionId: "q4", items: [{ question: "What next?", options: ["Tests", "Docs"] }] } });
+    session.set({ question: { questionId: "q4", items: [{ question: "What next?", options: [{ label: "Tests" }, { label: "Docs" }] }] } });
     let frame = await frameContaining(setup, "What next?");
     expect(frame).toContain("Type your own answer…");
     await setup.mockInput.typeText("the chrome extension");
@@ -480,6 +480,69 @@ describe("command screens", () => {
     expect(frame).not.toContain("***Q:***");
   });
 
+  it("a question shows its header, each option's description and the recommended one", async () => {
+    const { setup, session } = await mount();
+    session.set({
+      question: {
+        questionId: "q-cc",
+        items: [
+          {
+            question: "Which auth method?",
+            header: "Auth method",
+            options: [
+              { label: "OAuth", description: "Sign in with GitHub", recommended: true },
+              { label: "JWT", description: "Tokens you issue" },
+            ],
+          },
+        ],
+      },
+    });
+    const frame = await frameContaining(setup, "Which auth method?");
+    expect(frame).toContain("Auth method");
+    expect(frame).toContain("1. OAuth");
+    expect(frame).toContain("recommended");
+    expect(frame).toContain("Sign in with GitHub");
+    expect(frame).toContain("Tokens you issue");
+  });
+
+  it("multiSelect: space or a number toggles, enter sends the picks joined with \", \" plus your own text", async () => {
+    const { setup, session } = await mount();
+    session.set({
+      question: {
+        questionId: "q-multi",
+        items: [{ question: "Which checks?", multiSelect: true, options: [{ label: "Lint" }, { label: "Tests" }, { label: "Types" }] }],
+      },
+    });
+    await frameContaining(setup, "Which checks?");
+    setup.mockInput.pressKey("3"); // Types on
+    setup.mockInput.pressKey(" "); // Lint (highlighted) on
+    setup.mockInput.pressKey("2");
+    setup.mockInput.pressKey("2"); // Tests on, then off
+    await settle(setup);
+    expect(session.calls.some((c) => c[0] === "answerQuestion")).toBe(false);
+    await setup.mockInput.typeText("a11y audit");
+    await frameContaining(setup, "a11y audit");
+    setup.mockInput.pressEnter();
+    expect(await until(() => session.calls.some((c) => c[0] === "answerQuestion"))).toBe(true);
+    expect(session.calls.find((c) => c[0] === "answerQuestion")).toEqual(["answerQuestion", ["Lint, Types, a11y audit"]]);
+  });
+
+  it("multiSelect: enter on the list sends what is picked", async () => {
+    const { setup, session } = await mount();
+    session.set({
+      question: {
+        questionId: "q-multi2",
+        items: [{ question: "Which checks?", multiSelect: true, options: [{ label: "Lint" }, { label: "Tests" }] }],
+      },
+    });
+    await frameContaining(setup, "Which checks?");
+    setup.mockInput.pressKey("2");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    expect(await until(() => session.calls.some((c) => c[0] === "answerQuestion"))).toBe(true);
+    expect(session.calls.find((c) => c[0] === "answerQuestion")).toEqual(["answerQuestion", ["Tests"]]);
+  });
+
   it("several questions end in a review: change one, then send them all", async () => {
     const { setup, session } = await mount();
     session.set({
@@ -487,8 +550,8 @@ describe("command screens", () => {
       question: {
         questionId: "q3",
         items: [
-          { question: "Which database?", options: ["Postgres", "SQLite"] },
-          { question: "Add auth?", options: ["Yes", "No"] },
+          { question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] },
+          { question: "Add auth?", options: [{ label: "Yes" }, { label: "No" }] },
         ],
       },
     } as never);
@@ -593,7 +656,7 @@ describe("command screens", () => {
 
   it("esc leaves the question unanswered", async () => {
     const { setup, session } = await mount();
-    session.set({ question: { questionId: "q2", items: [{ question: "Proceed?", options: ["Yes", "No"] }] } });
+    session.set({ question: { questionId: "q2", items: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] } });
     await frameContaining(setup, "Proceed?");
     setup.mockInput.pressEscape();
     expect(await until(() => session.calls.some((c) => c[0] === "dismissQuestion"))).toBe(true);

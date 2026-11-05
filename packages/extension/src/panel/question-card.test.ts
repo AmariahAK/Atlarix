@@ -33,7 +33,7 @@ describe("ordering", () => {
     // width, so what the user read was not the order the model wrote.
     const { host: h } = host();
     const card = buildQuestionCard(
-      [{ question: "What next?", options: ["Alpha", "B", "C", "Delta echo"] }],
+      [{ question: "What next?", options: [{ label: "Alpha" }, { label: "B" }, { label: "C" }, { label: "Delta echo" }] }],
       h,
     );
     expect(labels(card)).toEqual(["Alpha", "B", "C", "Delta echo"]);
@@ -67,7 +67,7 @@ describe("one question with options — picking SENDS", () => {
     // as having done nothing and the answer arrived looking typed.
     const { host: h, send } = host();
     const card = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha", "Beta"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }, { label: "Beta" }] }],
       h,
     );
     options(card)[1].click();
@@ -77,7 +77,7 @@ describe("one question with options — picking SENDS", () => {
   it("offers no Send button, because there is nothing left to confirm", () => {
     const { host: h } = host();
     const card = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }] }],
       h,
     );
     expect(sendButton(card)).toBeNull();
@@ -86,7 +86,7 @@ describe("one question with options — picking SENDS", () => {
   it("cannot be answered twice", () => {
     const { host: h, send } = host();
     const card = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha", "Beta"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }, { label: "Beta" }] }],
       h,
     );
     options(card)[0].click();
@@ -98,8 +98,8 @@ describe("one question with options — picking SENDS", () => {
 
 describe("several questions — picking SELECTS, Send commits", () => {
   const two = [
-    { question: "Which one?", options: ["Alpha", "Beta"] },
-    { question: "When?", options: ["Today", "Tomorrow"] },
+    { question: "Which one?", options: [{ label: "Alpha" }, { label: "Beta" }] },
+    { question: "When?", options: [{ label: "Today" }, { label: "Tomorrow" }] },
   ];
 
   it("does not send on a pick", () => {
@@ -153,7 +153,7 @@ describe("typing your own answer", () => {
   it("counts as this question's answer", () => {
     const { host: h, send } = host();
     const card = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }] }],
       h,
     );
     const field = card.querySelector<HTMLInputElement>(".ask__custom")!;
@@ -186,7 +186,7 @@ describe("skip", () => {
     // thing before "Something else…" was an escape hatch.
     const { host: h } = host();
     const card = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }] }],
       h,
     );
     const order = [...card.querySelectorAll(".ask__option, .ask__custom, .ask__skip")]
@@ -197,7 +197,7 @@ describe("skip", () => {
   it("is ONE button for the card, not one per question", () => {
     const { host: h } = host();
     const card = buildQuestionCard(
-      [{ question: "A?", options: ["x"] }, { question: "B?", options: ["y"] }],
+      [{ question: "A?", options: [{ label: "x" }] }, { question: "B?", options: [{ label: "y" }] }],
       h,
     );
     expect(card.querySelectorAll(".ask__skip")).toHaveLength(1);
@@ -207,7 +207,7 @@ describe("skip", () => {
   it("is offered even when a click alone could answer, so Send is not", () => {
     const { host: h } = host();
     const card = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }] }],
       h,
     );
     expect(skipButton(card)).not.toBeNull();
@@ -217,7 +217,7 @@ describe("skip", () => {
   it("SUBMITS — it is not a dismiss", () => {
     const { host: h, send } = host();
     const card = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }] }],
       h,
     );
     skipButton(card).click();
@@ -231,9 +231,9 @@ describe("skip", () => {
     const { host: h, send } = host();
     const card = buildQuestionCard(
       [
-        { question: "A?", options: ["one"] },
-        { question: "B?", options: ["two"] },
-        { question: "C?", options: ["three"] },
+        { question: "A?", options: [{ label: "one" }] },
+        { question: "B?", options: [{ label: "two" }] },
+        { question: "C?", options: [{ label: "three" }] },
       ],
       h,
     );
@@ -250,14 +250,14 @@ describe("skip", () => {
 describe("number keys", () => {
   const card = () =>
     buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha", "Beta", "Gamma"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }, { label: "Beta" }, { label: "Gamma" }] }],
       host().host,
     );
 
   it("picks an option on a single-question card", () => {
     const { host: h, send } = host();
     const c = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha", "Beta"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }, { label: "Beta" }] }],
       h,
     );
     c.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true }));
@@ -267,7 +267,7 @@ describe("number keys", () => {
   it("does nothing while focus is in the custom field — that is TYPING", () => {
     const { host: h, send } = host();
     const c = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha", "Beta"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }, { label: "Beta" }] }],
       h,
     );
     const field = c.querySelector<HTMLInputElement>(".ask__custom")!;
@@ -289,7 +289,7 @@ describe("it is announced as a choice, not as prose", () => {
   it("uses real buttons in a listbox", () => {
     const { host: h } = host();
     const card = buildQuestionCard(
-      [{ question: "Which one?", options: ["Alpha", "Beta"] }],
+      [{ question: "Which one?", options: [{ label: "Alpha" }, { label: "Beta" }] }],
       h,
     );
     expect(card.querySelector(".ask__options")?.getAttribute("role")).toBe(
@@ -319,7 +319,10 @@ describe("the class contract with sidepanel.css", () => {
   it("emits exactly the classes the stylesheet is written against", () => {
     const { host: h } = host();
     const card = buildQuestionCard(
-      [{ question: "A?", options: ["x"] }, { question: "B?" }],
+      [
+        { question: "A?", header: "Topic", options: [{ label: "x", description: "why", recommended: true }] },
+        { question: "B?" },
+      ],
       h,
     );
     const used = new Set<string>();
@@ -330,16 +333,71 @@ describe("the class contract with sidepanel.css", () => {
       "ask",
       "ask__actions",
       "ask__block",
+      "ask__chip",
       "ask__custom",
       "ask__header",
       "ask__option",
+      "ask__option-desc",
       "ask__option-label",
       "ask__option-num",
+      "ask__option-rec",
+      "ask__option-text",
       "ask__options",
       "ask__question",
       "ask__send",
       "ask__skip",
       "button",
     ]);
+  });
+});
+
+describe("like Claude Code's: header, described options, multiSelect", () => {
+  it("shows the header chip, each option's description and the recommended one", () => {
+    const { host: h } = host();
+    const card = buildQuestionCard(
+      [
+        {
+          question: "Which account?",
+          header: "Account",
+          options: [
+            { label: "Work", description: "you@company.com", recommended: true },
+            { label: "Personal", description: "you@gmail.com" },
+          ],
+        },
+      ],
+      h,
+    );
+    expect(card.querySelector(".ask__chip")?.textContent).toBe("Account");
+    expect(options(card).map((o) => o.querySelector(".ask__option-desc")?.textContent)).toEqual([
+      "you@company.com",
+      "you@gmail.com",
+    ]);
+    expect(options(card).map((o) => !!o.querySelector(".ask__option-rec"))).toEqual([true, false]);
+    expect(labels(card)).toEqual(["Work", "Personal"]); // the tag is not part of the label
+  });
+
+  it("multiSelect: clicks toggle and never send; Send sends the labels joined with \", \" plus the typed text", () => {
+    const { host: h, send } = host();
+    const card = buildQuestionCard(
+      [{ question: "Which tabs?", multiSelect: true, options: [{ label: "Gmail" }, { label: "Docs" }, { label: "Drive" }] }],
+      h,
+    );
+    const [gmail, docs, drive] = options(card);
+    expect(sendButton(card)).not.toBeNull();
+    expect(sendButton(card)!.disabled).toBe(true);
+    drive!.click();
+    gmail!.click();
+    docs!.click();
+    docs!.click(); // off again
+    expect(send).not.toHaveBeenCalled();
+    expect(options(card).map((o) => o.getAttribute("aria-selected"))).toEqual(["true", "false", "true"]);
+    const custom = card.querySelector<HTMLInputElement>(".ask__custom")!;
+    custom.value = "Calendar";
+    custom.dispatchEvent(new Event("input"));
+    // Typing keeps the picks (a dropped "Other" was a Claude Code bug).
+    expect(options(card).map((o) => o.getAttribute("aria-selected"))).toEqual(["true", "false", "true"]);
+    expect(sendButton(card)!.disabled).toBe(false);
+    sendButton(card)!.click();
+    expect(send).toHaveBeenCalledWith("Which tabs?", "Gmail, Drive, Calendar");
   });
 });

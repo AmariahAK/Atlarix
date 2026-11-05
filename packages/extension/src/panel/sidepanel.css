@@ -857,10 +857,38 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.ask__option-label {
+.ask__option-text {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* What the option means, under its label (Claude Code's AskUserQuestion shape). */
+.ask__option-desc {
+  display: block;
+  margin-top: 2px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.ask__option-rec {
+  margin-left: 6px;
+  color: var(--primary);
+  font-size: 11px;
+}
+
+/* The question's topic chip ("Account"), at most 12 characters. */
+.ask__chip {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 1px 6px;
+  border-radius: calc(var(--radius) - 8px);
+  background: color-mix(in srgb, var(--primary) 14%, var(--card));
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 /* The "something else" field, so a typed answer belongs to ITS question

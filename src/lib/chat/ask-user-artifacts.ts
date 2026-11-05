@@ -11,10 +11,13 @@
  * Pure string helpers — safe in both main and renderer.
  */
 
-export type AskUserArtifactQuestion = {
-  question: string;
-  options?: string[];
-};
+import {
+  readAskUserQuestions,
+  toAskUserWire,
+  type AskUserQuestion,
+} from "@/lib/tools/ask_user_options";
+
+export type AskUserArtifactQuestion = AskUserQuestion;
 
 export type AskUserArtifact = {
   questionId: string;
@@ -29,7 +32,10 @@ export function appendQuestionsArtifact(
   content: string,
   artifact: AskUserArtifact,
 ): string {
-  const marker = `<!-- atlarix-questions:${JSON.stringify(artifact)} -->`;
+  // The wire shape: label strings in `options` for older builds sharing the
+  // database, the full options in `choices`.
+  const stored = { questionId: artifact.questionId, questions: toAskUserWire(artifact.questions) };
+  const marker = `<!-- atlarix-questions:${JSON.stringify(stored)} -->`;
   const base = content.trimEnd();
   return base ? `${base}\n\n${marker}\n` : `${marker}\n`;
 }
@@ -45,23 +51,9 @@ export function extractQuestionsArtifact(
   const inner = last.match(QUESTIONS_COMMENT_RE)?.[1];
   if (!inner) return null;
   try {
-    const parsed = JSON.parse(inner) as AskUserArtifact;
-    if (
-      !parsed ||
-      typeof parsed.questionId !== "string" ||
-      !Array.isArray(parsed.questions) ||
-      parsed.questions.length === 0
-    ) {
-      return null;
-    }
-    const questions = parsed.questions
-      .filter((q) => q && typeof q.question === "string" && q.question.trim())
-      .map((q) => ({
-        question: q.question,
-        ...(Array.isArray(q.options) && q.options.length > 0
-          ? { options: q.options.map(String) }
-          : {}),
-      }));
+    const parsed = JSON.parse(inner) as { questionId?: unknown; questions?: unknown };
+    if (!parsed || typeof parsed.questionId !== "string") return null;
+    const questions = readAskUserQuestions(parsed.questions);
     if (questions.length === 0) return null;
     return { questionId: parsed.questionId, questions };
   } catch {

@@ -8,53 +8,100 @@ export const ASK_USER_MAX_OPTIONS = 4;
  */
 
 /**
- * Coerce one option item to a display string. Models vary wildly over
- * OpenRouter: some emit plain strings, others emit the Anthropic-native
- * `{ label, description }` objects (minimax). Without this, `String({…})`
- * yields "[object Object]" and the Set-dedup below collapses them all to one.
+ * One answer the user can pick, as Claude Code's AskUserQuestion has it: a
+ * short `label` (what the model receives when it is picked), an optional
+ * `description` shown under it, and `recommended` for the one the model
+ * suggests. "Other" is never an option: every surface has a free-text answer.
  */
-function coerceOptionLabel(x: unknown): string {
-  if (x == null) return "";
+export type AskUserOption = {
+  label: string;
+  description?: string;
+  recommended?: boolean;
+};
+
+/** A question's `header` chip, at most this many characters (Claude Code's limit). */
+export const ASK_USER_HEADER_MAX = 12;
+
+/** "Postgres (Recommended)": the convention models carry over from Claude Code. */
+const RECOMMENDED_SUFFIX_RE = /\s*[(\[]\s*recommended\s*[)\]]\s*$/i;
+
+/**
+ * Coerce one option item. Models vary wildly over OpenRouter: some emit plain
+ * strings, others the Anthropic-native `{ label, description }` objects
+ * (minimax). Without this, `String({…})` yields "[object Object]" and the
+ * label-dedup below collapses them all to one.
+ */
+function coerceOption(x: unknown): AskUserOption | null {
+  if (x == null) return null;
+  let label: string;
+  let description = "";
+  let recommended = false;
   if (typeof x === "object") {
     const r = x as Record<string, unknown>;
     const v = r.label ?? r.value ?? r.title ?? r.name ?? r.text ?? r.option;
-    return v == null ? "" : String(v).trim();
+    label = v == null ? "" : String(v).trim();
+    const d = r.description ?? r.detail ?? r.hint;
+    description = typeof d === "string" ? d.trim() : "";
+    recommended = r.recommended === true || r.recommended === "true";
+  } else {
+    label = String(x).trim();
   }
-  return String(x).trim();
+  if (RECOMMENDED_SUFFIX_RE.test(label)) {
+    label = label.replace(RECOMMENDED_SUFFIX_RE, "").trim();
+    recommended = true;
+  }
+  if (!label) return null;
+  return {
+    label,
+    ...(description ? { description } : {}),
+    ...(recommended ? { recommended: true } : {}),
+  };
 }
 
-function coerceStringArray(raw: unknown): string[] | undefined {
+/** First option per label wins. */
+function dedupeOptions(options: AskUserOption[]): AskUserOption[] | undefined {
+  const seen = new Set<string>();
+  const out = options.filter((o) => !seen.has(o.label) && !!seen.add(o.label));
+  return out.length > 0 ? out : undefined;
+}
+
+function coerceOptions(raw: unknown): AskUserOption[] | undefined {
   if (raw == null) return undefined;
   if (Array.isArray(raw)) {
-    const out = raw.map(coerceOptionLabel).filter(Boolean);
-    return out.length > 0 ? [...new Set(out)] : undefined;
+    return dedupeOptions(raw.map(coerceOption).filter((o): o is AskUserOption => o !== null));
   }
   if (typeof raw === "string") {
     const t = raw.trim();
     if (!t) return undefined;
+    const asOptions = (parts: string[]) => coerceOptions(parts);
     const byNl = t
       .split(/\r?\n/)
       .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "").trim())
       .filter(Boolean);
-    if (byNl.length > 1) return [...new Set(byNl)];
+    if (byNl.length > 1) return asOptions(byNl);
     const byPipe = t
       .split(/\s*\|\s*/)
       .map((s) => s.trim())
       .filter(Boolean);
-    if (byPipe.length > 1) return [...new Set(byPipe)];
+    if (byPipe.length > 1) return asOptions(byPipe);
     const bySemi = t
       .split(/\s*;\s*/)
       .map((s) => s.trim())
       .filter(Boolean);
-    if (bySemi.length > 1) return [...new Set(bySemi)];
+    if (bySemi.length > 1) return asOptions(bySemi);
     try {
       const j = JSON.parse(t) as unknown;
-      return coerceStringArray(j);
+      return coerceOptions(j);
     } catch {
       /* not JSON */
     }
   }
   return undefined;
+}
+
+/** The text of an option in any shape a renderer may be handed (an older build sends strings). */
+export function askUserOptionLabel(option: unknown): string {
+  return coerceOption(option)?.label ?? "";
 }
 
 function extractChoiceLinesFromQuestion(
@@ -115,11 +162,18 @@ function extractCommaChoicesAfterCue(
   return { headline: headline || question.trim(), options: opts };
 }
 
-function capAskUserOptions(options: string[]): string[] {
+function capAskUserOptions(options: AskUserOption[]): AskUserOption[] {
   return options.slice(0, ASK_USER_MAX_OPTIONS);
 }
 
-export type AskUserQuestion = { question: string; options?: string[] };
+export type AskUserQuestion = {
+  question: string;
+  /** A short chip naming the topic ("Auth method"), at most ASK_USER_HEADER_MAX chars. */
+  header?: string;
+  /** The user may pick several options; their answer is the labels joined with ", ". */
+  multiSelect?: boolean;
+  options?: AskUserOption[];
+};
 
 /** Hard cap on questions per ask_user call. */
 export const ASK_USER_MAX_QUESTIONS = 5;
@@ -155,18 +209,95 @@ export function normalizeAskUserQuestions(
             "",
           options: rec.options ?? rec.choices ?? rec.answers,
         });
-        if (norm.question.trim()) out.push(norm);
+        if (norm.question.trim()) out.push(withExtras(norm, rec));
       }
     }
     if (out.length > 0) return out.slice(0, ASK_USER_MAX_QUESTIONS);
   }
   const single = normalizeAskUserPayload(args);
-  return single.question.trim() ? [single] : [];
+  return single.question.trim() ? [withExtras(single, args)] : [];
+}
+
+/**
+ * `header` and `multiSelect`, in that key order after the question. A header
+ * that IS the question (the model sent only `header`) is not repeated as a
+ * chip; multiSelect means nothing without options to pick.
+ */
+function withExtras(
+  norm: { question: string; options?: AskUserOption[] },
+  rec: Record<string, unknown>,
+): AskUserQuestion {
+  const rawHeader = typeof rec.header === "string" ? rec.header.trim() : "";
+  const header =
+    rawHeader && rawHeader !== norm.question.trim() ? rawHeader.slice(0, ASK_USER_HEADER_MAX).trim() : "";
+  const multi = rec.multiSelect ?? rec.multi_select ?? rec.multiple;
+  const multiSelect = (multi === true || multi === "true") && (norm.options?.length ?? 0) > 0;
+  return {
+    question: norm.question,
+    ...(header ? { header } : {}),
+    ...(multiSelect ? { multiSelect: true } : {}),
+    ...(norm.options ? { options: norm.options } : {}),
+  };
+}
+
+// ─── Answers ────────────────────────────────────────────────────────────────
+
+/** What a skipped question sends (every surface). */
+export const ASK_USER_SKIP_ANSWER = "(skipped)";
+
+/**
+ * The one message the model receives: the answer itself for one question,
+ * `Q: … A: …` pairs for several, with blanks sent as "(skipped)". Desktop,
+ * CLI and the browser extension all send this, byte for byte.
+ */
+export function combineAskUserAnswers(questions: ReadonlyArray<{ question: string }>, answers: readonly string[]): string {
+  if (questions.length === 1) return answers[0]?.trim() ?? "";
+  return questions.map((q, i) => `Q: ${q.question}\nA: ${answers[i]?.trim() || ASK_USER_SKIP_ANSWER}`).join("\n\n");
+}
+
+/** A multi-select answer: the picked labels joined with ", ", then the typed "Other" text. */
+export function joinAskUserPicks(labels: readonly string[], other = ""): string {
+  return [...labels, other.trim()].filter(Boolean).join(", ");
+}
+
+// ─── Wire shape ─────────────────────────────────────────────────────────────
+
+/**
+ * A question as it is stored (the `atlarix-questions` marker) and sent to
+ * editors (ACP `_meta.atlarix.question`). `options` stays the label strings an
+ * older desktop, CLI or VS Code build reads (an object there drew
+ * "[object Object]"); `choices` carries the full options for current readers.
+ */
+export type AskUserWireQuestion = {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options?: string[];
+  choices?: AskUserOption[];
+};
+
+export function toAskUserWire(questions: readonly AskUserQuestion[]): AskUserWireQuestion[] {
+  return questions.map((q) => ({
+    question: q.question,
+    ...(q.header ? { header: q.header } : {}),
+    ...(q.multiSelect ? { multiSelect: true } : {}),
+    ...(q.options?.length ? { options: q.options.map((o) => o.label), choices: q.options } : {}),
+  }));
+}
+
+/** Questions from the wire (either shape, any build): `choices` when present, else `options`. */
+export function readAskUserQuestions(raw: unknown): AskUserQuestion[] {
+  if (!Array.isArray(raw)) return [];
+  const items = raw.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+  if (items.length === 0) return [];
+  return normalizeAskUserQuestions({
+    questions: items.map((q) => ({ ...q, options: Array.isArray(q.choices) ? q.choices : q.options, choices: undefined })),
+  });
 }
 
 export function normalizeAskUserPayload(args: Record<string, unknown>): {
   question: string;
-  options?: string[];
+  options?: AskUserOption[];
 } {
   const rawQuestion = String(
     args.question ??
@@ -177,9 +308,9 @@ export function normalizeAskUserPayload(args: Record<string, unknown>): {
       "",
   );
   const fromParams =
-    coerceStringArray(args.options) ??
-    coerceStringArray(args.choices) ??
-    coerceStringArray(args.answers);
+    coerceOptions(args.options) ??
+    coerceOptions(args.choices) ??
+    coerceOptions(args.answers);
   if (fromParams && fromParams.length > 0) {
     // Never let options leak into the question slot: if the model gave choices
     // but no readable question text, synthesize a generic prompt so the entry
@@ -191,18 +322,12 @@ export function normalizeAskUserPayload(args: Record<string, unknown>): {
   }
 
   const multiline = extractChoiceLinesFromQuestion(rawQuestion);
-  if (multiline && multiline.options.length >= 2) {
+  const inline = multiline && multiline.options.length >= 2 ? multiline : extractCommaChoicesAfterCue(rawQuestion);
+  const inlineOptions = inline && inline.options.length >= 2 ? coerceOptions(inline.options) : undefined;
+  if (inline && inlineOptions && inlineOptions.length >= 2) {
     return {
-      question: multiline.headline,
-      options: capAskUserOptions(multiline.options),
-    };
-  }
-
-  const comma = extractCommaChoicesAfterCue(rawQuestion);
-  if (comma && comma.options.length >= 2) {
-    return {
-      question: comma.headline,
-      options: capAskUserOptions(comma.options),
+      question: inline.headline,
+      options: capAskUserOptions(inlineOptions),
     };
   }
 

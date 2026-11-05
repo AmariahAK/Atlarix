@@ -12,6 +12,7 @@
 import { ownMessages, withTeammateMessages } from "./own-messages";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { combineAskUserAnswers, readAskUserQuestions, type AskUserQuestion } from "@/lib/tools/ask_user_options";
 import fs from "node:fs";
 import path from "node:path";
 import type { ChildProcess } from "node:child_process";
@@ -142,7 +143,7 @@ export interface McpConsentRequest {
 
 export interface PendingQuestion {
   questionId: string;
-  items: Array<{ question: string; options?: string[] }>;
+  items: AskUserQuestion[];
 }
 
 export interface SessionSummary {
@@ -158,14 +159,8 @@ export interface SessionSummary {
   parentTitle?: string;
 }
 
-/** The desktop's answer for a question left unanswered (InlineUserQuestions). */
-const SKIP_ANSWER = "(skipped)";
-
 /** One message for the model when several questions were asked, as the desktop sends it. */
-export function combineAnswers(items: PendingQuestion["items"], answers: string[]): string {
-  if (items.length === 1) return answers[0] ?? "";
-  return items.map((it, i) => `Q: ${it.question}\nA: ${answers[i]?.trim() || SKIP_ANSWER}`).join("\n\n");
-}
+export const combineAnswers = combineAskUserAnswers;
 
 export interface LiveTask {
   id: string;
@@ -2263,9 +2258,9 @@ export class AgentSession extends EventEmitter {
         }
         return;
       case "user-question-request": {
-        const items = Array.isArray(p.questions) && p.questions.length
-          ? (p.questions as PendingQuestion["items"])
-          : [{ question: String(p.question ?? ""), options: p.options as string[] | undefined }];
+        const items = readAskUserQuestions(
+          Array.isArray(p.questions) && p.questions.length ? p.questions : [{ question: p.question, options: p.options }],
+        );
         this.update({ question: { questionId: String(p.questionId ?? ""), items } });
         return;
       }

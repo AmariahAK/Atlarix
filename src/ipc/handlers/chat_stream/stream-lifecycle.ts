@@ -23,6 +23,7 @@ import { clearScheduledWakeupsForChat } from "@/lib/agent/scheduled-wakeups";
 import { killForegroundCommandsForChat } from "@/lib/agent/background-commands";
 import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import { getStreamTransportAppId } from "@/lib/chat/stream-transport";
+import { readAskUserQuestions, type AskUserQuestion } from "@/lib/tools/ask_user_options";
 import {
   activeStreams,
   activeStreamRuns,
@@ -82,22 +83,14 @@ export async function resolveAskUserToolResult(
   ) {
     return null;
   }
-  const q = marker as {
-    question: string;
-    options?: string[];
-    questions?: Array<{ question: string; options?: string[] }>;
-  };
-  const questions =
+  const q = marker as { question?: unknown; options?: unknown; questions?: unknown };
+  const read = readAskUserQuestions(
     Array.isArray(q.questions) && q.questions.length > 0
       ? q.questions
-      : [
-          {
-            question: q.question ?? "",
-            ...(Array.isArray(q.options) && q.options.length > 0
-              ? { options: q.options }
-              : {}),
-          },
-        ];
+      : [{ question: q.question, options: q.options }],
+  );
+  const questions: AskUserQuestion[] =
+    read.length > 0 ? read : [{ question: String(q.question ?? "") }];
   // v12 3.1: collision-free id (was Date.now()+Math.random — ms collisions).
   const questionId = `uq_${crypto.randomUUID()}`;
   pendingAskUserArtifactByChatId.set(chatId, { questionId, questions });

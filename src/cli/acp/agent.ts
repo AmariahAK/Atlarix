@@ -40,6 +40,7 @@ import {
   mcpConsentToolCall,
 } from "./permissions";
 import { AUTO_CONSENT_MARKER, AUTO_CONSENT_TERMS, CORE_CREDIT_DESCRIPTION } from "@/shared/billing_copy";
+import { questionMeta, questionText } from "./question-text";
 import { type ErrorMark, refusalDelivery, turnErrorSince } from "./turn-error";
 import { diffUpdates, type Emitted } from "./updates";
 import { handler } from "../agent/ipc";
@@ -926,16 +927,12 @@ class Thread {
       void this.send({ sessionUpdate: "session_info_update", title: s.title });
     }
     if (s.question) {
-      const lines = s.question.items.map((q, i) => {
-        const opts = q.options?.length ? `\n${q.options.map((o) => `   • ${o}`).join("\n")}` : "";
-        return `${s.question!.items.length > 1 ? `${i + 1}. ` : ""}${q.question}${opts}`;
-      });
       void this.send({
         sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: `\n\n${lines.join("\n\n")}\n\n(Reply with your answer.)` },
+        content: { type: "text", text: questionText(s.question.items) },
         // Atlarix's extension draws this as a question card and answers with
         // `_meta.atlarix.answers` on the next prompt; other editors read the text.
-        ...(this.extras() ? { _meta: { atlarix: { question: { items: s.question.items } } } } : {}),
+        ...(this.extras() ? { _meta: { atlarix: { question: questionMeta(s.question.items) } } } : {}),
       });
     }
     if (this.activePlanId) await this.sendPlan(s);
