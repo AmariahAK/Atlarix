@@ -14,6 +14,7 @@ import { closePicker, openPicker, picker, pickerOpen } from "./picker";
 import * as T from "./transcript";
 import { suggestionsBox } from "./suggestions";
 import { ratingBox } from "./rating";
+import { DROP_HINT, droppedFileKind } from "./drop";
 import { keptFilesLine } from "../../../../src/lib/chat/kept-files-line";
 
 export interface ComposerHooks {
@@ -30,6 +31,8 @@ const editBar = el("div", "edit-bar hidden");
 const suggest = el("div", "suggest hidden");
 const modeMenu = el("div", "menu mode-menu hidden");
 const box = el("div", "box");
+// VS Code only passes a drag into a webview while Shift is held (drop.ts).
+box.title = DROP_HINT;
 const chips = el("div", "chips");
 const input = el("textarea", "input");
 input.rows = 2;
@@ -834,5 +837,18 @@ box.addEventListener("drop", (e) => {
     const p = decodeURIComponent(new URL(u).pathname).replace(/^\/([a-zA-Z]:)/, "$1");
     addContext({ path: p, label: p.split(/[\\/]/).pop() ?? p });
   }
-  if (!uris.length) for (const f of [...dt.files]) if (f.type.startsWith("image/")) readImage(f, f.name);
+  if (!uris.length) for (const f of [...dt.files]) void addDroppedFile(f);
 });
+
+/** A file dropped from the desktop: an image, its text, or a notice saying why not (drop.ts). */
+async function addDroppedFile(f: File): Promise<void> {
+  const head = new Uint8Array(await f.slice(0, 4096).arrayBuffer());
+  const kind = droppedFileKind(f, head);
+  if (kind === "image") return readImage(f, f.name);
+  if (kind === "text") return addContext({ path: "", label: f.name, text: await f.text() });
+  T.addNote(
+    kind === "too-big"
+      ? `${f.name} is too big to attach; drag it from the editor's explorer instead.`
+      : `${f.name} isn't text; drag it from the editor's explorer instead.`,
+  );
+}
