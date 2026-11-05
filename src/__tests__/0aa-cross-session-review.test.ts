@@ -88,6 +88,34 @@ describe("0aa: cross-session review", () => {
     expect(askerAfter?.hasApproval).toBe(true);
   });
 
+  it("a session in ANOTHER process: its pending requests, with the diff, reach this one through the registry", async () => {
+    const os = await import("node:os");
+    const { LIVE_SESSIONS_TABLE } = await import("@/lib/peers/peers");
+    const pending: PendingApprovalSummary[] = [
+      { operationId: "op-remote-1", operation: "edit_file", summary: "update src/pay.ts", detail: "@@ -1 +1 @@\n-a\n+b" },
+    ];
+    // What that process's publish() writes: this one has no memory of it.
+    sqlite
+      .prepare(
+        `INSERT INTO ${LIVE_SESSIONS_TABLE}
+         (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model, last_turn, has_approval, pending_approvals)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      // A live process that is not this one: the registry drops rows of dead ones.
+      .run("sess-remote-app-0aa9", process.ppid, os.hostname(), "/tmp/none.sock", "t", "App chat", "/w/app", "app", 1, Date.now(), "[]", "", "", 1, JSON.stringify(pending));
+    const row = listPeerSessions(REVIEWER_ID).find((r) => r.sessionId === "sess-remote-app-0aa9");
+    expect(row?.hasApproval).toBe(true);
+    expect(row?.pendingApprovals).toEqual(pending);
+
+    const { ToolRegistry } = await import("@/lib/tools");
+    let raw = (await ToolRegistry.execute("list_sessions", { workspaceSessionId: REVIEWER_ID, pending_of: "App chat" })) as unknown;
+    while (raw && typeof raw === "object" && "result" in raw) raw = (raw as { result: unknown }).result;
+    const text = String((raw as { text?: string }).text);
+    expect(text).toContain("op-remote-1");
+    expect(text).toContain("update src/pay.ts");
+    expect(text).toContain("+b");
+  });
+
   it("reviewer text contains operationId and command when approval details are stored", () => {
     const operationId = "op-edit-file-xyz789";
     const approvals: PendingApprovalSummary[] = [

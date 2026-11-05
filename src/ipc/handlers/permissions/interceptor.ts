@@ -632,6 +632,8 @@ export class PermissionInterceptor extends EventEmitter {
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send("operation-status", payload);
     }
+    // Main-side listeners too (the pending list other sessions review, 0aa).
+    this.emit("operation-status", payload);
     logger.log(
       `[emitStatus] ${operationId} -> ${status}${error ? ` (${error})` : ""}`,
     );

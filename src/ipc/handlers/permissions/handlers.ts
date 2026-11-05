@@ -151,6 +151,36 @@ export function getInterceptorForChat(
   return activeInterceptors.get(chatId);
 }
 
+/** Requests as their card showed them (with the diff the turn computed), by operation id. */
+const shownRequests = new Map<string, { operation?: string; preview?: unknown }>();
+
+/**
+ * A card was put on screen for this request: what another session reviewing
+ * this chat sees (0aa) is that same request, diff included.
+ */
+export function notePermissionShown(chatId: number, operationId: string, request: { operation?: string; preview?: unknown }): void {
+  shownRequests.set(operationId, request);
+  publishPendingApprovals(chatId);
+}
+
+/** This chat's pending requests, published for the other sessions (every surface alike). */
+function publishPendingApprovals(chatId: number): void {
+  const interceptor = activeInterceptors.get(chatId);
+  if (!interceptor) return;
+  const pending = interceptor.getPendingOperations();
+  const ids = new Set(pending.map((op) => op.id));
+  for (const id of [...shownRequests.keys()]) if (!ids.has(id)) shownRequests.delete(id);
+  void import("@/lib/peers/approval-summary")
+    .then(async ({ summarizePermissionRequest }) => {
+      const { noteChatApprovals } = await import("@/lib/peers/peers");
+      noteChatApprovals(
+        chatId,
+        pending.map((op) => summarizePermissionRequest(op.id, shownRequests.get(op.id) ?? op.request)),
+      );
+    })
+    .catch(() => {});
+}
+
 /**
  * Register an interceptor for a chat session
  */
@@ -162,6 +192,12 @@ export function registerInterceptor(
   if (previous && previous !== interceptor) previous.releaseSettledWrites();
   activeInterceptors.set(chatId, interceptor);
   logger.log(`Registered permission interceptor for chat ${chatId}`);
+
+  // What other sessions can review (0aa): republished whenever one arrives or settles.
+  interceptor.on("permission-request", () => publishPendingApprovals(chatId));
+  interceptor.on("operation-status", (s: { status?: string }) => {
+    if (s.status !== "pending" && s.status !== "queued") publishPendingApprovals(chatId);
+  });
 
   // The cards of this turn that asked: one notification per wait, not one per
   // card (three edits at once raised three popups).
@@ -508,6 +544,19 @@ async function applyNewRuleToPendingOperations(
 }
 
 ipcMain.handle("execute-permission", executePermissionHandler);
+
+/**
+ * Answer a chat's pending request in main, as its own card would: how another
+ * session's review (0aa) reaches every surface, not only a listening CLI.
+ * Once or deny only: a peer never saves an "always" rule for the user.
+ */
+export function answerPermissionInMain(
+  chatId: number,
+  operationId: string,
+  approvalMode: "once" | "deny",
+): Promise<PermissionResult> {
+  return executePermissionHandler({} as IpcMainInvokeEvent, { chatId, operationId, approvalMode });
+}
 
 // "Done responding" desktop notification. The renderer reports every turn's
 // end; main decides, by the same rule as the approval notification (no window

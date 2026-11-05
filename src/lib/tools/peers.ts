@@ -24,9 +24,9 @@ import { MODE_NAMES, modelNames, parseMode, parsePlanAction, shortModelList } fr
 async function pendingStateText(sessionId: string): Promise<string> {
   const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
   const parts: string[] = [];
-  // Pending permission approvals: read from the live session row via the local map.
-  const { localSession: ls } = await import("@/lib/peers/peers");
-  const s = ls(sessionId);
+  // Pending permission approvals, from the registry: the asker may be another process.
+  const { listPeerSessions } = await import("@/lib/peers/peers");
+  const s = listPeerSessions().find((r) => r.sessionId === sessionId);
   if (s?.hasApproval) {
     const approvals = s.pendingApprovals ?? [];
     if (approvals.length === 0) {
@@ -36,7 +36,8 @@ async function pendingStateText(sessionId: string): Promise<string> {
       const lines = approvals.map((a, i) => {
         const risk = a.isDangerous || a.systemScope ? " [HIGH-RISK]" : "";
         const cwd = a.cwd ? `\n  cwd: ${a.cwd}` : "";
-        return `${i + 1}. operationId: ${a.operationId}${risk}\n  type: ${a.operation ?? "unknown"}\n  request: ${a.summary}${cwd}`;
+        const detail = a.detail ? `\n  detail:\n${a.detail.replace(/^/gm, "    ")}` : "";
+        return `${i + 1}. operationId: ${a.operationId}${risk}\n  type: ${a.operation ?? "unknown"}\n  request: ${a.summary}${cwd}${detail}`;
       });
       parts.push(`Permission request${approvals.length > 1 ? "s" : ""} waiting for an answer:\n${lines.join("\n")}`);
     }
@@ -54,7 +55,7 @@ async function pendingStateText(sessionId: string): Promise<string> {
 ToolRegistry.register({
   name: "list_sessions",
   description:
-    "The user's other Atlarix sessions on this machine (CLI, app or browser), for send_message. When a session shows 'approval waiting', its operationId(s) are listed so you can pass them to send_message({approval: operationId}).",
+    "The user's other Atlarix sessions on this machine (CLI, app or browser), for send_message. When a session shows 'approval waiting', its operationId(s) are listed so you can pass them to send_message({approval: operationId}); pending_of shows what each request does.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -65,10 +66,13 @@ ToolRegistry.register({
       result_of: stringParam(
         "A session's name or id: also show its latest finished turn: how it ended, its reply and the files it changed.",
       ),
+      pending_of: stringParam(
+        "A session's name or id: also show its pending permission requests in full: the command, or the change and its diff.",
+      ),
     },
     [],
   ),
-  handler: async ({ workspaceSessionId, plan_of, result_of }) => {
+  handler: async ({ workspaceSessionId, plan_of, result_of, pending_of }) => {
     const own =
       typeof workspaceSessionId === "string" ? workspaceSessionId : undefined;
     const rows = listPeerSessions(own);
@@ -106,12 +110,22 @@ ToolRegistry.register({
       typeof result_of === "string" && result_of.trim()
         ? `\n\n${await resultOf(result_of.trim(), own)}`
         : "";
+    let pendingText = "";
+    if (typeof pending_of === "string" && pending_of.trim()) {
+      const found = resolvePeer(pending_of.trim(), own);
+      if ("error" in found) pendingText = `\n\n${found.error}`;
+      else {
+        // Its words (commands, diffs), framed as data: that session's, not the user's.
+        const { wrapUntrustedData } = await import("@/lib/streaming/untrusted-data");
+        pendingText = `\n\nPending requests of ${found.row.name}:\n${wrapUntrustedData(`session:${found.row.name}`, await pendingStateText(found.row.session_id))}`;
+      }
+    }
     // What send_message's `model` may be: only what this user has set up.
     const { settableModelOptions } = await import("@/cli/agent/models");
     const models = modelNames(await settableModelOptions().catch(() => [])).map((n) => n.name);
     return {
       success: true,
-      text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${shortModelList(models)}` : ""}${planText}${resultText}`,
+      text: `Other sessions:\n${lines.join("\n")}${models.length ? `\nModels you can set: ${shortModelList(models)}` : ""}${planText}${resultText}${pendingText}`,
     };
   },
 });
@@ -206,10 +220,10 @@ ToolRegistry.register({
         "Attach the target session's current pending state (permission requests, plan) to the message so the recipient can review and answer it. Only use when the user explicitly asks you to have another session review or approve something.",
       ),
       approval: stringParam(
-        "Answer a pending permission request in the target session: the operationId from its pending state. Combine with message for a deny reason. Only use when the user explicitly asks you to approve or deny a specific request.",
+        "Answer a pending permission request in the target session: its operationId (list_sessions pending_of shows what it does). Only when the user asked you to review that session's requests, and only as their instructions say.",
       ),
       approval_mode: stringParam(
-        "How to answer the approval: \"once\" (allow this time, default) or \"deny\". Only set when the user explicitly chose to approve or deny.",
+        "How to answer: \"once\" (allow this time, default), \"change\" (refuse; message says what to do instead) or \"deny\" (refuse; message gives the reason).",
       ),
     },
     ["to"],
@@ -224,7 +238,12 @@ ToolRegistry.register({
     const planBody = typeof plan_text === "string" ? plan_text.trim() : "";
     const doReview = review === true;
     const approvalId = typeof approval === "string" && approval.trim() ? approval.trim() : undefined;
-    const approvalModeVal = typeof approval_mode === "string" && approval_mode.trim().toLowerCase() === "deny" ? "deny" : "once";
+    const approvalWord = typeof approval_mode === "string" ? approval_mode.trim().toLowerCase() : "";
+    // "change" is a deny whose message says what to do instead: the asker reads it and redoes the step.
+    const approvalModeVal = approvalWord === "deny" || approvalWord === "change" ? "deny" : "once";
+    if (approvalWord === "change" && !text) {
+      return { success: false, error: "approval_mode change needs a message saying what to change." };
+    }
     if (!text && !setMode && !setModel && !planAction && !doReview && !approvalId) {
       return { success: false, error: "Nothing to send: give a message, a mode, a model, a plan answer, review:true, or an approval." };
     }

@@ -55,6 +55,8 @@ export interface PendingApprovalSummary {
   operation?: string;
   /** One-line human summary: the command, the file path, or the description. */
   summary: string;
+  /** What a reviewer judges: the diff (or a new file's content), or a command's purpose and risk. Bounded. */
+  detail?: string;
   /** Working directory for commands. */
   cwd?: string;
   /** True when the gate flagged this as dangerous (isDangerous or systemScope). */
@@ -294,6 +296,13 @@ function ensureTable(db: Sqlite): void {
   } catch {
     /* already there */
   }
+  try {
+    // The requests themselves (JSON PendingApprovalSummary[]), so a session in
+    // ANOTHER process can review them, not only one in the asker's own.
+    db.exec(`ALTER TABLE ${LIVE_SESSIONS_TABLE} ADD COLUMN pending_approvals TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    /* already there */
+  }
 }
 
 /**
@@ -354,8 +363,8 @@ function publish(): void {
     ).run(process.pid, host);
     const insert = d.prepare(
       `INSERT INTO ${LIVE_SESSIONS_TABLE}
-       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model, last_turn, has_approval)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases, model, last_turn, has_approval, pending_approvals)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     // This process itself: how a handoff reaches "the app" with nothing open.
     insert.run(
@@ -373,6 +382,7 @@ function publish(): void {
       "",
       "",
       0,
+      "",
     );
     for (const s of local.values()) {
       insert.run(
@@ -390,6 +400,7 @@ function publish(): void {
         s.model ?? (s.deliver ? "" : (defaultModelLabel() ?? "")),
         s.lastTurn ? JSON.stringify(s.lastTurn) : "",
         s.hasApproval ? 1 : 0,
+        s.hasApproval && s.pendingApprovals?.length ? JSON.stringify(s.pendingApprovals) : "",
       );
     }
   } catch (e) {
@@ -477,6 +488,9 @@ export function noteLiveSession(s: LocalSession): void {
     ...s,
     model: s.model ?? prev?.model ?? modelsBeforeRegistration.get(s.sessionId),
     lastTurn: s.lastTurn ?? prev?.lastTurn,
+    // Its waiting requests too: a rename while it waits hid them from reviewers.
+    hasApproval: s.hasApproval ?? prev?.hasApproval,
+    pendingApprovals: s.pendingApprovals ?? prev?.pendingApprovals,
   };
   modelsBeforeRegistration.delete(s.sessionId);
   local.set(s.sessionId, s);
@@ -746,6 +760,7 @@ interface Row {
   model?: string;
   last_turn?: string;
   has_approval?: number;
+  pending_approvals?: string;
   session_id: string;
   pid: number;
   host: string;
@@ -826,7 +841,7 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       pid: r.pid,
       ...(r.surface !== "chrome" ? { mode: modes.get(r.session_id) ?? "build" } : {}),
       ...(r.model ? { model: r.model } : {}),
-      ...(r.has_approval ? { hasApproval: true, ...(local.get(r.session_id)?.pendingApprovals ? { pendingApprovals: local.get(r.session_id)!.pendingApprovals } : {}) } : {}),
+      ...(r.has_approval ? { hasApproval: true, ...pendingOf(r) } : {}),
       // A session with no messages yet (an editor's New chat, a CLI before its
       // first message) is LISTED, and marked new so the sender knows it has no
       // history to read back (owner, 2026-10-31: fresh sessions must be visible).
@@ -1152,6 +1167,30 @@ export function noteSessionApproval(
   s.hasApproval = hasApproval;
   s.pendingApprovals = hasApproval ? (approvals ?? s.pendingApprovals) : undefined;
   publish();
+}
+
+/**
+ * A chat's pending requests, as main's permission layer has them right now:
+ * published for every session on that chat, whatever its surface.
+ */
+export function noteChatApprovals(chatId: number, approvals: PendingApprovalSummary[]): void {
+  for (const s of local.values()) {
+    if (s.chatId !== chatId || s.deliver) continue;
+    noteSessionApproval(s.sessionId, approvals.length > 0, approvals.length > 0 ? approvals : undefined);
+  }
+}
+
+/** A row's requests: this process's own from memory, another's from what it published. */
+function pendingOf(r: Row): { pendingApprovals?: PendingApprovalSummary[] } {
+  const own = local.get(r.session_id)?.pendingApprovals;
+  if (own) return { pendingApprovals: own };
+  if (!r.pending_approvals) return {};
+  try {
+    const parsed = JSON.parse(r.pending_approvals) as PendingApprovalSummary[];
+    return Array.isArray(parsed) && parsed.length ? { pendingApprovals: parsed } : {};
+  } catch {
+    return {};
+  }
 }
 
 /** The model a session of this process runs on, as people see it, for list_sessions (item 9). */

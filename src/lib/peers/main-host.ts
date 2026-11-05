@@ -119,27 +119,23 @@ async function applyPeerSettings(
     if (!operationId) return { ok: false, error: "approval needs an operationId" };
     if (approvalMode !== "once" && approvalMode !== "deny")
       return { ok: false, error: `approval mode must be "once" or "deny"` };
-    // Security: refuse peer approvals for high-risk requests — those need the owner.
-    // Check the pending approval details stored in the live session row.
-    if (approvalMode !== "deny") {
-      const { localSession } = await import("./peers");
-      const sess = localSession(target.sessionId);
-      const pending = sess?.pendingApprovals?.find((a) => a.operationId === operationId);
-      if (pending && (pending.isDangerous || pending.systemScope || pending.operation === "sandbox_escalation")) {
-        return {
-          ok: false,
-          error: `Permission request ${operationId} is high-risk (${pending.operation ?? "unknown"}: ${pending.summary}) — it needs the owner to approve, not a peer session.`,
-        };
-      }
+    const name = target.name ?? "that session";
+    // Judged against the request itself, as main's permission layer holds it:
+    // one that can't be found can't be checked, so it isn't answered.
+    const { getInterceptorForChat, answerPermissionInMain } = await import("@/ipc/handlers/permissions/handlers");
+    const op = getInterceptorForChat(target.chatId)?.getPendingOperations().find((o) => o.id === operationId);
+    if (!op) return { ok: false, error: `${name} has no pending request ${operationId} (answered already, or never asked)` };
+    const { summarizePermissionRequest, isPeerApprovableSummary } = await import("./approval-summary");
+    const summary = summarizePermissionRequest(operationId, op.request);
+    // Security: high-risk requests need the owner, never a peer (dynamic signals only).
+    if (approvalMode !== "deny" && !isPeerApprovableSummary(summary)) {
+      return {
+        ok: false,
+        error: `Permission request ${operationId} is high-risk (${summary.operation ?? "unknown"}: ${summary.summary}) — it needs the owner to approve, not a peer session.`,
+      };
     }
-    // Deliver via the same IPC path the CLI's own answerApproval uses.
-    broadcastToAllWindows("session:peer-approval", {
-      chatId: target.chatId,
-      sessionId: target.sessionId,
-      operationId,
-      approvalMode,
-      from: from.name,
-    });
+    const result = await answerPermissionInMain(target.chatId, operationId, approvalMode);
+    if (result.error) return { ok: false, error: `not answered: ${result.error}` };
     const verb = approvalMode === "once" ? "approved" : "denied";
     return { ok: true, notice: `Permission ${verb} by ${from.name}.` };
   }

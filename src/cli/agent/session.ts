@@ -55,52 +55,6 @@ export interface PendingApproval {
   askingCellId?: string;
 }
 
-/**
- * Distil a PendingApproval into the summary a peer reviewer needs (0aa).
- * Never includes full file content or secrets — just the one-line description.
- */
-function approvalSummary(a: PendingApproval): import("@/lib/peers/peers").PendingApprovalSummary {
-  const p = firstPreview(a);
-  const summary =
-    p.command
-      ? p.command
-      : p.path
-        ? `${p.type ?? "edit"} ${p.path}`
-        : p.deniedPath
-          ? `sandbox write denied: ${p.deniedPath}`
-          : (p as { description?: string }).description ?? a.request.operation ?? "unknown";
-  return {
-    operationId: a.operationId,
-    operation: a.request.operation,
-    summary,
-    ...(p.workingDirectory ? { cwd: p.workingDirectory } : {}),
-    ...(p.isDangerous ? { isDangerous: true } : {}),
-    ...(p.systemScope ? { systemScope: true } : {}),
-  };
-}
-
-/**
- * Whether a peer session may approve this request (0aa security gate).
- *
- * A peer can approve routine in-workspace edits and commands. It CANNOT
- * substitute for the owner on high-risk requests — those stay on screen
- * until the owner answers them:
- *
- *  - systemScope / isDangerous (outside-workspace writes, dangerous commands)
- *  - sandbox_escalation (granting a new writable path)
- *
- * Dynamic signals only — no static command regex (owner verdict, 2026-11-01).
- */
-function isPeerApprovable(a: PendingApproval): boolean {
-  const p = firstPreview(a);
-  // Dynamic signals only — no static command regex (owner verdict, 2026-11-01).
-  // Any request the gate already flagged as dangerous or system-scope.
-  if (p.isDangerous || p.systemScope) return false;
-  // Sandbox escalation: granting a new writable path is always owner-only.
-  if (a.request.operation === "sandbox_escalation") return false;
-  return true;
-}
-
 export interface QueuedMessage {
   id: string;
   text: string;
@@ -2184,26 +2138,6 @@ export class AgentSession extends EventEmitter {
       case "session:peer-settings":
         this.applyPeerSettings(p);
         return;
-      // A peer session approved or denied a pending permission request (0aa).
-      case "session:peer-approval": {
-        const operationId = String(p.operationId ?? "");
-        const approvalMode = (p.approvalMode as "once" | "deny") === "deny" ? "deny" : "once";
-        // Security: refuse peer approvals for high-risk requests — those need the owner.
-        if (approvalMode !== "deny") {
-          const pending = this.state.approvals.find((a) => a.operationId === operationId);
-          if (pending && !isPeerApprovable(pending)) {
-            // Leave the card on screen; log so the transcript shows the refusal.
-            void import("electron-log").then((m) =>
-              m.default.warn(
-                `[peer-approval] refused high-risk peer approval for op=${operationId} from=${String(p.from ?? "unknown")} — needs owner`,
-              ),
-            );
-            return;
-          }
-        }
-        void this.answerApproval(operationId, approvalMode);
-        return;
-      }
       case "chat:response:chunk": {
         if (this.state.retrying) this.update({ retrying: null });
         if (p.type === "permission-request") {
@@ -2430,10 +2364,6 @@ export class AgentSession extends EventEmitter {
     if (!operationId || !this.state.approvals.some((a) => a.operationId === operationId)) return;
     const next = this.state.approvals.filter((a) => a.operationId !== operationId);
     this.update({ approvals: next });
-    void import("@/lib/peers/peers").then((m) => {
-      const summaries = next.map((a) => approvalSummary(a));
-      m.noteSessionApproval(this.sessionId ?? "", next.length > 0, next.length > 0 ? summaries : undefined);
-    });
   }
 
   private addApproval(p: Record<string, unknown>): void {
@@ -2452,10 +2382,6 @@ export class AgentSession extends EventEmitter {
       { operationId: op, request, askingCellId },
     ];
     this.update({ approvals: next });
-    void import("@/lib/peers/peers").then((m) => {
-      const summaries = next.map((a) => approvalSummary(a));
-      m.noteSessionApproval(this.sessionId ?? "", true, summaries);
-    });
   }
 
   /** The plan the agent wrote or changed during this turn. */

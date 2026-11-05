@@ -60,7 +60,7 @@ import {
 import { runStreamRoundWithEmptyOutputRetry } from "@/ipc/handlers/chat_stream/turn-runner/round-retry";
 import { simpleStreamText } from "@/ipc/handlers/chat_stream/turn-runner/simple-stream-text";
 import { applyFileScopePreflightInStream } from "@/ipc/handlers/file_permission_preflight";
-import { registerInterceptor } from "@/ipc/handlers/permissions/handlers";
+import { notePermissionShown, registerInterceptor } from "@/ipc/handlers/permissions/handlers";
 import { PermissionInterceptor } from "@/ipc/handlers/permissions/interceptor";
 import { runAgentTurn } from "@/lib/agent/run-agent-turn";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
@@ -692,16 +692,18 @@ export async function runAskBranch(
               );
 
               if (!skipPermissionWait) {
+                const shown = enrichPermissionRequestForUi(
+                  permRequest,
+                  effectiveAppId,
+                  appPath,
+                  isReadOnlyWorkMode(liveWorkMode),
+                );
                 safeSend(event.sender, "permission-request", {
                   chatId: req.chatId,
                   operationId,
-                  request: enrichPermissionRequestForUi(
-                    permRequest,
-                    effectiveAppId,
-                    appPath,
-                    isReadOnlyWorkMode(liveWorkMode),
-                  ),
+                  request: shown,
                 });
+                notePermissionShown(req.chatId, operationId, shown);
 
                 logger.log(
                   `[Ask Mode] Permission request buffered: ${operationId}`,
