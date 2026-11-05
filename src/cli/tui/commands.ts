@@ -48,7 +48,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/connect", description: "Connect a provider (your own API key), Chrome or an MCP server", group: "account" },
   { name: "/billing", description: "Get Pro, or add credit and pay as you go", group: "account" },
   { name: "/upgrade", description: "Same as /billing", group: "account", alias: true },
-  { name: "/notifications", description: "Notify when a turn ends or needs you, while the terminal isn't focused (on/off)", group: "account" },
+  { name: "/notifications", description: "Ring the bell when a turn ends or needs you, and notify while the terminal isn't focused (on/off)", group: "account" },
   { name: "/analytics", description: "Usage analytics: on or off (shared with the app)", group: "account" },
   { name: "/feedback", description: "Tell us what to improve; /feedback 1|2|3 rates this session too", group: "account" },
   { name: "/status", description: "Account, balance, model, usage, Chrome, MCP", group: "account" },

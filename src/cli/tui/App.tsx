@@ -36,6 +36,17 @@ import type { StripRow } from "./dock-logic";
  * `\x1b[38;2;196;181` + the title + `;253m`, and every terminal then printed
  * `;253m` over the transcript (found recording the launch video, 2026-10-05).
  */
+/**
+ * What a turn's end (or a needed approval/answer) writes: always the bell, which
+ * the terminal turns into its own mark (Terminal.app: the tab's bell and the
+ * Dock's count; owner, 2026-11-05), and, while this terminal isn't focused, an
+ * OSC 9 notification before it (iTerm2, Ghostty, WezTerm, kitty, Windows Terminal).
+ */
+export function attentionSequence(message: string, focused: boolean): string {
+  if (focused) return "\x07";
+  return `\x1b]9;${message.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 200)}\x07\x07`;
+}
+
 export function termWrite(renderer: unknown, data: string): void {
   const out = (renderer as { writeOut?: (chunk: string) => unknown } | null)?.writeOut;
   if (typeof out === "function") out.call(renderer, data);
@@ -780,9 +791,9 @@ export function App({
     };
   }, [renderer]);
   const notify = (message: string) => {
-    if (terminalFocused.current || live.current.cliState.notifications === false) return;
+    if (live.current.cliState.notifications === false) return;
     try {
-      termWrite(renderer, `\x1b]9;${message.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 200)}\x07\x07`);
+      termWrite(renderer, attentionSequence(message, terminalFocused.current));
     } catch {
       /* a notification is never worth an error */
     }
