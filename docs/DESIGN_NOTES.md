@@ -12,6 +12,29 @@ Nothing unscheduled here is a commitment. An entry graduates to TODO when it bec
 
 ---
 
+## The Auto/Zenith selector in shadow — measured 2026-11-05, NOT built
+
+**What exists.** The proxy's ladder (paid-auto.ts `sessionProvider`/`advanceLadder`, ladder-session.ts): one
+provider per session (25% Anthropic), climb a level after 2 quality failures (retry header, repeated identical
+tool calls, a failed edit) or at once on escalate, switch provider once at the top, `topFailed` → the app offers
+Zenith. Every paid step is logged in `auto_steps` (metadata only).
+
+**What the data says (all of `auto_steps`, 2026-10-30 → 11-05; SELECT only):** ~1,200 steps from ~10 real
+sessions, most of them the team's own on 10-30/31. **Zero climbs and zero top failures**: nothing for a learner
+to learn from yet. Two things it does show:
+- Paid-Auto build steps on OpenAI averaged **112¢/step** (266 steps, 4 sessions) against 18¢ on Anthropic
+  (86 steps): the 10-31 spend incident's 350-485k-token contexts, since fixed (working window, cache tail,
+  compaction). Re-measure after 15.13's cache work before reading anything into provider cost.
+- 477 explore steps logged `start_level=luna, level=terra` with no climb recorded. Either the explore lane
+  is pinned to Terra somewhere the ladder doesn't log, or `elevated_*` isn't written on that path. Check before
+  any selector uses `level` as a label.
+
+**Decision.** Keep the ladder; no learned selector yet. Revisit when `auto_steps` holds ≥ 200 real (non-team)
+paid sessions with at least a few dozen climbs. Then, per the owner's 10-29 notes: (1) the on-device contextual
+bandit and (2) a cheap hosted classifier, both in `shadow` (log their pick beside the ladder's), compared on
+cost and outcomes; per-session provider kept (per-exchange switching breaks the cache); cold start from the
+user's own task profile, then a weak shared prior from anonymised outcome buckets with per-account caps.
+
 ## Relics, CLI distribution, search — 2026-10-02
 
 **Relics: where they live, and why they can't hurt anyone.** Hosted only on paid Core
