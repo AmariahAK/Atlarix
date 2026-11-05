@@ -35,6 +35,9 @@ export interface UsageRow {
   turns: number;
   failed_turns: number;
   last_error_kind?: string;
+  /** Turns refused at a gate (no credit, the free limit, consent, a rule): not errors, not successes. */
+  gated_turns: number;
+  last_gate_kind?: string;
   tokens_in: number;
   tokens_out: number;
   first_seen: string;
@@ -89,6 +92,8 @@ export function recordTurnUsage(
         model: t.model!.slice(0, 128),
         failed: t.end.outcome === "error",
         errorKind: t.end.outcome === "error" ? t.end.errorKind ?? "other" : undefined,
+        gated: t.end.outcome === "gate",
+        gateKind: t.end.outcome === "gate" ? (t.end as { gateKind?: string }).gateKind ?? "other" : undefined,
         tokensIn: t.tokensIn,
         tokensOut: t.tokensOut,
       });
@@ -105,6 +110,8 @@ function add(x: {
   model: string;
   failed: boolean;
   errorKind?: string;
+  gated?: boolean;
+  gateKind?: string;
   tokensIn: number;
   tokensOut: number;
 }): void {
@@ -119,6 +126,10 @@ function add(x: {
     if (x.failed) {
       r.failed_turns++;
       r.last_error_kind = x.errorKind;
+    }
+    if (x.gated) {
+      r.gated_turns++;
+      r.last_gate_kind = x.gateKind;
     }
     r.tokens_in += Math.max(0, x.tokensIn);
     r.tokens_out += Math.max(0, x.tokensOut);
@@ -135,6 +146,8 @@ function add(x: {
       turns: 1,
       failed_turns: x.failed ? 1 : 0,
       ...(x.errorKind ? { last_error_kind: x.errorKind } : {}),
+      gated_turns: x.gated ? 1 : 0,
+      ...(x.gateKind ? { last_gate_kind: x.gateKind } : {}),
       tokens_in: Math.max(0, x.tokensIn),
       tokens_out: Math.max(0, x.tokensOut),
       first_seen: at,
@@ -182,6 +195,8 @@ function restore(r: UsageRow): void {
   now.turns += r.turns;
   now.failed_turns += r.failed_turns;
   now.last_error_kind ??= r.last_error_kind;
+  now.gated_turns += r.gated_turns ?? 0;
+  now.last_gate_kind ??= r.last_gate_kind;
   now.tokens_in += r.tokens_in;
   now.tokens_out += r.tokens_out;
   if (r.first_seen < now.first_seen) now.first_seen = r.first_seen;

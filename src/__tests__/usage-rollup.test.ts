@@ -58,6 +58,20 @@ describe("usage counts", () => {
     ]);
   });
 
+  it("a turn refused at a gate (no credit) is counted as gated: not a success, not an error (2026-11-05 audit)", async () => {
+    recordTurnUsage({ ...ok, provider: "openai", model: "gpt-5" }, cloud);
+    recordTurnUsage(
+      { ...ok, provider: "openai", model: "gpt-5", end: { outcome: "gate", gateKind: "insufficient_credit", errorKind: "quota" } as never },
+      cloud,
+    );
+    await flush();
+    await flushClientUsage();
+    expect(sent[0]).toEqual([
+      expect.objectContaining({ model: "gpt-5", turns: 2, failed_turns: 0, gated_turns: 1, last_gate_kind: "insufficient_credit" }),
+    ]);
+    expect(sent[0]![0]).not.toHaveProperty("last_error_kind");
+  });
+
   it("Core says which: Auto free / paid, or a Core model", async () => {
     recordTurnUsage({ ...ok, provider: "compass", model: "core-auto", end: { outcome: "ok", autoBilling: "paid" } }, cloud);
     recordTurnUsage({ ...ok, provider: "compass", model: "core-auto", end: { outcome: "error", errorKind: "quota" } }, cloud);

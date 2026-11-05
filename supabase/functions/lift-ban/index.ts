@@ -38,6 +38,9 @@ async function valid(url: URL): Promise<{ ok: true; uid: string } | { ok: false;
   if (!SECRET) return { ok: false, why: "not configured" };
   if (!UUID.test(uid) || !/^\d{1,12}$/.test(exp) || !/^[0-9a-f]{64}$/.test(sig)) return { ok: false, why: "malformed link" };
   if (Number(exp) * 1000 < Date.now()) return { ok: false, why: "this link has expired" };
+  // The watcher signs links for at most 48 h; one that claims longer was not
+  // made by it (defence in depth: the 2026-11-05 audit).
+  if (Number(exp) * 1000 - Date.now() > 48 * 60 * 60 * 1000) return { ok: false, why: "this link is not valid" };
   if (!same(sig, await expectedSig(SECRET, uid, exp))) return { ok: false, why: "bad signature" };
   return { ok: true, uid };
 }
