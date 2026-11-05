@@ -360,6 +360,12 @@ export interface MidLoopCompactionParams {
    * called again on every step - only after the context has grown meaningfully.
    */
   attemptAbove?: number;
+  /**
+   * Summarise on the turn's own request (prefix-summary.ts): a cache read
+   * instead of the whole conversation at full price. Null falls back to the
+   * normal summariser.
+   */
+  summarizeOnPrefix?: () => Promise<string | null>;
 }
 
 export interface MidLoopCompactionResult {
@@ -484,7 +490,9 @@ export async function compactAgenticMessagesIfNeeded(
 
   // THE one summarizer (there were two near-identical copies; the one that pruned
   // tool outputs and recorded its own token usage is the survivor).
-  const summary = await summarizeMessagesWithCompactionPrompt({
+  const summary =
+    (params.summarizeOnPrefix ? await params.summarizeOnPrefix().catch(() => null) : null) ??
+    (await summarizeMessagesWithCompactionPrompt({
     messages: headConversation.map((m) => ({
       role: m.role,
       content: modelMessageText(m.content),
@@ -492,7 +500,7 @@ export async function compactAgenticMessagesIfNeeded(
     sessionStats: params.sessionStats,
     chatId: params.chatId,
     ...(params.model ? { model: params.model } : {}),
-  });
+  }));
   if (!summary) {
     logger.log(`[compaction] declined over the point: the summariser returned nothing (estimate ${beforeTokens}, point ${usable})`);
     return {

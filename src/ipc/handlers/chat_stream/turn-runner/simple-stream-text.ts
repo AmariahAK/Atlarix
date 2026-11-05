@@ -9,6 +9,8 @@
  */
 
 import { noteIdleRoute } from "@/lib/context/idle-compaction";
+import { readSettings } from "@/main/settings";
+import { summarizeOnTurnPrefix } from "@/lib/context/prefix-summary";
 import { noteTurnStreamError } from "@/lib/analytics/turn-stats";
 import { classifyTurnError } from "@/lib/analytics/turn-end";
 import log from "electron-log";
@@ -659,6 +661,25 @@ export async function simpleStreamText(
   // it. ~6,700–9,300 tokens; omitted before 0j, which is why a round ended at
   // the point re-decided "under the point" and skipped compaction.
   const toolSurfaceTokens = estimateToolSetTokens(effectiveTools);
+  const streamHeaders: Record<string, string> | undefined = isAnthropic
+    ? {
+        "anthropic-beta": "context-1m-2025-08-07",
+      }
+    : modelClient.builtinProviderId === "openrouter" ||
+        modelClient.builtinProviderId === "compass"
+      ? {
+          // v13.3: sticky provider routing — pins the upstream from
+          // the first request so prompt-cache reads land on the same
+          // provider instance (openrouter.ai prompt-caching guide).
+          "x-session-id": `atlarix-chat-${req.chatId}`,
+        }
+      : undefined;
+  // A summary on the turn's own request is a cache hit only when the turn's
+  // model writes it: not a custom summarisation model, and not Auto/Zenith,
+  // whose summaries go to a different (cheaper) lane.
+  const summaryOnPrefixAllowed =
+    readSettings().aiConfiguration?.contextSummarization?.summarizationModel !== "custom" &&
+    !(modelClient.builtinProviderId === "compass" && /(^|\/)(auto|zenith)$/i.test(effectiveModel?.name ?? ""));
   const streamResult = streamText({
     // ai@7 REJECTS `role: "system"` inside `messages` by default —
     // "Invalid prompt: System messages are not allowed…" — which failed
@@ -677,19 +698,7 @@ export async function simpleStreamText(
     // belongs in its own commit with its own measurement — not smuggled
     // into an SDK bump.
     allowSystemInMessages: true,
-    headers: isAnthropic
-      ? {
-          "anthropic-beta": "context-1m-2025-08-07",
-        }
-      : modelClient.builtinProviderId === "openrouter" ||
-          modelClient.builtinProviderId === "compass"
-        ? {
-            // v13.3: sticky provider routing — pins the upstream from
-            // the first request so prompt-cache reads land on the same
-            // provider instance (openrouter.ai prompt-caching guide).
-            "x-session-id": `atlarix-chat-${req.chatId}`,
-          }
-        : undefined,
+    headers: streamHeaders,
     maxOutputTokens,
     temperature,
     // Atlarix Core never takes the SDK's own retries: its gates (free limit,
@@ -754,6 +763,27 @@ export async function simpleStreamText(
           toolSurfaceTokens,
           chatId: req.chatId,
           ...(retryAbove != null ? { attemptAbove: retryAbove } : {}),
+          // The summary on this turn's own request: a cache read instead of the
+          // whole conversation at full price (prefix-summary.ts). Only when the
+          // summary is written by the turn's own model.
+          ...(summaryOnPrefixAllowed
+            ? {
+                summarizeOnPrefix: () =>
+                  summarizeOnTurnPrefix({
+                    model: modelClient.model,
+                    messages:
+                      cacheMarkerPlacement !== "none"
+                        ? advanceCacheBreakpointsForStep(messages, cacheMarkerPlacement, speaksAnthropic)
+                        : messages,
+                    tools: effectiveTools,
+                    providerOptions,
+                    ...(streamHeaders ? { headers: streamHeaders } : {}),
+                    maxRetries: modelClient.builtinProviderId === "compass" ? 0 : 2,
+                    chatId: req.chatId,
+                    abortSignal: abortSignalOverride ?? abortController.signal,
+                  }),
+              }
+            : {}),
           ...(effectiveModel?.provider && effectiveModel?.name
             ? { model: { provider: effectiveModel.provider, name: effectiveModel.name } }
             : {}),
