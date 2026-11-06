@@ -3,9 +3,9 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.13.1] (2026-11-06) — Sessions that see and review each other, ask_user like Claude Code's, cheaper long conversations, and CLI sign-in kept on Windows
+## [15.13.2] (2026-11-06) — Sessions that see and review each other, ask_user like Claude Code's, cheaper long conversations, and CLI sign-in kept on Windows
 
-15.13.0 was tagged but never released (its CI run timed out before the builds); everything below ships in 15.13.1.
+15.13.0 and 15.13.1 were tagged but never released (CI stopped before the builds: a slow package mirror, then a test teardown race); everything below ships in 15.13.2.
 
 **Windows sign-in kept.** The CLI and the editor extensions (VS Code, Kiro, any ACP editor) seal their session with the desktop app's OS key, and on Windows they only read it: without the desktop app the key never existed, the sign-in was not saved, and the next process started signed out (people signed in 2–4 times). They now create the key the way Chromium does (32 random bytes wrapped with DPAPI in `Local State`), which the desktop app keeps when it is installed later (checked on a real Windows machine). On Linux with no keyring, `atlarix login` says the sign-in lasts for this run only, and key lookups time out instead of hanging.
 

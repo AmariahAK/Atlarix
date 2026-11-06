@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current version:** 15.13.1 (2026-11-06): Windows CLI/editor sign-in kept without the desktop app, plaintext secrets encrypted, crash-proof usage counts, auto_consent event. 15.13.0: sessions wake and review each other, peer messages visible on every surface, ask_user like Claude Code's, CLI send-now (ctrl+s) and long-chat repaint, 1h cache + idle compaction, prompt-truth audit.
+**Current version:** 15.13.2 (2026-11-06; 15.13.0 and 15.13.1 were tagged, never released): Windows CLI/editor sign-in kept without the desktop app, plaintext secrets encrypted, crash-proof usage counts, auto_consent event. 15.13.0: sessions wake and review each other, peer messages visible on every surface, ask_user like Claude Code's, CLI send-now (ctrl+s) and long-chat repaint, 1h cache + idle compaction, prompt-truth audit.
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.

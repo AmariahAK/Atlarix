@@ -138,9 +138,11 @@ function processSettingsForTelemetry(settings: UserSettings) {
   // settings load and change already passes through. No-op when already running
   // or still not opted in.
   // Also the opt-out hook: a withdrawal stops a running replay at once (item 12).
-  void import("@/lib/analytics/posthog-client").then((m) =>
-    m.syncPostHogConsent(),
-  );
+  // Best-effort: a load that fails (or outlives its window, as a test teardown
+  // did in the v15.13.1 tag run) must not surface as an unhandled rejection.
+  void import("@/lib/analytics/posthog-client")
+    .then((m) => m.syncPostHogConsent())
+    .catch(() => {});
   if (settings.telemetryUserId) {
     window.localStorage.setItem(
       TELEMETRY_USER_ID_KEY,
