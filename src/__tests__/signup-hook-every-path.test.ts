@@ -82,7 +82,7 @@ describe("every sign-up leaves a row", () => {
 
   it("a listed domain is refused on every provider, OAuth included", async () => {
     for (const provider of ["email", "google", "github", "discord"]) {
-      const d = deps({ check: async () => ({ ...(await deps().check(signup))!, disposable: true }) });
+      const d = deps({ check: async () => ({ ...(await deps().check({ ...signup, mxHost: null }))!, disposable: true }) });
       const out = await decideSignup({ ...signup, provider }, d);
       expect(out).toEqual(expect.objectContaining({ allow: false, status: 403 }));
       expect(d.rows).toEqual([expect.objectContaining({ allowed: false, reason: "disposable_domain" })]);
