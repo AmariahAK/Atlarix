@@ -3,7 +3,17 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.13.0] (2026-11-06) — Sessions that see and review each other, ask_user like Claude Code's, and cheaper long conversations
+## [15.13.1] (2026-11-06) — Sessions that see and review each other, ask_user like Claude Code's, cheaper long conversations, and CLI sign-in kept on Windows
+
+15.13.0 was tagged but never released (its CI run timed out before the builds); everything below ships in 15.13.1.
+
+**Windows sign-in kept.** The CLI and the editor extensions (VS Code, Kiro, any ACP editor) seal their session with the desktop app's OS key, and on Windows they only read it: without the desktop app the key never existed, the sign-in was not saved, and the next process started signed out (people signed in 2–4 times). They now create the key the way Chromium does (32 random bytes wrapped with DPAPI in `Local State`), which the desktop app keeps when it is installed later (checked on a real Windows machine). On Linux with no keyring, `atlarix login` says the sign-in lasts for this run only, and key lookups time out instead of hanging.
+
+**Secrets encrypted.** Provider keys an older CLI or editor stored unencrypted (no OS key) are encrypted at the next start once the key exists, as are MCP OAuth tokens, server env and header values in the database. With no key available, the CLI says which file holds them unencrypted. Settings are written through an owner-only temporary file and a rename.
+
+**Usage counts survive a crash.** Each turn keeps its unsent usage rows on disk, and the next Atlarix process sends what a killed or crashed one left, so daily usage no longer misses turns.
+
+**Consent measured.** The free Atlarix Auto consent records whether it was shown, accepted or declined (`auto_consent`, only with analytics on); the wording and the flow are unchanged.
 
 **Sessions talk again.** In the desktop app and the CLI, a message from another session starts a turn in an idle one instead of saying "waiting" (editors and the Chrome panel read it with the next prompt); a turn-ended notice is marked `kind="notice"` and never wakes anyone. A session the user stopped is not woken by a message: it waits for the user. Every surface now shows the message where it lands: "Message from <name> (<surface>): <preview>", the whole text on expand (ctrl+o in the CLI, a click in the app and Chrome, "Show all" in VS Code, the step's body in ACP editors, whose title carries the preview). In the CLI, the sender's row names the receiver instead of its session id.
 

@@ -89,8 +89,10 @@ env:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    # 20 until the bun suite joined (~5 min on a laptop).
-    timeout-minutes: 30
+    # 20 until the bun suite joined (~5 min on a laptop); 45 since 2026-11-06, when
+    # the runner's apt mirror took 12-17 min for the native helpers' Linux libs twice
+    # in a row and the 30-min cap cancelled the v15.13.0 tag run before the builds.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -153,7 +155,7 @@ jobs:
           rustup target add x86_64-unknown-linux-gnu
           rustup target add aarch64-apple-darwin
           # atlarix-computer's Linux check builds against the system capture libs.
-          sudo apt-get install -y $CU_LINUX_DEPS
+          sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=60 $CU_LINUX_DEPS
 
       - name: Type check native helpers (cross-target)
         run: npm run check:sandbox
@@ -715,7 +717,7 @@ jobs:
 
       - name: Build the computer-use executor (Rust)
         run: |
-          sudo apt-get install -y $CU_LINUX_DEPS
+          sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=60 $CU_LINUX_DEPS
           cargo test --release --manifest-path native/atlarix-computer/Cargo.toml
           cargo build --release --manifest-path native/atlarix-computer/Cargo.toml
           test -x native/atlarix-computer/target/release/atlarix-computer
