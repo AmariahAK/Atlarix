@@ -539,6 +539,9 @@ export class AgentSession extends EventEmitter {
     await registerHandlers();
     // Other Atlarix sessions (CLI or app) can message this one (lib/peers).
     void import("@/lib/peers/main-host").then((m) => m.startPeerMessaging(this.surface));
+    // Usage counts a process that is gone never sent (killed, crashed): taken
+    // now, sent with this one's (usage-rollup).
+    void import("@/lib/analytics/usage-rollup").then((m) => m.adoptPendingUsage()).catch(() => {});
     const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
     this.appId = await workspaceAppIdForPath(this.workspaceDir);
     await this.newSession();

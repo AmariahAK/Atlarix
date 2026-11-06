@@ -4,6 +4,9 @@
  * never per message. Counts only, a provider the user named never appears,
  * off with the host editor's telemetry, and a failed send loses nothing.
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ app: { getPath: () => "/tmp/atlarix-usage-rollup-test", getVersion: () => "15.9.9" } }));
@@ -20,6 +23,8 @@ const cloud = async () => ({ type: "cloud" });
 let sent: Array<Array<Record<string, unknown>>> = [];
 beforeEach(() => {
   sent = [];
+  // The pending-counts file goes to a scratch profile, never ./userData.
+  process.env.ATLARIX_USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "usage-rollup-"));
   delete process.env.ATLARIX_HOST_TELEMETRY;
   delete process.env.ATLARIX_REPORT_SURFACE;
   __setUsageSenderForTests(async (rows) => {
@@ -30,6 +35,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   __setUsageSenderForTests(null);
+  fs.rmSync(process.env.ATLARIX_USER_DATA_DIR!, { recursive: true, force: true });
+  delete process.env.ATLARIX_USER_DATA_DIR;
 });
 
 describe("usage counts", () => {

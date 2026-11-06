@@ -661,6 +661,9 @@ export async function onReady() {
     }
     // Other Atlarix sessions (CLI or app) can message this one (lib/peers).
     void import("./lib/peers/main-host").then((m) => m.startPeerMessaging("app"));
+    // Usage counts a process that is gone never sent (killed, crashed, Windows
+    // shut down): taken now, sent with this one's (usage-rollup).
+    void import("./lib/analytics/usage-rollup").then((m) => m.adoptPendingUsage()).catch(() => {});
     // A session another process named or renamed (the CLI, an editor) reaches
     // the sidebar and tabs: nothing else tells this process (item 6).
     void Promise.all([

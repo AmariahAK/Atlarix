@@ -47,6 +47,20 @@ not trust it.
 - **Read dedup ("file unchanged" note): decided NO** (data: same-turn repeats ~3% of read tokens; Claude Code removed
   its version in 2.1.317 after stale-tracking bugs). Don't re-propose without new data.
 
+## 🔎 Sign-up → no use (2026-11-06, ai-4b; ~/.atlarix-e2e/team/REPORT-signup-no-use.md)
+
+- **Usage counts lost when a process never reaches its send — FIXED on `team/usage-rollup-persist`, verify after it
+  ships.** `client_usage_daily` was counted in memory and sent 15 min after the first turn or at quit (the last
+  quit step, 1.5 s cap). A kill, crash, Windows sign-out/shutdown or installer restart skips all of it. Evidence:
+  one account had a PostHog `turn_completed` on 11-03 (a `consent_required` turn, app 15.11.1 win32) and no row and
+  no proxy request, so the morning mail said "opened, no turn yet"; two app accounts show 6 turns in PostHog against
+  4 in the table. Fix: each turn writes this process's unsent rows to `<userData>/usage-pending/<pid>.json`; the
+  next process (app onReady, `AgentSession.start`, or its first turn) claims dead processes' files by rename,
+  merges, and sends with its own. Rows older than yesterday are dropped (the RPC refuses them, by design since the
+  10-29 hardening). Tests: `usage-rollup-pending.test.ts`, `tests-bun/usage-survives-kill.test.ts` (real SIGKILL
+  before any send). **Verify:** a week after the release, compare PostHog `turn_completed` people per day with
+  `client_usage_daily` users per day for analytics-consenting accounts; they should match.
+
 ## 🚨 Attack 2026-10-28 (19:12–02:30 MYT): what held, what was closed, what is left
 
 One throwaway account (`istevens599@6gdfg.zone.id`, user `88e201ae…`, one Google Cloud IP 34.145.17.47) fuzzed every
