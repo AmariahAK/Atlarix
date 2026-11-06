@@ -25,8 +25,8 @@ migrations 20261106160000 (debits lock the wallet before checks; no ban refusal;
 20261106161000 (paid_holds + service RPCs), proxy a8506f1 live on Railway + failover (user charges via
 debit_wallet_service; Lambda paid turns hold in the DB), then 20261106170000 (debit_wallet revoked from users;
 verified authenticated/anon cannot execute). Files on main 9c757079.
-- CHECK: the first real paid charge after 11-06 ~11:00 UTC lands (credit_transactions debit row with a
-  `:<uuid>` ref suffix; no "debit_wallet failed"/"debit REFUSED" in Railway logs). No paid turn had run yet.
+- VERIFIED 11-06 13:05 UTC: the owner's paid CLI run left 6 auto_paid debits with the `:<uuid>` ref suffix, no
+  hold left behind, no hold/debit errors in Railway logs.
 - Gaps closed the same day (proxy 453602d, live on both): search/transcription take the DB hold; every runtime
   takes it (Railway too, ~25-40 ms per paid turn); a banned ASKER is refused when a workspace pays. Only
   insufficient_funds refuses: a DB that can't be asked gives HOLD_UNAVAILABLE and the call runs on the in-memory check.
@@ -36,7 +36,8 @@ verified authenticated/anon cannot execute). Files on main 9c757079.
 **Done 11-06 evening:** Google ID-token sign-in ON for everyone (owner's test passed; launchpad 5099a6c) ·
 permission "reason" merged (989accbd, ships next release) · Medium post published · YouTuber outreach handed to
 ai-4b (tracker ~/.atlarix-e2e/team/outreach-youtubers.md; owner approves each batch before sending).
-**Waiting on the owner:** PeerPush (extension has no site access) · Reviewer install for AmariahAK doesn't cover the Atlarix repo
+PeerPush 15.13 update posted (site moved to peerpush.com; Product page → Post Update).
+**Waiting on the owner:** Reviewer install for AmariahAK doesn't cover the Atlarix repo
 (no reviews there since 08-26) · Medium + PeerPush posts · winget PR #446527 (moderator).
 
 **Reviewer in Actions follow-ups (ai-37 E2E passed 11-06):** claim window 3 → 5 min (GitHub's dispatch→run was
