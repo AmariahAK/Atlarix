@@ -21,6 +21,7 @@
  */
 import { augmentsChanged, openMods, openPlugins } from "./plugins";
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
+import { terminalSafe, terminalSafeDeep } from "@/cli/agent/terminal-safe";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { setTerminalHyperlinks } from "./links";
@@ -455,7 +456,10 @@ export function App({
   autoUpdate,
   openUrl,
 }: AppProps) {
-  const [state, setState] = useState<SessionState>(session.state);
+  // Drawn text is terminal-safe: a control character in a peer's message, a
+  // command's output or a reply is shown as a symbol, never sent to the terminal
+  // as an escape sequence (agent/terminal-safe.ts).
+  const [state, setState] = useState<SessionState>(() => terminalSafeDeep(session.state));
   const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
@@ -607,7 +611,7 @@ export function App({
   };
 
   useEffect(() => {
-    const on = (s: SessionState) => setState(s);
+    const on = (s: SessionState) => setState(terminalSafeDeep(s));
     session.on("change", on);
     // An automation finished (here or in the app): one line, then /automations has the rest.
     const onAutomation = (run: { automationName?: string; summary?: string | null; error?: string | null; status?: string }) => {
@@ -1288,7 +1292,7 @@ export function App({
   const toastSeq = useRef(0);
   const flash = (text: string, ms = 4000, variant: ToastVariant = "info") => {
     const seq = ++toastSeq.current;
-    setToast({ message: text, variant });
+    setToast({ message: terminalSafe(text), variant });
     setTimeout(() => {
       if (seq === toastSeq.current) setToast(null);
     }, ms);

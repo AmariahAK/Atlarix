@@ -16,6 +16,12 @@ type AnyPreview = {
   isDangerous?: boolean;
   dangerExplanation?: string;
   systemScope?: boolean;
+  /**
+   * The stored request's system-scope marker (build-/ask-branch): an approved
+   * one runs outside the sandbox. `systemScope` itself is added only to the
+   * copy the card shows, so this is the flag the request as HELD carries.
+   */
+  systemScopeInteractive?: boolean;
   systemScopeExplanation?: string;
   path?: string;
   type?: string;
@@ -74,11 +80,22 @@ export function summarizePermissionRequest(
     ...(detail ? { detail: cap(detail) } : {}),
     ...(p.workingDirectory ? { cwd: p.workingDirectory } : {}),
     ...(flags.some((f) => f.isDangerous) ? { isDangerous: true } : {}),
-    ...(flags.some((f) => f.systemScope) ? { systemScope: true } : {}),
+    ...(flags.some((f) => f.systemScope || f.systemScopeInteractive) ? { systemScope: true } : {}),
   };
 }
 
 /** Whether a peer session may approve this request: high-risk ones need the owner (dynamic signals only). */
 export function isPeerApprovableSummary(s: PendingApprovalSummary): boolean {
   return !(s.isDangerous || s.systemScope || s.operation === "sandbox_escalation");
+}
+
+/**
+ * Whether a peer session may approve a request, judged on every copy of it there
+ * is: as main's permission layer holds it and as its card showed it (enriched,
+ * with `systemScope` and the category's danger). Any copy high-risk: no. No copy
+ * at all: nothing to judge, so no.
+ */
+export function peerMayApprove(copies: Array<{ operation?: string; preview?: unknown } | undefined>): boolean {
+  const present = copies.filter((c): c is { operation?: string; preview?: unknown } => c != null);
+  return present.length > 0 && present.every((c) => isPeerApprovableSummary(summarizePermissionRequest("", c)));
 }

@@ -163,6 +163,11 @@ export function notePermissionShown(chatId: number, operationId: string, request
   publishPendingApprovals(chatId);
 }
 
+/** A pending request as its card showed it (enriched: system scope, danger), or undefined. */
+export function shownPermissionRequest(operationId: string): { operation?: string; preview?: unknown } | undefined {
+  return shownRequests.get(operationId);
+}
+
 /** This chat's pending requests, published for the other sessions (every surface alike). */
 function publishPendingApprovals(chatId: number): void {
   const interceptor = activeInterceptors.get(chatId);

@@ -1001,3 +1001,25 @@ describe("following a turn another surface runs", () => {
     expect(session.state.mode).toBe("build");
   });
 });
+
+describe("terminal safety", () => {
+  // opentui writes a cell's characters to the terminal as they are: an ESC in a
+  // peer's message was a live escape sequence in the user's terminal (2026-11-06).
+  it("a peer message's escape sequences are drawn as symbols, never sent to the terminal", async () => {
+    const { setup, session } = await mount();
+    const evil = "hi\x1b]0;PWNED\x07 there\x1b[2K\rnpm test";
+    session.set({
+      cells: [
+        {
+          kind: "tool",
+          id: "11:p0",
+          tool: { id: "11:p0", verb: "Message", target: "from x (CLI)", status: "success", output: evil, peer: { from: "x", surface: "cli", preview: evil, more: true } },
+        },
+      ],
+    });
+    await settle(setup);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("␛]0;PWNED␇");
+    expect(frame).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+  });
+});

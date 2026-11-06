@@ -122,13 +122,17 @@ async function applyPeerSettings(
     const name = target.name ?? "that session";
     // Judged against the request itself, as main's permission layer holds it:
     // one that can't be found can't be checked, so it isn't answered.
-    const { getInterceptorForChat, answerPermissionInMain } = await import("@/ipc/handlers/permissions/handlers");
+    const { getInterceptorForChat, answerPermissionInMain, shownPermissionRequest } = await import("@/ipc/handlers/permissions/handlers");
     const op = getInterceptorForChat(target.chatId)?.getPendingOperations().find((o) => o.id === operationId);
     if (!op) return { ok: false, error: `${name} has no pending request ${operationId} (answered already, or never asked)` };
-    const { summarizePermissionRequest, isPeerApprovableSummary } = await import("./approval-summary");
-    const summary = summarizePermissionRequest(operationId, op.request);
-    // Security: high-risk requests need the owner, never a peer (dynamic signals only).
-    if (approvalMode !== "deny" && !isPeerApprovableSummary(summary)) {
+    const { summarizePermissionRequest, peerMayApprove } = await import("./approval-summary");
+    const shown = shownPermissionRequest(operationId);
+    const summary = summarizePermissionRequest(operationId, shown ?? op.request);
+    // Security: high-risk requests need the owner, never a peer (dynamic signals
+    // only). Judged on the request as held AND as its card showed it: the held
+    // copy of a system-scope command has no `systemScope`, only the marker that
+    // runs it outside the sandbox once approved.
+    if (approvalMode !== "deny" && !peerMayApprove([op.request, shown])) {
       return {
         ok: false,
         error: `Permission request ${operationId} is high-risk (${summary.operation ?? "unknown"}: ${summary.summary}) — it needs the owner to approve, not a peer session.`,

@@ -12,6 +12,7 @@
  * on an accent band; badges right-aligned; the footer lists what keys do, as
  * "Connect provider ctrl+a".
  */
+import { terminalSafeDeep } from "@/cli/agent/terminal-safe";
 import { RGBA, type ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef } from "react";
 import type { DialogView, Hint, Line, ListItem, Tone } from "./dialogs";
@@ -127,7 +128,9 @@ function Body({ view, visible }: { view: DialogView; visible: number }) {
 }
 
 /** A dialog centred over the dimmed screen. */
-export function DialogOverlay({ view, width, height, plain }: { view: DialogView; width: number; height: number; plain?: boolean }) {
+export function DialogOverlay({ view: raw, width, height, plain }: { view: DialogView; width: number; height: number; plain?: boolean }) {
+  // Session titles, model names, a plan's text: never an escape sequence (agent/terminal-safe.ts).
+  const view = terminalSafeDeep(raw);
   const doc = view.kind === "text" && view.markdown != null;
   // A document (a plan) gets the room a document needs: wide and nearly full height.
   const panelWidth = Math.min(width - 2, doc ? 116 : "wide" in view && view.wide ? 88 : 72);
@@ -160,7 +163,8 @@ export function DialogOverlay({ view, width, height, plain }: { view: DialogView
 }
 
 /** The same dialog inline above the prompt box (the agent's questions). */
-export function DialogPanel({ view, height }: { view: DialogView; height: number }) {
+export function DialogPanel({ view: raw, height }: { view: DialogView; height: number }) {
+  const view = terminalSafeDeep(raw);
   // Leave room for the transcript, the prompt and the status line.
   const visible = Math.max(5, Math.min(16, height - 14));
   return (

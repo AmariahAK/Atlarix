@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   APPROVAL_DETAIL_CAP,
   isPeerApprovableSummary,
+  peerMayApprove,
   summarizePermissionRequest,
 } from "@/lib/peers/approval-summary";
 
@@ -77,5 +78,41 @@ describe("summarizePermissionRequest", () => {
     });
     expect(s.summary).toBe("sandbox write denied: /x/cache (grant /x)");
     expect(isPeerApprovableSummary(s)).toBe(false);
+  });
+});
+
+/**
+ * The request as main's permission layer HOLDS it is not the request as its card
+ * SHOWED it: the stored copy of a system-scope command carries only
+ * `systemScopeInteractive` (the marker that lets an approved one run outside the
+ * sandbox), while `systemScope` is added by the card's enrichment. A peer's
+ * answer is judged on both, so neither copy can let a high-risk request through.
+ */
+describe("peerMayApprove", () => {
+  const stored = {
+    operation: "run_command",
+    // As build-branch / ask-branch buffer it: no `systemScope`, only the run marker.
+    preview: { command: "sudo installer -pkg x.pkg -target /", workingDirectory: ".", isDangerous: false, systemScopeInteractive: true },
+  };
+  const shown = { operation: "run_command", preview: { ...stored.preview, systemScope: true, systemScopeExplanation: "installs on this Mac" } };
+
+  it("a system-scope command as STORED (only systemScopeInteractive) is high-risk", () => {
+    expect(isPeerApprovableSummary(summarizePermissionRequest("op-7", stored))).toBe(false);
+    expect(peerMayApprove([stored])).toBe(false);
+  });
+
+  it("refused when EITHER the shown or the stored copy is high-risk", () => {
+    expect(peerMayApprove([shown, stored])).toBe(false);
+    // The card flagged it (enrichment found the danger) though the stored copy did not.
+    const plainStored = { operation: "run_command", preview: { command: "rm -rf build", isDangerous: false } };
+    const dangerShown = { operation: "run_command", preview: { command: "rm -rf build", isDangerous: true } };
+    expect(peerMayApprove([dangerShown, plainStored])).toBe(false);
+  });
+
+  it("an ordinary request stays peer-approvable; a missing copy is skipped", () => {
+    const edit = { operation: "edit_file", preview: { path: "src/a.ts", type: "update", diff: "+x" } };
+    expect(peerMayApprove([undefined, edit])).toBe(true);
+    // Nothing to judge: never approvable.
+    expect(peerMayApprove([undefined])).toBe(false);
   });
 });
