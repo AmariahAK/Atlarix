@@ -449,6 +449,20 @@ describe("the permission prompt", () => {
     expect(session.calls).toContainEqual(["answerApproval", "op1", "once"]);
   });
 
+  it("the agent's reason sits between the title and the command; none, no line", async () => {
+    const reason = "Can I add the rate limiter the login route needs?";
+    const { setup, session } = await mount();
+    session.set({ approvals: [{ ...approval, request: { ...approval.request, preview: { ...approval.request.preview, reason } } }] });
+    await settle(setup);
+    const frame = setup.captureCharFrame();
+    const [title, why, cmd] = ["Run this command?", `Reason: ${reason}`, "$ npm install express-rate-limit"].map((s) => frame.indexOf(s));
+    expect(why).toBeGreaterThan(title);
+    expect(cmd).toBeGreaterThan(why);
+    session.set({ approvals: [approval] });
+    await settle(setup);
+    expect(setup.captureCharFrame()).not.toContain("Reason:");
+  });
+
   it("Esc answers no", async () => {
     const { setup, session } = await mount();
     session.set({ approvals: [approval] });

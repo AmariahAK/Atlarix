@@ -66,7 +66,8 @@ export function Approval({ approval, selected, expanded = false, workspace }: { 
   const { width, height } = useTerminalDimensions();
   // ctrl+o shows the rest, as far as the screen holds with the choices, the
   // prompt box and a few lines of conversation still on it.
-  const room = Math.max(3, height - 20 - choices.length);
+  // The reason line and its gap take two of those rows.
+  const room = Math.max(3, height - 20 - choices.length - (p.command && p.reason ? 2 : 0));
   const command = p.command ? clipCommand(`$ ${shown}`, width - 8, expanded ? room : Math.min(COMMAND_ROWS, room)) : null;
   // ctrl+o shows the whole change (QA: "… 2 more lines" had no way to see them).
   const diff = approvalDiff(p, expanded ? 400 : 14);
@@ -86,6 +87,7 @@ export function Approval({ approval, selected, expanded = false, workspace }: { 
       <text fg={tone}>
         <b>{`△ ${approvalTitle(approval)}`}</b>
       </text>
+      {p.command && p.reason ? <text fg={color.text}>{`Reason: ${p.reason}`}</text> : null}
       {shown ? (
         <box backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexDirection="column">
           <text fg={color.text}>{command ? command.text : shown}</text>

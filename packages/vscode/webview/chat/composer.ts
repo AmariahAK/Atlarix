@@ -314,6 +314,8 @@ function renderApproval(): void {
         risk?: string | null;
         outside?: string | null;
         intent?: string | null;
+        /** The agent's question for a command (approval-reason.ts): plain text, above the command. */
+        reason?: string | null;
         /** An automation's when / each run / results lines. */
         details?: string[];
         added?: number | null;
@@ -334,6 +336,7 @@ function renderApproval(): void {
   head.append(el("span", "approval__title", title));
   if (approvals.length > 1) head.append(el("span", "muted small", `1 of ${approvals.length}`));
   approval.append(head);
+  if (meta?.command && meta.reason) approval.append(el("div", "approval__reason", `Reason: ${meta.reason}`));
   if (meta?.command) approval.append(el("pre", "approval__code", meta.command));
   else if (meta?.path) {
     const row = el("div", "approval__code", meta.path);

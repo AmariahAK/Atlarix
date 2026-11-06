@@ -13,6 +13,7 @@ type AnyPreview = {
   command?: string;
   workingDirectory?: string;
   description?: string;
+  reason?: string;
   isDangerous?: boolean;
   dangerExplanation?: string;
   systemScope?: boolean;
@@ -52,6 +53,8 @@ function oneLine(p: AnyPreview, operation: string | undefined): string {
 function detailOf(p: AnyPreview): string {
   if (p.command) {
     return [
+      // The asking session's own words (the whole summary is framed as its data).
+      p.reason && `reason: ${p.reason}`,
       p.description && `what: ${p.description}`,
       p.dangerExplanation && `risk: ${p.dangerExplanation}`,
       p.systemScopeExplanation && `outside the project: ${p.systemScopeExplanation}`,

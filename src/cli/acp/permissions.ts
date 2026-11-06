@@ -74,6 +74,8 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
     content.push({ type: "diff", path: p.path, oldText: p.oldContent ?? null, newText: p.content ?? "" });
   }
   const note = [
+    // The agent's reason first, as Codex shows it; the command follows, always.
+    p.command && p.reason ? `Reason: ${p.reason}` : "",
     p.command ? `$ ${p.command}` : "",
     p.deniedPath ? `Write outside the sandbox: ${p.grantPath ?? p.deniedPath}` : "",
     (p.description ?? "").replace(/`/g, ""),
@@ -92,6 +94,7 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
     atlarix: {
       approval: {
         intent: p.description?.replace(/`/g, "").trim() || null,
+        reason: (p.command && p.reason) || null,
         details: automationDetails(a),
         added: d ? d.added : null,
         removed: d ? d.removed : null,

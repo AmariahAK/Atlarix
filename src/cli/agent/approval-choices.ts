@@ -12,6 +12,8 @@ export interface Preview {
   command?: string;
   workingDirectory?: string;
   description?: string;
+  /** run_command: the agent's question to the user, cleaned (approval-reason.ts). Never replaces the command. */
+  reason?: string;
   isDangerous?: boolean;
   dangerExplanation?: string;
   systemScope?: boolean;

@@ -552,6 +552,18 @@ Bedrock's newest-model access (AWS Sales request 2026-10-18) is no longer needed
 
 ## 🔭 Open — the queue
 
+### Permission reason on command approvals (owner, 2026-11-06; branch team/permission-reason, UNMERGED: owner reviews the wording)
+
+- Built: run_command's optional `reason` (a question to the user, like Codex's `justification`) is shown as
+  "Reason: …" above the command on the app card, the CLI card, the VS Code bar and ACP (first line of the note, plus
+  `_meta.atlarix.approval.reason`), and as `reason:` in a peer's `pending_of`. It is cleaned once
+  (`approval-reason.ts`: one line, no control characters, 200 chars) and never replaces the command.
+- Costs 39 prompt tokens where run_command is bound (603 → 642, o200k), plus about 13 output tokens on each call
+  that fills it.
+- Not done, on purpose: the Chrome panel (no run_command; its tools keep Claude-in-Chrome shapes), MCP calls (their
+  schemas are the server's), file edits (the diff is the case). Sandbox-escalation cards keep their own question.
+- To check once merged: how often current models fill it, and whether it reads as a question.
+
 ### 0. Computer use: permission prompts that say "Atlarix" everywhere (owner, 2026-10-24: after 15.11)
 
 - **Mac:** the desktop app's prompt already says Atlarix. From the CLI and editors, macOS names the RESPONSIBLE app

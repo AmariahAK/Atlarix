@@ -73,6 +73,8 @@ export interface QueuedOperation {
   content?: string; // File content for write_file
   oldContent?: string; // Original content for diff view
   description?: string; // AI-generated change summary
+  /** run_command: the agent's question to the user (approval-reason.ts). Model text, drawn as plain text above the command. */
+  reason?: string;
   preview?: string;
   /** For batch_plan: title and summary */
   batchPlanTitle?: string;

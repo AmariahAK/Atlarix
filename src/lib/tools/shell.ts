@@ -19,6 +19,7 @@ import {
 
 import * as os from "node:os";
 import { getAcceptableShell } from "@/lib/shell/resolve-shell";
+import { approvalReason } from "@/lib/tools/approval-reason";
 import {
   isDangerousCommand,
   getDangerExplanation,
@@ -83,6 +84,9 @@ ToolRegistry.register({
         "Working directory (default: workspace root). Prefer this over 'cd <dir> && command'.",
       ),
       description: stringParam("What this command does"),
+      reason: stringParam(
+        'Shown to the user if this needs their approval: a short question, e.g. "Can I check whether the PR has merge conflicts?"',
+      ),
       timeout_ms: numberParam(
         "Max wall-clock time in ms (default 120000, max 1800000). Dev-server commands still use a short start timeout.",
         120_000,
@@ -114,6 +118,7 @@ ToolRegistry.register({
     command,
     cwd = ".",
     description,
+    reason,
     timeout_ms = 120_000,
     max_output_bytes = 80_000,
     background = false,
@@ -125,6 +130,7 @@ ToolRegistry.register({
     const dangerExplanation = dangerous
       ? getDangerExplanation(command)
       : undefined;
+    const why = approvalReason(reason);
 
     return {
       __permission_required: true,
@@ -133,6 +139,7 @@ ToolRegistry.register({
         command,
         workingDirectory: cwd,
         description,
+        ...(why ? { reason: why } : {}),
         isDangerous: dangerous,
         dangerExplanation,
         timeout_ms: Math.min(

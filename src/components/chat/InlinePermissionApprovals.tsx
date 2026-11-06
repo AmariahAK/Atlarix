@@ -63,6 +63,7 @@ function queueEntryFromPermission(
     id: operationId,
     operation: (request.operation as QueuedOperation["operation"]) || "unknown",
     command: preview.command as string | undefined,
+    reason: preview.reason as string | undefined,
     path: preview.path as string | undefined,
     content: preview.content as string | undefined,
     oldContent: preview.oldContent as string | undefined,
@@ -365,6 +366,12 @@ export function CommandPermissionCard({
             : "border-border/60 bg-muted/20",
       )}
     >
+      {/* The agent's reason first, as plain text; the command below is what is approved. */}
+      {operation.reason ? (
+        <p className="mb-1.5 text-foreground/90 break-words">
+          Reason: {operation.reason}
+        </p>
+      ) : null}
       <div className="flex items-start gap-2">
         <Terminal className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
         <div className="flex-1 min-w-0">
