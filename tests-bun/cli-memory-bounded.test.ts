@@ -14,16 +14,18 @@
  * This test drives a REAL AgentSession through 300 fake tool steps at ~100 ms
  * model latency (the worst case for growth) and asserts the process's peak RSS
  * stays bounded. `MEM_STEPS` / `MEM_FILE_KB` / `MEM_LATENCY_MS` override sizes.
+ *
+ * The turn runs in a process of its own (fixtures/mem-turn.ts), as the CLI
+ * does. `bun test --isolate` runs every file in ONE process, and files before
+ * this one leave sessions, servers and timers alive: in the whole run this
+ * test measured ~200 MB of heap that was not its turn's, and which files ran
+ * first changed whenever a file was added (CI 2026-11-06: peak 934 MB on
+ * 4bfd8867; locally the last green commit failed the same way in the whole run,
+ * and both pass alone at 118 MB heap).
  */
-import { beforeAll, describe, expect, it } from "bun:test";
-import fs from "node:fs";
-import os from "node:os";
+import { describe, expect, it } from "bun:test";
+import { spawn } from "node:child_process";
 import path from "node:path";
-import { startFakeLlm, type FakeLlm, type Reply } from "./fixtures/fake-llm";
-
-const STEPS = Number(process.env.MEM_STEPS ?? 300);
-const FILE_KB = Number(process.env.MEM_FILE_KB ?? 3);
-const LATENCY_MS = Number(process.env.MEM_LATENCY_MS ?? 100);
 
 /**
  * Measured 2026-11-01 (300 steps, 100 ms latency, 3 KB tool results):
@@ -37,81 +39,64 @@ const LATENCY_MS = Number(process.env.MEM_LATENCY_MS ?? 100);
  */
 const RSS_CEILING_MB = 600;
 
+/**
+ * The JS heap at its peak. On macOS Bun's reported RSS did not see a leak in
+ * the heap (2026-11-06: 1.3 GB leaked on purpose, RSS read 434 MB), so RSS
+ * alone cannot fail this test there. A turn's own heap peaks at ~118 MB
+ * (local, alone); 400 MB leaves room for CI and fails a per-step hold.
+ */
+const HEAP_CEILING_MB = 400;
+
 const mb = (n: number) => Math.round(n / 1024 / 1024);
 
-let llm: FakeLlm;
-let ws: string;
-/** RSS sampled at the 100/200/300 step boundaries (before/after comparison). */
-const rssAtStep: Record<number, number> = {};
+type MemReport = {
+  steps: number;
+  peakRss: number;
+  peakHeap: number;
+  beforeGcHeap: number;
+  after: NodeJS.MemoryUsage;
+  cells: number;
+  compact: boolean;
+  turnMs: number;
+  rssAtStep: Record<string, number>;
+};
 
-beforeAll(() => {
-  const ud = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bounded-ud-"));
-  ws = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bounded-ws-"));
-  process.env.ATLARIX_USER_DATA_DIR = ud;
-  process.env.ATLARIX_CLI_DEV_PROVIDER = "1";
-  process.env.ATLARIX_SURFACE = "cli";
-  // Distinct files so the turn's repetition guard (byte-identical tool calls)
-  // never fires: each step reads a fresh ~FILE_KB file.
-  const line = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\n";
-  const body = (i: number) => `line ${i}: ` + line.repeat(Math.max(1, Math.round((FILE_KB * 1024) / 40)));
-  for (let i = 0; i < STEPS; i++) fs.writeFileSync(path.join(ws, `big-${i}.txt`), body(i));
-  const script: Reply[] = [];
-  for (let i = 0; i < STEPS; i++) script.push({ tool: "read_file", args: { path: `big-${i}.txt` } });
-  script.push({ text: "Done reading." });
-  llm = startFakeLlm(script, 0, {
-    retainRequests: false,
-    latencyMs: LATENCY_MS,
-    onStep: (step) => {
-      if (step === 100 || step === 200 || step === 300) rssAtStep[step] = process.memoryUsage().rss;
-    },
-  });
-});
-
-function waitIdle(s: { state: { busy: boolean }; on: Function; off: Function }, ms = 300_000) {
-  return new Promise<void>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("turn never finished")), ms);
-    const check = (st: { busy: boolean }) => {
-      if (!st.busy) {
-        clearTimeout(t);
-        s.off("change", check);
-        resolve();
-      }
-    };
-    s.on("change", check);
+/** Runs fixtures/mem-turn.ts in its own process and returns its MEM report. */
+function runTurn(): Promise<MemReport> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["run", "--preload", "./tests-bun/preload.ts", "tests-bun/fixtures/mem-turn.ts"],
+      { cwd: path.join(import.meta.dir, ".."), stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let out = "";
+    let err = "";
+    child.stdout!.on("data", (c: Buffer) => (out += c.toString()));
+    child.stderr!.on("data", (c: Buffer) => (err += c.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      const line = out.split("\n").find((l) => l.startsWith("MEM "));
+      if (!line) return reject(new Error(`no MEM line (exit ${code}): ${(out + err).slice(-2000)}`));
+      resolve(JSON.parse(line.slice(4)) as MemReport);
+    });
   });
 }
 
 describe("CLI memory (item 0q)", () => {
   it("300 tool steps leave RSS bounded (no multi-GB climb)", async () => {
-    const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
-    const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });
-    const s = new AgentSession({ workspaceDir: ws, model });
-    await s.start();
-
-    let peakRss = 0;
-    let peakHeap = 0;
-    s.on("change", () => {
-      const m = process.memoryUsage();
-      peakRss = Math.max(peakRss, m.rss);
-      peakHeap = Math.max(peakHeap, m.heapUsed);
-    });
-
-    const turnStart = Date.now();
-    await s.submit("read the file many times");
-    await waitIdle(s);
-    const turnMs = Date.now() - turnStart;
-
-    const beforeGc = process.memoryUsage();
-    const res = await s.compact();
-    Bun.gc(true);
-    const { rss, heapUsed, heapTotal, external, arrayBuffers } = process.memoryUsage();
+    const r = await runTurn();
+    const a = r.after;
     // eslint-disable-next-line no-console
     console.log(
-      `[mem] steps=${STEPS} peakRss=${mb(peakRss)}MB peakHeap=${mb(peakHeap)}MB beforeGc-heap=${mb(beforeGc.heapUsed)}MB after-compact rss=${mb(rss)}MB heap=${mb(heapUsed)}MB heapTotal=${mb(heapTotal)}MB external=${mb(external)}MB arrayBuffers=${mb(arrayBuffers)}MB cells=${s.state.cells.length} compact=${res.ok} turnMs=${turnMs} rss100=${mb(rssAtStep[100] ?? 0)}MB rss200=${mb(rssAtStep[200] ?? 0)}MB rss300=${mb(rssAtStep[300] ?? 0)}MB`,
+      `[mem] steps=${r.steps} peakRss=${mb(r.peakRss)}MB peakHeap=${mb(r.peakHeap)}MB beforeGc-heap=${mb(r.beforeGcHeap)}MB after-compact rss=${mb(a.rss)}MB heap=${mb(a.heapUsed)}MB heapTotal=${mb(a.heapTotal)}MB external=${mb(a.external)}MB arrayBuffers=${mb(a.arrayBuffers)}MB cells=${r.cells} compact=${r.compact} turnMs=${r.turnMs} rss100=${mb(r.rssAtStep[100] ?? 0)}MB rss200=${mb(r.rssAtStep[200] ?? 0)}MB rss300=${mb(r.rssAtStep[300] ?? 0)}MB`,
     );
 
+    // The turn really ran: every tool step drew a cell, and compaction worked.
+    expect(r.cells).toBeGreaterThan(r.steps);
+    expect(r.compact).toBe(true);
     // The acceptance criterion: the PEAK RSS during the turn (the high-water
     // mark the process actually reaches), not just the settled value after.
-    expect(peakRss).toBeLessThan(RSS_CEILING_MB * 1024 * 1024);
+    expect(r.peakRss).toBeLessThan(RSS_CEILING_MB * 1024 * 1024);
+    expect(r.peakHeap).toBeLessThan(HEAP_CEILING_MB * 1024 * 1024);
   }, 300_000);
 });
