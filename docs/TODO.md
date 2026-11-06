@@ -27,15 +27,16 @@ debit_wallet_service; Lambda paid turns hold in the DB), then 20261106170000 (de
 verified authenticated/anon cannot execute). Files on main 9c757079.
 - CHECK: the first real paid charge after 11-06 ~11:00 UTC lands (credit_transactions debit row with a
   `:<uuid>` ref suffix; no "debit_wallet failed"/"debit REFUSED" in Railway logs). No paid turn had run yet.
-- Left out on purpose: tool routes (search/transcribe) take no DB hold; Railway's in-memory hold isn't seen by
-  Lambda's DB holds (overshoot ~2x a turn's reserve, was ~11x balance); the proxy never checks the ASKER's ban
-  when a workspace pays (one line: banCache.isBanned on the service/cloud branches of resolveCaller).
+- Gaps closed the same day (proxy 453602d, live on both): search/transcription take the DB hold; every runtime
+  takes it (Railway too, ~25-40 ms per paid turn); a banned ASKER is refused when a workspace pays. Only
+  insufficient_funds refuses: a DB that can't be asked gives HOLD_UNAVAILABLE and the call runs on the in-memory check.
 - Small: upsert_account_skill has no row cap/ban check; record_session_feedback no ban check;
   free_usage_user_daily.turns may count Requesty turns twice (unverified).
 
-**Waiting on the owner:** Google ID-token sign-in on for everyone (live behind `?google=id`; flip
-GOOGLE_ID_ON_FOR_EVERYONE in launchpad src/lib/google-id.ts after one real sign-in) · permission "reason"
-wording (branch team/permission-reason 3c14816f) · Reviewer install for AmariahAK doesn't cover the Atlarix repo
+**Done 11-06 evening:** Google ID-token sign-in ON for everyone (owner's test passed; launchpad 5099a6c) ·
+permission "reason" merged (989accbd, ships next release) · Medium post published · YouTuber outreach handed to
+ai-4b (tracker ~/.atlarix-e2e/team/outreach-youtubers.md; owner approves each batch before sending).
+**Waiting on the owner:** PeerPush (extension has no site access) · Reviewer install for AmariahAK doesn't cover the Atlarix repo
 (no reviews there since 08-26) · Medium + PeerPush posts · winget PR #446527 (moderator).
 
 **Reviewer in Actions follow-ups (ai-37 E2E passed 11-06):** claim window 3 → 5 min (GitHub's dispatch→run was
