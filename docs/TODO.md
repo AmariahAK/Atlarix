@@ -79,8 +79,13 @@ not trust it.
   → the next CLI or editor process is signed out. Fix: create the key the way Chromium does (32 random bytes, DPAPI
   CurrentUser over PowerShell stdin, `base64("DPAPI"+blob)`, merged into Local State, written atomically); never
   replace a key that won't unwrap or a file that isn't JSON. macOS already created its keychain item. Tests:
-  `oscrypt.test.ts` (fake DPAPI). **Open:** (1) the Windows check on a real machine: CLI creates the key, the packaged
-  desktop app runs once, the key is unchanged and the CLI's secret still decrypts; (2) MSIX: per Microsoft's doc a
+  `oscrypt.test.ts` (fake DPAPI). **Checked on Windows (2026-11-06, Server 2022 spot i-04ffd13d1dc26bb02, as SYSTEM
+  over SSM, terminated):** released 15.12.5 CLI on a fresh profile made no key and stored a provider key in PLAINTEXT;
+  this branch's CLI created Local State, stored it encrypted, a second process read it; the packaged 15.12.5 desktop
+  ran `--doctor` once (credential-store OK) and the raw key was the SAME 32 bytes after (Chromium re-wraps it and adds
+  `audit_enabled`, so the base64 string changes; the key does not); the CLI still decrypted its secret. **Open:** (1)
+  an interactive user's sign-in end to end (needs a device code; SYSTEM was used so DPAPI, CLI and app shared one
+  user); (2) MSIX: per Microsoft's doc a
   packaged app opens its private AppData copy first and the real file when it has none, so a key the CLI made BEFORE
   the Store app first ran is shared; a Store app that ran first keeps a private key the CLI can't see (the CLI's own
   sign-in is still kept with its own key). (3) Linux: still read-only (a secret-tool key would not match Chromium's
