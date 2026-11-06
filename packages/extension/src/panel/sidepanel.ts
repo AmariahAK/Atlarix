@@ -162,7 +162,6 @@ import {
   peerSurfaceLabel,
   splitPeerMessages,
   wrapPeerMessage,
-  type PeerSegment,
 } from "@/lib/peers/peer-message";
 import { listInbox, takeFromInbox, type PeerTask } from "../peers/inbox";
 import { peerSendersOf } from "../peers/senders";

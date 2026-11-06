@@ -1722,6 +1722,10 @@ button.file__chip:hover {
 }
 .tool--peer .tool__preview {
   color: var(--fg);
+  /* A flex item of the row: without min-width 0 it never shrinks, and a long
+     preview ran past the card instead of ending in "…". */
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1800,3 +1804,7 @@ button.file__chip:hover {
   font-size: 11px; font-weight: 600; background: rgba(127, 127, 127, 0.15); overflow: hidden;
 }
 .mcp-card__logo-img { width: 100%; height: 100%; object-fit: contain; }
+/* The sender's name stays whole; the preview beside it takes the cut. */
+.tool--peer .tool__label {
+  flex-shrink: 0;
+}
