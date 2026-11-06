@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current version:** 15.12.3 (2026-11-03): case-insensitive project instructions, proactive image gate, peer message previews, rating cross-session fix, /context tierLimit, axe.js CWS compliance.
+**Current version:** 15.13.0 (2026-11-06): sessions wake and review each other, peer messages visible on every surface, ask_user like Claude Code's, CLI send-now (ctrl+s) and long-chat repaint, 1h cache + idle compaction, prompt-truth audit.
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -29,13 +29,21 @@ not trust it.
   the reviewer sends the header (it can keep the raw/private URL), and the cloud agent's `claim.core_proxy_url`
   becomes `https://core.atlarix.dev` (customer runners can never hold the secret). The Lambda failover stays open
   (CloudFront + WAF costs money: owner's call).
+- **"proxy copies differ" alarm compares commit labels, not code.** The failover stamps the last commit that touched
+  deployed paths (`git log -1 -- src …`); Railway reports `RAILWAY_GIT_COMMIT_SHA`, the commit it was deployed AT. A
+  Railway redeploy at a config-only commit (a `railway config apply`, 11-05: 1f4f0b1 vs f0f94fa, zero src diff) makes
+  them differ until the next code change, and the alarm mails hourly. Fix: both builds stamp a hash of the deployed
+  files (same path list, one shared script for tsup and esbuild) and the uptime Lambda compares that, commit as fallback.
 - **Railway config is code now:** `.railway/railway.ts` is omit=delete (an apply deletes any variable it doesn't list).
   After adding a variable on Railway, add its name there; always read `railway config plan`'s destroy count first.
 - **Slack says "Change who pays at …/cloud", but the live site has no payer control:** it is only on the unmerged
   launchpad branch `team/workspace-pays-web` (6e8c991). Merge it or change the Slack line.
-- **Found while filming 15.12 (cc-video, 11-05; in the handoff):** the CLI stops repainting a turn taller than the
-  terminal (answer never shown at 110×36); the reply footer shows a Bedrock model's raw id; a blocked tool row
-  repeats a truncated "B… ·" prefix.
+- **Found while filming 15.12 (cc-video, 11-05):** a blocked tool row in the CLI repeats a truncated "B… ·" prefix.
+  (The repaint and the raw-id footer were fixed in 15.13.)
+- **Reviewer in the customer's Actions runner (Phase 7a):** built and tested (atlarix-reviewer b265ae6,
+  atlarix-agent-action b52ef9f, branches `team/review-in-actions`), opt-in via `review_in_actions: true`. Waiting on
+  the owner adding atlarix-cloud-test to the Reviewer app's repository access, then deploy + E2E (runner review,
+  workflow missing → API, a new push cancels).
 - **Read dedup ("file unchanged" note): decided NO** (data: same-turn repeats ~3% of read tokens; Claude Code removed
   its version in 2.1.317 after stale-tracking bugs). Don't re-propose without new data.
 

@@ -3,6 +3,26 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.13.0] (2026-11-06) — Sessions that see and review each other, ask_user like Claude Code's, and cheaper long conversations
+
+**Sessions talk again.** A message from another session starts a turn in an idle one instead of saying "waiting"; a turn-ended notice is marked `kind="notice"` and never wakes anyone. A session the user stopped is not woken by a message: it waits for the user. Every surface now shows the message where it lands: "Message from <name> (<surface>): <preview>", the whole text on expand (ctrl+o in the CLI, a click in the app and Chrome, "Show all" in VS Code, the tool title in ACP editors). The sender's row names the receiver instead of its session id.
+
+**Cross-session review.** A session can see another's pending request (`list_sessions` `pending_of`: the command or the diff) and its plan, and answer it: approve, change or reject. A high-risk request still needs the user.
+
+**ask_user like Claude Code's.** Options carry a description and a "recommended" mark, questions a short header chip, and `multiSelect` picks several, on every surface (app, CLI, VS Code, ACP, Chrome). Free text ("Other") stays.
+
+**CLI.** A long chat shows turns that arrive with no key pressed (a peer message, a wake): the transcript stuck to the top once it outgrew the screen. ctrl+s sends everything queued now as one turn; Esc is a plain stop and what was queued comes back into the box (a stop used to throw the queue away). The terminal bell rings when a turn ends or needs you, focused or not. An image sent while a turn runs opens the next turn with it. The turn footer names the model as the picker does.
+
+**App and VS Code.** The app chat follows the bottom on any append while you are there, not only while streaming. VS Code: a text file dropped from the desktop is attached, and the box says to hold Shift (VS Code's rule).
+
+**Cheaper long conversations.** The main conversation keeps 1h cache on its history breakpoints (sub-agents 5m); the plan, finished work and attachment notes ride the per-turn tail instead of the cached header; a long conversation idle until just before its 1h cache expires is compacted (`ATLARIX_IDLE_COMPACTION=off` turns it off); compaction inside a turn writes its summary on the turn's own request, read from the prompt cache.
+
+**Prompts say only what is true.** The 11-05 audit: no "relevance-ranked" grep, the context reminder reports the working window it fires on, memory rules only where notes can be written, one tool list, one Review severity scale and output format. Review mode's "How to work" steps are global.
+
+**Security (pre-release review).** A peer session can no longer approve a held system-scope request (sudo, an installer, a write to a shell profile): the check now judges both the held and the shown copy of the request, and refuses when there is nothing to judge. The CLI turns control characters in anything it draws (peer messages, command output, model replies) into visible symbols, so text can't retitle the tab, write the clipboard or redraw an approval card.
+
+**Backend.** Four Supabase helpers pin their search_path; usage rollups count gated (no-credit) turns; lift-ban links are bounded to 48 h. CI type-checks on windows-latest too.
+
 ## [15.12.5] (2026-11-04) — the context meter and the model's reminder agree on one number
 
 **Context meter.** The "context is at X% capacity" reminder the model sees and the percentage in your context bar now share one denominator — the model's full context window. They had diverged: the reminder counted against the 256k working window and read "198%" while the bar counted against the 1M window and read "48%" for the same dispatch. Both now report the full window, and the reminder still triggers compaction at the working window, unchanged.
@@ -187,135 +207,3 @@ count of their turns**, by surface, provider type and model (never prompts, code
 did for Core and Auto: a few numbers sent at most every 15 minutes and when you quit, and off when VS Code's
 telemetry is off. The consent question on every surface and the privacy page say so.
 
-## [15.9.2] (2026-10-18) — a leaner prompt, and browser and DeepSeek fixes
-
-**A leaner prompt on every turn.** Today's models need to be told what is true and what is
-allowed, not walked through how to work, so the fixed part of each request is about a third
-smaller: in Build, about 12,400 tokens where it was 18,400, with every tool still there.
-Each rule is now stated once (plans, reviewing a sub-agent's work and the project rules
-were each repeated two to four times), the coaching is gone, and the rules that fixed a
-real mistake stay, shorter. Along the way: a mode is no longer told about tools it doesn't
-have, notes meant for contributors are no longer sent to the model, and a model's name
-reads "Sonnet 4.6", not "Sonnet 4 6".
-
-**Browser:** reading a page's console right after opening it showed only what came after
-the page finished loading, so anything the page logged while loading (a "ready" message, an
-early error) was hidden. It now counts from when the page starts loading, with older
-versions of the browser extension too. A tab number of 0 is treated as no tab rather than
-refused, and closing a tab that is already gone reports it closed.
-
-**DeepSeek through Amazon Bedrock:** a fragment of DeepSeek's own tool-call markup no longer
-shows in replies, and replies saved before this read clean too.
-
-## [15.9.1] (2026-10-18) — thinking on the newest Claude models, a fifth Core model, and web search in the terminal and editors
-
-Thinking on Claude always went out as a token budget. Anthropic's newest models (Sonnet 5 and 5.5,
-Opus 4.7 onwards, Haiku 5.5 and Fable) no longer take one and refuse the request, so with thinking
-on, those models failed on your own Anthropic key, through Amazon Bedrock and through a gateway
-alike. They now think adaptively, and `/effort` sets how hard, with the level the model lists sent
-as it is; the thinking shows as a readable summary. Models that still take a budget (Haiku 4.5 and
-older Opus) keep their three budget sizes. A Claude model reached through a provider you added on the
-Anthropic format, under Bedrock's longer model id, also no longer gets a temperature it refuses.
-
-**Core has room for a fifth model**, so the lineup can offer GPT-6 Luna beside GLM-5.3-Flash and the
-three before them. Which models fill the slots still comes from the hosted lineup.
-
-**Web search in the terminal and your editor runs through Atlarix** on a paid Core model or paid
-Atlarix Auto, billed per search to your balance. There is no browser to search with there. The
-desktop app keeps searching with its own built-in browser for everyone, which costs nothing, so a
-paid model on the desktop no longer pays per search. When your balance can't cover a search and the
-free fallback finds nothing either, the result now says so and points at `/billing`, instead of
-reading as "nothing exists". Your own keys and free Auto keep the free search they had.
-
-**A Core model this version doesn't know is refused, not swapped.** The app, the terminal and the
-editors share their settings, so a model picked in a newer Atlarix could reach an older one, which
-then answered on a different Core model, at that model's price. It now says the model comes from a
-newer Atlarix: update, or pick another.
-
-**The terminal's model list:** Atlarix Auto says "Free" only on a free account (Pro and credit pay
-for it, so it shows its context size). Core models show their real context window, the same one the
-context meter uses, not a 200K placeholder. The line under each reply names the model, not its
-slot ("core-4").
-
-**Microsoft Store:** a release now replaces a submission still in certification, so Store users get
-the newest version without waiting for the one before it, and each submission explains to the
-Store's testers why the app needs its two restricted permissions and how to try it.
-
-## [15.9.0] (2026-10-17) — providers of your own on the Anthropic format, a prompt cache that lasts, and a faster CLI start
-
-**A provider you add can speak the Anthropic Messages API**, not only OpenAI's: Amazon Bedrock's
-Anthropic endpoint, a company gateway or proxy, any server that takes `/v1/messages`. Choose
-**API format: OpenAI-compatible or Anthropic** when you add it, in the app (Settings → providers →
-add a custom provider), the CLI (`/connect` → Other: your own endpoint), your editor and the VS Code
-panel. The base URL is up to `/v1`, as before. Atlarix finds out which way the endpoint takes your
-key (Anthropic's `x-api-key`, or a Bearer token, which Bedrock and many gateways use) and remembers
-it; a key the endpoint refuses is never saved. Its models come from the endpoint's own list, or you
-type the model id when it has none (Bedrock). Thinking, `/effort` levels and prompt caching work as
-they do on Claude directly: a Bedrock model id such as `us.anthropic.claude-haiku-4-5-20251001-v1:0`
-is recognised as the Claude model it is.
-
-**Build mode keeps its prompt cache from one message to the next.** Each message's own text was
-sent inside the part of the prompt the provider caches, so every message wrote the whole prompt
-again instead of reading it. Now it follows the cached part. Measured on Claude: from the second
-message on, about 18,800 tokens are read from the cache instead of written again, so the fixed
-part of each message costs a small fraction of what it did. This applies to every provider that
-caches.
-
-**The CLI opens in a fraction of a second.** `atlarix` drew nothing for about two seconds after you
-pressed enter: before its first frame it built every provider's model list, only to show the chosen
-model's name in the header. It now remembers that name and draws at once (0.45 seconds where it was
-2), then loads the list and corrects the name if it changed.
-
-Also fixed:
-- `/effort low` on a model that thinks with a budget (Claude, and Gemini and OpenRouter budgets)
-  asked for the same budget as the default, and medium asked for more than the default; low is
-  now smaller and medium is the default.
-- Replacing a provider's key in the CLI or your editor checks it first, and a refused key leaves
-  the old one in place.
-- The CLI's test mode against a local model (`--provider-url`) takes `--provider-format anthropic`.
-
-## [15.8.2] (2026-10-17) — a lighter start, and the whole MCP marketplace in the CLI and VS Code
-
-The app checks your account once when it starts, instead of once per part of the screen that
-shows it. Sign-in state used to be held separately by each part of the window (about two dozen),
-each asking for it on its own and each showing its own "Signed in" toast; it is now held once and
-shared. Your plan, subscription, ban and onboarding flags are read from the server in one request
-instead of several, and the plan check that follows signing in reuses that read instead of
-repeating it. Measured against the live server, a signed-in launch went from thirteen account
-requests to two. Switching back to the window still checks your plan with the server every time,
-so an upgrade still shows up at once; if the combined read fails, each value falls back to its own
-lookup, so a paid account can never read as free.
-
-The MCP marketplace in the CLI (`/mcp`, then b) and the VS Code panel now says how many servers
-there are, or how many match your search, and lets you page through all of them: the CLI loads
-more as you scroll toward the end, VS Code has Show more. They used to stop at the first 50 and 25
-with no sign there was more. The Debug mode's instructions are a little shorter, with the same
-rules.
-
-## [15.8.1] (2026-10-17) — a proper welcome in the CLI
-
-Signed out, `atlarix` now opens on a welcome screen with the two ways in: sign in with your
-browser (GitHub, Google or email), or with a code (for SSH or a machine with no browser, offered first where there's no
-display). Nothing opens until you choose, the screen shows each step of the sign-in, esc goes back,
-and ctrl+c quits. Before, it printed a line and opened a browser by itself, which could look like
-the CLI had hung.
-
-## [15.8.0] (2026-10-17) — /effort: how hard the model thinks, on every model
-
-**/effort** replaces deep thinking with one control for how hard the model thinks, in the app's
-composer menu, the CLI (`/effort`, ctrl+t for the top level or back to the default), and your editor
-(VS Code, Cursor, Zed and JetBrains, plus `/effort` in the chat). On your own key or a Core model it
-offers the model's own levels, exactly as the model lists them — `xhigh` stays `xhigh`, `none` and
-`minimal` appear where a model has them — and sends the one you pick unchanged. A model with only
-on and off shows off · on; one that takes a thinking budget shows three sizes; one with no setting
-shows nothing. The default is what the model ran before, and a model you switch to keeps your level
-only when it lists it too. On paid Atlarix Auto the three levels choose the models: low uses the
-small, fast models (still thinking hard), medium is today's Auto, and max is what deep thinking was.
-Free Auto runs at one level.
-
-Also fixed: a reply that ends by asking you a question keeps everything it wrote before the question
-once you answer, on screen and for the model (it used to vanish, drafted commit messages and all). In
-the CLI, a "finished" line for background work stays where it happened instead of piling up under
-the reply, a long command no longer pushes the Yes / No choices off the screen (ctrl+o shows more),
-and the tab title says `<!> needs you` when Atlarix is waiting on you. Choosing "none" or "off" now
-really turns thinking off on OpenRouter and Claude models, and Gemini gets the level you pick.
