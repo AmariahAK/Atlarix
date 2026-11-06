@@ -21,6 +21,10 @@ import { toast } from "sonner";
 /** v10 per-hunk approval: latest hunk selection per pending operation. */
 type HunkSelection = { selected: number[]; total: number };
 
+/** The command a card asks about: capped and scrolling, so a long one never pushes the card's buttons out of reach. */
+const COMMAND_BLOCK =
+  "mt-1 font-mono text-[11px] text-muted-foreground break-all bg-background/60 rounded px-2 py-1.5 max-h-40 overflow-y-auto";
+
 const FILE_OPERATIONS = new Set([
   "write_file",
   "edit_file",
@@ -325,7 +329,7 @@ export function FilePermissionCard({
   );
 }
 
-function CommandPermissionCard({
+export function CommandPermissionCard({
   operation,
   appId,
   onOnce,
@@ -377,7 +381,7 @@ function CommandPermissionCard({
               </span>
             ) : null}
           </div>
-          <div className="mt-1 font-mono text-[11px] text-muted-foreground break-all bg-background/60 rounded px-2 py-1.5 max-h-40 overflow-y-auto">
+          <div className={COMMAND_BLOCK}>
             $ {operation.command}
           </div>
           {isDangerous && operation.dangerExplanation ? (
@@ -670,7 +674,7 @@ export function AutomationPermissionCard({
   );
 }
 
-function SandboxEscalationCard({
+export function SandboxEscalationCard({
   operation,
   onAllow,
   onDeny,
@@ -723,7 +727,7 @@ function SandboxEscalationCard({
             )}
           </p>
           {operation.command ? (
-            <div className="mt-1 font-mono text-[11px] text-muted-foreground break-all bg-background/60 rounded px-2 py-1.5">
+            <div className={COMMAND_BLOCK}>
               $ {operation.command}
             </div>
           ) : null}
