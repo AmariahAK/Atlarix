@@ -112,6 +112,16 @@ describe("an unreachable provider", () => {
       async fetch(req) {
         const body = await req.text();
         if (!new URL(req.url).pathname.endsWith("/chat/completions")) return fetch(new URL(new URL(req.url).pathname, llm.url.replace(/\/v1$/, "")), { method: req.method, headers: req.headers });
+        // Only the turn's own (streamed) requests count: the session title is a
+        // separate non-streamed call whose timing varies, and counting it made
+        // this 4 instead of 3 on a slow runner (v15.13.3 tag run).
+        let streamed = false;
+        try {
+          streamed = (JSON.parse(body) as { stream?: boolean }).stream === true;
+        } catch {
+          /* not JSON: not a turn */
+        }
+        if (!streamed) return fetch(`${llm.url}/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body });
         bodies.push(body);
         if (bodies.length === 1) firstRequestReceived?.();
         if (bodies.length <= 2) return new Response("overloaded", { status: 503 });
