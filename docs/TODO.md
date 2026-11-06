@@ -20,14 +20,13 @@ not trust it.
 
 ## ➡️ Next session (from the 2026-11-06 coordinator; none of these block a release)
 
-**Wallet hardening, half applied** (audit report ~/.atlarix-e2e/team/REPORT-security-items-2026-11-06.md;
-branches `team/wallet-hardening` in Atlarix 4797d4df and atlarix-proxy a8506f1, tests green):
-1. DONE 11-06: migration 20261106160000 (all debits lock the wallet before checks; no ban refusal in debits;
-   debit_wallet_service has the -$50 floor). Verified live.
-2. NEXT, owner approves: apply 20261106161000_paid_holds.sql (the classifier refused apply_migration; apply it
-   in the SQL editor, or allow the tool). Only THEN merge + deploy the proxy branch (user charges via
-   debit_wallet_service; Lambda paid turns hold in the DB); check /health on Railway and the failover.
-3. Only after the proxy is live: apply 20261106170000 (REVOKE debit_wallet from users). Then merge the Atlarix branch.
+**Wallet hardening — DONE 2026-11-06** (audit report ~/.atlarix-e2e/team/REPORT-security-items-2026-11-06.md):
+migrations 20261106160000 (debits lock the wallet before checks; no ban refusal; service floor -$50),
+20261106161000 (paid_holds + service RPCs), proxy a8506f1 live on Railway + failover (user charges via
+debit_wallet_service; Lambda paid turns hold in the DB), then 20261106170000 (debit_wallet revoked from users;
+verified authenticated/anon cannot execute). Files on main 9c757079.
+- CHECK: the first real paid charge after 11-06 ~11:00 UTC lands (credit_transactions debit row with a
+  `:<uuid>` ref suffix; no "debit_wallet failed"/"debit REFUSED" in Railway logs). No paid turn had run yet.
 - Left out on purpose: tool routes (search/transcribe) take no DB hold; Railway's in-memory hold isn't seen by
   Lambda's DB holds (overshoot ~2x a turn's reserve, was ~11x balance); the proxy never checks the ASKER's ban
   when a workspace pays (one line: banCache.isBanned on the service/cloud branches of resolveCaller).
