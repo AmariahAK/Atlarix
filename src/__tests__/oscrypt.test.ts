@@ -17,7 +17,9 @@ import {
   createSafeStorage,
   gcmDecrypt,
   gcmEncrypt,
+  desktopSafeStorage,
   macKeychainSource,
+  windowsLocalStateSource,
 } from "@/runtime/oscrypt";
 
 describe("AES-128-CBC (macOS v10, Linux v11)", () => {
@@ -102,5 +104,79 @@ describe.runIf(process.platform === "darwin")("macOS keychain source", () => {
     const ss = createSafeStorage(macKeychainSource("AtlarixTest3", { keychain, create: true }));
     expect(ss.isEncryptionAvailable()).toBe(true);
     expect(ss.decryptString(ss.encryptString("x"))).toBe("x");
+  });
+});
+
+/**
+ * Windows with no desktop app (or the Store app, whose AppData lives in its
+ * package): no "Local State", so the CLI and the editors had no key, could not
+ * save their sign-in, and every new process asked again (11-06: Windows users
+ * signing in 2-4 times in minutes, a new session each time). The CLI now makes
+ * the key the way Chromium does, so a desktop app installed later adopts it.
+ * DPAPI is faked here (XOR with a constant); the real one is PowerShell's.
+ */
+describe("Windows Local State source", () => {
+  const fakeDpapi = {
+    protect: (b: Buffer) => Buffer.from(b.map((x) => x ^ 0x5a)),
+    unprotect: (b: Buffer) => Buffer.from(b.map((x) => x ^ 0x5a)),
+  };
+  const dirs: string[] = [];
+  const tmp = () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "oscrypt-win-"));
+    dirs.push(d);
+    return d;
+  };
+  afterAll(() => dirs.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
+  const localState = (d: string) => JSON.parse(fs.readFileSync(path.join(d, "Local State"), "utf8"));
+
+  it("no Local State and create:false: unavailable, nothing written", () => {
+    const d = tmp();
+    const s = createSafeStorage(windowsLocalStateSource(d, { dpapi: fakeDpapi }));
+    expect(s.isEncryptionAvailable()).toBe(false);
+    expect(fs.existsSync(path.join(d, "Local State"))).toBe(false);
+  });
+
+  it("creates the key in Chromium's format; a second process reads the same key", () => {
+    const d = tmp();
+    const first = createSafeStorage(windowsLocalStateSource(d, { create: true, dpapi: fakeDpapi }));
+    expect(first.isEncryptionAvailable()).toBe(true);
+    const sealed = first.encryptString("session");
+    const wrapped = Buffer.from(localState(d).os_crypt.encrypted_key, "base64");
+    expect(wrapped.subarray(0, 5).toString()).toBe("DPAPI");
+    expect(fakeDpapi.unprotect(wrapped.subarray(5))).toHaveLength(32);
+    // The next CLI or editor process, and the desktop app if installed later.
+    const second = createSafeStorage(windowsLocalStateSource(d, { dpapi: fakeDpapi }));
+    expect(second.decryptString(sealed)).toBe("session");
+  });
+
+  it("keeps whatever else Local State holds", () => {
+    const d = tmp();
+    fs.writeFileSync(path.join(d, "Local State"), JSON.stringify({ browser: { x: 1 }, os_crypt: { audit_enabled: true } }));
+    createSafeStorage(windowsLocalStateSource(d, { create: true, dpapi: fakeDpapi })).isEncryptionAvailable();
+    const st = localState(d);
+    expect(st.browser).toEqual({ x: 1 });
+    expect(st.os_crypt.audit_enabled).toBe(true);
+    expect(typeof st.os_crypt.encrypted_key).toBe("string");
+  });
+
+  it("never replaces a key it cannot unwrap, or a file it cannot read", () => {
+    const d = tmp();
+    const theirs = JSON.stringify({ os_crypt: { encrypted_key: Buffer.concat([Buffer.from("DPAPI"), Buffer.from("x")]).toString("base64") } });
+    fs.writeFileSync(path.join(d, "Local State"), theirs);
+    const failing = { protect: fakeDpapi.protect, unprotect: () => null };
+    expect(createSafeStorage(windowsLocalStateSource(d, { create: true, dpapi: failing })).isEncryptionAvailable()).toBe(false);
+    expect(fs.readFileSync(path.join(d, "Local State"), "utf8")).toBe(theirs);
+
+    const e = tmp();
+    fs.writeFileSync(path.join(e, "Local State"), "{not json");
+    expect(createSafeStorage(windowsLocalStateSource(e, { create: true, dpapi: fakeDpapi })).isEncryptionAvailable()).toBe(false);
+    expect(fs.readFileSync(path.join(e, "Local State"), "utf8")).toBe("{not json");
+  });
+
+  it("the desktop's safeStorage on Windows creates the key", () => {
+    const d = tmp();
+    const s = desktopSafeStorage("Atlarix", d, { platform: "win32", dpapi: fakeDpapi });
+    expect(s.isEncryptionAvailable()).toBe(true);
+    expect(fs.existsSync(path.join(d, "Local State"))).toBe(true);
   });
 });

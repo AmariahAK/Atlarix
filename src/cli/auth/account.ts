@@ -30,6 +30,23 @@ export async function acceptSession(t: Tokens): Promise<string> {
   return data.user.email;
 }
 
+/**
+ * One line when this sign-in will not outlive the run: the session is sealed
+ * with the OS key, and with none (Linux without a keyring, as on a headless box)
+ * it is never written. Null when it is kept.
+ */
+export async function sessionKeptHint(platform: NodeJS.Platform = process.platform): Promise<string | null> {
+  const { safeStorage } = (await import("electron")) as unknown as { safeStorage: { isEncryptionAvailable(): boolean } };
+  if (safeStorage.isEncryptionAvailable()) return null;
+  const why =
+    platform === "linux"
+      ? "no keyring found (gnome-keyring or KWallet keeps it)."
+      : platform === "win32"
+        ? "Windows could not store the sign-in key."
+        : "the keychain refused access.";
+  return `Signed in for this run only: ${why}`;
+}
+
 let avatarCache: { url: string; data: string | null } | null = null;
 
 /**

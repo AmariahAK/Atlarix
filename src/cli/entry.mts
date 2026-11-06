@@ -354,7 +354,7 @@ async function loginInTerminal(): Promise<void> {
         );
       },
     });
-    process.stdout.write(`\n✓ Signed in as ${email}\n\n`);
+    process.stdout.write(`\n✓ Signed in as ${email}\n${await keptHintLine()}\n`);
     return;
   }
   process.stdout.write("\n◆ atlarix\n\nSign in to start. Opening your browser…\n");
@@ -363,7 +363,14 @@ async function loginInTerminal(): Promise<void> {
       `If it didn't open, visit:\n  ${url}\n\nNo browser on this machine? Run \`atlarix login --device\` instead.\n\nWaiting for you to finish (ctrl+c to cancel)…\n`,
     );
   });
-  process.stdout.write(`\n✓ Signed in as ${email}\n\n`);
+  process.stdout.write(`\n✓ Signed in as ${email}\n${await keptHintLine()}\n`);
+}
+
+/** The one-line "for this run only" note (sessionKeptHint), or nothing. */
+async function keptHintLine(): Promise<string> {
+  const { sessionKeptHint } = await import("./auth/account");
+  const hint = await sessionKeptHint().catch(() => null);
+  return hint ? `${hint}\n` : "";
 }
 
 async function main(): Promise<void> {

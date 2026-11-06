@@ -71,6 +71,21 @@ not trust it.
   `team/auth-app-fallback` (0a8a72c), deploys with the launchpad.** After 4 s with no blur/hide it offers "Open
   Atlarix" (same link, from memory), "Download for <OS>" (/#download) and "Or open Atlarix and sign in there."
   Desktop email sign-in only. Not measurable before; no event yet for "the app never opened".
+- **Windows CLI/editor sign-in was never kept without the desktop app's key — FIXED on `team/cli-os-key-create`.**
+  Evidence: 5 Windows people (and 1 Linux) completed 2-4 sign-ins within minutes, each on the SAME account and each
+  a NEW auth session; none on macOS. Cause: the CLI seals its session with the desktop's OS key; on Windows it only
+  READ `%APPDATA%\Atlarix\Local State` (`os_crypt.encrypted_key`), which exists only after the desktop app ran (the
+  Store app keeps its AppData in its package). No key → `isEncryptionAvailable()` false → "the session was NOT saved"
+  → the next CLI or editor process is signed out. Fix: create the key the way Chromium does (32 random bytes, DPAPI
+  CurrentUser over PowerShell stdin, `base64("DPAPI"+blob)`, merged into Local State, written atomically); never
+  replace a key that won't unwrap or a file that isn't JSON. macOS already created its keychain item. Tests:
+  `oscrypt.test.ts` (fake DPAPI). **Open:** (1) the Windows check on a real machine: CLI creates the key, the packaged
+  desktop app runs once, the key is unchanged and the CLI's secret still decrypts; (2) MSIX: per Microsoft's doc a
+  packaged app opens its private AppData copy first and the real file when it has none, so a key the CLI made BEFORE
+  the Store app first ran is shared; a Store app that ran first keeps a private key the CLI can't see (the CLI's own
+  sign-in is still kept with its own key). (3) Linux: still read-only (a secret-tool key would not match Chromium's
+  libsecret schema); with no keyring `atlarix login` now says "Signed in for this run only: no keyring found …", and
+  secret-tool / PowerShell calls time out after 10 s instead of hanging.
 
 ## 🚨 Attack 2026-10-28 (19:12–02:30 MYT): what held, what was closed, what is left
 

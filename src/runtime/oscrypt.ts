@@ -31,6 +31,12 @@ export interface SafeStorageLike {
 }
 
 const SALT = "saltysalt";
+/**
+ * The OS key tools (security, secret-tool, powershell) never get longer than
+ * this: with no keyring daemon (a headless box over SSH) secret-tool can wait
+ * on D-Bus, and a sign-in must not hang on it.
+ */
+const KEY_TOOL_TIMEOUT_MS = 10_000;
 const IV_CBC = Buffer.alloc(16, 0x20);
 
 // ─── macOS / Linux: AES-128-CBC ──────────────────────────────────────────────
@@ -116,31 +122,108 @@ export function macKeychainSource(
   };
 }
 
-/** Windows: DPAPI-protected key in Chromium's Local State. */
-export function windowsLocalStateSource(userDataDir: string): KeySource {
+/** DPAPI for the current user: wrap and unwrap a key. Null when it fails. */
+export interface Dpapi {
+  protect(plain: Buffer): Buffer | null;
+  unprotect(sealed: Buffer): Buffer | null;
+}
+
+/** Windows' own DPAPI through PowerShell. Bytes go over stdin, never on a command line. */
+export const powershellDpapi: Dpapi = {
+  protect: (plain) => dpapiCall("Protect", plain),
+  unprotect: (sealed) => dpapiCall("Unprotect", sealed),
+};
+
+function dpapiCall(op: "Protect" | "Unprotect", input: Buffer): Buffer | null {
+  try {
+    const script =
+      "Add-Type -AssemblyName System.Security; $in = [Console]::In.ReadLine(); " +
+      `[Convert]::ToBase64String([Security.Cryptography.ProtectedData]::${op}(` +
+      "[Convert]::FromBase64String($in), $null, 'CurrentUser'))";
+    const out = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+      encoding: "utf8",
+      input: `${input.toString("base64")}\n`,
+      stdio: ["pipe", "pipe", "ignore"],
+      timeout: KEY_TOOL_TIMEOUT_MS,
+    }).trim();
+    return out ? Buffer.from(out, "base64") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Windows: DPAPI-protected key in Chromium's Local State.
+ *
+ * `create`: with no key in Local State (the desktop app never ran here, or it
+ * is the Store app, whose AppData lives in its package), make one the way
+ * Chromium does: 32 random bytes, DPAPI-wrapped, stored as
+ * `os_crypt.encrypted_key = base64("DPAPI" + blob)`, merged into whatever the
+ * file already holds and written atomically. Chromium keeps a key it finds
+ * there, so a desktop app installed later uses the same one. A key that is
+ * there but will not unwrap (another user's), or a file that is not JSON, is
+ * never replaced: that would lose the desktop's secrets.
+ */
+export function windowsLocalStateSource(
+  userDataDir: string,
+  opts: { create?: boolean; dpapi?: Dpapi } = {},
+): KeySource {
+  const dpapi = opts.dpapi ?? powershellDpapi;
+  const file = path.join(userDataDir, "Local State");
+  const read = (): { state: Record<string, unknown> } | "unreadable" | "absent" => {
+    let text: string;
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch {
+      return "absent";
+    }
+    try {
+      const state = JSON.parse(text) as unknown;
+      return state && typeof state === "object" && !Array.isArray(state)
+        ? { state: state as Record<string, unknown> }
+        : "unreadable";
+    } catch {
+      return "unreadable";
+    }
+  };
+  const keyIn = (state: Record<string, unknown>): string | undefined => {
+    const k = (state.os_crypt as { encrypted_key?: unknown } | undefined)?.encrypted_key;
+    return typeof k === "string" && k ? k : undefined;
+  };
+  const unwrap = (encoded: string): Buffer | null => {
+    const wrapped = Buffer.from(encoded, "base64");
+    if (wrapped.subarray(0, 5).toString() !== "DPAPI") return null;
+    const key = dpapi.unprotect(wrapped.subarray(5));
+    return key && key.length === 32 ? key : null;
+  };
   return {
     prefix: "v10",
     mode: "gcm",
     load() {
       try {
-        const state = JSON.parse(
-          fs.readFileSync(path.join(userDataDir, "Local State"), "utf8"),
-        ) as { os_crypt?: { encrypted_key?: string } };
-        const wrapped = Buffer.from(state.os_crypt?.encrypted_key ?? "", "base64");
-        if (wrapped.subarray(0, 5).toString() !== "DPAPI") return null;
-        // The blob is DPAPI-protected: passing it on a command line reveals
-        // nothing. The unwrapped key only ever exists in this process.
-        const script =
-          "Add-Type -AssemblyName System.Security; " +
-          "[Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Unprotect(" +
-          `[Convert]::FromBase64String('${wrapped.subarray(5).toString("base64")}'), $null, 'CurrentUser'))`;
-        const out = execFileSync(
-          "powershell.exe",
-          ["-NoProfile", "-NonInteractive", "-Command", script],
-          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-        ).trim();
-        const key = Buffer.from(out, "base64");
-        return key.length === 32 ? key : null;
+        const got = read();
+        if (got === "unreadable") return null;
+        const existing = got === "absent" ? undefined : keyIn(got.state);
+        if (existing) return unwrap(existing);
+        if (!opts.create) return null;
+        const key = crypto.randomBytes(32);
+        const sealed = dpapi.protect(key);
+        if (!sealed) return null;
+        const state = got === "absent" ? {} : got.state;
+        const osCrypt = (state.os_crypt && typeof state.os_crypt === "object" ? state.os_crypt : {}) as Record<string, unknown>;
+        const next = {
+          ...state,
+          os_crypt: { ...osCrypt, encrypted_key: Buffer.concat([Buffer.from("DPAPI"), sealed]).toString("base64") },
+        };
+        fs.mkdirSync(userDataDir, { recursive: true });
+        const tmp = `${file}.${process.pid}.tmp`;
+        fs.writeFileSync(tmp, JSON.stringify(next));
+        fs.renameSync(tmp, file);
+        // Another process (the desktop app starting, a second CLI) may have
+        // written its own key at the same moment: use whatever is there now.
+        const after = read();
+        const now = after === "absent" || after === "unreadable" ? undefined : keyIn(after.state);
+        return now ? unwrap(now) : null;
       } catch {
         return null;
       }
@@ -158,7 +241,7 @@ export function linuxSecretServiceSource(appName: string): KeySource {
         const pw = execFileSync(
           "secret-tool",
           ["lookup", "application", appName.toLowerCase()],
-          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: KEY_TOOL_TIMEOUT_MS },
         ).trimEnd();
         return pw ? cbcKey(pw, 1) : null;
       } catch {
@@ -191,12 +274,20 @@ export function createSafeStorage(source: KeySource): SafeStorageLike {
 }
 
 /** The desktop app's safeStorage, for this platform. */
-export function desktopSafeStorage(appName: string, userDataDir: string): SafeStorageLike {
+export function desktopSafeStorage(
+  appName: string,
+  userDataDir: string,
+  opts: { platform?: NodeJS.Platform; dpapi?: Dpapi } = {},
+): SafeStorageLike {
+  const platform = opts.platform ?? process.platform;
+  // macOS and Windows create the key when the desktop never ran (Chromium
+  // adopts it). Linux only reads it: a key stored by secret-tool would not be
+  // the one Chromium's libsecret schema finds, so the two would disagree.
   const source =
-    process.platform === "darwin"
+    platform === "darwin"
       ? macKeychainSource(appName, { create: true })
-      : process.platform === "win32"
-        ? windowsLocalStateSource(userDataDir)
+      : platform === "win32"
+        ? windowsLocalStateSource(userDataDir, { create: true, dpapi: opts.dpapi })
         : linuxSecretServiceSource(appName);
   return createSafeStorage(source);
 }
