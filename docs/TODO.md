@@ -99,6 +99,26 @@ not trust it.
   libsecret schema); with no keyring `atlarix login` now says "Signed in for this run only: no keyring found …", and
   secret-tool / PowerShell calls time out after 10 s instead of hanging.
 
+## 🔐 Sign-up check: every path, and the parts that never ran (2026-11-06, ai-4b, branch team/signup-check-every-path)
+
+Owner: "43 accounts created in 14 days but only 24 signup checks logged … probably OAuth never goes through the
+disposable-domain check". The data says no path skips it. Supabase calls the before-user-created hook for email,
+Google and GitHub alike, and every one of the 22 accounts created since 10-30 has its `signup_attempts` row. The 20
+accounts without one were created 10-23 → 10-29, before the hook went live. No code creates users another way
+(`cli-device` only hands over an existing session). What WAS broken:
+- **The 10-30 "learned, not only listed" hook was never deployed.** Production ran version 4 (10-29): a list check
+  only, and no mail host, website or age sent. That is why all 39 rows have them empty.
+  - milbox.pp.ua (10-27) predates the hook.
+  - chapter.lat (10-31) was allowed because the list then held 2 hand-added domains (the 9,966-domain list landed
+    11-02 23:52) and the judge had nothing to judge.
+  - Fix: the decision moved to `decide.ts` (tested). Lookups go over DNS-over-HTTPS (a plain fetch), not
+    `Deno.resolveDns`. The hook's own failures (no email, check RPC down, a throw) are recorded as
+    `no_email` / `check_failed` / `check_error`. Then **deploy it** and check the next row has `mx_host` filled.
+- **The weekly blocklist re-pull failed** (11-02 04:17: relation "disposable_email_domains" does not exist):
+  `SET search_path TO 'public, extensions'` is one schema with a comma in its name. Fix: migration
+  `20261106120000_refresh_disposable_domains_search_path.sql`, plus a guard test over every migration.
+- No current account other than the two banned ones is on today's list.
+
 ## 🚨 Attack 2026-10-28 (19:12–02:30 MYT): what held, what was closed, what is left
 
 One throwaway account (`istevens599@6gdfg.zone.id`, user `88e201ae…`, one Google Cloud IP 34.145.17.47) fuzzed every
