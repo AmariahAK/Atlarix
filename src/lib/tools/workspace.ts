@@ -11,9 +11,8 @@
 import { noteTurn } from "@/lib/analytics/turn-stats";
 import { ToolRegistry, createParameters, stringParam } from "./registry";
 
-import fs from "node:fs";
-import os from "node:os";
 import path from "path";
+import { ensureImageFile } from "@/lib/attachment-files";
 
 import { extractTextFromPdfBuffer } from "@/lib/attachment-pdf-extract";
 import { extractCsvFromBuffer } from "@/lib/attachment-csv-extract";
@@ -797,22 +796,6 @@ function extractStructuredData(attachment: AttachmentData): any {
   };
 }
 
-/**
- * A file view_image can open for an image attachment: the one written when it
- * was attached, or (a record restored with no file) its bytes written now.
- */
-function imagePathOf(a: { id: string; filename: string; data: string; path?: string }): { path?: string } {
-  try {
-    if (a.path && fs.existsSync(a.path)) return { path: a.path };
-    const dir = path.join(os.tmpdir(), "atlarix-attachments");
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${a.id.replace(/[^\w.-]/g, "_")}${path.extname(a.filename)}`);
-    if (!fs.existsSync(file)) fs.writeFileSync(file, Buffer.from(a.data, "base64"));
-    return { path: file };
-  } catch {
-    return {};
-  }
-}
 
 /**
  * v14.8.11 scoping: does this record belong to the calling chat? Untagged
@@ -1145,7 +1128,7 @@ ToolRegistry.register({
         mimeType: a.mimeType,
         size: a.size,
         addedAt: new Date(a.addedAt).toISOString(),
-        ...(a.mimeType.startsWith("image/") ? imagePathOf(a) : {}),
+        ...(a.mimeType.startsWith("image/") ? ensureImageFile(a) : {}),
       })),
     };
   },

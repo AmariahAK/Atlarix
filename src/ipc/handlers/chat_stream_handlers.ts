@@ -47,9 +47,8 @@ import log from "electron-log";
 import { turnIdForMessage } from "@/shared/turn-id";
 import fs from "node:fs";
 import * as path from "path";
-import * as os from "os";
 import * as crypto from "crypto";
-import { readFile, writeFile, unlink } from "fs/promises";
+import { readFile, unlink } from "fs/promises";
 
 import { safeSend } from "../utils/safe_sender";
 import {
@@ -242,17 +241,15 @@ const logger = log.scope("chat_stream_handlers");
 
 // --- shared stream state moved to ./chat_stream/stream-state; lifecycle satellites to ./chat_stream/stream-lifecycle ---
 
-// Directory for storing temporary files
-const TEMP_DIR = path.join(os.tmpdir(), "atlarix-attachments");
+// Attachment files go to a private per-user folder (lib/attachment-files.ts),
+// not the shared temp folder: on Linux that one was readable, and plantable, by
+// other local users.
+let attachmentFilesPruned = false;
 
 // Common helper functions
 
 // --- isTextFile moved to ./chat_stream/stream-misc ---
 
-// Ensure the temp directory exists
-if (!fs.existsSync(TEMP_DIR)) {
-  fs.mkdirSync(TEMP_DIR, { recursive: true });
-}
 
 // --- performFullRevert moved to ./chat_stream/stream-misc ---
 
@@ -788,10 +785,15 @@ export function registerChatStreamHandlers() {
               if (seenAttachmentHashes.has(hash)) continue;
               seenAttachmentHashes.add(hash);
               const fileExtension = path.extname(attachment.name);
-              const filename = `${hash}${fileExtension}`;
-              const filePath = path.join(TEMP_DIR, filename);
-
-              await writeFile(filePath, Buffer.from(base64Data, "base64"));
+              const { attachmentFileName, pruneAttachmentFiles, writeAttachmentFile } = await import("@/lib/attachment-files");
+              if (!attachmentFilesPruned) {
+                attachmentFilesPruned = true;
+                pruneAttachmentFiles();
+              }
+              const filePath = await writeAttachmentFile(
+                attachmentFileName(hash, attachment.name),
+                Buffer.from(base64Data, "base64"),
+              );
               attachmentPaths.push(filePath);
 
               // Store in AttachmentStore for read_attachment tool
