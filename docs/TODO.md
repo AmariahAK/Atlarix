@@ -685,3 +685,4 @@ like website traffic and was a 5-second poll of our own.
   (b) a **shared, observable agent session** where teammates watch one run live, steer, approve
   and hand off. The shared _agent_ session is the differentiator, not the chat shell. Capture,
   don't build yet.
+
