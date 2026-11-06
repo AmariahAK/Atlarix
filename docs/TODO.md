@@ -88,7 +88,11 @@ not trust it.
   user); (2) MSIX: per Microsoft's doc a
   packaged app opens its private AppData copy first and the real file when it has none, so a key the CLI made BEFORE
   the Store app first ran is shared; a Store app that ran first keeps a private key the CLI can't see (the CLI's own
-  sign-in is still kept with its own key). (3) Linux: still read-only (a secret-tool key would not match Chromium's
+  sign-in is still kept with its own key). **Plaintext provider keys** an older CLI wrote with no key
+  (`encryptionType: "plaintext"`; seen on the Windows check) are re-encrypted at the next CLI/editor start once the key
+  exists (`secureStoredSecrets`: the desktop's recovery, now also run by the CLI), and `writeSettings` is atomic (0600
+  temp file, then rename; the direct write if Windows refuses the rename). With no key they stay, and stderr says
+  "Provider keys are stored unencrypted in <file> (no OS keyring found)." (3) Linux: still read-only (a secret-tool key would not match Chromium's
   libsecret schema); with no keyring `atlarix login` now says "Signed in for this run only: no keyring found …", and
   secret-tool / PowerShell calls time out after 10 s instead of hanging.
 

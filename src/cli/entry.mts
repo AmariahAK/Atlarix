@@ -241,8 +241,12 @@ async function prepareCliData(devUrl: string | undefined): Promise<void> {
       setSafeStorageImpl?: (impl: typeof storage) => void;
     };
     electron.setSafeStorageImpl?.(storage);
-    const { useSafeStorageProvider } = await import("../main/settings");
+    const { useSafeStorageProvider, secureStoredSecrets } = await import("../main/settings");
     useSafeStorageProvider(storage);
+    // Provider keys an older CLI left in plaintext (no OS key on Windows without
+    // the desktop app): encrypted now, or one line saying where they sit.
+    const unencrypted = secureStoredSecrets();
+    if (unencrypted) process.stderr.write(`${unencrypted}\n`);
     // Atlarix Auto and the Core lineup come from the hosted core-models.json, as
     // in the desktop (main.ts): the last good copy now, a fresh one in the
     // background. Without it /model had no Auto row and Core fell back to the

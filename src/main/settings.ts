@@ -531,10 +531,23 @@ export function writeSettings(settings: Partial<UserSettings>): void {
     const carried = Object.fromEntries(
       Object.entries(raw ?? {}).filter(([k]) => !(k in known)),
     );
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify({ ...carried, ...validatedSettings }, null, 2),
-    );
+    // Atomic: a temp file (owner-only from its first byte), then a rename over
+    // the old one, so a crash mid-write never leaves half a file and plaintext
+    // never sits in a world-readable copy. Windows refuses the rename while
+    // another process holds the file open: then the direct write, as before.
+    const text = JSON.stringify({ ...carried, ...validatedSettings }, null, 2);
+    const tmp = `${filePath}.${process.pid}.tmp`;
+    try {
+      fs.writeFileSync(tmp, text, { mode: 0o600 });
+      fs.renameSync(tmp, filePath);
+    } catch {
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        /* nothing left to clean */
+      }
+      fs.writeFileSync(filePath, text);
+    }
     // The settings file holds provider keys + OAuth tokens (encrypted when a
     // keystore is available, plaintext otherwise). Restrict it to the owner on
     // POSIX so other local users can't read the fallback plaintext. (no-op on
@@ -566,34 +579,44 @@ export function isSecretEncryptionAvailable(): boolean {
 export function reEncryptPlaintextSecretsIfPossible(): void {
   if (!isSecretEncryptionAvailable()) return;
   try {
-    const s = readSettings();
-    const isPlain = (sec?: { encryptionType?: string }) =>
-      sec?.encryptionType === "plaintext";
-    /**
-     * Seeded false, then set by the provider loop below.
-     *
-     * This used to be `isPlain(s.githubAccessToken)` — the GitHub token was
-     * simply the first secret in the file. Deleting that field could not just
-     * delete this line: the variable is what decides whether the
-     * plaintext→encrypted recovery runs at all, and it must still be reachable
-     * for PROVIDER keys and the Vertex service-account key, which is the whole
-     * remaining point of this function.
-     */
-    let hasPlaintext = false;
-    for (const p in s.providerSettings ?? {}) {
-      const ps = s.providerSettings[p] as {
-        apiKey?: Secret;
-      } & VertexProviderSetting;
-      if (isPlain(ps.apiKey)) hasPlaintext = true;
-      if (p === "vertex" && isPlain(ps.serviceAccountKey)) hasPlaintext = true;
-    }
-    if (!hasPlaintext) return;
+    if (!hasPlaintextSecrets()) return;
     writeSettings({});
     logger.log(
       "[settings] OS keystore recovered — re-encrypted previously-plaintext secrets.",
     );
   } catch (error) {
     logger.warn("[settings] re-encrypt on recovery failed:", error);
+  }
+}
+
+/** Provider keys (and the Vertex service-account key) stored as plaintext. */
+function hasPlaintextSecrets(): boolean {
+  const s = readSettings();
+  const isPlain = (sec?: { encryptionType?: string }) => sec?.encryptionType === "plaintext";
+  for (const p in s.providerSettings ?? {}) {
+    const ps = s.providerSettings[p] as { apiKey?: Secret } & VertexProviderSetting;
+    if (isPlain(ps.apiKey)) return true;
+    if (p === "vertex" && isPlain(ps.serviceAccountKey)) return true;
+  }
+  return false;
+}
+
+/**
+ * At a CLI or editor start, once the OS key is installed: plaintext secrets an
+ * older build left (11-06: the Windows CLI had no key without the desktop app
+ * and wrote provider keys unencrypted) are rewritten encrypted. With no OS key
+ * they stay, and the one line returned says where. Null: nothing plaintext.
+ */
+export function secureStoredSecrets(): string | null {
+  try {
+    if (!hasPlaintextSecrets()) return null;
+    if (isSecretEncryptionAvailable()) {
+      reEncryptPlaintextSecretsIfPossible();
+      return null;
+    }
+    return `Provider keys are stored unencrypted in ${getSettingsFilePath()} (no OS keyring found).`;
+  } catch {
+    return null;
   }
 }
 
