@@ -88,7 +88,9 @@ env:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    # Pinned with build-linux (see there): on ubuntu-latest = 26.04 the apt mirror took
+    # 12-17 min for the native helpers' libs in Nov 2026; 24.04 is what 15.12.x passed on.
+    runs-on: ubuntu-24.04
     # 20 until the bun suite joined (~5 min on a laptop); 45 since 2026-11-06, when
     # the runner's apt mirror took 12-17 min for the native helpers' Linux libs twice
     # in a row and the 30-min cap cancelled the v15.13.0 tag run before the builds.
@@ -618,7 +620,10 @@ jobs:
   build-linux:
     needs: [quality, create-draft]
     if: (github.event_name == 'workflow_dispatch' && !inputs.npm_only) || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest became 26.04 (rpm 6.0.1) in Nov 2026, whose rpmbuild
+    # builds %install in BUILD/<name>-build, so electron-installer-redhat's spec
+    # (`cp -r usr/*`) found nothing and the v15.13.2 rpm failed. 24.04 has rpm 4.19.
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Checkout code
