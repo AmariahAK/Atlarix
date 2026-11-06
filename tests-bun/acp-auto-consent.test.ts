@@ -45,6 +45,7 @@ async function editor(answer: "accept" | "decline") {
     apiKey: "dev",
   });
   const accepted: string[] = [];
+  const notes: string[] = [];
   const agent = new AcpAgent({
     createSession: async (cwd) => {
       const s = new AgentSession({
@@ -61,6 +62,7 @@ async function editor(answer: "accept" | "decline") {
           return raw.update({ lastError: autoConsentRequiredUserMessage() });
         return submit(text, opts);
       };
+      s.noteAutoConsent = (action, trigger) => notes.push(`${action}:${trigger}`);
       s.acceptAutoConsent = async () => {
         consented = true;
         accepted.push("yes");
@@ -104,7 +106,7 @@ async function editor(answer: "accept" | "decline") {
         (u) => (u.update as { content: { text?: string } }).content.text ?? "",
       )
       .join("");
-  return { conn, asked, accepted, text };
+  return { conn, asked, accepted, notes, text };
 }
 
 describe("free Atlarix Auto's consent in an editor", () => {
@@ -130,6 +132,7 @@ describe("free Atlarix Auto's consent in an editor", () => {
     ]);
     expect(e.accepted).toEqual(["yes"]);
     expect(e.text(sessionId)).toContain("Hello from Atlarix Auto.");
+    expect(e.notes).toEqual(["shown:refused_turn", "accepted:refused_turn"]);
   }, 60_000);
 
   it("no keeps it as it was, and says how to come back to it", async () => {
@@ -148,5 +151,6 @@ describe("free Atlarix Auto's consent in an editor", () => {
     // "Send again to review it": the next send asks again (QA 15.7.1 #10).
     await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "again" }] });
     expect(e.asked).toHaveLength(2);
+    expect(e.notes).toEqual(["shown:refused_turn", "declined:refused_turn", "shown:refused_turn", "declined:refused_turn"]);
   }, 60_000);
 });

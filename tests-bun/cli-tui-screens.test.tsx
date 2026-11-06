@@ -91,6 +91,7 @@ class FakeSession extends EventEmitter {
   async answerMcpConsent(d: string) { if (!this.state.mcpConsent) return; this.rec("answerMcpConsent", d); this.set({ mcpConsent: null }); }
   dismissQuestion() { this.rec("dismissQuestion"); this.set({ question: null }); }
   async acceptAutoConsent() { this.rec("acceptAutoConsent"); }
+  noteAutoConsent(action: string, trigger: string) { this.rec("noteAutoConsent", action, trigger); }
   async takeAutoConsentReask() { const due = reaskNext; reaskNext = false; this.rec("takeAutoConsentReask"); return due; }
   async subagentJobs() { return []; }
   async subagentOutput() { return ""; }
@@ -702,6 +703,25 @@ describe("command screens", () => {
     setup.mockInput.pressArrow("down");
     setup.mockInput.pressEnter();
     expect(await until(() => session.calls.some((c) => c[0] === "acceptAutoConsent"))).toBe(true);
+    // auto_consent: shown, then one answer per showing ("Not now", then the yes).
+    expect(session.calls.filter((c) => c[0] === "noteAutoConsent")).toEqual([
+      ["noteAutoConsent", "shown", "refused_turn"],
+      ["noteAutoConsent", "declined", "refused_turn"],
+      ["noteAutoConsent", "shown", "refused_turn"],
+      ["noteAutoConsent", "accepted", "refused_turn"],
+    ]);
+  }, 20_000);
+
+  it("free Auto's consent: esc is a decline, counted once", async () => {
+    const { setup, session } = await mount();
+    session.set({ lastError: "Atlarix Auto is free once you OK sharing its prompts with the AI providers that serve it, to improve their models." });
+    await frameContaining(setup, "Use Atlarix Auto for free?");
+    setup.mockInput.pressEscape();
+    expect(await until(() => !setup.captureCharFrame().includes("Use Atlarix Auto for free?"))).toBe(true);
+    expect(session.calls.filter((c) => c[0] === "noteAutoConsent")).toEqual([
+      ["noteAutoConsent", "shown", "refused_turn"],
+      ["noteAutoConsent", "declined", "refused_turn"],
+    ]);
   }, 20_000);
 
   it("free Auto's consent: a yes to the old wording is asked once more on a free account", async () => {
@@ -711,6 +731,7 @@ describe("command screens", () => {
     });
     expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("OpenRouter and Requesty");
     expect(session.calls.some((c) => c[0] === "takeAutoConsentReask")).toBe(true);
+    expect(session.calls.filter((c) => c[0] === "noteAutoConsent")).toEqual([["noteAutoConsent", "shown", "reask"]]);
   });
 
   it("/automations lists them, toggles one, and makes a new one step by step", async () => {

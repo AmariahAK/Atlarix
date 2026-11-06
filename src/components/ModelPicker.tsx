@@ -319,6 +319,7 @@ export function ModelPicker({
     <>
       <AtlarixAutoConsentDialog
         open={pendingAuto != null || reaskAuto}
+        trigger={pendingAuto ? "picker" : "reask"}
         onAccept={() => {
           if (pendingAuto) return void acceptAuto();
           setReaskAuto(false);

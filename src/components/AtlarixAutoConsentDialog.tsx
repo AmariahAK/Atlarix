@@ -8,7 +8,15 @@
  * shared. The app sends `X-Atlarix-Free-Consent` only once this is accepted,
  * and the proxy never serves free Auto without it.
  */
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { usePostHog } from "posthog-js/react";
+import {
+  AUTO_CONSENT_EVENT,
+  autoConsentProperties,
+  type AutoConsentAction,
+  type AutoConsentTrigger,
+} from "@/lib/analytics/auto-consent-event";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,16 +30,39 @@ import {
 
 export function AtlarixAutoConsentDialog({
   open,
+  trigger,
   onAccept,
   onCancel,
 }: {
   open: boolean;
+  /** What opened it, for auto_consent (analytics only, with the user's yes to it). */
+  trigger: AutoConsentTrigger;
   onAccept: () => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation("chat");
+  const posthog = usePostHog();
+  // One answer per opening: "Not now" also closes the dialog (onOpenChange).
+  const answered = useRef(false);
+  const note = (action: AutoConsentAction) =>
+    posthog?.capture(AUTO_CONSENT_EVENT, { ...autoConsentProperties(action, trigger), surface: "app" });
+  useEffect(() => {
+    if (!open) return;
+    answered.current = false;
+    note("shown");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const answer = (action: "accepted" | "declined") => {
+    if (answered.current) return;
+    answered.current = true;
+    note(action);
+  };
+  const cancel = () => {
+    answer("declined");
+    onCancel();
+  };
   return (
-    <AlertDialog open={open} onOpenChange={(next) => !next && onCancel()}>
+    <AlertDialog open={open} onOpenChange={(next) => !next && cancel()}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{t("atlarixAuto.consentTitle")}</AlertDialogTitle>
@@ -43,10 +74,15 @@ export function AtlarixAutoConsentDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>
+          <AlertDialogCancel onClick={cancel}>
             {t("atlarixAuto.consentCancel")}
           </AlertDialogCancel>
-          <AlertDialogAction onClick={onAccept}>
+          <AlertDialogAction
+            onClick={() => {
+              answer("accepted");
+              onAccept();
+            }}
+          >
             {t("atlarixAuto.consentAccept")}
           </AlertDialogAction>
         </AlertDialogFooter>

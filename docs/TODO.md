@@ -60,6 +60,17 @@ not trust it.
   10-29 hardening). Tests: `usage-rollup-pending.test.ts`, `tests-bun/usage-survives-kill.test.ts` (real SIGKILL
   before any send). **Verify:** a week after the release, compare PostHog `turn_completed` people per day with
   `client_usage_daily` users per day for analytics-consenting accounts; they should match.
+- **The free Auto consent was not measured — `auto_consent` event ADDED on `team/auto-consent-event`.** Of 25 new
+  accounts that opened a client (10-24 → 11-05), 5 reached the consent (a `consent_required` turn) and 2 never ran free
+  Auto after it, but shown / accepted / declined were recorded nowhere. Now `auto_consent` {action: shown | accepted |
+  declined, trigger: picker | refused_turn | reask, version (the wording's), surface} from the app's dialog
+  (posthog-js), the CLI dialog and the editors' permission card (captureSafe); both only with the user's yes to
+  analytics. Wording and flow unchanged (owner's decision). **Read it** a week after the release: PostHog,
+  `auto_consent`, breakdown by action and trigger.
+- **`/auth/app` sat on "Returning you to the app" for good when atlarix:// opened nothing — FIXED on launchpad
+  `team/auth-app-fallback` (0a8a72c), deploys with the launchpad.** After 4 s with no blur/hide it offers "Open
+  Atlarix" (same link, from memory), "Download for <OS>" (/#download) and "Or open Atlarix and sign in there."
+  Desktop email sign-in only. Not measurable before; no event yet for "the app never opened".
 
 ## 🚨 Attack 2026-10-28 (19:12–02:30 MYT): what held, what was closed, what is left
 

@@ -51,6 +51,7 @@ export type ScreenSession = Pick<
   | "answerQuestion"
   | "dismissQuestion"
   | "acceptAutoConsent"
+  | "noteAutoConsent"
   | "answerMcpConsent"
   | "subagentJobs"
   | "subagentOutput"
@@ -601,8 +602,11 @@ export function openMcpConsent(ctx: ScreenContext): void {
 
 /** `reask`: asked at startup (a yes to the old wording), so there is no message to send again. */
 export function openAutoConsent(ctx: ScreenContext, opts: { reask?: boolean } = {}): void {
-  ctx.host.push(
-    new ListDialog({
+  // auto_consent: shown, then one answer (esc closes without a choice: a decline).
+  const trigger = opts.reask ? "reask" : "refused_turn";
+  let answered = false;
+  ctx.session.noteAutoConsent?.("shown", trigger);
+  const dialog = new ListDialog({
       title: "Use Atlarix Auto for free?",
       intro: AUTO_CONSENT_TERMS.map((text, i) => (i === 0 ? { text } : { text, tone: "muted" as const })),
       footer: "↑↓ move · enter choose · esc not now",
@@ -613,11 +617,17 @@ export function openAutoConsent(ctx: ScreenContext, opts: { reask?: boolean } = 
         { id: "accept", label: "Use Atlarix Auto", detail: opts.reask ? "with the new wording" : "and send the message again" },
       ],
       onChoose: async (item) => {
+        answered = true;
+        ctx.session.noteAutoConsent?.(item.id === "accept" ? "accepted" : "declined", trigger);
         ctx.host.closeAll();
         if (item.id === "accept") await ctx.session.acceptAutoConsent();
       },
-    }),
-  );
+    });
+  dialog.onClose = () => {
+    if (!answered) ctx.session.noteAutoConsent?.("declined", trigger);
+    answered = true;
+  };
+  ctx.host.push(dialog);
 }
 
 // ─── /automations ────────────────────────────────────────────────────────────

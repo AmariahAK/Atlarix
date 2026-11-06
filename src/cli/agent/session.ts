@@ -1116,6 +1116,11 @@ export class AgentSession extends EventEmitter {
     return true;
   }
 
+  /** auto_consent (shown / accepted / declined), sent only with the user's yes to analytics. */
+  noteAutoConsent(action: "shown" | "accepted" | "declined", trigger: "picker" | "refused_turn" | "reask"): void {
+    void import("@/lib/analytics/auto-consent-track").then((m) => m.trackAutoConsent(action, trigger)).catch(() => {});
+  }
+
   /** "Not now" to free Auto's consent: the refusal is answered, so the next send asks again. */
   declineAutoConsent(): void {
     this.update({ lastError: null });

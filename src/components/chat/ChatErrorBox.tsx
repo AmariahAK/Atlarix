@@ -361,6 +361,7 @@ function AutoConsentError({
     <ChatInfoContainer onDismiss={onDismiss}>
       <AtlarixAutoConsentDialog
         open={open}
+        trigger="refused_turn"
         onAccept={() => {
           setOpen(false);
           // The retry must follow the WRITE: main reads the consent from
