@@ -26,10 +26,7 @@ import {
   UnknownDrizzleMigrationHashError,
 } from "./migrate_atlarix";
 import { columnExists, tableExists } from "./migration_seed_verification";
-import {
-  isPlaintextApiKeyInDb,
-  serializeApiKeyForDb,
-} from "@/lib/security/db-secrets";
+import { migratePlaintextDbSecrets } from "./plaintext-secrets-migration";
 import { groupDuplicateAppIds } from "@/lib/canonical-app-path";
 import { LIVE_SESSIONS_TABLE, PEER_STALE_MS } from "@/lib/peers/peers";
 
@@ -401,7 +398,10 @@ function openAndMigrate(dbPath: string): BetterSQLite3Database<typeof schema> & 
         );
       }
       try {
-        migratePlaintextApiKeysIfNeeded(sqlite);
+        // Readable secrets (legacy, or written with no OS key by an older CLI or
+        // editor) are encrypted once the key exists: db/plaintext-secrets-migration.ts.
+        const n = migratePlaintextDbSecrets(sqlite);
+        if (n > 0) logger.log(`[DB] Encrypted ${n} secret value(s) stored readable`);
       } catch (error) {
         logger.error("Error migrating plaintext API keys (non-fatal):", error);
       }
@@ -855,59 +855,6 @@ function ensureAppsRemoteColumnsIfNeeded(sqlite: Database.Database): void {
   }
   if (!columnExists(sqlite, "apps", "remote_connection")) {
     sqlite.exec("ALTER TABLE apps ADD COLUMN remote_connection TEXT");
-  }
-}
-
-/**
- * One-time: re-encrypt legacy plaintext api_key values in provider_api_keys and mcp_servers.
- */
-function migratePlaintextApiKeysIfNeeded(sqlite: Database.Database): void {
-  let migrated = 0;
-
-  const providerTable = sqlite
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='provider_api_keys'",
-    )
-    .get();
-  if (providerTable) {
-    const rows = sqlite
-      .prepare(
-        "SELECT id, api_key FROM provider_api_keys WHERE api_key IS NOT NULL",
-      )
-      .all() as Array<{ id: number; api_key: string }>;
-    const update = sqlite.prepare(
-      "UPDATE provider_api_keys SET api_key = ? WHERE id = ?",
-    );
-    for (const row of rows) {
-      if (isPlaintextApiKeyInDb(row.api_key)) {
-        update.run(serializeApiKeyForDb(row.api_key), row.id);
-        migrated += 1;
-      }
-    }
-  }
-
-  const mcpTable = sqlite
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_servers'",
-    )
-    .get();
-  if (mcpTable) {
-    const rows = sqlite
-      .prepare("SELECT id, api_key FROM mcp_servers WHERE api_key IS NOT NULL")
-      .all() as Array<{ id: number; api_key: string }>;
-    const update = sqlite.prepare(
-      "UPDATE mcp_servers SET api_key = ? WHERE id = ?",
-    );
-    for (const row of rows) {
-      if (isPlaintextApiKeyInDb(row.api_key)) {
-        update.run(serializeApiKeyForDb(row.api_key), row.id);
-        migrated += 1;
-      }
-    }
-  }
-
-  if (migrated > 0) {
-    logger.log(`[DB] Encrypted ${migrated} legacy plaintext API key(s)`);
   }
 }
 

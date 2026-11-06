@@ -92,7 +92,10 @@ not trust it.
   (`encryptionType: "plaintext"`; seen on the Windows check) are re-encrypted at the next CLI/editor start once the key
   exists (`secureStoredSecrets`: the desktop's recovery, now also run by the CLI), and `writeSettings` is atomic (0600
   temp file, then rename; the direct write if Windows refuses the rename). With no key they stay, and stderr says
-  "Provider keys are stored unencrypted in <file> (no OS keyring found)." (3) Linux: still read-only (a secret-tool key would not match Chromium's
+  "Provider keys are stored unencrypted in <file> (no OS keyring found)." **The database's secrets** written the same
+  way (MCP OAuth tokens and client registrations, MCP API keys, env and header values, custom provider keys) are
+  encrypted at every database start once the key exists (`db/plaintext-secrets-migration.ts`, replacing the api_key-only
+  legacy migration). (3) Linux: still read-only (a secret-tool key would not match Chromium's
   libsecret schema); with no keyring `atlarix login` now says "Signed in for this run only: no keyring found …", and
   secret-tool / PowerShell calls time out after 10 s instead of hanging.
 
