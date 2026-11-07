@@ -136,6 +136,22 @@ describe("chat error banner placement (v11.1)", () => {
     expect(screen.getByText(/\$9\.24/)).toBeTruthy();
   });
 
+  // W3 (Windows fresh-install QA, 2026-11-07): a brand-new user's first send
+  // showed the consent card AND Retry + "switch models", so the one-time OK read
+  // as a failure. Retry would only be refused again until the OK is given.
+  it("free-Auto consent is a question, not a failure: no Retry, no switch-models hint", () => {
+    const { store } = renderWithProviders(
+      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
+    );
+    act(() => {
+      store.set(chatErrorByIdAtom, new Map([[CHAT_ID, autoConsentRequiredUserMessage()]]));
+    });
+
+    expect(screen.getByTestId("auto-review-consent")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.queryByText(/switch models using the selector below/i)).toBeNull();
+  });
+
   it("free Auto's limit says when it resets, and offers no Retry", () => {
     const { store } = renderWithProviders(
       <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,

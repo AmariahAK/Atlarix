@@ -47,6 +47,7 @@ import { CoreSlotChangeBanner } from "@/components/chat/CoreSlotChangeBanner";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
 import { discardedTurnSnapshotIds } from "@/lib/chat/discarded-turn-snapshots";
 import {
+  AUTO_CONSENT_MARKER,
   CORE_EXHAUSTED_MARKER,
   CORE_NEVER_FUNDED_MARKER,
   FREE_LIMIT_MARKER,
@@ -727,9 +728,10 @@ export function SimpleInlineChat({
                           own actions" — deliberately narrower. A Core REACHABILITY error
                           also carries a button, and there Retry is exactly right, because
                           the failure is transient. Only an exhausted balance is a state
-                          that a repeat request cannot change.
+                          that a repeat request cannot change — and free Auto's consent,
+                          which is a question: accepting it re-runs the turn by itself.
                         */}
-            {![CORE_EXHAUSTED_MARKER, CORE_NEVER_FUNDED_MARKER, PRO_ALLOWANCE_MARKER, FREE_LIMIT_MARKER].some((m) =>
+            {![CORE_EXHAUSTED_MARKER, CORE_NEVER_FUNDED_MARKER, PRO_ALLOWANCE_MARKER, FREE_LIMIT_MARKER, AUTO_CONSENT_MARKER].some((m) =>
               error.includes(m),
             ) && (
               <div className="mt-2 flex flex-wrap gap-2">
