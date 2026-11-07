@@ -158,7 +158,7 @@ export function ChatIntentSelector() {
                   data-testid="chat-work-mode-readonly"
                 >
                   <MessageCircle className="h-3.5 w-3.5 shrink-0" />
-                  <span>Ask · Read-only</span>
+                  <span>Explore · Read-only</span>
                 </div>
               </TooltipTrigger>
               <TooltipContent>
@@ -187,7 +187,7 @@ export function ChatIntentSelector() {
                 <TooltipContent>
                   {appliesNextTurn
                     ? `This turn is running in ${labelForWorkMode(runningWorkMode!)} and keeps that mode until it finishes. ${labelForWorkMode(workMode)} applies to your next message.`
-                    : "Work mode: tool surface per mode. Open for Ask, Plan, Build, Debug, Review."}
+                    : "Work mode: Explore, Plan, Build, Debug or Review."}
                 </TooltipContent>
               </Tooltip>
               <SelectContent
@@ -196,6 +196,9 @@ export function ChatIntentSelector() {
                 position="popper"
                 avoidCollisions
                 collisionPadding={12}
+                // The descriptions ran off the window at 800 px (W7): cap the
+                // width and let them wrap.
+                className="w-[min(24rem,calc(100vw-1.5rem))]"
                 onCloseAutoFocus={(e) => e.preventDefault()}
               >
                 {WORK_MODES.map(({ value, icon: Icon, desc }) => {
@@ -207,7 +210,7 @@ export function ChatIntentSelector() {
                           <Icon className="h-3.5 w-3.5" />
                           {labelForWorkMode(value)}
                         </span>
-                        <span className="text-xs text-muted-foreground font-normal">
+                        <span className="text-xs text-muted-foreground font-normal whitespace-normal">
                           {desc}
                         </span>
                       </div>
@@ -225,8 +228,8 @@ export function ChatIntentSelector() {
         </p>
         <p className="text-muted-foreground text-xs mb-3">
           {isReadOnlyChatChrome
-            ? "This chat uses Ask (read-only) only. Open a workspace and a saved chat to use Plan, Build, Debug, and Review."
-            : "Choose Ask, Plan, Build, Debug, or Review for a fixed tool surface."}
+            ? "This chat uses Explore (read-only) only. Open a workspace and a saved chat to use Plan, Build, Debug, and Review."
+            : "Pick what the agent may do: Explore and Review only read, Plan plans, Build and Debug change files."}
         </p>
         <Button size="sm" variant="secondary" onClick={dismissFirstTime}>
           Got it
