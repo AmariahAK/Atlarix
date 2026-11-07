@@ -81,7 +81,7 @@ import { SubscriptionManager } from "./lib/SubscriptionManager";
 import { resolveSystemPath } from "./lib/resolve-path";
 import { warmOpenRouterModelCache } from "./lib/routing/tier-context-limits";
 import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
-import { warmWhatsNew } from "./main/whats-new";
+import { suppressWhatsNewThisLaunch, warmWhatsNew } from "./main/whats-new";
 import { createAppBrowserWindow } from "./main/create-app-browser-window";
 import { seedEphemeralCounterFromSessions } from "./ipc/handlers/workspace_session_handlers";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
@@ -1087,6 +1087,7 @@ async function checkForUpdatesNotify(): Promise<void> {
 
 export async function onFirstRunMaybe(settings: UserSettings) {
   if (!settings.hasRunBefore) {
+    suppressWhatsNewThisLaunch();
     await promptMoveToApplicationsFolder();
     writeSettings({
       hasRunBefore: true,

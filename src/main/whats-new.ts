@@ -126,9 +126,20 @@ async function loadRawFromCache(): Promise<unknown | null> {
   }
 }
 
+/**
+ * Set on a fresh install's first launch. Release notes are news only to someone
+ * who ran the version before; to a new user the note sat over the sign-in
+ * buttons (Windows fresh-install QA W6, 2026-11-07).
+ */
+let suppressedThisLaunch = false;
+
+export function suppressWhatsNewThisLaunch(): void {
+  suppressedThisLaunch = true;
+}
+
 /** The note the renderer should show, or null. Never throws, never blocks. */
 export function getWhatsNewEntry(): WhatsNewEntry | null {
-  return current;
+  return suppressedThisLaunch ? null : current;
 }
 
 /**
@@ -200,6 +211,7 @@ export function warmWhatsNew(): void {
 export function __resetWhatsNewForTests(): void {
   lastAppliedSerialized = null;
   current = null;
+  suppressedThisLaunch = false;
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
