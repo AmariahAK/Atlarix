@@ -28,7 +28,6 @@ import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
 import { autoStatusFromHeaders } from "@/main/auto-status";
 import {
-  CORE_EXHAUSTED_MARKER,
   FREE_LIMIT_MARKER,
   FREE_BUSY_MARKER,
 } from "@/shared/billing_copy";
