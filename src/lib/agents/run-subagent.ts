@@ -570,6 +570,12 @@ export async function runSubagent(
           placement: cacheMarkerPlacement,
         }),
         tools: toolSet,
+        // Explicitly NO stop condition: the round runs until the model stops
+        // calling tools, like the main turn (simple-stream-text.ts). Leaving
+        // `stopWhen` out is not the same thing: the AI SDK then applies
+        // `stepCountIs(1)`, and every sub-agent ended after its first tool call
+        // and reported "completed" (W10, 15.12.0–15.13.3).
+        stopWhen: [],
         // 0j: the round no longer ENDS at the compaction point — a long scout
         // compacts in place in `prepareStep` (below) from the ONE complete count
         // (system + tools + messages). The provider's input count is kept only
