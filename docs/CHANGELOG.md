@@ -3,6 +3,10 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased]
+
+**CLI: click to edit.** Click in your prompt to put the cursor there. A click no longer copies text or types over it, even when the mouse moves a little as you click, and text you copy by dragging over the prompt stays put when you type.
+
 ## [15.13.3] (2026-11-06) — Sessions that see and review each other, ask_user like Claude Code's, cheaper long conversations, and CLI sign-in kept on Windows
 
 15.13.0–15.13.2 were tagged but never released as desktop builds (a slow package mirror, a test teardown race, then GitHub's ubuntu-latest moving to 26.04, whose rpm broke the Linux package; the Linux and quality jobs are now pinned to 24.04). 15.13.2's VS Code extension did publish. Everything below ships in 15.13.3.
