@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [Unreleased]
+## [15.14.0] (2026-11-07) — Free Auto with no question, sub-agents that finish, a chat that keeps up, and a smoother first run on Windows
 
 **Free Atlarix Auto just works.** No more "Use Atlarix Auto for free?" question in the app, the CLI or the editors: the first message on free Auto runs. What free Auto shares is in the privacy policy and terms. Pro, credit and your own keys stay private, and a Pro account whose allowance is used up is never moved to free Auto.
 
@@ -12,6 +12,16 @@
 **The chat keeps up with long answers.** While you're at the bottom of the chat, it follows the answer as it grows, including the thinking and tool steps before the first words of the reply. It stops following only when you scroll up, and no longer leaves you behind "Jump to latest" with the rest of the answer out of view.
 
 **CLI: click to edit.** Click in your prompt to put the cursor there. A click no longer copies text or types over it, even when the mouse moves a little as you click, and text you copy by dragging over the prompt stays put when you type.
+
+**A first run that doesn't get stuck.** A slow email sign-in (creating the account, confirming the email) is no longer thrown away after 10 minutes, and a sign-in that fails or is cancelled resets the screen instead of leaving every button disabled; there is a Cancel link while it waits. The email fallback waits its full 3 minutes and says "Still signing in?". No "What's new" card on a brand-new install's first launch.
+
+**Explore can hand over to Build.** When a read-only chat asks "switch to Build?", picking yes switches the mode and carries on, in the app, the CLI and the editors. The mode chip and its tips say Explore everywhere, and the mode menu fits small windows.
+
+**Free Auto in a fixed 200K window.** Free Atlarix Auto compacts at the same working size every time instead of a size borrowed from the current free model.
+
+**Errors from your own provider say what happened.** A refused, rate-limited or out-of-credit reply from your own API key ends with the provider's reason, and every surface names the provider you're on (for example "NVIDIA NIM" or "Anthropic") instead of "Your key".
+
+**MCP servers that won't register Atlarix** now say what to do next: for Slack, use Atlarix in Slack; for others, add the server's API key if it has one.
 
 ## [15.13.3] (2026-11-06) — Sessions that see and review each other, ask_user like Claude Code's, cheaper long conversations, and CLI sign-in kept on Windows
 
