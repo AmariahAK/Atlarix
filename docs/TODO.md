@@ -92,8 +92,8 @@ the next release, no 15.13.4 for it alone. Everything else from 11-06 is server-
 - **The free Auto consent is GONE (owner, 2026-11-07), on `team/free-auto-no-consent` + proxy
   `free-auto-no-consent`.** Replaces the 11-06 "keep it" and the `auto_consent` measurement (removed with it): of
   25 new accounts (10-24 → 11-05), 5 reached the consent and 2 never ran free Auto after it. The privacy policy and
-  terms say what free Auto shares (website side: ai-b8). The proxy serves a no-balance user (Pro out of allowance
-  included) free without a header. **Proxy first**: a new client sends no header,
+  terms say what free Auto shares (website side: ai-b8). The proxy serves a no-balance user free without a header;
+  a Pro account with its allowance spent never gets the free chain. **Proxy first**: a new client sends no header,
   so against the old proxy it would get a 402 with no card to answer it. **Read it** a week after the release:
   new accounts with a first free Auto turn, against the 5→3 before.
 - **`/auth/app` sat on "Returning you to the app" for good when atlarix:// opened nothing — FIXED on launchpad
