@@ -37,7 +37,7 @@ export class McpOAuthError extends Error {
       | "in_progress"
       | "invalid_state"
       | "not_oauth"
-      /** The server refuses dynamic client registration: a pre-registered app is needed (the guide says how). */
+      /** The server refuses dynamic client registration: the message says what to use instead. */
       | "needs_registration",
   ) {
     super(message);
@@ -312,7 +312,7 @@ export async function startMcpOAuthFlow(
     // A server that refuses dynamic registration (Slack's) is not a transient
     // failure: say what to do, the same words on every surface.
     if (needsPreRegisteredClient(error)) {
-      throw new McpOAuthError(describeMcpOAuthError(error), "needs_registration");
+      throw new McpOAuthError(describeMcpOAuthError(error, row.url ?? undefined), "needs_registration");
     }
     throw error;
   }
@@ -340,7 +340,13 @@ export async function finishMcpOAuthCallback(
     return { serverId: pending.serverId, serverName: pending.serverName };
   } catch (error) {
     clearPendingMcpOAuthSession(pending.serverId);
-    const message = describeMcpOAuthError(error);
+    // The session keeps no URL; the row says whether this is Slack's server.
+    const serverUrl = needsPreRegisteredClient(error)
+      ? await db.query.mcpServers
+          .findFirst({ where: eq(mcpServers.id, pending.serverId) })
+          .then((r) => r?.url ?? undefined, () => undefined)
+      : undefined;
+    const message = describeMcpOAuthError(error, serverUrl);
     broadcastMcpOAuthEvent("mcp:oauth-error", {
       serverId: pending.serverId,
       serverName: pending.serverName,
