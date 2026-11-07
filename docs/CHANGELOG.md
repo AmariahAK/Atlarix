@@ -9,6 +9,8 @@
 
 **Sub-agents finish their work.** Sub-agents keep going until their part is done and hand their changes back for you to accept; since 15.12.0 they stopped after one step.
 
+**The chat keeps up with long answers.** While you're at the bottom of the chat, it follows the answer as it grows, including the thinking and tool steps before the first words of the reply. It stops following only when you scroll up, and no longer leaves you behind "Jump to latest" with the rest of the answer out of view.
+
 **CLI: click to edit.** Click in your prompt to put the cursor there. A click no longer copies text or types over it, even when the mouse moves a little as you click, and text you copy by dragging over the prompt stays put when you type.
 
 ## [15.13.3] (2026-11-06) — Sessions that see and review each other, ask_user like Claude Code's, cheaper long conversations, and CLI sign-in kept on Windows
