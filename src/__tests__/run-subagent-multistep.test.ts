@@ -18,22 +18,40 @@ const execute = vi.fn(async (name: string, args: Record<string, unknown>) =>
       {
         __permission_required: true,
         operation: "edit_file",
-        preview: { path: String(args.path), content: String(args.content), oldContent: "old\n", type: "update" },
+        preview: {
+          path: String(args.path),
+          content: String(args.content),
+          oldContent: "old\n",
+          type: "update",
+        },
       }
     : { success: true, content: `contents of ${String(args.path)}` },
 );
 
 vi.mock("@/lib/analytics/turn-stats", () => ({ noteTurn: vi.fn() }));
 vi.mock("@/main/settings", () => ({ readSettings: () => ({}) }));
-vi.mock("@/ipc/handlers/chat_stream/stream-state", () => ({ lastStreamRequest: new Map() }));
-vi.mock("@/lib/skills/skill-loader", () => ({ loadSkill: async () => "You are a scout." }));
-vi.mock("@/lib/usage/turn-usage-aggregator", () => ({ recordAuxUsage: () => 0 }));
+vi.mock("@/ipc/handlers/chat_stream/stream-state", () => ({
+  lastStreamRequest: new Map(),
+}));
+vi.mock("@/lib/skills/skill-loader", () => ({
+  loadSkill: async () => "You are a scout.",
+}));
+vi.mock("@/lib/usage/turn-usage-aggregator", () => ({
+  recordAuxUsage: () => 0,
+}));
 vi.mock("@/lib/context/resolve-model-context-limit", () => ({
   GENERIC_CONTEXT_FALLBACK: 100_000,
-  resolveModelContextLimit: async () => ({ tierLimit: 100_000, rawContextLength: 128_000 }),
+  resolveModelContextLimit: async () => ({
+    tierLimit: 100_000,
+    rawContextLength: 128_000,
+  }),
 }));
 vi.mock("@/lib/routing/tier_context_budget", () => ({
-  compactAgenticMessagesIfNeeded: async ({ nativeMessages }: { nativeMessages: unknown[] }) => ({
+  compactAgenticMessagesIfNeeded: async ({
+    nativeMessages,
+  }: {
+    nativeMessages: unknown[];
+  }) => ({
     compacted: false,
     beforeTokens: 0,
     afterTokens: 0,
@@ -41,7 +59,10 @@ vi.mock("@/lib/routing/tier_context_budget", () => ({
   }),
 }));
 vi.mock("@/lib/context/mid_loop_compaction", () => ({
-  runMidLoopCompaction: async ({ messages }: { messages: unknown[] }) => ({ compacted: false, messages }),
+  runMidLoopCompaction: async ({ messages }: { messages: unknown[] }) => ({
+    compacted: false,
+    messages,
+  }),
 }));
 vi.mock("@/lib/tools/workspace-file-hints", () => ({
   SMALL_REPO_FILE_THRESHOLD: 200,
@@ -54,7 +75,11 @@ vi.mock("@/lib/tools/registry", () => ({
       {
         name: "read_file",
         description: "Read a file.",
-        parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+        parameters: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
       },
       {
         name: "edit_file",
@@ -66,7 +91,8 @@ vi.mock("@/lib/tools/registry", () => ({
         },
       },
     ],
-    execute: (name: string, args: Record<string, unknown>) => execute(name, args),
+    execute: (name: string, args: Record<string, unknown>) =>
+      execute(name, args),
   },
 }));
 
@@ -79,8 +105,17 @@ type Step = { stream: ReadableStream<LanguageModelV4StreamPart> };
 const toolStep = (id: string, path: string): Step => ({
   stream: convertArrayToReadableStream<LanguageModelV4StreamPart>([
     { type: "stream-start", warnings: [] },
-    { type: "tool-call", toolCallId: id, toolName: "read_file", input: JSON.stringify({ path }) },
-    { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage },
+    {
+      type: "tool-call",
+      toolCallId: id,
+      toolName: "read_file",
+      input: JSON.stringify({ path }),
+    },
+    {
+      type: "finish",
+      finishReason: { unified: "tool-calls", raw: "tool_calls" },
+      usage,
+    },
   ]),
 });
 const textStep = (text: string): Step => ({
@@ -97,14 +132,19 @@ let steps: Step[] = [];
 const model = new MockLanguageModelV4({
   doStream: async () => {
     const next = steps.shift();
-    if (!next) throw new Error("the model was asked for more steps than the test scripted");
+    if (!next)
+      throw new Error(
+        "the model was asked for more steps than the test scripted",
+      );
     return next as never;
   },
 });
 
 vi.mock("@/ipc/utils/get_model_client", () => ({
   getEffectiveModel: () => ({ provider: "test", name: "test-model" }),
-  getModelClient: async () => ({ modelClient: { model, builtinProviderId: "test" } }),
+  getModelClient: async () => ({
+    modelClient: { model, builtinProviderId: "test" },
+  }),
 }));
 
 describe("a sub-agent works until the model stops calling tools (W10)", () => {
@@ -113,21 +153,37 @@ describe("a sub-agent works until the model stops calling tools (W10)", () => {
   });
 
   it("two reads, then the answer: both reads run and the answer is the summary", async () => {
-    steps = [toolStep("c1", "package.json"), toolStep("c2", "README.md"), textStep("Both files read.")];
+    steps = [
+      toolStep("c1", "package.json"),
+      toolStep("c2", "README.md"),
+      textStep("Both files read."),
+    ];
     const { runSubagent } = await import("@/lib/agents/run-subagent");
-    const result = await runSubagent({ prompt: "Read package.json and README.md", workspace: "" });
+    const result = await runSubagent({
+      prompt: "Read package.json and README.md",
+      workspace: "",
+    });
     expect(result.success).toBe(true);
-    expect(execute.mock.calls.map(([, a]) => a.path)).toEqual(["package.json", "README.md"]);
+    expect(execute.mock.calls.map(([, a]) => a.path)).toEqual([
+      "package.json",
+      "README.md",
+    ]);
     expect(result.stepsUsed).toBe(3);
     expect(result.summary).toContain("Both files read.");
     expect(steps).toEqual([]);
   });
 
   it("a writer reads, then edits: the edit comes back as a proposal", async () => {
-    const { createProposalSet, getProposalSet, __clearAllProposalSets } = await import("@/lib/agents/subagent-proposals");
+    const { createProposalSet, getProposalSet, __clearAllProposalSets } =
+      await import("@/lib/agents/subagent-proposals");
     __clearAllProposalSets();
     const ws = path.resolve("/tmp/atlarix-w10-ws");
-    const setId = createProposalSet({ chatId: 1, taskId: "t1", agentName: "writer", workspace: ws });
+    const setId = createProposalSet({
+      chatId: 1,
+      taskId: "t1",
+      agentName: "writer",
+      workspace: ws,
+    });
     steps = [
       toolStep("c1", "README.md"),
       {
@@ -139,16 +195,32 @@ describe("a sub-agent works until the model stops calling tools (W10)", () => {
             toolName: "edit_file",
             input: JSON.stringify({ path: "README.md", content: "new\n" }),
           },
-          { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage },
+          {
+            type: "finish",
+            finishReason: { unified: "tool-calls", raw: "tool_calls" },
+            usage,
+          },
         ]),
       },
       textStep("README updated."),
     ];
     const { runSubagent } = await import("@/lib/agents/run-subagent");
-    const result = await runSubagent({ prompt: "Update the README", workspace: ws, mode: "implement", proposalSetId: setId });
+    const result = await runSubagent({
+      prompt: "Update the README",
+      workspace: ws,
+      mode: "implement",
+      proposalSetId: setId,
+    });
     expect(result.success).toBe(true);
-    expect(execute.mock.calls.map(([n]) => n)).toEqual(["read_file", "edit_file"]);
-    expect([...(getProposalSet(setId)?.files.keys() ?? [])].map((k) => path.basename(String(k)))).toEqual(["README.md"]);
+    expect(execute.mock.calls.map(([n]) => n)).toEqual([
+      "read_file",
+      "edit_file",
+    ]);
+    expect(
+      [...(getProposalSet(setId)?.files.keys() ?? [])].map((k) =>
+        path.basename(String(k)),
+      ),
+    ).toEqual(["README.md"]);
     expect(result.summary).toContain("README updated.");
   });
 });

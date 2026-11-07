@@ -5,6 +5,9 @@
  * characters and the next key typed over them ("hello world" + X became
  * "hello Xrld"; owner, 2026-11-07: "click and edit" didn't work).
  */
-export function isClickNotSelection(anchor: { x: number; y: number }, focus: { x: number; y: number }): boolean {
+export function isClickNotSelection(
+  anchor: { x: number; y: number },
+  focus: { x: number; y: number },
+): boolean {
   return anchor.y === focus.y && Math.abs(anchor.x - focus.x) <= 1;
 }
