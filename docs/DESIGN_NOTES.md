@@ -949,7 +949,7 @@ CLI opens a loopback server, sends the user to atlarix.dev, exchanges the code i
 
 The proxy's error contract already carries it: `402 {error:"insufficient_credit",
 required_cents:N}` — which since Atlarix Auto also says whether free Auto is on offer
-(`free_available`, `consent_required`) — plus `403 account_banned`, `model_not_permitted`,
+(`free_available`) — plus `403 account_banned`, `model_not_permitted`,
 `core_unavailable` and `free_usage_limit`. The CLI renders "you are $X short → atlarix.dev/account" straight
 from that. `GET /v1/models` (unauthenticated by design) gives the live Core lineup.
 
@@ -1151,7 +1151,8 @@ clear "log in first" at the top.
 - **Atlarix Auto (2026-09-23) is one option for everyone and the default for new installs.** The
   proxy, not the client, decides who pays: an account with a Pro allowance or credit gets paid,
   per-step-routed Auto that is never shared; an account with neither gets free Auto on OpenAI's
-  shared-data tokens after a one-time consent, with a fair daily share. Pinned Core models need
+  shared-data tokens with a fair daily share (no in-app question since 2026-11-07: the privacy
+  policy and terms say what it shares). Pinned Core models need
   Pro or credit. Details and limits live in `CORE_BILLING.md` and the proxy's `free-auto.ts` /
   `paid-auto.ts`, not here.
 - **The allowance and the mark-up are CODE, and this file must not copy them.** The allowance is

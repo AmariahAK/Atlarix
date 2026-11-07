@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+**Free Atlarix Auto just works.** No more "Use Atlarix Auto for free?" question in the app, the CLI or the editors: the first message on free Auto runs. What free Auto shares is in the privacy policy and terms. Pro, credit and your own keys stay private, and a Pro account whose allowance is used up is never moved to free Auto.
+
 **CLI: click to edit.** Click in your prompt to put the cursor there. A click no longer copies text or types over it, even when the mouse moves a little as you click, and text you copy by dragging over the prompt stays put when you type.
 
 ## [15.13.3] (2026-11-06) — Sessions that see and review each other, ask_user like Claude Code's, cheaper long conversations, and CLI sign-in kept on Windows

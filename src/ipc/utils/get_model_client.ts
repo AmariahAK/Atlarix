@@ -44,7 +44,6 @@ import { getLanguageModelProviders } from "../shared/language_model_helpers";
 import { getProviderApiKey } from "../shared/provider_api_keys";
 import { LanguageModelProvider } from "../ipc_types";
 import {
-  autoConsentHeader,
   getCompassMasterApiKey,
   getCoreModelIdForCoreTier,
   isCoreTierFromNewerBuild,
@@ -118,7 +117,7 @@ const logger = log.scope("getModelClient");
  * the proxy offers the free gateways only on "2".
  */
 export function autoRequestHeaders(
-  settings: Pick<UserSettings, "deepThinking" | "effort" | "atlarixAutoConsentAt" | "atlarixAutoConsentVersion">,
+  settings: Pick<UserSettings, "deepThinking" | "effort">,
   options?: GetModelClientOptions,
 ): Record<string, string> {
   // No effort or thinking hint (owner, 2026-10-29: no effort on Auto or Zenith;
@@ -132,13 +131,6 @@ export function autoRequestHeaders(
   };
   if (options?.workMode) out["X-Atlarix-Mode"] = options.workMode;
   if (options?.escalate) out["X-Atlarix-Escalate"] = "1";
-  // "1" whenever the user said yes, so a proxy that predates the v2 wording
-  // still serves them (OpenAI only); the version rides in its own header.
-  const consent = autoConsentHeader(settings);
-  if (consent) {
-    out["X-Atlarix-Free-Consent"] = "1";
-    out["X-Atlarix-Free-Consent-Version"] = consent;
-  }
   return out;
 }
 

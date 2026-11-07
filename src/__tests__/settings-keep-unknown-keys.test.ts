@@ -27,11 +27,11 @@ describe("writing settings", () => {
       }),
     );
     const { writeSettings } = await import("@/main/settings");
-    writeSettings({ atlarixAutoConsentVersion: 2 });
+    writeSettings({ deepThinking: true });
     const out = JSON.parse(fs.readFileSync(file, "utf8"));
     expect(out.someFutureSetting).toEqual({ a: 1 });
     expect(out.defaultMcpServersV9).toEqual(["x"]);
-    expect(out.atlarixAutoConsentVersion).toBe(2);
+    expect(out.deepThinking).toBe(true);
     expect(out.hasRunBefore).toBe(true);
   });
 });

@@ -21,7 +21,6 @@ import type { TurnEnd, TurnErrorKind } from "@/lib/analytics/turn-end";
 const EXPECTED: ReadonlySet<TurnErrorKind> = new Set<TurnErrorKind>([
   "auth",
   "quota",
-  "consent_required",
   "rate_limit",
   "context_overflow",
   "content_rejected",

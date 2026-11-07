@@ -31,15 +31,14 @@ export type TurnOutcome = "ok" | "ask_user" | "stopped" | "aborted" | "error" | 
 
 /**
  * A turn the service refused ON PURPOSE, as policy, not a failure of anything:
- * the free share is used up, every free source is busy, consent has not been
- * given, or the account has no credit for the model it picked. Counted as a
+ * the free share is used up, every free source is busy, or the account has no
+ * credit for the model it picked. Counted as a
  * `gate` outcome, so the error-rate alert and the crash reports ignore them
  * (2026-10-26/27: two such days paged the owner at 33–38% "errors").
  */
 export type GateKind =
   | "free_usage_limit"
   | "free_busy"
-  | "consent_required"
   | "insufficient_credit"
   /** The person's own rule stopped the turn: a silk off/scoped away/broken, or an edict. */
   | "rule";
@@ -47,7 +46,6 @@ export type GateKind =
 export type TurnErrorKind =
   | "auth"
   | "quota"
-  | "consent_required"
   | "rate_limit"
   | "context_overflow"
   | "provider_refused"
@@ -89,7 +87,6 @@ export function gateOf(
   opts?: { byok?: boolean },
 ): GateKind | undefined {
   if (opts?.byok) return undefined;
-  if (kind === "consent_required") return "consent_required";
   if (/free_usage_limit/.test(body) || (kind === "quota" && httpStatus === 429)) return "free_usage_limit";
   if (/free_busy/.test(body) || (kind === "rate_limit" && httpStatus === 503)) return "free_busy";
   if (/insufficient_credit/.test(body) || (kind === "quota" && httpStatus === 402)) return "insufficient_credit";
@@ -210,7 +207,6 @@ export function classifyTurnError(err: unknown, opts?: { byok?: boolean }): Turn
   const name = nameOf(err);
   if (messageOf(err).includes(ATLARIX_AUTH_REQUIRED_PREFIX) || /account_banned/.test(body)) return at("auth");
   // The proxy's codes first: its free limit is a 429 and "busy" a 503.
-  if (/"consent_required"\s*:\s*true/.test(body)) return at("consent_required");
   if (/free_usage_limit|insufficient_credit/.test(body) || httpStatus === 402) return at("quota");
   if (/free_busy/.test(body)) return at("rate_limit");
   if (isContextOverflowError(err)) return at("context_overflow");

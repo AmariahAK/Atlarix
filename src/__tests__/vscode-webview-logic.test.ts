@@ -155,7 +155,6 @@ describe("an answered card's record in the chat", () => {
   it("is kept where nothing else says it: a No on a card of its own, and cards Atlarix does not confirm", () => {
     expect(recordsAnswer({ command: "rm -rf build" }, "approval:op2", true)).toBe(true);
     expect(recordsAnswer({ details: ["When: every day"] }, "approval:op3", false)).toBe(true);
-    expect(recordsAnswer(undefined, "auto-consent", false)).toBe(true);
     expect(recordsAnswer(undefined, "mcp-consent:7", true)).toBe(true);
   });
 });

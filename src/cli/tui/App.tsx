@@ -57,7 +57,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession, LiveTask, SessionState, WorkMode } from "../agent/session";
 import { Approval, approvalChoices, approvalKey } from "./Approval";
 import { decodePasteBytes, type PasteEvent } from "@opentui/core";
-import { AUTO_CONSENT_MARKER, FREE_LIMIT_MARKER, formatResetsIn } from "@/shared/billing_copy";
+import { FREE_LIMIT_MARKER, formatResetsIn } from "@/shared/billing_copy";
 import { freeAutoResetsAt } from "@/lib/billing/free-auto-gate";
 import { COMMANDS, matchCommands, parseCommandLine, type SlashCommand } from "./commands";
 import type { ContextWorkingWindowSetting } from "@/lib/context/mid-loop-threshold";
@@ -71,7 +71,6 @@ import {
   openTasks,
   openAside,
   openRename,
-  openAutoConsent,
   openAutomations,
   openAnalytics,
   openBilling,
@@ -556,7 +555,7 @@ export function App({
   const [, setDialogVersion] = useState(0);
   // Which prompt the session raised by itself is on the stack, so closing it
   // with esc can tell the session (a question left unanswered, a plan for later).
-  const autoPrompt = useRef<null | "question" | "consent" | "mcp">(null);
+  const autoPrompt = useRef<null | "question" | "mcp">(null);
   useEffect(() => {
     const on = () => {
       setDialogVersion((n) => n + 1);
@@ -1414,20 +1413,6 @@ export function App({
     autoPrompt.current = "mcp";
     openMcpConsent(screen());
   }, [state.mcpConsent?.requestId]);
-  useEffect(() => {
-    if (!state.lastError?.includes(AUTO_CONSENT_MARKER) || host.open) return;
-    autoPrompt.current = "consent";
-    openAutoConsent(screen());
-  }, [state.lastError]);
-  // A yes to the old wording is asked once more on free Auto (as the app does).
-  useEffect(() => {
-    if (accountKind !== "free" || host.open) return;
-    void session.takeAutoConsentReask().then((due) => {
-      if (!due) return;
-      autoPrompt.current = "consent";
-      openAutoConsent(screen(), { reask: true });
-    });
-  }, [accountKind, session.model?.provider, session.model?.name]);
 
   useEffect(() => {
     if (startWith) runCommand(startWith);

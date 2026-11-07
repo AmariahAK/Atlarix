@@ -1,11 +1,5 @@
 {
   "atlarixAuto": {
-    "consentTitle": "Use Atlarix Auto for free?",
-    "consentWhy": "It's free because your prompts are shared with the AI providers that serve it (OpenAI, OpenRouter and Requesty), who may use them to improve their models.",
-    "consentCare": "Don't use it for code you can't share. Pro, credit and your own keys stay private.",
-    "consentCancel": "Not now",
-    "consentAccept": "Use Atlarix Auto",
-    "reviewConsent": "Review and accept",
     "statusFree": "Auto · Free today ~{{percent}}%",
     "statusFreePlain": "Auto · Free",
     "statusIncluded": "Auto · Included",

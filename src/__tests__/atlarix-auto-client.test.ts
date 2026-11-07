@@ -28,7 +28,6 @@ import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
 import { autoStatusFromHeaders } from "@/main/auto-status";
 import {
-  AUTO_CONSENT_MARKER,
   CORE_EXHAUSTED_MARKER,
   FREE_LIMIT_MARKER,
   FREE_BUSY_MARKER,
@@ -116,15 +115,6 @@ describe("Auto's limit is a limit", () => {
     expect(c.message).toBe("This model is busy. Try again in 40s, or pick another model.");
     expect(c.isCompassInfraError).toBe(false);
     expect(c.freeAutoResetsAt).toBeUndefined();
-  });
-
-  it("a 402 that offers free Auto asks for consent instead of a top-up", () => {
-    const c = classifyCompassFailure(
-      402,
-      JSON.stringify({ error: "insufficient_credit", free_available: true, consent_required: true }),
-    );
-    expect(c.message).toContain(AUTO_CONSENT_MARKER);
-    expect(c.message).not.toContain(CORE_EXHAUSTED_MARKER);
   });
 
   it("is never retried — Retry-After is hours, and a retry reads as a disconnect", () => {
@@ -271,10 +261,10 @@ describe("Auto's identity and capabilities", () => {
 });
 
 describe("the routing hints", () => {
-  it("carry purpose, mode, escalate — and consent only once given", () => {
+  it("carry purpose, mode and escalate, and no consent header", () => {
     expect(
       autoRequestHeaders(
-        { deepThinking: true, atlarixAutoConsentAt: undefined },
+        { deepThinking: true },
         { purpose: "main", workMode: "plan" },
       ),
     ).toEqual({
@@ -282,13 +272,12 @@ describe("the routing hints", () => {
       "X-Atlarix-Mode": "plan",
     });
     const h = autoRequestHeaders(
-      { deepThinking: false, atlarixAutoConsentAt: "2026-09-23T00:00:00Z" },
+      { deepThinking: false },
       { delegationRole: "subagent", escalate: true },
     );
-    expect(h).toMatchObject({
+    expect(h).toEqual({
       "X-Atlarix-Purpose": "subagent",
       "X-Atlarix-Escalate": "1",
-      "X-Atlarix-Free-Consent": "1",
     });
   });
 

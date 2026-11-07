@@ -19,9 +19,6 @@ import { App } from "../src/cli/tui/App";
 
 type Call = [string, ...unknown[]];
 
-/** Whether the next session's once-more consent ask is due (a test sets it before mount). */
-let reaskNext = false;
-
 class FakeSession extends EventEmitter {
   workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-screens-ws-"));
   sessionId = "fake-session-1";
@@ -90,9 +87,6 @@ class FakeSession extends EventEmitter {
   async answerQuestion(a: string[]) { if (!this.state.question) return; this.rec("answerQuestion", a); this.set({ question: null }); }
   async answerMcpConsent(d: string) { if (!this.state.mcpConsent) return; this.rec("answerMcpConsent", d); this.set({ mcpConsent: null }); }
   dismissQuestion() { this.rec("dismissQuestion"); this.set({ question: null }); }
-  async acceptAutoConsent() { this.rec("acceptAutoConsent"); }
-  noteAutoConsent(action: string, trigger: string) { this.rec("noteAutoConsent", action, trigger); }
-  async takeAutoConsentReask() { const due = reaskNext; reaskNext = false; this.rec("takeAutoConsentReask"); return due; }
   async subagentJobs() { return []; }
   async subagentOutput() { return ""; }
   async cancelSubagent() {}
@@ -686,52 +680,6 @@ describe("command screens", () => {
     await command(setup, "/build");
     expect(await until(() => session.calls.some((c) => c[0] === "buildPlan"))).toBe(true);
     expect(session.calls.find((c) => c[0] === "buildPlan")).toEqual(["buildPlan", "p1"]);
-  });
-
-  it("free Auto's consent: an Enter typed for the composer is never a yes; choosing it sends the message again", async () => {
-    const { setup, session } = await mount();
-    const ask = "Atlarix Auto is free once you OK sharing its prompts with the AI providers that serve it, to improve their models.";
-    session.set({ lastError: ask });
-    expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("your prompts are shared with the AI providers");
-    // The dialog opens over the composer while the user may still be typing (QA 15.7.1 #7).
-    setup.mockInput.pressEnter();
-    expect(await until(() => !setup.captureCharFrame().includes("Use Atlarix Auto for free?"))).toBe(true);
-    expect(session.calls.some((c) => c[0] === "acceptAutoConsent")).toBe(false);
-    // The next refused send asks again.
-    session.set({ lastError: `${ask} ` });
-    await frameContaining(setup, "Use Atlarix Auto for free?");
-    setup.mockInput.pressArrow("down");
-    setup.mockInput.pressEnter();
-    expect(await until(() => session.calls.some((c) => c[0] === "acceptAutoConsent"))).toBe(true);
-    // auto_consent: shown, then one answer per showing ("Not now", then the yes).
-    expect(session.calls.filter((c) => c[0] === "noteAutoConsent")).toEqual([
-      ["noteAutoConsent", "shown", "refused_turn"],
-      ["noteAutoConsent", "declined", "refused_turn"],
-      ["noteAutoConsent", "shown", "refused_turn"],
-      ["noteAutoConsent", "accepted", "refused_turn"],
-    ]);
-  }, 20_000);
-
-  it("free Auto's consent: esc is a decline, counted once", async () => {
-    const { setup, session } = await mount();
-    session.set({ lastError: "Atlarix Auto is free once you OK sharing its prompts with the AI providers that serve it, to improve their models." });
-    await frameContaining(setup, "Use Atlarix Auto for free?");
-    setup.mockInput.pressEscape();
-    expect(await until(() => !setup.captureCharFrame().includes("Use Atlarix Auto for free?"))).toBe(true);
-    expect(session.calls.filter((c) => c[0] === "noteAutoConsent")).toEqual([
-      ["noteAutoConsent", "shown", "refused_turn"],
-      ["noteAutoConsent", "declined", "refused_turn"],
-    ]);
-  }, 20_000);
-
-  it("free Auto's consent: a yes to the old wording is asked once more on a free account", async () => {
-    reaskNext = true;
-    const { setup, session } = await mount((s) => {
-      (s.account as Record<string, unknown>).kind = async () => "free";
-    });
-    expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("OpenRouter and Requesty");
-    expect(session.calls.some((c) => c[0] === "takeAutoConsentReask")).toBe(true);
-    expect(session.calls.filter((c) => c[0] === "noteAutoConsent")).toEqual([["noteAutoConsent", "shown", "reask"]]);
   });
 
   it("/automations lists them, toggles one, and makes a new one step by step", async () => {

@@ -406,8 +406,6 @@ export interface TurnOptions {
   images?: Array<{ path: string; mime: string; label: string }>;
   /** The answers to ask_user were just recorded: carry the task on, no new prompt. */
   continueAfterQuestions?: boolean;
-  /** Sending the same message again (after Auto's consent): its `!` output was already given. */
-  retry?: boolean;
   /** Machine-started: background work reported in. Main refuses one it should not run. */
   systemWake?: boolean;
   /** A message another session queued: a peer turn, not the user's own. */
@@ -1096,48 +1094,6 @@ export class AgentSession extends EventEmitter {
     resolveConsent(req.requestId, decision);
   }
 
-  // ─── Atlarix Auto's one-time consent ───────────────────────────────────────
-
-  private lastTurn: { text: string; opts: TurnOptions } | null = null;
-
-  /** Free Auto asked for the OK to share prompts; record it and send the refused message again. */
-  /**
-   * A yes given to the OLD Auto wording ("shared with OpenAI") is asked again
-   * ONCE on free Auto, as the app's picker does: Auto now also runs on free
-   * models through other providers. Recorded as asked when it opens, so it never
-   * repeats; "Not now" keeps the OpenAI-only Auto that yes covered (QA 15.7.1 #6a).
-   */
-  async takeAutoConsentReask(): Promise<boolean> {
-    const m = this.model;
-    if (!m || m.provider !== "compass") return false;
-    const { isCoreAutoTier, ATLARIX_AUTO_CONSENT_VERSION } = await import("@/ipc/shared/compass_constants");
-    if (!isCoreAutoTier(m.name)) return false;
-    const { readSettings, writeSettings } = await import("@/main/settings");
-    const s = readSettings();
-    const oldYes = !!s.atlarixAutoConsentAt && (s.atlarixAutoConsentVersion ?? 1) < ATLARIX_AUTO_CONSENT_VERSION;
-    if (!oldYes || s.atlarixAutoConsentV2AskedAt) return false;
-    writeSettings({ atlarixAutoConsentV2AskedAt: new Date().toISOString() } as never);
-    return true;
-  }
-
-  /** auto_consent (shown / accepted / declined), sent only with the user's yes to analytics. */
-  noteAutoConsent(action: "shown" | "accepted" | "declined", trigger: "picker" | "refused_turn" | "reask"): void {
-    void import("@/lib/analytics/auto-consent-track").then((m) => m.trackAutoConsent(action, trigger)).catch(() => {});
-  }
-
-  /** "Not now" to free Auto's consent: the refusal is answered, so the next send asks again. */
-  declineAutoConsent(): void {
-    this.update({ lastError: null });
-  }
-
-  async acceptAutoConsent(): Promise<void> {
-    const { writeSettings } = await import("@/main/settings");
-    const { autoConsentAccepted } = await import("@/ipc/shared/compass_constants");
-    writeSettings(autoConsentAccepted() as never);
-    this.update({ lastError: null });
-    const last = this.lastTurn;
-    if (last) await this.startTurn(last.text, { ...last.opts, retry: true });
-  }
 
   // ─── sub-agents (/agents) ──────────────────────────────────────────────────
 
@@ -1652,14 +1608,13 @@ export class AgentSession extends EventEmitter {
     }
     if (!opts.continueAfterQuestions) {
       const display = opts.display ?? text;
-      if (!opts.retry) text = this.takeShellContext(text);
-      if (this.restoredNote && !opts.retry) {
+      text = this.takeShellContext(text);
+      if (this.restoredNote) {
         // A files-only restore since the last turn: the agent hears it once.
         text = `<system-reminder>${this.restoredNote}</system-reminder>\n\n${text}`;
         this.restoredNote = null;
       }
       opts = { ...opts, display };
-      this.lastTurn = { text, opts };
     }
     // A text-only own-key model cannot see images: refuse at once and keep the
     // message in the box, instead of sending the image and surfacing the

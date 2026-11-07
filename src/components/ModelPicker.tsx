@@ -25,7 +25,7 @@
  */
 
 import { useChatModel } from "@/hooks/useChatModel";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useSelectModel } from "@/hooks/useSelectModel";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
@@ -49,13 +49,8 @@ import type { LargeLanguageModel } from "@/lib/schemas";
 import type { LanguageModel } from "@/ipc/ipc_types";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import { providerLabel, withoutProviderSuffix } from "@/lib/provider-label";
-import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
-import {
-  ATLARIX_AUTO_CONSENT_VERSION,
-  autoConsentAccepted,
-  isCoreAutoTier,
-} from "@/ipc/shared/compass_constants";
-import { fetchAccountKind, useAccountKind } from "@/hooks/useAccountKind";
+import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
+import { useAccountKind } from "@/hooks/useAccountKind";
 import { UpgradeButtons } from "@/components/billing/UpgradeActions";
 import { coreRefusalMessage } from "@/shared/billing_copy";
 
@@ -96,12 +91,8 @@ export function ModelPicker({
   /** Usually the thread id — changing it closes the picker. */
   resetKey?: number | null;
 }) {
-  const { settings, updateSettings } = useSettings();
+  const { settings } = useSettings();
   const selectModel = useSelectModel();
-  // Atlarix Auto waiting on its one-time consent (see AtlarixAutoConsentDialog).
-  const [pendingAuto, setPendingAuto] = useState<LargeLanguageModel | null>(
-    null,
-  );
   const { open, setOpen } = useModelPickerOpen(resetKey);
   const [searchQuery, setSearchQuery] = useState("");
   const account = useAccountKind();
@@ -118,26 +109,6 @@ export function ModelPicker({
   const selectedModel = useChatModel(resetKey).model;
   // The chip names that one too, not the app's selected model (QA A15).
   const modelDisplayName = useModelDisplayName(selectedModel);
-
-  // A yes given to the OLD wording ("shared with OpenAI") is asked again ONCE,
-  // when free Auto is in use: it now also runs on free models through other
-  // providers. Recorded as asked the moment it opens, so it never repeats; a
-  // "Not now" keeps the OpenAI-only Auto that yes covered.
-  const [reaskAuto, setReaskAuto] = useState(false);
-  useEffect(() => {
-    if (!settings || reaskAuto || account !== "free") return;
-    const onAuto =
-      selectedModel?.provider === COMPASS_ID &&
-      isCoreAutoTier(selectedModel.name);
-    const oldYes =
-      !!settings.atlarixAutoConsentAt &&
-      (settings.atlarixAutoConsentVersion ?? 1) < ATLARIX_AUTO_CONSENT_VERSION;
-    if (!onAuto || !oldYes || settings.atlarixAutoConsentV2AskedAt) return;
-    setReaskAuto(true);
-    void updateSettings({
-      atlarixAutoConsentV2AskedAt: new Date().toISOString(),
-    });
-  }, [settings, selectedModel, account, reaskAuto, updateSettings]);
 
   const getProviderName = useCallback(
     (providerId: string) =>
@@ -238,31 +209,6 @@ export function ModelPicker({
     setOpen(false);
     setSearchQuery("");
     setLockedPick(false);
-    // Only FREE Auto shares prompts, so only an account with nothing to pay
-    // with is asked. A paying account's Auto is billed and never shared.
-    if (
-      isAuto &&
-      (!settings?.atlarixAutoConsentAt ||
-        (settings.atlarixAutoConsentVersion ?? 1) < ATLARIX_AUTO_CONSENT_VERSION)
-    ) {
-      // Unknown here can be a balance still loading on a paying account: ask
-      // main before asking the user (QA #42). Still unknown (signed out,
-      // offline) asks, as before.
-      void (async () => {
-        const kind = account === "unknown" ? await fetchAccountKind() : account;
-        if (kind === "free" || kind === "unknown") setPendingAuto(model);
-        else void selectModel(model);
-      })();
-      return;
-    }
-    void selectModel(model);
-  };
-
-  const acceptAuto = async () => {
-    const model = pendingAuto;
-    setPendingAuto(null);
-    if (!model) return;
-    await updateSettings(autoConsentAccepted());
     void selectModel(model);
   };
 
@@ -328,19 +274,6 @@ export function ModelPicker({
 
   return (
     <>
-      <AtlarixAutoConsentDialog
-        open={pendingAuto != null || reaskAuto}
-        trigger={pendingAuto ? "picker" : "reask"}
-        onAccept={() => {
-          if (pendingAuto) return void acceptAuto();
-          setReaskAuto(false);
-          void updateSettings(autoConsentAccepted());
-        }}
-        onCancel={() => {
-          setPendingAuto(null);
-          setReaskAuto(false);
-        }}
-      />
       <Popover
         open={open}
         onOpenChange={(next) => {
