@@ -137,12 +137,12 @@ describe("InlineUserQuestions", () => {
         [CHAT_ID]: {
           questionId: "q-mode",
           question: "This needs a file edit. Switch to Build?",
-          options: ["Yes, switch to Build (Recommended)", "No, stay in Explore"],
+          options: [{ label: "Yes, switch to Build", recommended: true }, { label: "No, stay in Explore" }],
         },
       });
     });
 
-    fireEvent.click(screen.getByText("Yes, switch to Build (Recommended)"));
+    fireEvent.click(screen.getByText("Yes, switch to Build"));
 
     await waitFor(() => {
       expect(streamMessage).toHaveBeenCalledWith({
@@ -168,7 +168,7 @@ describe("InlineUserQuestions", () => {
         [CHAT_ID]: {
           questionId: "q-mode-no",
           question: "This needs a file edit. Switch to Build?",
-          options: ["Yes, switch to Build (Recommended)", "No, stay in Explore"],
+          options: [{ label: "Yes, switch to Build", recommended: true }, { label: "No, stay in Explore" }],
         },
       });
     });
