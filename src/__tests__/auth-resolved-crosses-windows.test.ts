@@ -110,6 +110,27 @@ describe("auth:resolved reaches every window", () => {
     expect(resolved()[0]?.payload).toMatchObject({ user: null });
   });
 
+  // W2 (Windows fresh-install QA, 2026-11-07): a rejected callback showed a
+  // native error box and told no window, so the sign-in screen kept every
+  // button disabled behind "Finish signing in…" until the app was quit.
+  it("a rejected callback tells every window the sign-in ended (W2)", async () => {
+    handleAuthCallback.mockResolvedValueOnce({
+      session: null,
+      user: null,
+      error: new Error("That sign-in took too long. Start signing in again."),
+    });
+
+    const r = await SubscriptionManager.handleOAuthCallback("atlarix://auth/callback");
+
+    expect(r.success).toBe(false);
+    expect(sentSoFar().filter((s) => s.channel === "auth:sign-in-failed")).toEqual([
+      {
+        channel: "auth:sign-in-failed",
+        payload: { message: "That sign-in took too long. Start signing in again." },
+      },
+    ]);
+  });
+
   it("signing in announces the account, so a stale null can never be replayed", async () => {
     await SubscriptionManager.handleOAuthCallback("atlarix://auth/callback");
 

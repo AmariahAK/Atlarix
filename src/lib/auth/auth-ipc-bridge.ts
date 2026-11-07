@@ -35,7 +35,10 @@ export type AuthResolvedPayload = {
   plan?: "free" | "pro";
 };
 
+type SignInFailedPayload = { message: string };
+
 const oauthListeners = new Set<(data: OAuthPayload) => void>();
+const signInFailedListeners = new Set<(data: SignInFailedPayload) => void>();
 const planListeners = new Set<(data: PlanChangedPayload) => void>();
 const authResolvedListeners = new Set<(data: AuthResolvedPayload) => void>();
 
@@ -76,6 +79,11 @@ function ensureRegistered(): void {
     for (const fn of oauthListeners) fn(data);
   }) as (...args: unknown[]) => void);
 
+  ipcRenderer.on("auth:sign-in-failed", ((...args: unknown[]) => {
+    const data = (args.length > 1 ? args[1] : args[0]) as SignInFailedPayload;
+    for (const fn of signInFailedListeners) fn(data);
+  }) as (...args: unknown[]) => void);
+
   ipcRenderer.on("plan-changed", ((...args: unknown[]) => {
     const data = (args.length > 1 ? args[1] : args[0]) as PlanChangedPayload;
     if (!shouldFanOutPlanChange(data)) return;
@@ -95,6 +103,14 @@ export function subscribeOAuthSuccess(
   ensureRegistered();
   oauthListeners.add(fn);
   return () => oauthListeners.delete(fn);
+}
+
+export function subscribeSignInFailed(
+  fn: (data: SignInFailedPayload) => void,
+): () => void {
+  ensureRegistered();
+  signInFailedListeners.add(fn);
+  return () => signInFailedListeners.delete(fn);
 }
 
 export function subscribePlanChanged(

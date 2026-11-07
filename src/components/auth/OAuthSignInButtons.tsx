@@ -61,6 +61,7 @@ export function OAuthSignInButtons({
     signInWithGitHub,
     signInWithDiscord,
     signInWithEmail,
+    cancelSignIn,
     oauthPending,
     oauthProvider,
     oauthStatusLabel,
@@ -146,6 +147,16 @@ export function OAuthSignInButtons({
         >
           {oauthStatusLabel}
         </p>
+      ) : null}
+      {/* Closing the browser tab sends nothing back, so the user needs a way out. */}
+      {oauthPending ? (
+        <button
+          type="button"
+          onClick={() => void cancelSignIn()}
+          className="text-xs text-center text-muted-foreground underline underline-offset-2 hover:text-foreground"
+        >
+          Cancel
+        </button>
       ) : null}
     </div>
   );

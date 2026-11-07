@@ -23,6 +23,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 vi.mock("@/lib/auth/auth-ipc-bridge", () => ({
   subscribeAuthResolved: () => () => {},
   subscribeOAuthSuccess: () => () => {},
+  subscribeSignInFailed: () => () => {},
   subscribePlanChanged: () => () => {},
 }));
 

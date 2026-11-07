@@ -692,6 +692,11 @@ export class SubscriptionManager {
     const result = await handleAuthCallback(url);
 
     if (result.error) {
+      // Every window: a sign-in started in any of them shows "Finish signing
+      // in…" with its buttons disabled until it hears how the sign-in ended.
+      broadcastToAllWindows("auth:sign-in-failed", {
+        message: result.error.message,
+      });
       return { success: false, user: null, error: result.error };
     }
 

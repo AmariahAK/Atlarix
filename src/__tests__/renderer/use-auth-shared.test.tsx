@@ -21,6 +21,7 @@ vi.mock("@/lib/auth/auth-ipc-bridge", () => ({
     return () => void (emit.oauth = emit.oauth.filter((f) => f !== fn));
   },
   subscribePlanChanged: () => () => {},
+  subscribeSignInFailed: () => () => {},
 }));
 
 import { __resetAuthStoreForTests, useAuth } from "@/lib/auth/useAuth";

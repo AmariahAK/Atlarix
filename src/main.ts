@@ -2074,6 +2074,10 @@ function handleDeepLinkReturn(url: string) {
       .catch((err) => {
         log.error("Failed to handle OAuth callback:", err);
         dialog.showErrorBox("OAuth Error", "Failed to process authentication");
+        // Free the sign-in buttons; handleOAuthCallback announces its own failures.
+        mainWindow?.webContents.send("auth:sign-in-failed", {
+          message: "Failed to process authentication",
+        });
       });
     return;
   }

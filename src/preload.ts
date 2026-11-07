@@ -325,6 +325,7 @@ const validInvokeChannels = [
   "file:get-stats",
   // Auth (OAuth Sign-In)
   "auth:sign-in",
+  "auth:cancel-sign-in",
   "auth:sign-out",
   "auth:get-current-user",
   "auth:get-plan-info",
@@ -372,6 +373,7 @@ const validReceiveChannels = [
   "settings:changed", // main → EVERY renderer: user settings were written. Without it a second window keeps a stale copy (useSettings loads once per window into an atom) — the reason zoom drifted between windows.
   "auth:resolved", // main → renderer: the startup session restore SETTLED (user or null). Unlike plan-changed this always fires — a restore that found nothing is still an answer the renderer needs.
   "oauth-callback-success", // OAuth callback from main process
+  "auth:sign-in-failed", // main → every window: the callback was rejected, so a pending sign-in ends
   "force-close-detected",
   "db-ready", // Main: DB initialized, renderer can show app
   "apps:status-changed", // Main: workspace folder presence changed (focus refresh)

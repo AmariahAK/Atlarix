@@ -27,6 +27,7 @@ vi.mock("@/lib/auth/auth-ipc-bridge", () => ({
     return () => {};
   },
   subscribeOAuthSuccess: () => () => {},
+  subscribeSignInFailed: () => () => {},
   subscribePlanChanged: () => () => {},
 }));
 

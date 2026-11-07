@@ -10,7 +10,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { openExternal, setSession } = vi.hoisted(() => ({
+const { openExternal, setSession, showMessageBox } = vi.hoisted(() => ({
+  showMessageBox: vi.fn(async (_opts: { message: string }) => ({ response: 1 })),
   openExternal: vi.fn(async (_url: string) => {}),
   setSession: vi.fn(async () => ({
     data: { session: { access_token: "a" }, user: { id: "u", email: "u@example.test" } },
@@ -20,7 +21,7 @@ const { openExternal, setSession } = vi.hoisted(() => ({
 
 vi.mock("electron", () => ({
   shell: { openExternal },
-  dialog: { showMessageBox: vi.fn(async () => ({ response: 1 })) },
+  dialog: { showMessageBox },
   clipboard: { writeText: vi.fn() },
 }));
 vi.mock("electron-log", () => {
@@ -106,6 +107,73 @@ describe("email sign-in state", () => {
     const good = callback(`&state=${stateSentToSite()}`);
     expect((await handleAuthCallback(good)).error).toBeNull();
     expect((await handleAuthCallback(good)).error).not.toBeNull();
+  });
+
+  // W1 (Windows fresh-install QA, 2026-11-07): a new user who creates the
+  // account, confirms the email or resets the password inside the email flow
+  // easily passes 10 minutes, and the app threw its OWN callback away with
+  // "Unexpected sign-in link". The nonce already proves the callback is ours.
+  it("accepts a slow email sign-in whose state still matches (W1)", async () => {
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(t0);
+    await startEmailSignIn();
+    const state = stateSentToSite();
+    now.mockReturnValue(t0 + 25 * 60_000);
+    const r = await handleAuthCallback(callback(`&state=${state}`));
+    now.mockRestore();
+    expect(r.error).toBeNull();
+    expect(setSession).toHaveBeenCalledOnce();
+  });
+
+  it("still bounds the email window: a matching state after an hour is too long", async () => {
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(t0);
+    await startEmailSignIn();
+    const state = stateSentToSite();
+    now.mockReturnValue(t0 + 61 * 60_000);
+    const r = await handleAuthCallback(callback(`&state=${state}`));
+    now.mockRestore();
+    expect(r.error?.message).toMatch(/took too long/);
+    expect(setSession).not.toHaveBeenCalled();
+  });
+
+  it("says a sign-in took too long instead of calling it unexpected (W1)", async () => {
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(t0);
+    await signInWithOAuth("github");
+    now.mockReturnValue(t0 + 11 * 60_000);
+    const r = await handleAuthCallback(callback(""));
+    now.mockRestore();
+    expect(r.error?.message).toMatch(/took too long/);
+    expect(r.error?.message).not.toMatch(/Unexpected/);
+    expect(setSession).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a callback when no sign-in was started", async () => {
+    // Consume whatever an earlier case left pending.
+    await handleAuthCallback(callback(""));
+    setSession.mockClear();
+    const r = await handleAuthCallback(callback(""));
+    expect(r.error?.message).toMatch(/Unexpected sign-in link/);
+    expect(setSession).not.toHaveBeenCalled();
+  });
+
+  // W5: the watchdog fired at 60 s while its text said 180 s, and blamed the
+  // deep-link handler while the user was still typing a password.
+  it("waits the full 180 s before asking about an email sign-in (W5)", async () => {
+    vi.useFakeTimers();
+    try {
+      showMessageBox.mockClear();
+      await startEmailSignIn();
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(showMessageBox).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(showMessageBox).toHaveBeenCalledOnce();
+      expect(showMessageBox.mock.calls[0]![0].message).not.toMatch(/deep link/i);
+    } finally {
+      cancelPendingOAuthTimeout();
+      vi.useRealTimers();
+    }
   });
 
   it("leaves OAuth stateless, even after an abandoned email sign-in", async () => {

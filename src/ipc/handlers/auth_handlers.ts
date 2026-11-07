@@ -6,8 +6,7 @@
 
 import { ipcMain } from "electron";
 import { SubscriptionManager } from "../../lib/SubscriptionManager";
-import {
-} from "../../lib/auth/supabase-client";
+import { cancelPendingOAuthTimeout } from "../../lib/auth/supabase-client";
 import log from "electron-log";
 import { db } from "@/db";
 import { apps } from "@/db/schema";
@@ -81,6 +80,13 @@ export function registerAuthHandlers() {
       }
     },
   );
+
+  // The user gave up on a sign-in in flight: only the "not completing?" prompt
+  // goes. The flow stays valid, so finishing in the browser still signs in.
+  ipcMain.handle("auth:cancel-sign-in", async () => {
+    cancelPendingOAuthTimeout();
+    return { success: true };
+  });
 
   /**
    * Sign out — clears CREDENTIALS, not the user's work.

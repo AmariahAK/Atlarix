@@ -19,6 +19,7 @@ import {
   subscribeAuthResolved,
   subscribeOAuthSuccess,
   subscribePlanChanged,
+  subscribeSignInFailed,
   type AuthResolvedPayload,
 } from "./auth-ipc-bridge";
 
@@ -57,7 +58,7 @@ interface AuthState {
   authResolved: boolean;
   /** Banned, as resolved by MAIN (auth_handlers). Never computed here; this only mirrors what main knows. */
   banned: boolean;
-  /** True after Sign in until `oauth-callback-success` or IPC error */
+  /** True after Sign in until `oauth-callback-success`, `auth:sign-in-failed`, Cancel or an IPC error */
   oauthPending: boolean;
   oauthProvider: SignInProvider | null;
   oauthStatusLabel: string;
@@ -97,7 +98,7 @@ function setOAuthPending(pending: boolean, provider: SignInProvider | null): voi
   // Email is finished by the user in their browser, at their own pace; the
   // progress script below would claim work that is not happening.
   if (provider === "email") {
-    setState({ oauthStatusLabel: "Finish signing in in your browser..." });
+    setState({ oauthStatusLabel: "Finish signing in from your browser..." });
     return;
   }
   const started = Date.now();
@@ -256,6 +257,8 @@ function startEffects(): () => void {
   };
 
   const unsubOAuth = subscribeOAuthSuccess(handleOAuthSuccess);
+  // Main has already shown why (a native box); this only frees the buttons.
+  const unsubSignInFailed = subscribeSignInFailed(() => setOAuthPending(false, null));
   const unsubPlan = subscribePlanChanged(handlePlanChanged);
   const unsubAuthResolved = subscribeAuthResolved(handleAuthResolved);
 
@@ -264,6 +267,7 @@ function startEffects(): () => void {
     if (labelTimer != null) window.clearInterval(labelTimer);
     labelTimer = null;
     unsubOAuth();
+    unsubSignInFailed();
     unsubPlan();
     unsubAuthResolved();
   };
@@ -422,6 +426,21 @@ async function startOAuth(provider: SignInProvider): Promise<void> {
   }
 }
 
+/**
+ * Give up on the sign-in in flight: the user closed the browser tab, or picked
+ * the wrong provider. Frees the buttons and stops main's "not completing?"
+ * prompt. The flow itself stays valid, so finishing it in the browser anyway
+ * still signs in.
+ */
+async function cancelSignIn(): Promise<void> {
+  setOAuthPending(false, null);
+  try {
+    await window.electron?.ipcRenderer?.invoke?.("auth:cancel-sign-in");
+  } catch (error) {
+    console.error("Cancel sign in error:", error);
+  }
+}
+
 const signInWithGoogle = () => startOAuth("google");
 const signInWithGitHub = () => startOAuth("github");
 const signInWithDiscord = () => startOAuth("discord");
@@ -504,6 +523,7 @@ export function useAuth() {
     signInWithGitHub,
     signInWithDiscord,
     signInWithEmail,
+    cancelSignIn,
     signOut,
     refreshStatus: fetchPlanInfo,
     refreshPlan,

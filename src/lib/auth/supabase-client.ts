@@ -169,15 +169,23 @@ let _oauthTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
 // be confirmed against the Supabase redirect-URL allowlist first — tracked.)
 let _authFlowStartedAt: number | null = null;
 const AUTH_FLOW_MAX_AGE_MS = 10 * 60_000;
+// An email callback that returns the flow's nonce is already proven to be ours,
+// so its window only bounds how long a sign-in may take. New users create the
+// account, confirm the email or reset a password inside it, which passes 10
+// minutes easily (Windows fresh-install QA, 2026-11-07).
+const EMAIL_AUTH_FLOW_MAX_AGE_MS = 60 * 60_000;
 
 function markAuthFlowStarted(): void {
   _authFlowStartedAt = Date.now();
 }
-function consumeActiveAuthFlow(): boolean {
+/** "expired" is a flow this app started that ran past its window; "none" is no flow at all. */
+function consumeActiveAuthFlow(
+  maxAgeMs: number,
+): "active" | "expired" | "none" {
   const startedAt = _authFlowStartedAt;
   _authFlowStartedAt = null; // single-use: consume on any callback attempt
-  if (startedAt == null) return false;
-  return Date.now() - startedAt <= AUTH_FLOW_MAX_AGE_MS;
+  if (startedAt == null) return "none";
+  return Date.now() - startedAt <= maxAgeMs ? "active" : "expired";
 }
 
 /**
@@ -198,13 +206,17 @@ export function cancelPendingOAuthTimeout(): void {
  * Open a sign-in URL in the user's browser and arm the deep-link watchdog.
  *
  * Shared by OAuth and email sign-in: both finish on the same
- * `atlarix://auth/callback`, so both need the C4 flow marker, the 60s
- * "Sign-in not completing?" fallback and the Linux copy-the-link dialog.
+ * `atlarix://auth/callback`, so both need the C4 flow marker, the
+ * "Sign-in not completing?" fallback (60 s, email 180 s) and the Linux
+ * copy-the-link dialog.
  */
 async function openSignInUrl(
   url: string,
-  fallbackAfterMs = 60_000,
+  method: "oauth" | "email" = "oauth",
 ): Promise<void> {
+  // Email takes longer than OAuth: the user types an email and a password and
+  // solves a check before anything comes back.
+  const fallbackAfterMs = method === "email" ? 180_000 : 60_000;
   // A second click replaces the first flow; its watchdog must not fire later.
   cancelPendingOAuthTimeout();
   // C4: record that THIS app started a sign-in flow, so an unsolicited
@@ -222,7 +234,7 @@ async function openSignInUrl(
   }
 
   // Inbound deep-link timeout: if atlarix://auth/callback is not received within
-  // 60 seconds (e.g. deep link handler not registered on Linux / VM environments),
+  // fallbackAfterMs (e.g. deep link handler not registered on Linux / VM environments),
   // show a fallback dialog so the user can copy the OAuth URL manually.
   if (browserOpened) {
     const oauthUrlForFallback = url;
@@ -237,9 +249,11 @@ async function openSignInUrl(
           : "";
       const { response } = await dialog.showMessageBox({
         type: "info",
-        title: "Sign-in not completing?",
+        title: method === "email" ? "Still signing in?" : "Sign-in not completing?",
         message:
-          `Atlarix has been waiting ${fallbackAfterMs / 1000} seconds for the sign-in to come back.\n\nThe deep link handler may not be registered on your system.`,
+          method === "email"
+            ? "Finish signing in from your browser. If it already says you're done, open the link below."
+            : `Atlarix has been waiting ${fallbackAfterMs / 1000} seconds for the sign-in to come back.\n\nThe deep link handler may not be registered on your system.`,
         detail: `Sign-in URL (open this in your browser if the redirect didn't work):\n${oauthUrlForFallback}${linuxCommands}`,
         buttons: ["Copy Link", "Dismiss"],
         defaultId: 0,
@@ -248,10 +262,10 @@ async function openSignInUrl(
       if (response === 0) {
         clipboard.writeText(oauthUrlForFallback);
         logger.log(
-          "[Supabase] OAuth URL copied via 60s inbound timeout fallback",
+          "[Supabase] OAuth URL copied via inbound timeout fallback",
         );
       }
-    }, 60_000);
+    }, fallbackAfterMs);
   }
 
   // Linux/AppImage fallback: allow the user to copy the URL manually if browser launch fails.
@@ -305,9 +319,7 @@ export async function startEmailSignIn(): Promise<{ error: Error | null }> {
   const url = `${EMAIL_SIGN_IN_URL}?client=desktop&state=${state}`;
   logger.log("[Supabase] Starting email sign-in via atlarix.dev");
   try {
-    // Longer than OAuth's 60s: the user types an email and a password and
-    // solves a check before anything comes back.
-    await openSignInUrl(url, 180_000);
+    await openSignInUrl(url, "email");
     return { error: null };
   } catch (err) {
     _pendingAuthState = null;
@@ -387,9 +399,23 @@ export async function handleAuthCallback(url: string): Promise<{
 
     logger.log(`[Supabase] Handling auth callback`);
 
+    // Parse the URL to extract tokens
+    const urlObj = new URL(url);
+    const hashParams = new URLSearchParams(urlObj.hash.substring(1));
+
+    // An email sign-in sent a nonce; its callback must return it. Single-use,
+    // like the flow marker below.
+    const expectedState = _pendingAuthState;
+    _pendingAuthState = null;
+    const stateMatches =
+      expectedState !== null && hashParams.get("state") === expectedState;
+
     // C4: reject callbacks that don't correspond to a sign-in this app just
     // started — defeats the mailed-link login-CSRF (account takeover).
-    if (!consumeActiveAuthFlow()) {
+    const flow = consumeActiveAuthFlow(
+      stateMatches ? EMAIL_AUTH_FLOW_MAX_AGE_MS : AUTH_FLOW_MAX_AGE_MS,
+    );
+    if (flow === "none") {
       logger.warn(
         "[Supabase] Rejected auth callback — no sign-in flow was in progress (possible CSRF).",
       );
@@ -401,15 +427,14 @@ export async function handleAuthCallback(url: string): Promise<{
         ),
       };
     }
-
-    // Parse the URL to extract tokens
-    const urlObj = new URL(url);
-    const hashParams = new URLSearchParams(urlObj.hash.substring(1));
-
-    // An email sign-in sent a nonce; its callback must return it. Single-use,
-    // like the flow marker above.
-    const expectedState = _pendingAuthState;
-    _pendingAuthState = null;
+    if (flow === "expired") {
+      logger.warn("[Supabase] Rejected auth callback — sign-in flow expired.");
+      return {
+        session: null,
+        user: null,
+        error: new Error("That sign-in took too long. Start signing in again."),
+      };
+    }
     if (expectedState !== null && hashParams.get("state") !== expectedState) {
       logger.warn("[Supabase] Rejected auth callback — state mismatch.");
       return {
