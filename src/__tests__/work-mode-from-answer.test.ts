@@ -25,6 +25,13 @@ describe("workModeChosenInAnswers", () => {
     "Explain why I would switch to Build",
     "Spaces",
     "",
+    // 15.14.0 security gate: model-written labels that merely START like a
+    // switch (an injected option) must not make the workspace writable.
+    "Switch to the build log",
+    "Switch to build-output view",
+    "Switch build targets",
+    "switching debug flags off",
+    "Switch to debug.log",
   ])("%s → no switch", (answer) => {
     expect(workModeChosenInAnswers([answer])).toBeNull();
   });

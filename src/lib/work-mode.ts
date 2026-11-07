@@ -144,12 +144,14 @@ export function labelForWorkMode(mode: WorkMode): string {
  * Read-only modes are told to "call ask_user to switch to Build/Debug"
  * (mode-prompt-bundle.ts), so the user's answer to that question IS a mode
  * pick, and every surface applies it before the turn continues (Windows
- * fresh-install QA W4, 2026-11-07). Only an answer that opens with the switch
- * counts: "No, don't switch to Build" or "Explain why I would switch to Build"
- * leave the mode alone, and answers that disagree pick nothing.
+ * fresh-install QA W4, 2026-11-07). Only an answer that IS the switch counts,
+ * the whole of it: "No, don't switch to Build", "Explain why I would switch to
+ * Build" and answers that disagree pick nothing. The labels are model-written,
+ * so a prefix match let an injected option like "Switch to the build log" make
+ * the workspace writable with one click (15.14.0 security gate).
  */
 const SWITCH_ANSWER =
-  /^\s*(?:yes\b[\s,.!:-]*)?(?:please\s+)?switch(?:ing)?\s+(?:to\s+)?(?:the\s+)?(build|debug)\b/i;
+  /^\s*(?:yes\b[\s,.!:-]*)?(?:please\s+)?switch\s+to\s+(?:the\s+)?(build|debug)(?:\s+mode)?(?:\s*\(recommended\))?\s*[.!]?\s*$/i;
 
 export function workModeChosenInAnswers(
   answers: readonly string[],

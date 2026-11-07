@@ -28,6 +28,9 @@ describe("approvalReason", () => {
   it("control characters are dropped (no escape sequences reach a terminal)", () => {
     expect(approvalReason("Can I\u001b]0;pwned\u0007 build?\u009b")).toBe("Can I]0;pwned build?");
   });
+  it("invisible format characters are dropped (no bidi reordering or hidden text)", () => {
+    expect(approvalReason("Can I ‮tset‬ run the ​tests?⁦")).toBe("Can I tset run the tests?");
+  });
   it("bounded", () => {
     const out = approvalReason(`Can I ${"x".repeat(1000)}?`)!;
     expect(out.length).toBeLessThanOrEqual(APPROVAL_REASON_CAP);

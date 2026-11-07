@@ -203,6 +203,19 @@ export function cancelPendingOAuthTimeout(): void {
 }
 
 /**
+ * The user pressed Cancel on a sign-in in flight. An OAuth flow carries no
+ * nonce, so leaving its marker set kept a mailed `atlarix://auth/callback`
+ * link acceptable for 10 minutes after the user believed they had cancelled
+ * (15.14.0 security gate): end it. An email flow keeps its marker, because its
+ * callback must also return the 24-byte nonce, so finishing in the browser
+ * still works safely.
+ */
+export function cancelSignInFlow(): void {
+  cancelPendingOAuthTimeout();
+  if (_pendingAuthState === null) _authFlowStartedAt = null;
+}
+
+/**
  * Open a sign-in URL in the user's browser and arm the deep-link watchdog.
  *
  * Shared by OAuth and email sign-in: both finish on the same

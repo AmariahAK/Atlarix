@@ -10,10 +10,13 @@ export const APPROVAL_REASON_CAP = 200;
 
 // eslint-disable-next-line no-control-regex -- removing them is the point
 const CONTROL = /[\x00-\x08\x0e-\x1f\x7f-\x9f]/g;
+// Invisible format characters (bidi overrides, zero-width): model text beside
+// an approval must not reorder or hide what the user reads.
+const FORMAT = /\p{Cf}/gu;
 
 export function approvalReason(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
-  const text = raw.replace(CONTROL, "").replace(/\s+/g, " ").trim();
+  const text = raw.replace(CONTROL, "").replace(FORMAT, "").replace(/\s+/g, " ").trim();
   if (!text) return undefined;
   return text.length > APPROVAL_REASON_CAP ? `${text.slice(0, APPROVAL_REASON_CAP - 1).trimEnd()}…` : text;
 }

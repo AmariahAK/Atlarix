@@ -50,6 +50,7 @@ vi.mock("@supabase/supabase-js", () => ({
 
 import {
   cancelPendingOAuthTimeout,
+  cancelSignInFlow,
   handleAuthCallback,
   signInWithOAuth,
   startEmailSignIn,
@@ -174,6 +175,27 @@ describe("email sign-in state", () => {
       cancelPendingOAuthTimeout();
       vi.useRealTimers();
     }
+  });
+
+  // 15.14.0 security gate: OAuth has no nonce, so Cancel must end the flow, or a
+  // mailed callback link stays acceptable while the user thinks they cancelled.
+  it("Cancel ends an OAuth sign-in: a later callback is refused", async () => {
+    await handleAuthCallback(callback("")); // clear anything an earlier case left
+    setSession.mockClear();
+    await signInWithOAuth("github");
+    cancelSignInFlow();
+    const r = await handleAuthCallback(callback(""));
+    expect(r.error?.message).toMatch(/Unexpected sign-in link/);
+    expect(setSession).not.toHaveBeenCalled();
+  });
+
+  it("Cancel keeps an email sign-in finishable, since its callback carries the nonce", async () => {
+    await startEmailSignIn();
+    const state = stateSentToSite();
+    cancelSignInFlow();
+    const r = await handleAuthCallback(callback(`&state=${state}`));
+    expect(r.error).toBeNull();
+    expect(setSession).toHaveBeenCalledOnce();
   });
 
   it("leaves OAuth stateless, even after an abandoned email sign-in", async () => {
