@@ -3,7 +3,23 @@
  * JetBrains speak plain ACP): the CLI's own answers, as markdown. Atlarix's VS
  * Code extension has an Account panel instead (_atlarix/account in server.ts).
  */
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AgentSession } from "../agent/session";
+
+/** The chat's model as the picker shows it: its name, and its provider off Atlarix (the row's `_meta.atlarix.provider`). */
+export type StatusModel = { name: string; provider: string | null };
+
+/** The chosen row of the "model" option, wherever it is listed (a Favourites or Recent row too). */
+export function statusModel(options: readonly SessionConfigOption[]): StatusModel | null {
+  const opt = options.find((o) => o.id === "model");
+  if (!opt || opt.type !== "select") return null;
+  type Row = { value: string; name: string; _meta?: { [k: string]: unknown } | null };
+  const rows = (opt.options as ReadonlyArray<Row | { options: Row[] }>).flatMap((x) => ("options" in x ? x.options : [x]));
+  const row = rows.find((r) => r.value === opt.currentValue);
+  if (!row) return null;
+  const provider = (row._meta?.atlarix as { provider?: unknown } | undefined)?.provider;
+  return { name: row.name, provider: typeof provider === "string" && provider ? provider : null };
+}
 
 const money = (cents: number | null) => (cents == null ? "unknown" : `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const PLAN: Record<string, string> = { "signed-out": "not signed in", free: "Free", pro: "Pro", payg: "Pay as you go" };
@@ -13,6 +29,8 @@ export async function accountCommandText(
   cmd: "status" | "billing" | "mcp" | "logout" | string,
   session: AgentSession,
   editorServers: ReadonlyArray<{ name: string; transport: "stdio" | "http" }> = [],
+  /** /status's Model line (statusModel); none: the line is left out. */
+  model: StatusModel | null = null,
 ): Promise<string> {
   const { realServices } = await import("../agent/services");
   const a = realServices.account;
@@ -141,6 +159,7 @@ export async function accountCommandText(
     `- Account: ${email}`,
     `- Plan: ${PLAN[kind ?? ""] ?? "unknown"}`,
     `- Credit: ${money(balance)}`,
+    ...(model ? [`- Model: ${[model.name, model.provider].filter(Boolean).join(" · ")}`] : []),
     `- This chat: ${s.sessionTokens ? `${s.sessionTokens.toLocaleString()} tokens` : "nothing yet"}${s.costUsd > 0 ? ` · $${s.costUsd.toFixed(4)} on your own keys` : ""}`,
     ...(s.contextPercent != null ? [`- Context: ${s.contextPercent}% full`] : []),
     "",

@@ -1313,7 +1313,8 @@ body.needs-you .needs-badge {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.model-btn__name {
+.model-btn__name,
+.model-btn__provider {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

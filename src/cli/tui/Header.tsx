@@ -14,18 +14,7 @@ import type { ReactNode } from "react";
 import { Rix, type RixMood } from "./Rix";
 import { color } from "./theme";
 
-export type AccountKind = "signed-out" | "free" | "pro" | "payg" | "own-key" | "local" | "endpoint";
-
-export const ACCOUNT_LABEL: Record<AccountKind, string> = {
-  "signed-out": "Not signed in",
-  free: "Free",
-  pro: "Pro",
-  payg: "Pay as you go",
-  "own-key": "Your key",
-  local: "On this computer",
-  /** A provider you added (an address of your own): it may need no key at all. */
-  endpoint: "Your endpoint",
-};
+export { ACCOUNT_LABEL, type AccountKind } from "./header-account";
 
 export function SessionHeader({
   version,
@@ -41,7 +30,8 @@ export function SessionHeader({
   version: string;
   model: string;
   mode: string;
-  account: AccountKind | null;
+  /** The plan on Atlarix, else the provider (headerAccount). */
+  account: string | null;
   /** Already shortened to fit. */
   workspace: string;
   /** The checked-out git branch, if the folder is a repository. */
@@ -52,7 +42,7 @@ export function SessionHeader({
   /** Computer use is on for this model (the switch is shared with the app). */
   computerUse?: boolean;
 }) {
-  const line = [model, mode, account ? ACCOUNT_LABEL[account] : null, computerUse ? "Computer use on" : null]
+  const line = [model, mode, account, computerUse ? "Computer use on" : null]
     .filter(Boolean)
     .join(" · ");
   return (

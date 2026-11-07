@@ -13,6 +13,7 @@ import path from "node:path";
 import { atlarixHomeDir } from "@/paths/atlarix-home";
 import type { EffortChoices } from "@/lib/routing/model-reasoning-profile";
 import type { ComputerUseEligibility } from "@/ipc/ipc_types";
+import { providerLabel } from "@/lib/provider-label";
 
 export interface ModelRef {
   provider: string;
@@ -22,6 +23,8 @@ export interface ModelRef {
 export interface ModelOption extends ModelRef {
   label: string;
   providerName: string;
+  /** The provider as the header and the editors' chips name it (providerLabel); none on Atlarix. */
+  providerLabel?: string;
   detail: string;
   deepThinking: boolean;
   /** What /effort offers on this model, exactly as it lists them (none: no control). */
@@ -57,6 +60,7 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
     getLanguageModelProviders(),
   ]);
   const names = new Map(providers.map((p) => [p.id, p.name]));
+  const labels = new Map(providers.map((p) => [p.id, providerLabel(p)]));
   const { isCoreAutoTier, isCoreRouterTier } = await import("@/ipc/shared/compass_constants");
   // A provider switched off in an editor's Models & keys keeps its key but
   // offers no models here (the terminal and the editors).
@@ -71,6 +75,7 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
   const out: ModelOption[] = [];
   for (const [provider, models] of entries) {
     const providerName = provider === COMPASS ? "Atlarix" : (names.get(provider) ?? provider);
+    const shownProvider = provider === COMPASS ? null : (labels.get(provider) ?? providerLabel({ id: provider }));
     for (const m of models) {
       // A Core row carries a cautious placeholder window; the meter shows the
       // model's real one, so the list reads the same (QA: "200K" here, "/1M" there).
@@ -82,7 +87,8 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
         name: m.apiName,
         label: m.displayName || m.apiName,
         providerName,
-        detail: [provider === COMPASS ? m.description : providerName, ctx].filter(Boolean).join(" · "),
+        ...(shownProvider ? { providerLabel: shownProvider } : {}),
+        detail: [provider === COMPASS ? m.description : shownProvider, ctx].filter(Boolean).join(" · "),
         deepThinking: Boolean((m as { supportsDeepThinking?: boolean }).supportsDeepThinking),
         // Auto and Zenith pick the model per turn: no effort control (owner, 2026-10-29).
         effortChoices:
@@ -223,9 +229,10 @@ export interface CliState {
    * The header's name for `model`, remembered so the terminal draws at once
    * instead of loading every provider's model list first (1.7–2.1s measured
    * 2026-10-17). Keyed by the model it names, so a model chosen elsewhere (an
-   * editor) never borrows another's label.
+   * editor) never borrows another's label. `providerName` is the header's
+   * provider (providerLabel), so a restart doesn't show the raw id first.
    */
-  modelLabel?: ModelRef & { label: string };
+  modelLabel?: ModelRef & { label: string; providerName?: string };
 }
 
 /** ~/.atlarix/cli-state.json (a scratch profile's own: atlarixHomeDir); ATLARIX_CLI_STATE_FILE names it outright. */
@@ -247,7 +254,12 @@ export function readCliState(file = statePath()): CliState {
       starredSessions: Array.isArray(s.starredSessions) ? s.starredSessions.filter((x): x is string => typeof x === "string") : undefined,
       modelLabel:
         s.modelLabel && typeof s.modelLabel.provider === "string" && typeof s.modelLabel.name === "string" && typeof s.modelLabel.label === "string"
-          ? s.modelLabel
+          ? {
+              provider: s.modelLabel.provider,
+              name: s.modelLabel.name,
+              label: s.modelLabel.label,
+              ...(typeof s.modelLabel.providerName === "string" ? { providerName: s.modelLabel.providerName } : {}),
+            }
           : undefined,
     };
   } catch {
@@ -268,6 +280,13 @@ export function savedModelLabel(state: CliState): string | undefined {
   if (!m) return undefined;
   const l = state.modelLabel;
   return l && same(l, m) ? l.label : m.name;
+}
+
+/** The remembered header provider for the chosen model, if one was saved with its label. */
+export function savedProviderName(state: CliState): string | undefined {
+  const m = state.model;
+  const l = state.modelLabel;
+  return m && l && same(l, m) ? l.providerName : undefined;
 }
 
 /** Choosing a model: it becomes the CLI's model and the most recent. */

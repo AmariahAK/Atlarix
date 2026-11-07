@@ -7,6 +7,7 @@ import {
   groupOptions,
   readCliState,
   rememberChoice,
+  savedProviderName,
   toggleFavorite,
   writeCliState,
   type ModelOption,
@@ -59,5 +60,24 @@ describe("/model", () => {
     expect(back.recent.map((r) => r.name)).toEqual(["core-auto", "gpt-6-luna"]);
     expect(back.favorites).toEqual([{ provider: "openai", name: "gpt-6-luna" }]);
     expect(toggleFavorite(back, { provider: "openai", name: "gpt-6-luna" }).favorites).toEqual([]);
+  });
+
+  it("remembers the header's provider beside the model's label", () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cli-state-")), "cli-state.json");
+    const ref = { provider: "nvidia_nim", name: "z-ai/glm-5.3" };
+    writeCliState({ ...rememberChoice(readCliState(file), ref), modelLabel: { ...ref, label: "GLM 5.3", providerName: "NVIDIA NIM" } }, file);
+    const back = readCliState(file);
+    expect(back.modelLabel).toEqual({ ...ref, label: "GLM 5.3", providerName: "NVIDIA NIM" });
+    expect(savedProviderName(back)).toBe("NVIDIA NIM");
+    // A label saved before this field existed still reads; it names no provider.
+    fs.writeFileSync(file, JSON.stringify({ model: ref, modelLabel: { ...ref, label: "GLM 5.3" } }));
+    expect(readCliState(file).modelLabel).toEqual({ ...ref, label: "GLM 5.3" });
+    expect(savedProviderName(readCliState(file))).toBeUndefined();
+    // Not a string: dropped, not trusted.
+    fs.writeFileSync(file, JSON.stringify({ model: ref, modelLabel: { ...ref, label: "GLM 5.3", providerName: 7 } }));
+    expect(readCliState(file).modelLabel).toEqual({ ...ref, label: "GLM 5.3" });
+    // Another model's label names nothing for this one.
+    writeCliState({ ...readCliState(file), model: { provider: "openai", name: "gpt-5" }, modelLabel: { ...ref, label: "GLM 5.3", providerName: "NVIDIA NIM" } }, file);
+    expect(savedProviderName(readCliState(file))).toBeUndefined();
   });
 });

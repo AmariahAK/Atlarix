@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
 import type { LargeLanguageModel } from "@/lib/schemas";
 import type { LanguageModel } from "@/ipc/ipc_types";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
+import { providerLabel, withoutProviderSuffix } from "@/lib/provider-label";
 import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
 import {
   ATLARIX_AUTO_CONSENT_VERSION,
@@ -313,7 +314,17 @@ export function ModelPicker({
 
   if (!settings) return null;
 
-  const label = modelDisplayName;
+  // The provider beside the name off Atlarix ("Claude Haiku 4.5 · AWS Bedrock"),
+  // once: an endpoint's "(My Server)" the label already carries isn't repeated.
+  const chipProvider = selectedModel
+    ? providerLabel(
+        providers?.find((p) => p.id === selectedModel.provider) ?? {
+          id: selectedModel.provider,
+        },
+      )
+    : null;
+  const label = withoutProviderSuffix(modelDisplayName, chipProvider);
+  const fullLabel = chipProvider ? `${label} · ${chipProvider}` : label;
 
   return (
     <>
@@ -341,7 +352,7 @@ export function ModelPicker({
           <button
             type="button"
             data-testid="model-picker-trigger"
-            title={label}
+            title={fullLabel}
             className={cn(
               // Matches ChatIntentSelector next to it, which is the control this
               // sits beside all day; the old trigger was a size larger.
@@ -351,7 +362,17 @@ export function ModelPicker({
             )}
           >
             <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="max-w-[180px] truncate">{label}</span>
+            <span className="max-w-[180px] truncate">
+              {label}
+              {chipProvider ? (
+                <span
+                  data-testid="model-picker-provider"
+                  className="font-normal text-muted-foreground"
+                >
+                  {` · ${chipProvider}`}
+                </span>
+              ) : null}
+            </span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
           </button>
         </PopoverTrigger>

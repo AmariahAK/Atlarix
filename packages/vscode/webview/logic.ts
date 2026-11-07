@@ -9,6 +9,8 @@ export interface Opt {
   value: string;
   name: string;
   description?: string | null;
+  /** `atlarix.provider`: the row's provider as the chip names it (none on Atlarix). */
+  _meta?: { [key: string]: unknown } | null;
 }
 export interface Group {
   group: string;
@@ -28,6 +30,22 @@ export function toGroups(options: ReadonlyArray<Opt | Group>): Group[] {
     }
   }
   return out;
+}
+
+/**
+ * The provider the chip names beside the model, from the row's `_meta` (a
+ * Favourites or Recent row isn't under its provider's group). Null on Atlarix,
+ * and from an agent that sends none.
+ */
+export function chipProvider(groups: readonly Group[], value: string): string | null {
+  for (const g of groups) {
+    for (const o of g.options) {
+      if (o.value !== value) continue;
+      const p = (o._meta?.atlarix as { provider?: unknown } | undefined)?.provider;
+      return typeof p === "string" && p ? p : null;
+    }
+  }
+  return null;
 }
 
 export function flatOptions(groups: readonly Group[]): Opt[] {

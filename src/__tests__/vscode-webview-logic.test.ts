@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { rankFiles } from "../../packages/vscode/src/files";
 import { problemsText } from "../../packages/vscode/src/problems";
 import {
+  chipProvider,
   diffRows,
   filterCommands,
   filterGroups,
@@ -50,6 +51,20 @@ describe("the model picker", () => {
     expect(providerModelCount(groups, "deepseek")).toBe(2);
     expect(providerModelCount(groups, "openai")).toBe(1);
     expect(providerModelCount(groups, "groq")).toBe(0);
+  });
+
+  it("names the chip's provider from the row's _meta, wherever the row is listed", () => {
+    const withMeta = toGroups([
+      // Under Recent, not its provider: the group can't say where it's from.
+      { group: "recent", name: "Recent", options: [{ value: "openrouter/qwen", name: "Qwen3", _meta: { atlarix: { provider: "OpenRouter" } } }] },
+      { group: "compass", name: "Atlarix", options: [{ value: "compass/auto", name: "Auto", description: "Free" }] },
+    ]);
+    expect(chipProvider(withMeta, "openrouter/qwen")).toBe("OpenRouter");
+    // Atlarix keeps the plan: no provider beside it.
+    expect(chipProvider(withMeta, "compass/auto")).toBeNull();
+    expect(chipProvider(withMeta, "missing/model")).toBeNull();
+    // An older agent sends no _meta: nothing, not a guess from the group.
+    expect(chipProvider(groups, "deepseek/deepseek-flash")).toBeNull();
   });
 });
 

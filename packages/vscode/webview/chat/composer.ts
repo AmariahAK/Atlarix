@@ -8,7 +8,7 @@ import type { PermissionOption, ToolCallUpdate } from "@agentclientprotocol/sdk"
 import type { ContextItem } from "../../src/protocol";
 import { filterCommands, mentionAt, recordsAnswer, slashQuery } from "../logic";
 import { post, rpc } from "../rpc";
-import { modelName, on, state } from "../state";
+import { modelName, modelProvider, on, state } from "../state";
 import { button, el, icon, iconButton, MODE_NAME, tokens } from "../ui";
 import { closePicker, openPicker, picker, pickerOpen } from "./picker";
 import * as T from "./transcript";
@@ -208,7 +208,15 @@ function renderOptions(): void {
   // The effort beside the model only when it isn't the model's default ("· xhigh").
   const effort = state.thinking?.options.find((o) => o.value === state.thinking?.value);
   // The name gives way first in a narrow panel; the level beside it stays (QA).
-  modelBtn.append(el("span", "model-btn__name", modelName()), ...(effort && effort.description !== "default" ? [el("span", "muted model-btn__level", `· ${effort.value}`)] : []));
+  // The provider beside the name off Atlarix ("GLM 5.3 · NVIDIA NIM"), muted like the level.
+  const provider = modelProvider();
+  const name = modelName();
+  modelBtn.title = provider ? `${name} · ${provider}` : name || "Model";
+  modelBtn.append(
+    el("span", "model-btn__name", name),
+    ...(provider ? [el("span", "muted model-btn__provider", `· ${provider}`)] : []),
+    ...(effort && effort.description !== "default" ? [el("span", "muted model-btn__level", `· ${effort.value}`)] : []),
+  );
   modelBtn.insertAdjacentHTML("beforeend", icon("chevUp", 10));
 }
 

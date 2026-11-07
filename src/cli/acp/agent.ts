@@ -45,6 +45,7 @@ import { type ErrorMark, refusalDelivery, turnErrorSince } from "./turn-error";
 import { diffUpdates, type Emitted } from "./updates";
 import { handler } from "../agent/ipc";
 import { groupOptions, type ModelOption } from "../agent/models";
+import { providerLabel } from "@/lib/provider-label";
 import { chosenLevel, effortAfterModelChange, effortSettingsPatch } from "@/lib/routing/model-reasoning-profile";
 import { treeLabel, type SessionOrigin } from "@/shared/session-lineage";
 
@@ -761,9 +762,11 @@ class Thread {
     // `/automations`, `/automations run <name>`, `/automations on|off <name>`.
     const automations = /^\/automations(?:\s+([\s\S]+))?$/i.exec(text.trim());
     if (automations || (slash && (slash[1] === "status" || slash[1] === "usage" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "silks" || slash[1] === "augments" || slash[1] === "plugins" || slash[1] === "logout"))) {
-      const { accountCommandText } = await import("./account-commands");
+      const { accountCommandText, statusModel } = await import("./account-commands");
       const cmd = automations ? `automations ${automations[1]?.trim() ?? ""}`.trim() : slash![1]!;
-      const reply = await accountCommandText(cmd, this.session, this.editorMcpServers).catch((e: Error) => `Couldn't read that: ${e.message}`);
+      // /status names the model as the editor's picker shows it.
+      const model = cmd === "status" ? statusModel(await this.options().catch(() => [])) : null;
+      const reply = await accountCommandText(cmd, this.session, this.editorMcpServers, model).catch((e: Error) => `Couldn't read that: ${e.message}`);
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
       return { stopReason: "end_turn" };
     }
@@ -1117,15 +1120,21 @@ export function modelGroups(
   return groupOptions(full, picks ?? { favorites: [], recent: [] }).map((g) => ({
     group: g.id,
     name: g.title,
-    options: g.options.map((o) => ({
-      value: `${o.provider}/${o.name}`,
-      name: o.label,
-      // The tag first ("Free" on Auto, "Uses credit" on a paid row for an account
-      // with nothing to pay with), as the editor shows nothing but this text.
-      ...(o.detail || o.free || o.credit
-        ? { description: [o.free ? "Free" : o.credit ? CORE_CREDIT_DESCRIPTION : "", o.detail].filter(Boolean).join(" · ") }
-        : {}),
-    })),
+    options: g.options.map((o) => {
+      // On the row itself, since a Favourites or Recent row isn't under its
+      // provider: Atlarix's own panels name it beside the model. None on Atlarix.
+      const provider = o.providerLabel ?? providerLabel({ id: o.provider, name: o.providerName });
+      return {
+        value: `${o.provider}/${o.name}`,
+        name: o.label,
+        // The tag first ("Free" on Auto, "Uses credit" on a paid row for an account
+        // with nothing to pay with), as the editor shows nothing but this text.
+        ...(o.detail || o.free || o.credit
+          ? { description: [o.free ? "Free" : o.credit ? CORE_CREDIT_DESCRIPTION : "", o.detail].filter(Boolean).join(" · ") }
+          : {}),
+        ...(provider ? { _meta: { atlarix: { provider } } } : {}),
+      };
+    }),
   }));
 }
 

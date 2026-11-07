@@ -41,7 +41,36 @@ describe("modelGroups", () => {
 
   it("a bare option (the dev provider) still gets a group", () => {
     expect(modelGroups([{ provider: "dev", name: "fake", label: "Fake" }])).toEqual([
-      { group: "dev", name: "dev", options: [{ value: "dev/fake", name: "Fake" }] },
+      { group: "dev", name: "dev", options: [{ value: "dev/fake", name: "Fake", _meta: { atlarix: { provider: "dev" } } }] },
     ]);
+  });
+
+  it("tells the editor each row's provider, wherever the row is listed", () => {
+    const g = modelGroups(
+      [...options, opt("openrouter", "qwen", "OpenRouter (BYOK)", { providerLabel: "OpenRouter", detail: "OpenRouter · 128K context" })],
+      { favorites: [{ provider: "openrouter", name: "qwen" }], recent: [] },
+    );
+    const rows = g.flatMap((x) => x.options);
+    const row = (value: string) => rows.find((o) => o.value === value)!;
+    // Under Favourites, not its provider: the provider still rides along.
+    expect(g[0]!.name).toBe("Favourites");
+    expect(row("openrouter/qwen")).toEqual({
+      value: "openrouter/qwen",
+      name: "qwen",
+      description: "OpenRouter · 128K context",
+      _meta: { atlarix: { provider: "OpenRouter" } },
+    });
+    expect(row("deepseek/deepseek-pro")._meta).toEqual({ atlarix: { provider: "DeepSeek" } });
+    // Atlarix keeps the plan, so its rows name no provider.
+    expect(row("compass/auto")).not.toHaveProperty("_meta");
+  });
+
+  it("names a row's provider without the catalog's bracket, and a custom one as given", () => {
+    const g = modelGroups([
+      opt("anthropic", "claude", "Anthropic (Claude)"),
+      opt("custom::work", "m", "Work (EU)"),
+    ]);
+    const rows = g.flatMap((x) => x.options);
+    expect(rows.map((o) => o._meta)).toEqual([{ atlarix: { provider: "Anthropic" } }, { atlarix: { provider: "Work (EU)" } }]);
   });
 });

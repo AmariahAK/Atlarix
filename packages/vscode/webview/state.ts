@@ -5,7 +5,7 @@
  */
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { HostSettings, KeyStatus, ProviderRow } from "../src/protocol";
-import { toGroups, type Command, type Group } from "./logic";
+import { chipProvider, toGroups, type Command, type Group } from "./logic";
 import { rpc } from "./rpc";
 
 export interface KeyCheck {
@@ -89,6 +89,11 @@ export function applyOptions(opts: SessionConfigOption[]): void {
 export function modelName(value = state.modelValue): string {
   for (const g of state.modelGroups) for (const o of g.options) if (o.value === value) return o.name;
   return value.split("/").slice(1).join("/") || value;
+}
+
+/** The provider the chip names beside the model; null on Atlarix. */
+export function modelProvider(value = state.modelValue): string | null {
+  return chipProvider(state.modelGroups, value);
 }
 
 /** Your providers (fetched once, again after a change), each key checked with its provider once. */

@@ -87,7 +87,7 @@ function render(scrollToCurrent = false): void {
     const head = el("div", "picker__group");
     if (keyed) head.append(el("span", `dot ${rejected.has(provider) ? "bad" : "ok"}`));
     head.append(el("span", "", g.name.toUpperCase()));
-    if (keyed) head.append(el("span", `picker__group-note${rejected.has(provider) ? " bad" : ""}`, rejected.has(provider) ? "key rejected" : "your key"));
+    if (rejected.has(provider)) head.append(el("span", "picker__group-note bad", "key rejected"));
     list.append(head);
     if (rejected.has(provider) && !query) {
       const note = el("div", "picker__note");

@@ -106,6 +106,7 @@ import {
   type ModelOption,
   type ModelRef,
   headerModelLabel,
+  savedProviderName,
 } from "../agent/models";
 import {
   chosenLevel,
@@ -122,6 +123,7 @@ import { copyText } from "./clipboard";
 import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
 import { SessionHeader, type AccountKind } from "./Header";
+import { headerAccount, headerModel, headerModelRef } from "./header-account";
 import { gitBranch } from "./git-branch";
 import {
   FEEDBACK_FAILED,
@@ -500,6 +502,15 @@ export function App({
     composer.current?.replaceBeforeCursor(m.query.length + 1, mentionInsert(entry));
   };
   const [cliState, setCliState] = useState<CliState>(() => models?.state() ?? { recent: [], favorites: [] });
+  // The header's provider (headerAccount), keyed by the provider it names, set
+  // where modelLabel is; the remembered one draws the first frame.
+  const [headerProvider, setHeaderProvider] = useState<{ provider: string; label?: string } | null>(() => {
+    const m = cliState.model;
+    const label = savedProviderName(cliState);
+    return m && label ? { provider: m.provider, label } : null;
+  });
+  // The model a turn runs on when this terminal chose none: the desktop's.
+  const [desktopModel, setDesktopModel] = useState<ModelRef | undefined>(undefined);
   // /effort: the level as the model lists it ("" = its default), with the old
   // deep-thinking switch kept in step (effortSettingsPatch); and the current
   // model's levels, read off its row (null: it has none).
@@ -642,6 +653,7 @@ export function App({
       void models.load().then((all) => {
         const o = all.find((x) => x.provider === ref.provider && x.name === ref.name);
         setModelLabel(o ? headerModelLabel(o) : ref.name);
+        if (o) setHeaderProvider({ provider: o.provider, label: o.providerLabel });
       }, () => setModelLabel(ref.name));
     };
     session.on("peer-settings", onPeerSettings);
@@ -1159,7 +1171,10 @@ export function App({
 
   const chooseModel = (o: ModelOption) => {
     if (!models) return;
-    const next = { ...rememberChoice(live.current.cliState, { provider: o.provider, name: o.name }), modelLabel: { provider: o.provider, name: o.name, label: headerModelLabel(o) } };
+    const next = {
+      ...rememberChoice(live.current.cliState, { provider: o.provider, name: o.name }),
+      modelLabel: { provider: o.provider, name: o.name, label: headerModelLabel(o), ...(o.providerLabel ? { providerName: o.providerLabel } : {}) },
+    };
     // The level stays only when this model lists it too; otherwise its default
     // (owner: never translated between models).
     const was = live.current.effortSel.effort;
@@ -1172,6 +1187,7 @@ export function App({
     models.save({ ...next, ...effort });
     models.choose({ provider: o.provider, name: o.name });
     setModelLabel(headerModelLabel(o));
+    setHeaderProvider({ provider: o.provider, label: o.providerLabel });
     host.closeAll();
     // Only a model with levels has a default to be back at (QA).
     flash(`Using ${o.label}.${was && !effort.effort && o.effortChoices ? " Effort is back to its default." : ""}`, 2500, "success");
@@ -1191,7 +1207,10 @@ export function App({
     if (!models) return { choices: null, auto: false, listed: true };
     const all = await models.load().catch(() => [] as ModelOption[]);
     const ref = session.model ?? live.current.cliState.model ?? (await models.selected?.().catch(() => undefined));
+    // Chosen nowhere here: the header names the desktop's model, which the turn runs on.
+    if (!session.model && !live.current.cliState.model) setDesktopModel(ref);
     const o = ref ? all.find((x) => x.provider === ref.provider && x.name === ref.name) : undefined;
+    if (o) setHeaderProvider({ provider: o.provider, label: o.providerLabel });
     // The header drew with the remembered label; now that the list is here,
     // correct it (and remember it) if it changed or was never saved.
     const chosen = live.current.cliState.model;
@@ -1199,8 +1218,11 @@ export function App({
       const label = headerModelLabel(o);
       if (live.current.modelLabel !== label) setModelLabel(label);
       const saved = live.current.cliState.modelLabel;
-      if (saved?.label !== label || saved.provider !== o.provider || saved.name !== o.name) {
-        const next = { ...live.current.cliState, modelLabel: { provider: o.provider, name: o.name, label } };
+      if (saved?.label !== label || saved.provider !== o.provider || saved.name !== o.name || saved.providerName !== o.providerLabel) {
+        const next = {
+          ...live.current.cliState,
+          modelLabel: { provider: o.provider, name: o.name, label, ...(o.providerLabel ? { providerName: o.providerLabel } : {}) },
+        };
         setCliState(next);
         // The level lives in effortSel, not cliState (applyEffort): keep it.
         models.save({ ...next, ...live.current.effortSel });
@@ -2011,6 +2033,8 @@ export function App({
   const activity = activityLabel(state);
   const working = activity != null;
   const narrow = width < 100;
+  const headerRef = headerModelRef(session.model, cliState.model, desktopModel);
+  const shownProvider = headerRef && headerProvider?.provider === headerRef.provider ? headerProvider.label : undefined;
   const statusLeft = [
     MODE_LABEL[state.mode],
     `${modelLabel}${effortSuffix}`,
@@ -2060,18 +2084,10 @@ export function App({
           header={
             <SessionHeader
               version={version}
-              model={`${modelLabel}${effortSuffix}`}
+              model={`${headerModel(modelLabel, shownProvider)}${effortSuffix}`}
               mode={MODE_LABEL[state.mode]}
               computerUse={state.computerUse}
-              account={
-                !session.model || session.model.provider === "compass"
-                  ? accountKind
-                  : session.model.provider === "ollama" || session.model.provider === "lmstudio"
-                    ? "local"
-                    : session.model.provider.startsWith("custom::")
-                      ? "endpoint"
-                      : "own-key"
-              }
+              account={headerAccount(headerRef, accountKind, shownProvider)}
               workspace={abbreviatePath(session.workspaceDir, Math.max(12, width - 24 - (branch ? branch.length + 2 : 0)))}
               branch={branch}
               mood={state.busy ? "working" : "rest"}
