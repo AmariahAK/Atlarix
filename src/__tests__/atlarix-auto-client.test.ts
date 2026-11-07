@@ -341,19 +341,127 @@ describe("Auto's context window follows the account", () => {
     );
     setCoreAuto(parseCoreAuto(RAW)!);
     __resetAutoBilling("pro-account");
-    expect(await autoContextWindow()).toBe(400_000); // unknown → free window
+    // Free (and unknown) is the free working window, 200K, not mini's 400K.
+    expect(await autoContextWindow()).toBe(200_000); // unknown → free window
     await noteAutoBilling("paid");
     expect(await autoContextWindow()).toBe(1_000_000);
     await noteAutoBilling("free");
-    expect(await autoContextWindow()).toBe(400_000);
+    expect(await autoContextWindow()).toBe(200_000);
     await noteAutoBilling("paid");
     // Another account signs in: its own answer, not the previous account's…
     const mod = await import("@/lib/context/auto-context-window");
     mod.__setAccountForTests("free-account");
-    expect(await autoContextWindow()).toBe(400_000);
+    expect(await autoContextWindow()).toBe(200_000);
     // …and switching back remembers the paying account.
     mod.__setAccountForTests("pro-account");
     expect(await autoContextWindow()).toBe(1_000_000);
     vi.doUnmock("@/lib/models_dev");
+  });
+});
+
+/**
+ * Free Auto's FIXED working window (owner, 2026-11-07). The free set's own
+ * windows say 400K (gpt-5.4-mini), but the gateway models the mix sends a free
+ * step to have no models.dev row and hold ~200K, as does the $0 floor. A free
+ * chat compacting against 400K (or the 256K working cap: ~192K) fit none of
+ * them. 200K from the hosted `auto.freeWorkingWindowTokens`, else this app's
+ * constant; it caps whatever the 256k/512k/full setting says. Paid unchanged.
+ */
+describe("free Auto's working window", () => {
+  const RAW = {
+    auto: {
+      id: "atlarix/auto",
+      chain: [
+        { provider: "openai-shared", apiModelId: "gpt-5.4-mini", pool: "mini" },
+        { provider: "openrouter-free", apiModelId: "openrouter/free", pool: "openrouter", pinServed: true },
+        { provider: "requesty-free", apiModelId: "discover", pool: "requesty", discover: true },
+        { provider: "zai", apiModelId: "glm-4.7-flash", pool: "floor" },
+      ],
+      paid: { levels: { glm: [{ provider: "zai", apiModelId: "glm-5.3" }] } },
+    },
+  };
+  const WINDOWS: Record<string, number> = {
+    "openai/gpt-5.4-mini": 400_000,
+    "zai/glm-5.3": 1_000_000,
+  };
+
+  async function windowFor(billing: "free" | "paid" | null, raw: unknown = RAW, windows = WINDOWS) {
+    vi.doMock("@/lib/models_dev", () => ({
+      getModelsDevLimits: async (p: string, m: string) => ({ context: windows[`${p}/${m}`] }),
+    }));
+    const mod = await import("@/lib/context/auto-context-window");
+    setCoreAuto(parseCoreAuto(raw)!);
+    mod.__resetAutoBilling(`acct-${billing ?? "unknown"}`);
+    if (billing) await mod.noteAutoBilling(billing);
+    const w = await mod.autoContextWindow();
+    vi.doUnmock("@/lib/models_dev");
+    return w;
+  }
+
+  it("reads the hosted window, and ignores one that is not a positive whole number", () => {
+    const withWindow = (v: unknown) => parseCoreAuto({ auto: { ...RAW.auto, freeWorkingWindowTokens: v } });
+    expect(withWindow(180_000)?.freeWorkingWindowTokens).toBe(180_000);
+    for (const bad of [0, -5, "200000", null, 1.5, Number.NaN]) {
+      expect(withWindow(bad)).not.toHaveProperty("freeWorkingWindowTokens");
+    }
+  });
+
+  it("is 200K for a free account, and for one whose billing is not known yet, with no hosted value", async () => {
+    expect(await windowFor("free")).toBe(200_000);
+    expect(await windowFor(null)).toBe(200_000);
+  });
+
+  it("follows the hosted value", async () => {
+    expect(await windowFor("free", { auto: { ...RAW.auto, freeWorkingWindowTokens: 180_000 } })).toBe(180_000);
+  });
+
+  it("keeps a free model's real window when that is smaller", async () => {
+    expect(await windowFor("free", RAW, { ...WINDOWS, "openai/gpt-5.4-mini": 128_000 })).toBe(128_000);
+  });
+
+  it("is 200K even when no free model has a models.dev row (gateways only)", async () => {
+    expect(await windowFor("free", RAW, { "zai/glm-5.3": 1_000_000 })).toBe(200_000);
+  });
+
+  it("leaves a paying account on its own models' window", async () => {
+    expect(await windowFor("paid")).toBe(1_000_000);
+    expect(await windowFor("paid", { auto: { ...RAW.auto, freeWorkingWindowTokens: 180_000 } })).toBe(1_000_000);
+  });
+
+  it("compacts a free chat at 0.75 x 200K = 150K, even on the 'full' setting; paid stays on the 256K cap", async () => {
+    const { contextWorkingWindowTokens, compactionPoint } = await import("@/lib/context/mid-loop-threshold");
+    const { resolveModelContextLimit } = await import("@/lib/context/resolve-model-context-limit");
+    const auto = { provider: "compass", name: "core-auto" } as never;
+    const point = async (billing: "free" | "paid", setting: "256k" | "512k" | "full") => {
+      vi.doMock("@/lib/models_dev", () => ({
+        getModelsDevLimits: async (p: string, m: string) => ({ context: WINDOWS[`${p}/${m}`] }),
+      }));
+      const mod = await import("@/lib/context/auto-context-window");
+      setCoreAuto(parseCoreAuto(RAW)!);
+      mod.__resetAutoBilling(`acct-${billing}`);
+      await mod.noteAutoBilling(billing);
+      const raw = (await resolveModelContextLimit(auto, {} as never)).rawContextLength!;
+      vi.doUnmock("@/lib/models_dev");
+      const working = contextWorkingWindowTokens(raw, setting);
+      return { raw, working, at: compactionPoint({ usableTokens: raw - 16_384, workingWindowTokens: working, threshold: 0.75 }) };
+    };
+    expect(await point("free", "256k")).toEqual({ raw: 200_000, working: 200_000, at: 150_000 });
+    expect(await point("free", "full")).toEqual({ raw: 200_000, working: 200_000, at: 150_000 });
+    expect(await point("free", "512k")).toEqual({ raw: 200_000, working: 200_000, at: 150_000 });
+    expect(await point("paid", "256k")).toEqual({ raw: 1_000_000, working: 256_000, at: 192_000 });
+  });
+
+  it("is what the context ring reads against for a free account", async () => {
+    vi.doMock("@/lib/models_dev", () => ({
+      getModelsDevLimits: async (p: string, m: string) => ({ context: WINDOWS[`${p}/${m}`] }),
+    }));
+    const mod = await import("@/lib/context/auto-context-window");
+    setCoreAuto(parseCoreAuto(RAW)!);
+    mod.__resetAutoBilling("acct-ring");
+    await mod.noteAutoBilling("free");
+    const { getContextWindowDetailed } = await import("@/ipc/utils/token_utils");
+    const ring = await getContextWindowDetailed({ provider: "compass", name: "core-auto" } as never);
+    vi.doUnmock("@/lib/models_dev");
+    expect(ring.contextWindow).toBe(200_000);
   });
 });

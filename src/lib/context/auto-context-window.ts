@@ -98,13 +98,15 @@ export function __resetAutoBilling(account: string | null = "test-account"): voi
   accountOverride = account;
 }
 
-export async function autoContextWindow(): Promise<number | null> {
-  loadOnce();
-  const auto = getCoreAuto();
-  const account = await currentAccount();
-  const billing = account ? byAccount[account] : undefined;
-  const models =
-    billing === "paid" ? auto?.paidModels : (auto?.freeModels ?? auto?.paidModels);
+/**
+ * The most a FREE Auto chat may hold when the hosted config does not say
+ * (`auto.freeWorkingWindowTokens`). The gateway models the free mix sends a step
+ * to, and the $0 floor, hold ~200K and have no models.dev row, so the free set's
+ * own windows (gpt-5.4-mini: 400K) overstate the room (owner, 2026-11-07).
+ */
+export const FREE_AUTO_WORKING_WINDOW = 200_000;
+
+async function smallestWindow(models: Array<{ providerId: string; modelId: string }> | undefined): Promise<number | null> {
   if (!models?.length) return null;
   const { getModelsDevLimits } = await import("@/lib/models_dev");
   let min: number | null = null;
@@ -114,4 +116,21 @@ export async function autoContextWindow(): Promise<number | null> {
     if (typeof ctx === "number" && ctx > 0) min = min == null ? ctx : Math.min(min, ctx);
   }
   return min;
+}
+
+/**
+ * The window every context consumer (ring, compaction, working window) reads
+ * for Auto. Free and not-yet-known accounts are capped at the free working
+ * window: it is the window itself, so no 256k/512k/full setting reaches past it.
+ */
+export async function autoContextWindow(): Promise<number | null> {
+  loadOnce();
+  const auto = getCoreAuto();
+  const account = await currentAccount();
+  const billing = account ? byAccount[account] : undefined;
+  const paid = billing === "paid";
+  const min = await smallestWindow(paid ? auto?.paidModels : (auto?.freeModels ?? auto?.paidModels));
+  if (paid || !auto) return min;
+  const cap = auto.freeWorkingWindowTokens ?? FREE_AUTO_WORKING_WINDOW;
+  return min == null ? cap : Math.min(min, cap);
 }

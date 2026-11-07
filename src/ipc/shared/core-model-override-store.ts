@@ -125,6 +125,12 @@ export type CoreAutoConfig = {
   freeModels?: Array<{ providerId: string; modelId: string }>;
   paidModels?: Array<{ providerId: string; modelId: string }>;
   /**
+   * The most a FREE Auto chat may hold (hosted `auto.freeWorkingWindowTokens`).
+   * The gateway models a free step can land on have no models.dev row, so the
+   * free set alone cannot say how small they are. Absent: the app's constant.
+   */
+  freeWorkingWindowTokens?: number;
+  /**
    * Served model ids the Usage page may name (Auto picks): concrete chain rungs,
    * every paid and Zenith level, and the Core slots. A gateway rung (one that
    * pins or discovers its model) is never in it: its id would name the gateway.

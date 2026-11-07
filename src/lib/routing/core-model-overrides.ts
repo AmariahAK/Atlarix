@@ -284,6 +284,9 @@ export function parseCoreAuto(raw: unknown): CoreAutoConfig | null {
       ].filter((x): x is string => !!x),
     ),
   ];
+  const freeWindow = a.freeWorkingWindowTokens;
+  const freeWorkingWindowTokens =
+    typeof freeWindow === "number" && Number.isInteger(freeWindow) && freeWindow > 0 ? freeWindow : null;
   return {
     id,
     label,
@@ -291,6 +294,7 @@ export function parseCoreAuto(raw: unknown): CoreAutoConfig | null {
     ...(freeModels.length ? { freeModels } : {}),
     ...(paidModels.length ? { paidModels } : {}),
     ...(nameableModels.length ? { nameableModels } : {}),
+    ...(freeWorkingWindowTokens ? { freeWorkingWindowTokens } : {}),
   };
 }
 
