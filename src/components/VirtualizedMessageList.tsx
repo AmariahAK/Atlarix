@@ -12,7 +12,7 @@
  * Gated behind SimpleInlineChat's USE_VIRTUALIZED_CHAT kill-switch; when off,
  * SimpleInlineChat renders its original render-all list unchanged.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { ArrowDown } from "lucide-react";
 import type { Message } from "@/ipc/ipc_types";
@@ -23,18 +23,22 @@ import { InlineUserQuestions } from "./chat/InlineUserQuestions";
 import { BackgroundJobsIndicator } from "./chat/BackgroundJobsIndicator";
 import { SessionRecap } from "./chat/SessionRecap";
 
+/** How close to the bottom counts as "at the bottom" (Virtuoso and the footer pin). */
+const AT_BOTTOM_PX = 64;
+
 interface FooterContext {
   chatId: number;
   isStreaming: boolean;
   lastMessageRole: string | undefined;
+  footerRef: (el: HTMLDivElement | null) => void;
 }
 
 /** Stable footer — identity never changes, so it doesn't remount per flush. */
 function ListFooter({ context }: { context?: FooterContext }) {
   if (!context) return null;
-  const { chatId, isStreaming, lastMessageRole } = context;
+  const { chatId, isStreaming, lastMessageRole, footerRef } = context;
   return (
-    <div className="px-4 pb-4 space-y-4">
+    <div ref={footerRef} className="px-4 pb-4 space-y-4">
       {isStreaming && lastMessageRole === "user" && (
         <div className="flex justify-start">
           <div className="bg-muted rounded-lg px-4 py-2">
@@ -72,6 +76,36 @@ export function VirtualizedMessageList({
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const [atBottom, setAtBottom] = useState(true);
+
+  // A turn that opens with thoughts and tool calls streams in the FOOTER until
+  // its first reply text creates the assistant row. Virtuoso follows a growing
+  // item but not a growing footer, so the view stopped following with nobody
+  // scrolling (W13). When the footer grows, stay at the bottom if the view was
+  // there before the growth; a reader scrolled up is left where they are.
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const footerObserverRef = useRef<ResizeObserver | null>(null);
+  const footerRef = useCallback((el: HTMLDivElement | null) => {
+    footerObserverRef.current?.disconnect();
+    footerObserverRef.current = null;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let lastHeight = el.offsetHeight;
+    const observer = new ResizeObserver(() => {
+      const height = el.offsetHeight;
+      const grew = height - lastHeight;
+      lastHeight = height;
+      const scroller = scrollerRef.current;
+      if (!scroller || grew <= 0) return;
+      const distanceBefore =
+        scroller.scrollHeight -
+        grew -
+        scroller.scrollTop -
+        scroller.clientHeight;
+      if (distanceBefore <= AT_BOTTOM_PX)
+        scroller.scrollTop = scroller.scrollHeight;
+    });
+    observer.observe(el);
+    footerObserverRef.current = observer;
+  }, []);
 
   // When streaming ends while the user is at the bottom, `followOutput` switches
   // off in the same commit that the final message re-renders at a different
@@ -120,6 +154,7 @@ export function VirtualizedMessageList({
     chatId,
     isStreaming,
     lastMessageRole: lastMessage?.role,
+    footerRef,
   };
 
   return (
@@ -136,7 +171,10 @@ export function VirtualizedMessageList({
         // there left the whole turn below the fold.
         followOutput={(isAtBottom) => (isAtBottom ? "auto" : false)}
         atBottomStateChange={setAtBottom}
-        atBottomThreshold={64}
+        atBottomThreshold={AT_BOTTOM_PX}
+        scrollerRef={(el) => {
+          scrollerRef.current = el instanceof HTMLElement ? el : null;
+        }}
         increaseViewportBy={{ top: 600, bottom: 900 }}
         components={{ Footer: ListFooter }}
         itemContent={(index, message) => (
