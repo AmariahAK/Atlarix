@@ -428,8 +428,10 @@ describe("AgentSession", () => {
     const s = new AgentSession({ workspaceDir: w, model: await seedDevProvider({ baseUrl: llm.url, model: "fake-model" }) });
     await s.start();
     await s.submit("write three files");
-    await waitFor(s, (st) => st.approvals.length > 0 && st.cells.filter((c: any) => c.kind === "tool").length >= 3, 30_000);
-    const card = s.state.approvals.find((a) => JSON.stringify(a.request).includes("q1.ts"))!;
+    // The three edits ask one at a time: wait for q1's own card, not just the first one to arrive.
+    const isQ1 = (a: { request: unknown }) => JSON.stringify(a.request).includes("q1.ts");
+    await waitFor(s, (st) => st.approvals.some(isQ1) && st.cells.filter((c: any) => c.kind === "tool").length >= 3, 30_000);
+    const card = s.state.approvals.find(isQ1)!;
     await s.answerApproval(card.operationId, "once");
     const cells = s.state.cells as any[];
     const at = cells.findIndex((c) => c.id === `approved:${card.operationId}`);
