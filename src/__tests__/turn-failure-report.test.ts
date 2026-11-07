@@ -50,7 +50,7 @@ describe("which failed turns are reported", () => {
 
   it("not what the user causes or expects, not Core, not a turn that worked", async () => {
     const capture = vi.fn();
-    for (const k of ["auth", "quota", "rate_limit", "context_overflow", "content_rejected", "consent_required", "no_workspace"]) {
+    for (const k of ["auth", "quota", "rate_limit", "context_overflow", "content_rejected", "no_workspace"]) {
       reportTurnFailure(failed(k), capture, custom);
     }
     reportTurnFailure(failed("provider_5xx", { provider: "compass" }), capture);

@@ -12,7 +12,7 @@ vi.mock("@/hooks/useChatModel", () => ({ useChatModel: () => ({ model: chat.mode
 vi.mock("@/hooks/useSettings", () => ({ useSettings: () => ({ settings: { selectedModel: chat.model }, updateSettings: vi.fn() }) }));
 vi.mock("@/hooks/useSelectModel", () => ({ useSelectModel: () => vi.fn() }));
 vi.mock("@/hooks/useModelPickerOpen", () => ({ useModelPickerOpen: () => ({ open: false, setOpen: vi.fn() }) }));
-vi.mock("@/hooks/useAccountKind", () => ({ useAccountKind: () => "free", fetchAccountKind: async () => "free" }));
+vi.mock("@/hooks/useAccountKind", () => ({ useAccountKind: () => "free" }));
 vi.mock("@/hooks/useLanguageModelsByProviders", () => ({
   useLanguageModelsByProviders: () => ({
     data: {
@@ -37,7 +37,6 @@ vi.mock("@/hooks/useAtlarixCoreCatalog", () => ({ useAtlarixCoreCatalog: () => (
 vi.mock("@/hooks/useLocalModels", () => ({ useLocalModels: () => ({ models: [] }) }));
 vi.mock("@/hooks/useLMStudioModels", () => ({ useLocalLMSModels: () => ({ models: [] }) }));
 vi.mock("@/components/billing/UpgradeActions", () => ({ UpgradeButtons: () => null }));
-vi.mock("@/components/AtlarixAutoConsentDialog", () => ({ AtlarixAutoConsentDialog: () => null }));
 
 import { ModelPicker } from "@/components/ModelPicker";
 

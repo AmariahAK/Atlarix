@@ -89,13 +89,13 @@ the next release, no 15.13.4 for it alone. Everything else from 11-06 is server-
   10-29 hardening). Tests: `usage-rollup-pending.test.ts`, `tests-bun/usage-survives-kill.test.ts` (real SIGKILL
   before any send). **Verify:** a week after the release, compare PostHog `turn_completed` people per day with
   `client_usage_daily` users per day for analytics-consenting accounts; they should match.
-- **The free Auto consent was not measured — `auto_consent` event ADDED on `team/auto-consent-event`.** Of 25 new
-  accounts that opened a client (10-24 → 11-05), 5 reached the consent (a `consent_required` turn) and 2 never ran free
-  Auto after it, but shown / accepted / declined were recorded nowhere. Now `auto_consent` {action: shown | accepted |
-  declined, trigger: picker | refused_turn | reask, version (the wording's), surface} from the app's dialog
-  (posthog-js), the CLI dialog and the editors' permission card (captureSafe); both only with the user's yes to
-  analytics. Wording and flow unchanged (owner's decision). **Read it** a week after the release: PostHog,
-  `auto_consent`, breakdown by action and trigger.
+- **The free Auto consent is GONE (owner, 2026-11-07), on `team/free-auto-no-consent` + proxy
+  `free-auto-no-consent`.** Replaces the 11-06 "keep it" and the `auto_consent` measurement (removed with it): of
+  25 new accounts (10-24 → 11-05), 5 reached the consent and 2 never ran free Auto after it. The privacy policy and
+  terms say what free Auto shares (website side: ai-b8). The proxy serves a no-balance user free without a header;
+  a Pro account with its allowance spent never gets the free chain. **Proxy first**: a new client sends no header,
+  so against the old proxy it would get a 402 with no card to answer it. **Read it** a week after the release:
+  new accounts with a first free Auto turn, against the 5→3 before.
 - **`/auth/app` sat on "Returning you to the app" for good when atlarix:// opened nothing — FIXED on launchpad
   `team/auth-app-fallback` (0a8a72c), deploys with the launchpad.** After 4 s with no blur/hide it offers "Open
   Atlarix" (same link, from memory), "Download for <OS>" (/#download) and "Or open Atlarix and sign in there."

@@ -23,8 +23,10 @@ file that holds its value. The one public figure is the Pro price, **$19/month**
     client's hints (work mode, purpose, deep thinking) and billed for the model that actually
     answered (`atlarix-proxy/src/paid-auto.ts`). A paying caller never falls into the free pool.
   - **With nothing to pay with**, Auto is FREE. It is served from OpenAI's complimentary
-    shared-data tokens with a $0 floor model behind them, and requires a one-time consent in
-    the desktop app (`X-Atlarix-Free-Consent: 1`; `src/components/AtlarixAutoConsentDialog.tsx`).
+    shared-data tokens and free gateway models. Nothing asks first (owner, 2026-11-07, replacing
+    the one-time in-app consent): what it shares is in the privacy policy and terms. A **Pro**
+    account with its allowance used up never gets it (Pro stays private); an older app that still
+    sends a yes to the first wording (`X-Atlarix-Free-Consent-Version: 1`) keeps the OpenAI-only chain.
     **The Chrome extension is paid-only** (owner decision 2026-09-23): the proxy never serves the
     `extension` surface from the free pool, so a no-credit extension user gets the 402 and the
     upgrade line.
@@ -32,8 +34,8 @@ file that holds its value. The one public figure is the Pro price, **$19/month**
     (`atlarix-proxy/src/free-auto.ts`). It never touches the wallet.
   - **Reviewer** gets free Auto only for **public** repositories: the installer of a private
     repo cannot consent for whoever owns that code.
-  - Otherwise the proxy returns a 402 that says whether free Auto was on offer, so the client
-    can show the consent notice rather than a bare "add credit".
+  - Otherwise the proxy returns a 402 (`free_available: false`) with the plan facts, so the
+    client shows the right refusal (never funded, spent, Pro allowance used up).
 - **Pinned Core models** (any tier other than Auto) always need a Pro allowance or credit.
 - **There is no signup trial.** The $1 grant and `claim_signup_credit` were removed on
   2026-09-08 (`20260908140000_remove_signup_trial_credit.sql`). Free Auto is the free entry

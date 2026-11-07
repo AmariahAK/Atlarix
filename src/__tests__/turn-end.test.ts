@@ -51,7 +51,6 @@ describe("classifyTurnError", () => {
       "quota",
       429,
     ],
-    [api(402, '{"consent_required": true}'), "consent_required", 402],
     [api(503, '{"error":"free_busy"}'), "rate_limit", 503],
     [api(429), "rate_limit", 429],
     [
@@ -224,9 +223,6 @@ describe("classifyTurnEnd", () => {
     expect(
       classifyTurnEnd(api(503, '{"error":"free_busy"}'), live()),
     ).toMatchObject({ outcome: "gate", gateKind: "free_busy" });
-    expect(
-      classifyTurnEnd(api(402, '{"consent_required": true}'), live()),
-    ).toMatchObject({ outcome: "gate", gateKind: "consent_required" });
     expect(
       classifyTurnEnd(
         api(402, '{"error":"insufficient_credit","required_cents":10}'),

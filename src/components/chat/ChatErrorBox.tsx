@@ -10,7 +10,6 @@ import remarkGfm from "remark-gfm";
 import { openSettingsSection } from "@/lib/open-settings-section";
 import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
 import {
-  AUTO_CONSENT_MARKER,
   CORE_EXHAUSTED_MARKER,
   CORE_NEVER_FUNDED_MARKER,
   CORE_RATE_LIMIT_MARKER,
@@ -19,7 +18,6 @@ import {
   FREE_LIMIT_MARKER,
   PRO_ALLOWANCE_MARKER,
   RESETS_IN_PATTERN,
-  UPGRADE_LINE,
   USE_OWN_KEY_LABEL,
   ZENITH_OFFER_LINE,
   formatResetsIn,
@@ -27,13 +25,10 @@ import {
 import { useEffect, useState } from "react";
 import { useSelectModel } from "@/hooks/useSelectModel";
 import { useTranslation } from "react-i18next";
-import { useSettings } from "@/hooks/useSettings";
-import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
 import { UpgradeButtons } from "@/components/billing/UpgradeActions";
 import {
   CORE_TIER_AUTO,
   CORE_TIER_ZENITH,
-  autoConsentAccepted,
 } from "@/ipc/shared/compass_constants";
 
 /** Open Settings → AI so the user can switch provider / model or add an API key. */
@@ -89,16 +84,9 @@ export function ChatErrorBox(props: Parameters<typeof ChatErrorBoxBody>[0]) {
 
 function ChatErrorBoxBody({
   onDismiss,
-  onRetry,
   error,
 }: {
   onDismiss: () => void;
-  /**
-   * Re-run the failed turn. Given, the free-Auto consent card uses it: once the
-   * user says yes, the message they already sent should simply go through —
-   * making them send it again is a second ask for the same thing.
-   */
-  onRetry?: () => void;
   error: string;
 }) {
   const text = error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "");
@@ -189,13 +177,6 @@ function ChatErrorBoxBody({
           </SwitchProviderButton>
         </div>
       </ChatInfoContainer>
-    );
-  }
-
-  // Atlarix Auto with no credit, before the one-time OK for its free path.
-  if (error.includes(AUTO_CONSENT_MARKER)) {
-    return (
-      <AutoConsentError error={error} onDismiss={onDismiss} onRetry={onRetry} />
     );
   }
 
@@ -333,59 +314,6 @@ function ExternalLink({
       <span>{children}</span>
       {iconElement}
     </a>
-  );
-}
-
-/**
- * Free Auto needs the consent notice. Accepting records it and then RE-RUNS the
- * turn that was refused, so the user's message goes through without being sent
- * twice (reported 2026-09-25: "if allowed, it should continue the task").
- */
-function AutoConsentError({
-  error,
-  onDismiss,
-  onRetry,
-}: {
-  error: string;
-  onDismiss: () => void;
-  onRetry?: () => void;
-}) {
-  const { t } = useTranslation("chat");
-  const { updateSettings } = useSettings();
-  const [open, setOpen] = useState(false);
-  const text = error
-    .replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")
-    .replace(UPGRADE_LINE, "")
-    .trim();
-  return (
-    <ChatInfoContainer onDismiss={onDismiss}>
-      <AtlarixAutoConsentDialog
-        open={open}
-        trigger="refused_turn"
-        onAccept={() => {
-          setOpen(false);
-          // The retry must follow the WRITE: main reads the consent from
-          // settings when it builds the request header.
-          void updateSettings(autoConsentAccepted()).then(() =>
-            onRetry ? onRetry() : onDismiss(),
-          );
-        }}
-        onCancel={() => setOpen(false)}
-      />
-      <span>{text}</span>
-      <p className="mt-1 text-muted-foreground">{UPGRADE_LINE}</p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        <button
-          type="button"
-          data-testid="auto-review-consent"
-          className="inline-flex cursor-pointer items-center rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
-          onClick={() => setOpen(true)}
-        >
-          {t("atlarixAuto.reviewConsent")}
-        </button>
-        <UpgradeButtons />
-      </div>
-    </ChatInfoContainer>
   );
 }
 

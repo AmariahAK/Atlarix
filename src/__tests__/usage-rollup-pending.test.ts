@@ -84,14 +84,14 @@ describe("pending usage on disk", () => {
   it("a process that died before sending: the next one adopts and sends its counts", async () => {
     fs.mkdirSync(dir, { recursive: true });
     const gone = path.join(dir, `${deadPid()}.json`);
-    const row = { ...JSON.parse(JSON.stringify(__row())), turns: 3, failed_turns: 1, last_error_kind: "consent_required" };
+    const row = { ...JSON.parse(JSON.stringify(__row())), turns: 3, failed_turns: 1, last_error_kind: "quota" };
     fs.writeFileSync(gone, JSON.stringify([row]));
     await adoptPendingUsage();
     expect(fs.existsSync(gone)).toBe(false);
     // Adopted counts are this process's now, on its own file too.
     expect(read(own())).toEqual([expect.objectContaining({ turns: 3 })]);
     await flushClientUsage();
-    expect(sent).toEqual([[expect.objectContaining({ turns: 3, failed_turns: 1, last_error_kind: "consent_required" })]]);
+    expect(sent).toEqual([[expect.objectContaining({ turns: 3, failed_turns: 1, last_error_kind: "quota" })]]);
   });
 
   it("never takes a live process's file", async () => {

@@ -333,13 +333,10 @@ function renderApproval(): void {
   } | undefined)?.atlarix?.approval;
   const isCommand = !!meta?.command;
   const isEdit = !isCommand && !!meta?.path;
-  // Free Atlarix Auto's consent: what is shared, with whom. It has to be READ
-  // before it is given, so its words and its own buttons show (QA 15.7.1 #9).
-  const isConsent = a.toolCall.toolCallId === "auto-consent";
   approval.classList.toggle("risky", !!meta?.risky);
   const head = el("div", "approval__head");
   const isAutomation = !!meta?.details?.length;
-  head.innerHTML = icon(meta?.risky || isConsent ? "warn" : isCommand ? "terminal" : isAutomation ? "bolt" : isEdit ? "file" : "check", 15);
+  head.innerHTML = icon(meta?.risky ? "warn" : isCommand ? "terminal" : isAutomation ? "bolt" : isEdit ? "file" : "check", 15);
   const title = isCommand ? (meta?.risky ? "Run a risky command?" : "Run this command?") : isEdit ? "Apply this edit?" : (a.toolCall.title ?? "Atlarix wants to continue");
   head.append(el("span", "approval__title", title));
   if (approvals.length > 1) head.append(el("span", "muted small", `1 of ${approvals.length}`));
@@ -358,7 +355,7 @@ function renderApproval(): void {
   if (meta?.risk) approval.append(el("div", "approval__risk", meta.risk));
   if (meta?.outside) approval.append(el("div", "approval__risk", `Outside this folder: ${meta.outside}`));
   // A request with nothing of ours to draw (no command, file, intent or details)
-  // shows the agent's own words: the consent's terms, an MCP tool's description.
+  // shows the agent's own words: an MCP tool's description.
   if (!isCommand && !isEdit && !meta?.intent && !meta?.details?.length) {
     for (const c of (a.toolCall.content ?? []) as Array<{ type?: string; content?: { type?: string; text?: string } }>) {
       if (c.type !== "content" || c.content?.type !== "text" || !c.content.text) continue;
@@ -369,7 +366,7 @@ function renderApproval(): void {
   if (a.hasDiff) acts.append(button("View diff", "link small", () => post({ type: "open-diff", requestId: a.requestId })));
   for (const o of a.options) {
     const cls = o.kind.startsWith("reject") ? "deny" : o.kind === "allow_once" ? "primary" : "";
-    const label = isConsent ? o.name : optionLabel(o, isCommand, isEdit);
+    const label = optionLabel(o, isCommand, isEdit);
     acts.append(
       button(label, cls, () => {
         post({ type: "permission", requestId: a.requestId, optionId: o.optionId });

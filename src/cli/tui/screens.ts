@@ -7,7 +7,7 @@
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { joinAskUserPicks } from "@/lib/tools/ask_user_options";
 import fs from "node:fs";
-import { AUTO_CONSENT_TERMS, CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
+import { CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
 import { activityFootnote, activitySections, activityTiles, calendarRows } from "@/lib/stats/activity-format";
 import { USAGE_RANGES, USAGE_TABS, autoText, creditsText, tokensText, toolsText, type UsageTab } from "@/lib/stats/usage-format";
 import { shareCardSvg } from "@/lib/stats/share-card";
@@ -50,8 +50,6 @@ export type ScreenSession = Pick<
   | "dismissPlanReady"
   | "answerQuestion"
   | "dismissQuestion"
-  | "acceptAutoConsent"
-  | "noteAutoConsent"
   | "answerMcpConsent"
   | "subagentJobs"
   | "subagentOutput"
@@ -596,38 +594,6 @@ export function openMcpConsent(ctx: ScreenContext): void {
       },
     }),
   );
-}
-
-// ─── Atlarix Auto's consent ──────────────────────────────────────────────────
-
-/** `reask`: asked at startup (a yes to the old wording), so there is no message to send again. */
-export function openAutoConsent(ctx: ScreenContext, opts: { reask?: boolean } = {}): void {
-  // auto_consent: shown, then one answer (esc closes without a choice: a decline).
-  const trigger = opts.reask ? "reask" : "refused_turn";
-  let answered = false;
-  ctx.session.noteAutoConsent?.("shown", trigger);
-  const dialog = new ListDialog({
-      title: "Use Atlarix Auto for free?",
-      intro: AUTO_CONSENT_TERMS.map((text, i) => (i === 0 ? { text } : { text, tone: "muted" as const })),
-      footer: "↑↓ move · enter choose · esc not now",
-      // "Not now" FIRST: the dialog opens over the composer, and an Enter typed
-      // for a message there must never be a consent (QA 15.7.1 #7).
-      items: [
-        { id: "cancel", label: "Not now", detail: "/model picks another model" },
-        { id: "accept", label: "Use Atlarix Auto", detail: opts.reask ? "with the new wording" : "and send the message again" },
-      ],
-      onChoose: async (item) => {
-        answered = true;
-        ctx.session.noteAutoConsent?.(item.id === "accept" ? "accepted" : "declined", trigger);
-        ctx.host.closeAll();
-        if (item.id === "accept") await ctx.session.acceptAutoConsent();
-      },
-    });
-  dialog.onClose = () => {
-    if (!answered) ctx.session.noteAutoConsent?.("declined", trigger);
-    answered = true;
-  };
-  ctx.host.push(dialog);
 }
 
 // ─── /automations ────────────────────────────────────────────────────────────

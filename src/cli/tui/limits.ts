@@ -8,7 +8,6 @@
  * Pure (src/__tests__/cli-limits.test.ts).
  */
 import {
-  AUTO_CONSENT_MARKER,
   CORE_EXHAUSTED_MARKER,
   CORE_NEVER_FUNDED_MARKER,
   CORE_RATE_LIMIT_MARKER,
@@ -91,9 +90,6 @@ export function errorNotice(raw: string): ErrorNotice {
       detail: needs,
       actions: "/billing add credit or get Pro · /model your own key, or Atlarix Auto (free)",
     };
-  }
-  if (text.includes(AUTO_CONSENT_MARKER)) {
-    return { tone: "warn", title: "Atlarix Auto needs your OK first", detail: first, actions: "send again to review it · /model pick another" };
   }
   if (text.includes(BYOK_CREDIT_MARKER)) {
     return {

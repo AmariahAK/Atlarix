@@ -50,32 +50,6 @@ export const CORE_TIER_AUTO = "core-auto";
  */
 export const CORE_TIER_ZENITH = "core-zenith";
 
-/** The Auto consent wording now in force (see `atlarixAutoConsentVersion`). */
-export const ATLARIX_AUTO_CONSENT_VERSION = 2;
-
-/** What accepting Auto's consent writes to settings. */
-export function autoConsentAccepted(now = new Date()): {
-  atlarixAutoConsentAt: string;
-  atlarixAutoConsentVersion: number;
-} {
-  return {
-    atlarixAutoConsentAt: now.toISOString(),
-    atlarixAutoConsentVersion: ATLARIX_AUTO_CONSENT_VERSION,
-  };
-}
-
-/**
- * The wording version the user said yes to (`X-Atlarix-Free-Consent-Version`),
- * or null when they have not. The consent header itself is always "1".
- */
-export function autoConsentHeader(settings: {
-  atlarixAutoConsentAt?: string;
-  atlarixAutoConsentVersion?: number;
-}): "1" | "2" | null {
-  if (!settings.atlarixAutoConsentAt) return null;
-  return (settings.atlarixAutoConsentVersion ?? 1) >= 2 ? "2" : "1";
-}
-
 export const CORE_TIER_ORDER = [
   CORE_TIER_1,
   CORE_TIER_2,
