@@ -79,4 +79,42 @@ describe("free Auto's limit is held until it lifts", () => {
     }
     expect(freeAutoResetsAt()).toBeNull();
   });
+
+  /**
+   * The proxy's answers since 2026-11-07: a gateway's full minute is a 503
+   * free_busy with a short Retry-After, and a chat too long for every free
+   * model with share left is the standard 400 context_length_exceeded. Neither
+   * may lock free Auto until midnight; the second must reach compaction.
+   */
+  it("never holds the proxy's 503 free_busy, Retry-After and all", async () => {
+    const send = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "free_busy", retry_after_seconds: 30 }), {
+          status: 503,
+          headers: { "Retry-After": "30" },
+        }),
+    );
+    await throughFreeAutoGate(send);
+    await throughFreeAutoGate(send);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(freeAutoResetsAt()).toBeNull();
+  });
+
+  it("never holds the too-long answer, and the turn classifies it as a context overflow", async () => {
+    const tooLong = JSON.stringify({
+      error: {
+        message: "This conversation is too long for Atlarix Auto's free models. Compact it or start a new chat.",
+        type: "invalid_request_error",
+        code: "context_length_exceeded",
+      },
+    });
+    await throughFreeAutoGate(async () => new Response(tooLong, { status: 400 }));
+    expect(freeAutoResetsAt()).toBeNull();
+    // What the AI SDK hands the turn: an APICallError-shaped error with the body.
+    const err = Object.assign(new Error("Bad Request"), { statusCode: 400, responseBody: tooLong });
+    const { isContextOverflowError } = await import("@/lib/context/compaction");
+    expect(isContextOverflowError(err)).toBe(true);
+    const { classifyTurnError } = await import("@/lib/analytics/turn-end");
+    expect(classifyTurnError(err).kind).toBe("context_overflow");
+  });
 });
