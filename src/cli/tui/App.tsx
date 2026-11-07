@@ -120,6 +120,7 @@ import { filterEntries, listWorkspaceEntries, mentionAt, mentionInsert } from ".
 import { parseShellInput } from "../agent/shell-mode";
 import { abbreviatePath, activityLabel, contextLabel, formatTokens, oneLine } from "./format";
 import { copyText } from "./clipboard";
+import { isClickNotSelection } from "./prompt-click";
 import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
 import { SessionHeader, type AccountKind } from "./Header";
@@ -599,8 +600,22 @@ export function App({
 
   // Copy on select: the renderer reports a selection when the mouse is released.
   useEffect(() => {
-    const onSelection = (sel: { getSelectedText(): string } | null) => {
+    const onSelection = (
+      sel: { getSelectedText(): string; anchor: { x: number; y: number }; focus: { x: number; y: number } } | null,
+    ) => {
+      const prompt = composer.current;
+      // A click (one cell of slip allowed) copies nothing; in the prompt it
+      // puts the cursor where the press landed (click and edit).
+      if (sel && isClickNotSelection(sel.anchor, sel.focus)) {
+        renderer.clearSelection();
+        if (prompt?.contains(sel.anchor.x, sel.anchor.y)) prompt.placeCursorAt(sel.anchor.x, sel.anchor.y);
+        refocusPrompt();
+        return;
+      }
       const text = sel?.getSelectedText() ?? "";
+      // A selection in the prompt is for copying: dropped once read, so the
+      // next key doesn't type over the text that was just copied.
+      if (sel && prompt?.contains(sel.anchor.x, sel.anchor.y)) renderer.clearSelection();
       refocusPrompt();
       if (!text.trim()) return;
       void (copy ? copy(text) : copyText(text, renderer)).then((ok) => {

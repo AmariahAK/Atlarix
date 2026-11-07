@@ -927,6 +927,169 @@ describe("copy on select", () => {
   });
 });
 
+/**
+ * Click to edit, as in Claude Code's prompt (owner, 2026-11-07): a click in
+ * the text you are typing puts the cursor there. Screen columns are display
+ * cells, so a wide character before the click counts two.
+ */
+describe("click in the prompt to move the cursor", () => {
+  /** The screen cell of `needle` on the prompt's rows (the first row starts with "› "). */
+  const cellOf = (frame: string, needle: string) => {
+    const rows = frame.split("\n");
+    const y = rows.findIndex((l) => l.includes(needle));
+    const line = rows[y] ?? "";
+    return { x: Bun.stringWidth(line.slice(0, line.indexOf(needle))), y };
+  };
+
+  it("a click inside the text puts the cursor on that character", async () => {
+    const { setup } = await mount();
+    await setup.mockInput.typeText("hello world");
+    const frame = await frameContaining(setup, "› hello world");
+    const at = cellOf(frame, "world");
+    await setup.mockMouse.click(at.x, at.y);
+    await settle(setup);
+    await setup.mockInput.typeText("X");
+    expect(await frameContaining(setup, "› hello Xworld")).toContain("› hello Xworld");
+  });
+
+  it("one cell of slip on the same row is a click; more, or another row, is a selection", async () => {
+    const { isClickNotSelection } = await import("../src/cli/tui/prompt-click");
+    expect(isClickNotSelection({ x: 10, y: 5 }, { x: 10, y: 5 })).toBe(true);
+    expect(isClickNotSelection({ x: 10, y: 5 }, { x: 11, y: 5 })).toBe(true);
+    expect(isClickNotSelection({ x: 10, y: 5 }, { x: 9, y: 5 })).toBe(true);
+    expect(isClickNotSelection({ x: 10, y: 5 }, { x: 12, y: 5 })).toBe(false);
+    expect(isClickNotSelection({ x: 10, y: 5 }, { x: 10, y: 6 })).toBe(false);
+  });
+
+  it("dragging over the prompt copies, and the next key doesn't type over what was copied", async () => {
+    const copiedTexts: string[] = [];
+    const setup = await testRender(
+      <App
+        session={new FakeSession() as never}
+        modelLabel="Atlarix Auto"
+        version="15.0.0"
+        onQuit={() => {}}
+        plainMarkdown
+        copy={async (t) => {
+          copiedTexts.push(t);
+          return true;
+        }}
+      />,
+      { width: 110, height: 32, exitOnCtrlC: false },
+    );
+    current = setup;
+    await setup.renderOnce();
+    await setup.mockInput.typeText("keep every word");
+    const frame = await frameContaining(setup, "› keep every word");
+    const at = cellOf(frame, "every");
+    await setup.mockMouse.drag(at.x, at.y, at.x + "every".length - 1, at.y);
+    await settle(setup);
+    expect(copiedTexts.at(-1)).toBe("every");
+    await setup.mockInput.typeText("!");
+    const after = await frameContaining(setup, "!");
+    const prompt = after.split("\n").find((l) => l.includes("› ")) ?? "";
+    // The "!" went in somewhere; every letter that was there is still there.
+    expect(prompt).toContain("!");
+    expect(prompt.slice(prompt.indexOf("› ") + 2).replace("!", "").trim().replace(/\s*│$/, "")).toBe("keep every word");
+  });
+
+  it("a click that slips one cell (a trackpad tap) still just moves the cursor", async () => {
+    const copiedTexts: string[] = [];
+    const setup = await testRender(
+      <App
+        session={new FakeSession() as never}
+        modelLabel="Atlarix Auto"
+        version="15.0.0"
+        onQuit={() => {}}
+        plainMarkdown
+        copy={async (t) => {
+          copiedTexts.push(t);
+          return true;
+        }}
+      />,
+      { width: 110, height: 32, exitOnCtrlC: false },
+    );
+    current = setup;
+    await setup.renderOnce();
+    await setup.mockInput.typeText("hello world");
+    const frame = await frameContaining(setup, "› hello world");
+    const at = cellOf(frame, "world");
+    await setup.mockMouse.pressDown(at.x, at.y);
+    await setup.mockMouse.emitMouseEvent("drag", at.x + 1, at.y);
+    await setup.mockMouse.release(at.x + 1, at.y);
+    await settle(setup);
+    await setup.mockInput.typeText("X");
+    // Nothing typed over, nothing copied; the cursor went where the press landed.
+    expect(await frameContaining(setup, "› hello Xworld")).toContain("› hello Xworld");
+    expect(copiedTexts).toEqual([]);
+  });
+
+  it("a click past the end of the line puts the cursor at its end", async () => {
+    const { setup } = await mount();
+    await setup.mockInput.typeText("abc");
+    const frame = await frameContaining(setup, "› abc");
+    const at = cellOf(frame, "abc");
+    // The first character, then far right of it: still inside the box.
+    await setup.mockMouse.click(at.x, at.y);
+    await settle(setup);
+    await setup.mockMouse.click(at.x + 40, at.y);
+    await settle(setup);
+    await setup.mockInput.typeText("Z");
+    expect(await frameContaining(setup, "› abcZ")).toContain("› abcZ");
+  });
+
+  it("on a wrapped line, the click lands on the character under it", async () => {
+    const { setup } = await mount();
+    const words = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore";
+    await setup.mockInput.typeText(`${words} target words after`);
+    const frame = await frameContaining(setup, "target");
+    const at = cellOf(frame, "target");
+    // It wrapped: "target" is on the box's second row, not the "› " row.
+    expect(frame.split("\n")[at.y]).not.toContain("›");
+    await setup.mockMouse.click(at.x, at.y);
+    await settle(setup);
+    await setup.mockInput.typeText("X");
+    expect(await frameContaining(setup, "Xtarget")).toContain("Xtarget");
+  });
+
+  it("wide characters before the click count as two cells", async () => {
+    const { setup } = await mount();
+    await setup.mockInput.typeText("日本語 then abc");
+    const frame = await frameContaining(setup, "abc");
+    const at = cellOf(frame, "abc");
+    await setup.mockMouse.click(at.x, at.y);
+    await settle(setup);
+    await setup.mockInput.typeText("X");
+    expect(await frameContaining(setup, "then Xabc")).toContain("then Xabc");
+  });
+
+  it("dragging over the prompt's text still selects and copies it", async () => {
+    const copiedTexts: string[] = [];
+    const setup = await testRender(
+      <App
+        session={new FakeSession() as never}
+        modelLabel="Atlarix Auto"
+        version="15.0.0"
+        onQuit={() => {}}
+        plainMarkdown
+        copy={async (t) => {
+          copiedTexts.push(t);
+          return true;
+        }}
+      />,
+      { width: 110, height: 32, exitOnCtrlC: false },
+    );
+    current = setup;
+    await setup.renderOnce();
+    await setup.mockInput.typeText("copy me please");
+    const frame = await frameContaining(setup, "› copy me please");
+    const at = cellOf(frame, "copy me");
+    await setup.mockMouse.drag(at.x, at.y, at.x + "copy me".length - 1, at.y);
+    await settle(setup);
+    expect(copiedTexts.at(-1)).toBe("copy me");
+  });
+});
+
 describe("the prompt box colours what it will do", () => {
   const fake = (plainText: string) => {
     const added: Array<{ start: number; end: number }> = [];

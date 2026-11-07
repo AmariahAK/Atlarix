@@ -32,6 +32,10 @@ export interface ComposerApi {
   beforeCursor(): string;
   /** Replace the `n` characters before the cursor with `text` (choosing an `@` match). */
   replaceBeforeCursor(n: number, text: string): void;
+  /** Whether the screen cell (x, y) is inside the text area. */
+  contains(x: number, y: number): boolean;
+  /** Put the cursor on the character at screen cell (x, y): past a line's end means its end. */
+  placeCursorAt(x: number, y: number): void;
 }
 
 /** The highlights this box adds itself, removed together by this ref. */
@@ -115,6 +119,22 @@ export function Composer({
         for (let i = 0; i < n; i++) input.deleteCharBackward();
         input.insertText(text);
         onChange?.(input.plainText);
+      },
+      contains: (x, y) => {
+        const input = ta.current;
+        return !!input && x >= input.x && x < input.x + input.width && y >= input.y && y < input.y + input.height;
+      },
+      placeCursorAt: (x, y) => {
+        const input = ta.current;
+        if (!input) return;
+        // opentui's own cell-to-text mapping, the one its drag selection uses:
+        // it knows the wrapping, the scroll and wide characters. An empty
+        // selection that moves the cursor, then dropped.
+        const lx = x - input.x;
+        const ly = y - input.y;
+        input.editorView.setLocalSelection(lx, ly, lx, ly, undefined, undefined, true, false);
+        input.editorView.resetLocalSelection();
+        input.requestRender();
       },
     };
   });
