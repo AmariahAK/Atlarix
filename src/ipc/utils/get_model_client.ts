@@ -111,10 +111,8 @@ export interface GetModelClientOptions {
 const logger = log.scope("getModelClient");
 
 /**
- * The hints Atlarix Auto routes on. Paid Auto picks a model from them; free
- * Auto needs the consent header (the free path shares prompts with the
- * providers that serve it). Its value is the wording version the user accepted:
- * the proxy offers the free gateways only on "2".
+ * The hints Atlarix Auto routes on. Paid Auto picks a model from them; the
+ * proxy decides free vs paid from the account, so nothing here asks for consent.
  */
 export function autoRequestHeaders(
   settings: Pick<UserSettings, "deepThinking" | "effort">,
@@ -371,10 +369,9 @@ async function getRegularModelClient(
           `No Atlarix Core model is configured for this build. Add your own API keys in Settings, or use a release build.`,
         );
       }
-      // No consent gate here any more: Auto is paid for anyone with credit, and
-      // only the FREE path shares prompts. The consent header below lets the
-      // proxy serve free; without it a no-credit caller gets a 402 that the
-      // classifier turns into the consent notice.
+      // No consent gate: Auto is paid for anyone with credit, and free for an
+      // account with nothing to pay with (the privacy policy and terms say what
+      // the free path shares). The proxy decides, from the account.
       if (resolvedTier.substituted) {
         logger.info(
           `Core tier "${model.name}" is not in the current lineup — using ${resolvedTier.tier}.`,
@@ -383,8 +380,8 @@ async function getRegularModelClient(
       }
       const coreModelId = getCoreModelIdForCoreTier(resolvedTier.tier);
       const isAutoTier = isCoreAutoTier(resolvedTier.tier);
-      // Zenith is paid Auto on the top lane: Auto's routing headers, never the
-      // free-share consent, and no daily limit to hold.
+      // Zenith is paid Auto on the top lane: Auto's routing headers, and no
+      // daily limit to hold.
       const isZenithTier = isCoreZenithTier(resolvedTier.tier);
       if (!coreModelId) {
         throw new Error(
@@ -466,10 +463,7 @@ async function getRegularModelClient(
               retryPending = false;
             }
             if (isAutoTier || isZenithTier) {
-              for (const [k, v] of Object.entries(autoHeaders)) {
-                if (isZenithTier && /free-consent/i.test(k)) continue;
-                headers.set(k, v);
-              }
+              for (const [k, v] of Object.entries(autoHeaders)) headers.set(k, v);
             }
             // The proxy, or its fallback when the proxy is down (item 10). Free
             // Auto's daily limit is held here until it lifts, so a resend gets
