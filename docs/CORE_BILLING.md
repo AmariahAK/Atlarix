@@ -25,7 +25,7 @@ file that holds its value. The one public figure is the Pro price, **$19/month**
   - **With nothing to pay with**, Auto is FREE. It is served from OpenAI's complimentary
     shared-data tokens and free gateway models. Nothing asks first (owner, 2026-11-07, replacing
     the one-time in-app consent): what it shares is in the privacy policy and terms. A **Pro**
-    account with its allowance used up drops to it like any account with nothing left; an older app that still
+    account with its allowance used up never gets it (Pro stays private); an older app that still
     sends a yes to the first wording (`X-Atlarix-Free-Consent-Version: 1`) keeps the OpenAI-only chain.
     **The Chrome extension is paid-only** (owner decision 2026-09-23): the proxy never serves the
     `extension` surface from the free pool, so a no-credit extension user gets the 402 and the
