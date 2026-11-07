@@ -5,7 +5,7 @@
  * A database failure answers `slow_down`, never `expired_token`: the CLI backs
  * off and asks again, where an error would end a sign-in that is still valid.
  */
-export type PollResult = { ok?: boolean; state?: string; sealed_session?: unknown } | null;
+export type PollResult = { ok?: boolean; state?: string; error?: string; sealed_session?: unknown } | null;
 
 const ERRORS: Record<string, string> = {
   pending: "authorization_pending",
