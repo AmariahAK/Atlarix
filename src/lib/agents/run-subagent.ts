@@ -68,8 +68,6 @@ import { recordEditProposal } from "./subagent-proposals";
 const logger = log.scope("run-subagent");
 
 const SUBAGENT_LENGTH_CONTINUATION_MAX = 3;
-/** How many times a round may end at the compaction point (not length) before giving up. */
-const SUBAGENT_COMPACTION_CONTINUATION_MAX = 4;
 
 /** Compact token count for the sub-agent summary badge (e.g. 12345 → "12.3k"). */
 function formatCompactTokens(n: number): string {
@@ -546,12 +544,9 @@ export async function runSubagent(
 
     /** The provider's input count on the last finished step — real context occupancy. */
     let lastStepInputTokens = 0;
-    /** True when the round ended at the compaction point (stopWhen), not naturally. */
-    let roundEndedForCompaction = false;
 
     /** One streamed round; returns the SDK result pieces we need. */
     const runRound = async () => {
-      roundEndedForCompaction = false;
       // One mid-round compaction per round (prepareStep), reset each round.
       /** See simple-stream-text.ts: retry only after a tenth of the point of growth. */
       let retryAbove: number | undefined;
@@ -718,31 +713,24 @@ export async function runSubagent(
       attemptCount: lengthAttempts,
       maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
     });
-    let compactionContinuations = 0;
-    while (lengthTruncated || roundEndedForCompaction) {
-      if (lengthTruncated) {
-        lengthAttempts++;
-        msgs = [
-          ...msgs,
-          ...(result.response.messages as ModelMessage[]),
-          {
-            role: "user",
-            content: buildContinuationPrompt({
-              chatId: args.chatId ?? 0,
-              turnId: args.turnId ?? "subagent",
-              attemptCount: lengthAttempts,
-              maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
-              lastContent: result.text ?? "",
-            }),
-          },
-        ];
-      } else {
-        // Compaction-point end: keep the native tail and drop the "continue
-        // exactly" prompt — the model wasn't truncated, it was stopped to compact.
-        compactionContinuations++;
-        if (compactionContinuations > SUBAGENT_COMPACTION_CONTINUATION_MAX) break;
-        msgs = [...msgs, ...(result.response.messages as ModelMessage[])];
-      }
+    // A round that hit the output limit continues; compaction happens inside
+    // the round (prepareStep), so nothing else ends one early.
+    while (lengthTruncated) {
+      lengthAttempts++;
+      msgs = [
+        ...msgs,
+        ...(result.response.messages as ModelMessage[]),
+        {
+          role: "user",
+          content: buildContinuationPrompt({
+            chatId: args.chatId ?? 0,
+            turnId: args.turnId ?? "subagent",
+            attemptCount: lengthAttempts,
+            maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
+            lastContent: result.text ?? "",
+          }),
+        },
+      ];
 
       const compaction = await runMidLoopCompaction({
         messages: msgs,
