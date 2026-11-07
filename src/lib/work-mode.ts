@@ -139,6 +139,30 @@ export function labelForWorkMode(mode: WorkMode): string {
 }
 
 /**
+ * The write mode an ask_user answer chose, or null.
+ *
+ * Read-only modes are told to "call ask_user to switch to Build/Debug"
+ * (mode-prompt-bundle.ts), so the user's answer to that question IS a mode
+ * pick, and every surface applies it before the turn continues (Windows
+ * fresh-install QA W4, 2026-11-07). Only an answer that opens with the switch
+ * counts: "No, don't switch to Build" or "Explain why I would switch to Build"
+ * leave the mode alone, and answers that disagree pick nothing.
+ */
+const SWITCH_ANSWER =
+  /^\s*(?:yes\b[\s,.!:-]*)?(?:please\s+)?switch(?:ing)?\s+(?:to\s+)?(?:the\s+)?(build|debug)\b/i;
+
+export function workModeChosenInAnswers(
+  answers: readonly string[],
+): Extract<WorkMode, "build" | "debug"> | null {
+  const picked = new Set<"build" | "debug">();
+  for (const a of answers) {
+    const m = SWITCH_ANSWER.exec(a ?? "");
+    if (m) picked.add(m[1]!.toLowerCase() as "build" | "debug");
+  }
+  return picked.size === 1 ? [...picked][0]! : null;
+}
+
+/**
  * The message that starts building an approved plan — the desktop's Build
  * button and the CLI's "Build it" send the same words.
  */

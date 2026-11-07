@@ -109,6 +109,81 @@ describe("InlineUserQuestions", () => {
     });
   });
 
+  // W4 (Windows fresh-install QA, 2026-11-07): Explore is told to "call
+  // ask_user to switch to Build/Debug". The user picked "Yes, switch to Build",
+  // nothing switched, and the next reply asked them to find the mode chip.
+  it("an answer that picks Build switches the mode and continues in it (W4)", async () => {
+    // Saving settings runs the telemetry opt-out, which touches localStorage —
+    // and jsdom's stub here has no removeItem.
+    const mem = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => mem.get(k) ?? null,
+        setItem: (k: string, v: string) => void mem.set(k, String(v)),
+        removeItem: (k: string) => void mem.delete(k),
+        clear: () => mem.clear(),
+        key: (i: number) => Array.from(mem.keys())[i] ?? null,
+        get length() {
+          return mem.size;
+        },
+      },
+    });
+    const { store } = renderWithProviders(
+      <InlineUserQuestions chatId={CHAT_ID} />,
+    );
+    act(() => {
+      store.set(pendingUserQuestionByChatIdAtom, {
+        [CHAT_ID]: {
+          questionId: "q-mode",
+          question: "This needs a file edit. Switch to Build?",
+          options: ["Yes, switch to Build (Recommended)", "No, stay in Explore"],
+        },
+      });
+    });
+
+    fireEvent.click(screen.getByText("Yes, switch to Build (Recommended)"));
+
+    await waitFor(() => {
+      expect(streamMessage).toHaveBeenCalledWith({
+        prompt: "",
+        chatId: CHAT_ID,
+        continueAfterQuestions: true,
+        workModeOverride: "build",
+      });
+    });
+    await waitFor(() => {
+      expect(fakeIpc.setUserSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ workModePreference: "build" }),
+      );
+    });
+  });
+
+  it("an answer that declines the switch changes nothing", async () => {
+    const { store } = renderWithProviders(
+      <InlineUserQuestions chatId={CHAT_ID} />,
+    );
+    act(() => {
+      store.set(pendingUserQuestionByChatIdAtom, {
+        [CHAT_ID]: {
+          questionId: "q-mode-no",
+          question: "This needs a file edit. Switch to Build?",
+          options: ["Yes, switch to Build (Recommended)", "No, stay in Explore"],
+        },
+      });
+    });
+
+    fireEvent.click(screen.getByText("No, stay in Explore"));
+
+    await waitFor(() => {
+      expect(streamMessage).toHaveBeenCalledWith({
+        prompt: "",
+        chatId: CHAT_ID,
+        continueAfterQuestions: true,
+      });
+    });
+  });
+
   it("multi-question: Submit stays disabled until every question is answered", async () => {
     const { store } = renderWithProviders(
       <InlineUserQuestions chatId={CHAT_ID} />,

@@ -40,6 +40,7 @@ import { inlinePlan } from "./inline-plan";
 import { handler } from "./ipc";
 import { readCliState, turnModelFor } from "./models";
 import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
+import { workModeChosenInAnswers } from "@/lib/work-mode";
 import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 import type { SessionLineage, SessionOrigin } from "@/shared/session-lineage";
 
@@ -1075,6 +1076,9 @@ export class AgentSession extends EventEmitter {
       answer: combineAnswers(q.items, answers),
       questionText: q.items.length === 1 ? q.items[0]!.question : `${q.items.length} questions`,
     })) as { success: boolean; restream?: boolean };
+    // "Yes, switch to Build" is the user's own mode pick (W4), as in the app.
+    const mode = workModeChosenInAnswers(answers);
+    if (mode && mode !== this.state.mode) this.setMode(mode);
     if (res?.restream) await this.startTurn("", { continueAfterQuestions: true });
   }
 

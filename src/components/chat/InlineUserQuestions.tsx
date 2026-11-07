@@ -18,6 +18,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useStreamChat } from "@/hooks/useStreamChat";
+import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
+import { workModeChosenInAnswers } from "@/lib/work-mode";
 import { extractQuestionsArtifact } from "@/lib/chat/ask-user-artifacts";
 import {
   ASK_USER_MAX_OPTIONS,
@@ -56,6 +58,7 @@ export function InlineUserQuestions({ chatId }: Props) {
   const messagesForChat = useAtomValue(messagesForChatAtom(chatId));
   const isStreamingThisChat = useAtomValue(isStreamingForChatAtom(chatId));
   const { streamMessage } = useStreamChat({ hasChatId: false });
+  const { workMode, setWorkMode } = useWorkModeSelection();
   const pending: PendingUserQuestion | undefined = pendingByChat[chatId];
 
   // Reload durability: when the last message is an assistant turn that ended
@@ -125,16 +128,25 @@ export function InlineUserQuestions({ chatId }: Props) {
           items.length === 1 ? items[0].question : `${items.length} questions`,
         );
         clearPending();
+        // "Yes, switch to Build" is the user's own mode pick (W4): apply it, and
+        // run the continuation in it rather than in the mode that asked.
+        const mode = workModeChosenInAnswers(finalAnswers);
+        if (mode && mode !== workMode) setWorkMode(mode);
         // The asking turn already ended — answers became a real user message;
         // start the continuation stream so the model picks the task back up.
         if (res?.restream) {
-          streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
+          streamMessage({
+            prompt: "",
+            chatId,
+            continueAfterQuestions: true,
+            ...(mode && mode !== workMode ? { workModeOverride: mode } : {}),
+          });
         }
       } finally {
         setSubmitting(false);
       }
     },
-    [chatId, pending, items, submitting, clearPending, streamMessage],
+    [chatId, pending, items, submitting, clearPending, streamMessage, workMode, setWorkMode],
   );
 
   const pick = useCallback(
