@@ -28,6 +28,8 @@ export interface TurnLoopTotals {
 export interface TurnStreamError {
   kind: string;
   httpStatus?: number;
+  /** The provider's machine code (turn-end.ts providerCodeOf), never its text. */
+  providerCode?: string;
 }
 
 /** Who paid for an Atlarix Auto reply, as the proxy said (`x-atlarix-billing`). */

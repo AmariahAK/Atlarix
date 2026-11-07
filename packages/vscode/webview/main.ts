@@ -7,14 +7,8 @@
  * never goes through innerHTML (the markdown renderer builds nodes). The only
  * markup set as HTML is our own SVG.
  */
-import {
-  CORE_EXHAUSTED_MARKER,
-  CORE_NEVER_FUNDED_MARKER,
-  FREE_BUSY_MARKER,
-  FREE_LIMIT_MARKER,
-  PRO_ALLOWANCE_MARKER,
-  ZENITH_OFFER_MARKER,
-} from "../../../src/shared/billing_copy";
+import { ZENITH_OFFER_MARKER } from "../../../src/shared/billing_copy";
+import { errorActions } from "./error-actions";
 import type { SessionUpdate } from "@agentclientprotocol/sdk";
 import * as S from "./chat/suggestions";
 import type { HostMessage } from "../src/protocol";
@@ -281,16 +275,9 @@ function turnError(text: string): void {
       state.modelValue = "compass/core-auto";
       post({ type: "set-option", configId: "model", value: state.modelValue });
     });
-  const actions = text.includes(PRO_ALLOWANCE_MARKER)
-    ? [credit(), ownKey()] // never "Get Pro" to a Pro account
-    : text.includes(CORE_NEVER_FUNDED_MARKER)
-      ? [credit(), pro(), auto()]
-      : [FREE_LIMIT_MARKER, FREE_BUSY_MARKER, CORE_EXHAUSTED_MARKER].some((m) => text.includes(m)) ||
-          /insufficient.credit|out of credit/i.test(text)
-        ? [credit(), pro(), ownKey()]
-        : /api key|rejected|unauthori[sz]ed|\b401\b/i.test(text)
-          ? [button("Models & keys", "small", () => go({ name: "settings", tab: "keys" }))]
-          : [];
+  const keys = () => button("Models & keys", "small", () => go({ name: "settings", tab: "keys" }));
+  const draw = { credit, pro, ownKey, auto, keys };
+  const actions = errorActions(text).map((a) => draw[a]());
   // Auto's whole ladder failed and Zenith is offered (once per chat).
   if (text.includes(ZENITH_OFFER_MARKER)) {
     actions.push(

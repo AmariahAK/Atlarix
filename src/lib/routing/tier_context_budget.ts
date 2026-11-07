@@ -277,19 +277,34 @@ export async function enforceContextBudget(
     // i.e. the protected tail alone does not fit the window.
     const entries = nonSystemEntries(limitedMessageHistory);
     const pStart = protectedEntryStartIndex(entries);
-    const firstProtectedOriginalIndex =
+    let firstProtectedOriginalIndex =
       pStart < entries.length
         ? entries[pStart].i
         : limitedMessageHistory.length;
+    // As the mid-round cut does (c3e7acd2): never open the kept tail on a TOOL
+    // RESULT, whose call would be dropped with the head; a provider refuses that
+    // request and every one after it. Step back to the call.
+    while (
+      firstProtectedOriginalIndex > 0 &&
+      firstProtectedOriginalIndex < limitedMessageHistory.length &&
+      limitedMessageHistory[firstProtectedOriginalIndex]?.role === "tool"
+    ) {
+      firstProtectedOriginalIndex--;
+    }
     const head = limitedMessageHistory.slice(0, firstProtectedOriginalIndex);
     const tail = limitedMessageHistory.slice(firstProtectedOriginalIndex);
-    const headConversation = head.filter(
-      (m) => m.role === "user" || m.role === "assistant",
-    );
-    if (headConversation.length === 0) break;
+    const headConversation = head.filter((m) => m.role !== "system");
+    if (!headConversation.some((m) => m.role === "user" || m.role === "assistant")) break;
 
-    const kept = headConversation.slice(2);
-    droppedMessageCount += headConversation.length - kept.length;
+    // The two oldest messages, and the results of any call among them; a kept
+    // call keeps its results (they used to be dropped while the call stayed).
+    let cut = 0;
+    for (let n = 0; cut < headConversation.length && n < 2; cut++) {
+      if (headConversation[cut].role !== "tool") n++;
+    }
+    while (cut < headConversation.length && headConversation[cut].role === "tool") cut++;
+    const kept = headConversation.slice(cut);
+    droppedMessageCount += cut;
     limitedMessageHistory = [
       ...head.filter((m) => m.role === "system"),
       ...kept,

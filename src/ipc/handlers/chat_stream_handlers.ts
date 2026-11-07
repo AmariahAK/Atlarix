@@ -2655,7 +2655,9 @@ export function registerChatStreamHandlers() {
                 turnRefused ??
                 (ctx.askUserEndedTurn
                   ? { outcome: "ask_user" }
-                  : classifyTurnEnd(turnError, abortController.signal)),
+                  : classifyTurnEnd(turnError, abortController.signal, {
+                      provider: ctx.analyticsTurn.fellBackToCore ? "compass" : ctx.analyticsTurn.provider,
+                    })),
               ...ctx.analyticsTurn,
               hadHistory: ctx.analyticsTurn.hadHistory === true,
               automation: !!req.automation,

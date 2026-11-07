@@ -139,14 +139,23 @@ describe("turn_completed", () => {
 
   it("a 402 the stream showed behind the SDK's stand-in is the insufficient-credit gate", async () => {
     noteTurnStreamError(nextChat, { kind: "quota", httpStatus: 402 });
-    trackTurnCompleted(base({ end: { outcome: "error", errorKind: "no_output" }, outputTokens: 0 }));
+    trackTurnCompleted(base({ provider: "compass", model: "core-auto", end: { outcome: "error", errorKind: "no_output" }, outputTokens: 0 }));
     await flush();
     expect(turns()[0]).toMatchObject({ outcome: "gate", gate_kind: "insufficient_credit", error_kind: "quota", http_status: 402 });
   });
 
+  it("your own provider's 402 is a failure, not Atlarix's insufficient-credit gate, and says its code", async () => {
+    noteTurnStreamError(nextChat, { kind: "quota", httpStatus: 402, providerCode: "insufficient_quota" });
+    const ended = trackTurnCompleted(base({ end: { outcome: "error", errorKind: "no_output" }, outputTokens: 0 }));
+    await flush();
+    expect(ended).toMatchObject({ outcome: "error", errorKind: "quota", providerCode: "insufficient_quota" });
+    expect(turns()[0]).toMatchObject({ outcome: "error", error_kind: "quota", http_status: 402, provider_code: "insufficient_quota" });
+    expect(turns()[0]!.gate_kind).toBeUndefined();
+  });
+
   it("a gate the stream showed is a gate on the event, never an error", async () => {
     noteTurnStreamError(nextChat, { kind: "quota", httpStatus: 429 });
-    trackTurnCompleted(base({ outputTokens: 0 }));
+    trackTurnCompleted(base({ provider: "compass", model: "core-auto", outputTokens: 0 }));
     await flush();
     expect(turns()[0]).toMatchObject({ outcome: "gate", gate_kind: "free_usage_limit", error_kind: "quota", http_status: 429 });
     expect(turns()[0]!.outcome).not.toBe("error");

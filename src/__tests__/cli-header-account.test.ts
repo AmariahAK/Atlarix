@@ -30,15 +30,33 @@ describe("headerAccount", () => {
   it("names a --provider-url endpoint, not 'Your key'", () => {
     const ref = { provider: "atlarix-cli-dev-ee0d96d8", name: "fake-model" };
     expect(headerAccount(ref, null, "Your endpoint (127.0.0.1:8080)")).toBe("Your endpoint (127.0.0.1:8080)");
-    // Before the label is known: the id, never a generic word.
-    expect(headerAccount(ref, null, null)).not.toMatch(/your key/i);
+    // Before the label is known: nothing, never a generic word or the id.
+    expect(headerAccount(ref, null, null) ?? "").not.toMatch(/your key|atlarix-cli-dev/i);
   });
 
   it("never says 'Your key' for any provider", () => {
     for (const provider of ["openai", "custom::x", "atlarix-cli-dev", "ollama"]) {
-      expect(headerAccount({ provider, name: "m" }, "free", null)).not.toMatch(/your key|on this computer/i);
+      expect(headerAccount({ provider, name: "m" }, "free", null) ?? "").not.toMatch(/your key|on this computer/i);
     }
-    expect(headerAccount({ provider: "custom::my-gateway", name: "m" }, "free", null)).toBe("my-gateway");
+  });
+
+  it("before the model list loads, a catalog provider is named from the catalog, never by its id", () => {
+    // The first start after the upgrade: no saved name, no list yet (it showed "nvidia_nim").
+    const ref = { provider: "nvidia_nim", name: "z-ai/glm-5.3" };
+    const line = [headerModel("GLM 5.3", undefined), "Build", headerAccount(ref, "free", undefined)].filter(Boolean).join(" · ");
+    expect(line).toBe("GLM 5.3 · Build · NVIDIA NIM");
+    expect(headerAccount({ provider: "openrouter", name: "x" }, "free", null)).toBe("OpenRouter");
+    expect(headerAccount({ provider: "ollama", name: "qwen2.5:3b" }, "free", null)).toBe("Ollama");
+  });
+
+  it("an id the catalog doesn't know, with no saved name: no provider part at all", () => {
+    for (const provider of ["custom::my-gateway", "atlarix-cli-dev-ee0d96d8", "some_new_provider"]) {
+      const account = headerAccount({ provider, name: "m" }, "free", null);
+      expect(account).toBeNull();
+      const line = ["m", "Build", account].filter(Boolean).join(" · ");
+      expect(line).toBe("m · Build");
+      expect(line).not.toContain(provider.replace(/^custom::/, ""));
+    }
   });
 });
 

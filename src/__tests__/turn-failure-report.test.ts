@@ -62,6 +62,14 @@ describe("which failed turns are reported", () => {
     expect(capture).not.toHaveBeenCalled();
   });
 
+  it("a refusal carries the provider's code, so it says why without its words", async () => {
+    const capture = vi.fn();
+    const f = failed("provider_refused");
+    reportTurnFailure({ ...f, end: { ...f.end, providerCode: "invalid_request_error" } }, capture, custom);
+    await flush();
+    expect(capture.mock.calls[0]![1].tags).toMatchObject({ error_kind: "provider_refused", provider_code: "invalid_request_error" });
+  });
+
   it("a local model reads as local", async () => {
     const capture = vi.fn();
     reportTurnFailure(failed("no_output", { provider: "ollama" }), capture, async () => ({ type: "local" }));

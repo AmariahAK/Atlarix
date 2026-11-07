@@ -13,7 +13,7 @@ import { noteTurn } from "@/lib/analytics/turn-stats";
 import { computerLane, rememberNativeRejected } from "@/lib/computer/lane";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
-import type { ModelMessage } from "ai";
+import { NoOutputGeneratedError, type ModelMessage } from "ai";
 import { processStreamChunks } from "@/ipc/utils/stream_chunk_tags";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import {
@@ -276,12 +276,33 @@ export async function runStreamRoundWithEmptyOutputRetry(
         }
         throw recordedFault;
       }
+      /**
+       * AN ERROR INSIDE A 200 STREAM FINISHES ITS STEP. The provider's
+       * `{"error":{…}}` chunk ends the step with finishReason "error", so the
+       * round resolves instead of throwing, and a round that produced nothing
+       * went on to be saved as "Something went wrong" over the reason onError
+       * had already shown, which the next request then told the model it said.
+       * A refusal onError recorded ends the turn as that refusal. Your own
+       * key's rate limit goes to the provider-busy wait below, as the SDK's
+       * stand-in would have.
+       */
+      const producedNothing =
+        fullResponse === initialFullResponse && (bundle.getResumeMessages?.() ?? []).length === 0;
+      if (producedNothing) {
+        const refused = bundle.getRecordedRefusal?.();
+        if (refused != null) throw new ProviderRefusedRequestError(refused);
+        if (bundle.getRecordedBusy?.() != null && bundle.getRecordedLimit?.() != null) {
+          throw new NoOutputGeneratedError({ message: "The provider sent a rate limit in place of a reply." });
+        }
+      }
       return { bundle, fullResponse, finishReason };
     } catch (caught) {
       // User abort always wins over any retry path.
       if (params.abortController.signal.aborted) {
         throw caught;
       }
+      // Decided above: onError has said why, and the same request is refused again.
+      if (caught instanceof ProviderRefusedRequestError) throw caught;
 
       /**
        * UNWRAP THE SDK'S SUBSTITUTE ERROR — this must happen BEFORE the
@@ -336,6 +357,11 @@ export async function runStreamRoundWithEmptyOutputRetry(
         await new Promise((r) => setTimeout(r, delay));
         if (params.abortController.signal.aborted) throw new Error("aborted");
         continue;
+      }
+      // Waited out and still busy: your own key's limit ends with its message.
+      if (busy != null && isEmptyOutputStreamError(err)) {
+        const limited = bundle?.reportRecordedLimit?.();
+        if (limited != null) throw new ProviderRefusedRequestError(limited);
       }
 
       const refusal = bundle?.getRecordedRefusal?.();
@@ -478,7 +504,8 @@ export async function runStreamRoundWithEmptyOutputRetry(
           chatId: params.chatId,
           phase: "thinking",
           retry: true,
-          label: `Couldn't connect, retrying in ${Math.max(1, Math.round(delay / 1000))}s (${networkAttempt}/${RECONNECT_DELAYS_MS.length})…`,
+          // Your own key's 429 connected fine: it is a rate limit.
+          label: `${bundle?.getRecordedLimit?.() != null ? "Rate-limited" : "Couldn't connect"}, retrying in ${Math.max(1, Math.round(delay / 1000))}s (${networkAttempt}/${RECONNECT_DELAYS_MS.length})…`,
         });
         fullResponse = initialFullResponse;
         partialResponses.delete(params.chatId);
@@ -490,6 +517,15 @@ export async function runStreamRoundWithEmptyOutputRetry(
         continue;
       }
       if (isNetworkStreamError(err)) {
+        // Your own provider's 429: it answered, so this is its rate limit, not
+        // "Couldn't reach … Check it's running and the address is right". Only
+        // when the round finished no step: one that did work stays a
+        // disconnect, which keeps its partial and offers to continue. (Not
+        // `fullResponse`: a round the SDK ended with its stand-in carries the
+        // empty-reply fallback there.)
+        const nothingToKeep = (bundle?.getResumeMessages?.() ?? []).length === 0;
+        const limited = nothingToKeep ? bundle?.reportRecordedLimit?.() : null;
+        if (limited != null) throw new ProviderRefusedRequestError(limited);
         throw new NetworkStreamDisconnectedError(fullResponse, err);
       }
       throw err;

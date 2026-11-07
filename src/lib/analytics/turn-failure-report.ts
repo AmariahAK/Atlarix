@@ -71,6 +71,8 @@ export function reportTurnFailure(
           ...(editor ? { editor } : {}),
           error_kind: kind,
           ...(f.end.httpStatus ? { http_status: String(f.end.httpStatus) } : {}),
+          // The provider's machine code (allowlisted in turn-end.ts), never its text.
+          ...(f.end.providerCode ? { provider_code: f.end.providerCode } : {}),
         },
         fingerprint: ["turn-failed", kind, provider_type],
       });

@@ -52,26 +52,41 @@ function providerSaid(reason: string): string {
   return `${cut.slice(0, word > 80 ? word : 200)}…`;
 }
 
-/** A BYOK failure worded by what happened, or null when it is none of these. */
+/**
+ * Which of the three a BYOK failure is, from its words and codes, or null.
+ * Credit before rate: a quota error often arrives as a 429. The one source for
+ * the message below and for turn telemetry's `quota` / `auth` / `rate_limit`.
+ */
+export function byokLimitKind(reason: string): "credit" | "key" | "rate" | null {
+  if (CREDIT_RE.test(reason)) return "credit";
+  if (KEY_RE.test(reason)) return "key";
+  if (RATE_RE.test(reason)) return "rate";
+  return null;
+}
+
+/**
+ * A BYOK failure worded by what happened, or null when it is none of these.
+ * `status`, when the words don't say: a 429 is a rate limit whatever its body.
+ */
 export function byokLimitUserMessage(
   reason: string,
   providerId?: string,
+  status?: number,
 ): string | null {
   const who = providerId
     ? `Your ${providerId} account`
     : "Your provider account";
   const said = providerSaid(reason);
-  // Credit before rate: a quota error often arrives as a 429.
-  if (CREDIT_RE.test(reason)) {
-    return `${who} ${BYOK_CREDIT_MARKER}, so it refused this request. Add credit on the provider's billing page, or switch model: Atlarix Auto is free. (It said: "${said}")`;
+  switch (byokLimitKind(reason) ?? (status === 429 ? "rate" : null)) {
+    case "credit":
+      return `${who} ${BYOK_CREDIT_MARKER}, so it refused this request. Add credit on the provider's billing page, or switch model: Atlarix Auto is free. (It said: "${said}")`;
+    case "key":
+      return `${providerId ?? "The provider"} ${BYOK_KEY_MARKER}. Check the key (it may have been revoked or mistyped), or switch model. (It said: "${said}")`;
+    case "rate":
+      return `${providerId ?? "The provider"} ${BYOK_RATE_MARKER} right now. Wait a moment and resend, or switch model. (It said: "${said}")`;
+    default:
+      return null;
   }
-  if (KEY_RE.test(reason)) {
-    return `${providerId ?? "The provider"} ${BYOK_KEY_MARKER}. Check the key (it may have been revoked or mistyped), or switch model. (It said: "${said}")`;
-  }
-  if (RATE_RE.test(reason)) {
-    return `${providerId ?? "The provider"} ${BYOK_RATE_MARKER} right now. Wait a moment and resend, or switch model. (It said: "${said}")`;
-  }
-  return null;
 }
 
 /**

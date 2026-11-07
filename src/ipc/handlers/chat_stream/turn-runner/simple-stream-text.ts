@@ -12,7 +12,7 @@ import { noteIdleRoute } from "@/lib/context/idle-compaction";
 import { readSettings } from "@/main/settings";
 import { summarizeOnTurnPrefix } from "@/lib/context/prefix-summary";
 import { noteTurnStreamError } from "@/lib/analytics/turn-stats";
-import { classifyTurnError } from "@/lib/analytics/turn-end";
+import { classifyTurnError, providerCodeField } from "@/lib/analytics/turn-end";
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import { streamText, isStepCount } from "ai";
@@ -49,6 +49,7 @@ import {
   flattenNativeForCompaction,
 } from "@/lib/ai/native-history";
 import { compactAgenticMessagesIfNeeded } from "@/lib/routing/tier_context_budget";
+import { pairToolMessages } from "@/lib/ai/tool-pairing";
 import { isReasoningOff, levelShare } from "@/lib/routing/model-reasoning-profile";
 import {
   chosenEffortFor,
@@ -118,6 +119,7 @@ import { isCustomAnthropicFormat } from "@/lib/routing/custom-provider-format";
 import { systemReminder } from "@/lib/streaming/system-reminder";
 import { buildStepMessages } from "@/lib/streaming/step-messages";
 import {
+  byokLimitKind,
   byokLimitUserMessage,
   modelFailureUserMessage,
 } from "@/shared/texts";
@@ -637,6 +639,15 @@ export async function simpleStreamText(
   /** A rate limit / overload the provider sent inside the stream: round-retry waits and retries. */
   let recordedBusy: unknown = null;
   /**
+   * Your own provider's rate limit (a 429, or one sent in the stream), with the
+   * message it ends with. Retried like a network fault or a busy provider, but
+   * once the waits run out round-retry reports this instead: the provider
+   * answered, so "Couldn't reach … Check it's running" and "Something went
+   * wrong" were both wrong (HANDOFF 2026-10-31 item 1a). Never set on Atlarix:
+   * its gates keep their own paths.
+   */
+  let recordedLimit: { error: unknown; text: string } | null = null;
+  /**
    * The request was too long for the model. Not a refusal: handleTurnError
    * compacts and retries once, and says so only if that fails too. Reported
    * here as a refusal, the turn ended at the refusal branch before the overflow
@@ -981,7 +992,16 @@ export async function simpleStreamText(
         interjections,
         tag: systemReminder,
       });
-      const stepMessages = assembled.messages as typeof messages;
+      // Before EVERY request: calls and results paired. A broken pair is a 400
+      // from every provider, on this request and every later one in the chat;
+      // repaired here and logged, never sent. Paired: the same array, untouched.
+      const pairing = pairToolMessages(assembled.messages as typeof messages);
+      if (pairing.repaired) {
+        logger.warn(
+          `[tool-pairing] step ${stepNumber}: repaired the request's tool pairing (dropped ${pairing.droppedCalls} call(s) without a result, ${pairing.droppedResults} result(s) without a call) for chat ${req.chatId}`,
+        );
+      }
+      const stepMessages = pairing.messages as typeof messages;
       if (freshInterjections?.length) {
         // Transcript + durable persistence. Fire-and-forget: the words
         // are already in `stepMessages`, so a slow session write must
@@ -1014,7 +1034,7 @@ export async function simpleStreamText(
       // provider with no cache markers (DeepSeek, any OpenAI-compatible endpoint)
       // got `undefined` back and the SDK sent the ORIGINAL full messages - the
       // summary was paid for and then thrown away (0j).
-      const changedMessages = assembled.changed || baseMessages !== messages;
+      const changedMessages = assembled.changed || baseMessages !== messages || pairing.repaired;
       const base =
         cacheMarkerPlacement !== "none" && (stepNumber > 0 || changedMessages)
           ? {
@@ -1259,13 +1279,33 @@ export async function simpleStreamText(
       // the empty-output path and never on this one.
       // For `turn_completed`: the SDK hands the turn a bare "no output" in its
       // place, so the status and kind are kept here (a word, never the text).
-      noteTurnStreamError(req.chatId, classifyTurnError(error));
+      const byok = modelClient.builtinProviderId !== "compass";
+      noteTurnStreamError(req.chatId, {
+        ...classifyTurnError(error, { byok }),
+        ...providerCodeField(error),
+      });
+      const providerName = providerDisplayName(modelClient.builtinProviderId);
+      const reason = providerReason(error);
+      const status = httpStatusOf(error);
+      // Your own provider's 429. Out of quota: refused now, it won't pass on a retry.
+      const creditRefusal = byok && status === 429 && byokLimitKind(reason) === "credit";
+      const rateLimit = (): { error: unknown; text: string } => ({
+        error,
+        text: turnErrorText(byokLimitUserMessage(reason, providerName, 429) ?? modelFailureUserMessage(reason)),
+      });
       if (isProviderBusyError(error)) {
         recordedBusy = error;
+        if (byok) recordedLimit = rateLimit();
         logger.warn("[stream] onError: provider busy / rate-limited (will wait and retry)", error);
         return;
       }
-      if (isNetworkStreamError(error)) {
+      if (byok && status === 429 && !creditRefusal) {
+        recordedNetworkError = error;
+        recordedLimit = rateLimit();
+        logger.warn("[stream] onError: your provider is rate-limiting (will retry, then say so)", error);
+        return;
+      }
+      if (!creditRefusal && isNetworkStreamError(error)) {
         recordedNetworkError = error;
         logger.warn(
           "[stream] onError: network/transport failure (will retry silently)",
@@ -1386,11 +1426,12 @@ export async function simpleStreamText(
           }
         }
       } else {
-        message =
-          byokLimitUserMessage(message, providerDisplayName(modelClient.builtinProviderId)) ??
-          modelFailureUserMessage(message);
+        message = byokLimitUserMessage(message, providerName, status) ?? modelFailureUserMessage(message);
       }
-      if (isProviderRefusal(error)) recordedRefusal = error;
+      // Your own provider's error without a status came INSIDE a 200 stream: the
+      // same request gets it again, and the reason is now on screen. Before, the
+      // turn went on to an empty reply, "Something went wrong" (item 1b).
+      if (isProviderRefusal(error) || creditRefusal || (byok && status === undefined)) recordedRefusal = error;
       logger.error(
         `AI stream text error for request: errorMessage=${errorMessage} error=`,
         error,
@@ -1469,6 +1510,19 @@ export async function simpleStreamText(
     /** A refusal `onError` already reported; see `recordedRefusal`. */
     getRecordedRefusal: (): unknown => recordedRefusal,
     getRecordedBusy: (): unknown => recordedBusy,
+    /** Your own provider's rate limit this round saw, or null; see `recordedLimit`. */
+    getRecordedLimit: (): unknown => recordedLimit?.error ?? null,
+    /**
+     * Shows that rate limit's message, once, and returns its error (null when
+     * there is none): round-retry calls it when the waits have run out.
+     */
+    reportRecordedLimit: (): unknown => {
+      if (!recordedLimit) return null;
+      const { error, text } = recordedLimit;
+      recordedLimit = null;
+      safeSend(event.sender, "chat:response:error", { chatId: req.chatId, streamId, error: text });
+      return error;
+    },
     /** A too-long request `onError` held back for the turn's compact-and-retry; see `recordedOverflow`. */
     getRecordedOverflow: (): unknown => recordedOverflow,
     /** The provider refused its own computer tool; see `recordedNativeComputerRejection`. */
@@ -1490,11 +1544,28 @@ export async function simpleStreamText(
 export function isProviderRefusal(error: unknown): boolean {
   const body = (error as { responseBody?: unknown; error?: { responseBody?: unknown } } | null) ?? null;
   if (/"error"\s*:\s*"(free_usage_limit|free_busy|core_rate_limited)"/.test(String(body?.responseBody ?? body?.error?.responseBody ?? ""))) return true;
+  const status = httpStatusOf(error);
+  return status != null && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429;
+}
+
+/** The HTTP status of what onError was handed (the error, or the SDK's `{ error }` event), if any. */
+function httpStatusOf(error: unknown): number | undefined {
   const e = error as { statusCode?: unknown; status?: unknown; error?: { statusCode?: unknown; status?: unknown } } | null;
-  const status = [e?.statusCode, e?.status, e?.error?.statusCode, e?.error?.status].find((x) => typeof x === "number") as
+  return [e?.statusCode, e?.status, e?.error?.statusCode, e?.error?.status].find((x) => typeof x === "number") as
     | number
     | undefined;
-  return status != null && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429;
+}
+
+/** The provider's words as onError reports them: its message, then the body. */
+function providerReason(error: unknown): string {
+  const inner = (error as { error?: { message?: unknown; responseBody?: unknown } } | null)?.error;
+  const m = typeof inner?.message === "string" ? inner.message : "";
+  if (m) return typeof inner?.responseBody === "string" && inner.responseBody ? `${m}\n\nDetails: ${inner.responseBody}` : m;
+  try {
+    return JSON.stringify(error) ?? "";
+  } catch {
+    return String(error);
+  }
 }
 
 /**

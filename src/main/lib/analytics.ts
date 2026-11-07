@@ -477,31 +477,37 @@ export function trackTurnCompleted(
     const n = (turnsInProcess.get(r.chatId) ?? 0) + 1;
     turnsInProcess.set(r.chatId, n);
 
-    let { outcome, errorKind, httpStatus, gateKind } = r.end;
+    let { outcome, errorKind, httpStatus, gateKind, providerCode } = r.end;
     const se = stats.streamError;
     // The stream saw the real failure; the turn only saw the SDK's stand-in.
     if (se && outcome === "error" && (errorKind === "no_output" || errorKind === "other")) {
       errorKind = se.kind as TurnErrorKind;
       httpStatus = se.httpStatus;
+      providerCode = se.providerCode ?? providerCode;
     } else if (se && outcome === "ok" && r.outputTokens === 0) {
       outcome = "error";
       errorKind = se.kind as TurnErrorKind;
       httpStatus = se.httpStatus;
+      providerCode = se.providerCode;
     }
     // A refusal that is policy, not failure (turn-end.ts, GateKind): whichever
-    // path named it, the turn is a gate, never an error.
+    // path named it, the turn is a gate, never an error. Atlarix's policy only:
+    // your own provider's 402 is your account, not Atlarix's wallet.
+    const byok = !!r.provider && r.provider !== "compass" && !r.fellBackToCore;
     if (outcome === "error") {
-      const gate = gateOf(errorKind, httpStatus);
+      const gate = gateOf(errorKind, httpStatus, "", { byok });
       if (gate) {
         outcome = "gate";
         gateKind = gate;
       }
     }
+    if (outcome === "ok") providerCode = undefined;
     resolved = {
       outcome,
       ...(errorKind ? { errorKind } : {}),
       ...(httpStatus ? { httpStatus } : {}),
       ...(gateKind ? { gateKind } : {}),
+      ...(providerCode ? { providerCode } : {}),
       ...(stats.autoBilling ? { autoBilling: stats.autoBilling } : {}),
     };
     if (!isOptedIn()) return resolved;
@@ -534,6 +540,7 @@ export function trackTurnCompleted(
         ...(gateKind ? { gate_kind: gateKind } : {}),
         ...(errorKind ? { error_kind: errorKind } : {}),
         ...(httpStatus ? { http_status: httpStatus } : {}),
+        ...(providerCode ? { provider_code: providerCode } : {}),
         ...(se && outcome === "ok" ? { recovered_error_kind: se.kind } : {}),
         ...(r.mode ? { mode: modeName(r.mode) } : {}),
         ...(provider ? { provider } : {}),
