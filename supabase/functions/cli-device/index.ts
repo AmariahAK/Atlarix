@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, getAuthedUser, json } from "../_shared/auth.ts";
 import { normalizeUserCode, randomUserCode } from "../_shared/device-codes.ts";
+import { pollAnswer } from "../_shared/device-poll.ts";
 import { isValidPublicKey, sealFor } from "../_shared/device-seal.ts";
 
 /**
@@ -132,34 +133,15 @@ Deno.serve(async (req) => {
     case "poll": {
       const deviceCode = str("device_code", 100);
       if (!deviceCode) return json({ error: "invalid_request" }, 400);
-      const hash = await sha256Hex(deviceCode);
-      // Approved: collect and delete in ONE statement, so a session is handed out once.
-      const { data: taken } = await admin
-        .from("cli_device_codes")
-        .delete()
-        .eq("device_code_hash", hash)
-        .eq("status", "approved")
-        .gt("expires_at", nowIso)
-        .select("sealed_session")
-        .maybeSingle();
-      if (taken?.sealed_session) return json({ sealed_session: taken.sealed_session });
-
-      const { data: row } = await admin
-        .from("cli_device_codes")
-        .select("id, status, expires_at, last_polled_at")
-        .eq("device_code_hash", hash)
-        .maybeSingle();
-      if (!row || new Date(row.expires_at).getTime() <= Date.now()) {
-        if (row) await admin.from("cli_device_codes").delete().eq("id", row.id);
-        return json({ error: "expired_token" }, 400);
-      }
-      if (row.status === "denied") {
-        await admin.from("cli_device_codes").delete().eq("id", row.id);
-        return json({ error: "access_denied" }, 400);
-      }
-      const tooSoon = row.last_polled_at && Date.now() - new Date(row.last_polled_at).getTime() < (INTERVAL_S - 1) * 1000;
-      await admin.from("cli_device_codes").update({ last_polled_at: nowIso }).eq("id", row.id);
-      return json({ error: tooSoon ? "slow_down" : "authorization_pending" }, 400);
+      // One call: collect an approved session (deleted in the same statement, so
+      // it is handed out once), clear an expired or denied row, or mark the poll.
+      const { data, error } = await admin.rpc("cli_device_poll_service", {
+        p_device_code_hash: await sha256Hex(deviceCode),
+        p_min_gap_seconds: INTERVAL_S - 1,
+      });
+      if (error) console.error("[cli-device] poll failed", error.code);
+      const answer = pollAnswer(data, error);
+      return json(answer.body, answer.status);
     }
 
     case "describe":
